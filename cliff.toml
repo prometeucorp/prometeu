@@ -52,6 +52,9 @@ commit_parsers = [
   # Corrigir a mensagem exigiria reescrever a main — mais barato dizer aqui.
   { sha = "09b19f1538a3d717e89482c37d5039d86b8fa2f6", skip = true },
   { sha = "cf6ada07ddfacb2d970d2fc15e4684b3344e417a", skip = true },
+  # O primeiro PR do Prometeu preservou o commit da mudança de marca e ganhou
+  # um merge commit com a mesma mensagem pública. Conte apenas o commit original.
+  { sha = "d35d5c3132adf64caa63006dadfb0aa73bfec7a2", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = "^Marcar a versão", skip = true },
   { message = "^Merge ", skip = true },
