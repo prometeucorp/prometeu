@@ -326,16 +326,20 @@ pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
 #[tauri::command]
 pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     dock::kill_docks(&state, &id);
-    let dead: Vec<String> = {
+    let (dead, removed): (Vec<String>, bool) = {
         let mut board = lock(&state.board);
+        let removed = board.workspaces.iter().any(|ws| ws.id == id);
         let dead = board
             .workspace_mut(&id)
             .map(|ws| ws.tabs.iter().map(|t| t.id.clone()).collect())
             .unwrap_or_default();
         board.workspaces.retain(|w| w.id != id);
-        dead
+        (dead, removed)
     };
     stop(&state, &dead);
+    if removed {
+        crate::plugins::forget_codex_workspace(&id);
+    }
     publish(&app);
 }
 
@@ -489,6 +493,7 @@ pub fn cleanup_worktree(
     if ws.multi() {
         let _ = std::fs::remove_dir_all(&ws.worktree);
     }
+    crate::plugins::forget_codex_workspace(&id);
 
     {
         let mut board = lock(&state.board);
@@ -1004,7 +1009,7 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
     let tab = spawn_tab(
         app,
         &state,
-        &root,
+        id,
         "conversa",
         first_message(&draft.prompt, &draft.inject),
         &draft.launch,
@@ -1063,7 +1068,7 @@ pub fn new_tab(
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
     // Plan mode não vem de nenhum dos dois caminhos: é escolha de uma fala.
-    let (worktree, n, launch, choice) = {
+    let (n, launch, choice) = {
         let board = lock(&state.board);
         let ws = board
             .workspaces
@@ -1078,12 +1083,7 @@ pub fn new_tab(
         let choice =
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
         let launch = choice.clone().map_or_else(|| ws.launch(), Launch::from);
-        (
-            PathBuf::from(&ws.worktree),
-            ws.tabs.len() + 1,
-            launch,
-            choice,
-        )
+        (ws.tabs.len() + 1, launch, choice)
     };
 
     let title = if prompt.trim().is_empty() {
@@ -1092,7 +1092,7 @@ pub fn new_tab(
         tab_title(&prompt)
     };
     let pending = (!prompt.trim().is_empty()).then(|| prompt.trim().to_string());
-    let tab = spawn_tab(&app, &state, &worktree, &title, pending, &launch, choice)?;
+    let tab = spawn_tab(&app, &state, &workspace, &title, pending, &launch, choice)?;
 
     {
         let mut board = lock(&state.board);
@@ -1171,7 +1171,7 @@ pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result
 /// Sobe de novo o processo de uma aba. É o `resume_tab`, e é o que a primeira
 /// fala numa aba desligada faz por conta própria (`chat::chat_send`).
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (worktree, launch, cleaned, agent_session) = lock(&state.board)
+    let (workspace, worktree, launch, cleaned, agent_session) = lock(&state.board)
         .workspace_of(tab)
         .map(|w| {
             let previous = w
@@ -1180,6 +1180,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
                 .find(|t| t.id == tab)
                 .and_then(|t| t.agent_session.clone());
             (
+                w.id.clone(),
                 PathBuf::from(&w.worktree),
                 w.launch_of(tab),
                 w.cleaned,
@@ -1209,7 +1210,7 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
     let (resume, handle) = match launch.agent {
         ProviderId::Codex => (
             agent_session.is_some(),
-            crate::codex::spawn(app, tab, &worktree, agent_session, &launch)?,
+            crate::codex::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
         ),
         ProviderId::Claude => {
             let resume = paths::transcript(tab, &worktree).exists();
@@ -1235,18 +1236,24 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
 fn spawn_tab(
     app: &AppHandle,
     state: &State<AppState>,
-    worktree: &Path,
+    workspace: &str,
     title: &str,
     pending_prompt: Option<String>,
     launch: &Launch,
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
+    let worktree = lock(&state.board)
+        .workspaces
+        .iter()
+        .find(|candidate| candidate.id == workspace)
+        .map(|workspace| PathBuf::from(&workspace.worktree))
+        .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let id = uuid::Uuid::new_v4().to_string();
     // O modelo escolhido diz qual CLI sobe (ver `agents.rs`); a aba é a mesma.
     let handle = match launch.agent {
-        ProviderId::Codex => crate::codex::spawn(app, &id, worktree, None, launch)?,
+        ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,
         ProviderId::Claude => {
-            crate::claude::spawn(app, &id, worktree, claude_args(&id, false, launch))?
+            crate::claude::spawn(app, &id, &worktree, claude_args(&id, false, launch))?
         }
     };
     lock(&state.chats).insert(id.clone(), handle);
@@ -1332,9 +1339,9 @@ fn claude_args(id: &str, resume: bool, launch: &Launch) -> Vec<String> {
     // Os plugins escolhidos, um `--plugin-dir`/`--plugin-url` cada. São flags
     // de sessão: não mexem no cadastro do CLI, e um plugin que ele já carrega
     // sozinho não entra duas vezes — a deduplicação é por nome, e é dele. Sem
-    // escolha nenhuma nada vai, e vale o que o CLI já carregava. O Codex tem
-    // plugin, mas não por flag de sessão — por isso isto só existe aqui, e a
-    // tela esconde o seletor em workspace de GPT (ver `plugins.rs`).
+    // escolha nenhuma nada vai, e vale o que o CLI já carregava. O adapter do
+    // Codex materializa a mesma seleção no home derivado do workspace, em
+    // `plugins.rs`; estas flags continuam sendo só do Claude.
     args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
     args
 }

@@ -47,3 +47,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # PKCE: o `code_challenge` é o SHA-256 do verifier em base64url.
 sha2 = "0.10"
 base64 = "0.22"
+# A versão do cache de plugin do Codex precisa continuar sendo semver mesmo
+# quando um manifesto compatível traz uma versão livre.
+semver = "1"

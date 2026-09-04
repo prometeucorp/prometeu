@@ -95,7 +95,7 @@ fn capabilities(id: ProviderId) -> AgentCapabilities {
     let common = AgentCapabilities {
         initial_plan_mode: false,
         workspace_mcp_selection: true,
-        workspace_plugin_selection: false,
+        workspace_plugin_selection: true,
         resume: true,
         compact: true,
         context_report: true,
@@ -108,7 +108,6 @@ fn capabilities(id: ProviderId) -> AgentCapabilities {
     match id {
         ProviderId::Claude => AgentCapabilities {
             initial_plan_mode: true,
-            workspace_plugin_selection: true,
             ..common
         },
         ProviderId::Codex => common,
@@ -384,7 +383,7 @@ mod tests {
         assert!(claude.capabilities.initial_plan_mode);
         assert!(claude.capabilities.workspace_plugin_selection);
         assert!(!codex.capabilities.initial_plan_mode);
-        assert!(!codex.capabilities.workspace_plugin_selection);
+        assert!(codex.capabilities.workspace_plugin_selection);
         assert!(codex.capabilities.workspace_mcp_selection);
         assert!(codex.capabilities.resume);
 

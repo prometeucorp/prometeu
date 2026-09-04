@@ -760,7 +760,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
             capabilities: {
               initialPlanMode: false,
               workspaceMcpSelection: true,
-              workspacePluginSelection: false,
+              workspacePluginSelection: true,
               resume: true,
               compact: true,
               contextReport: true,

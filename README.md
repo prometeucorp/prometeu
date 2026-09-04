@@ -109,6 +109,31 @@ a sessão nasce em plan, o plano chega como card, e o "sim" manda antes um
 `set_permission_mode` para bypass — senão a primeira ferramenta do plano já
 pergunta de novo. No Codex o botão some: o app-server não expõe plan mode.
 
+### MCP e plugins por workspace
+
+MCP e plugins são escolhidos uma vez no workspace e acompanham a sessão tanto
+no Claude Code quanto no Codex. O catálogo é o mesmo: o Claude recebe os itens
+por flags e configuração estrita; para o Codex, o Prometeu cria um
+marketplace local privado e um `CODEX_HOME` de configuração isolado para o
+workspace. Conta, sessões, skills e cache continuam sendo os do Codex da pessoa,
+mas a ativação dos plugins do Prometeu fica somente naquele workspace; o
+`config.toml` global não é reescrito.
+
+Uma pasta de plugin é o formato portátil. Ela pode trazer os manifests
+`.claude-plugin/plugin.json` e `.codex-plugin/plugin.json`; plugins antigos só
+com o primeiro são adaptados numa cópia, sem alterar a origem. Hooks do Codex
+só recebem confiança quando pertencem ao plugin escolhido e seu hash atual é
+conhecido; a seleção também os liga desde o `SessionStart`. Se um hook declarado
+não puder nascer ativo, a conversa Codex não abre em um modo diferente do que a
+pessoa escolheu. `.zip` e URL continuam disponíveis para sessões Claude e
+mostram um erro antes do spawn se forem escolhidos com Codex. Skills, comandos,
+MCP e hooks formam o subconjunto portátil; `agents/*.md` continua exclusivo do
+Claude.
+
+O instalador reconhece marketplaces `.agents/plugins/marketplace.json` e
+`.claude-plugin/marketplace.json`. O contrato e as limitações estão em
+[`docs/contracts/plugin-marketplace.md`](docs/contracts/plugin-marketplace.md).
+
 ### Pergunta, plano e permissão são cards
 
 Os três chegam pelo mesmo cano (`control_request`) e viram cards na conversa:

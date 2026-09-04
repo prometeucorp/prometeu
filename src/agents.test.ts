@@ -16,7 +16,7 @@ vi.mock("./ipc", () => ({ invoke: mocks.invoke }));
 const common: AgentCapabilities = {
   initialPlanMode: false,
   workspaceMcpSelection: true,
-  workspacePluginSelection: false,
+  workspacePluginSelection: true,
   resume: true,
   compact: true,
   contextReport: true,
@@ -40,7 +40,6 @@ describe("catálogo de agentes", () => {
                   capabilities: {
                     ...common,
                     initialPlanMode: true,
-                    workspacePluginSelection: true,
                   },
                 },
                 {
@@ -69,7 +68,7 @@ describe("catálogo de agentes", () => {
     expect(modelOf("gpt-teste", "codex")?.label).toBe("GPT de teste");
     expect(isKnownModel("claude", "opus[1m]")).toBe(true);
     expect(effortsOf("codex", "gpt-teste")).toEqual(["low", "high", "ultracode"]);
-    expect(capabilitiesOf("codex").workspacePluginSelection).toBe(false);
+    expect(capabilitiesOf("codex").workspacePluginSelection).toBe(true);
     expect(capabilitiesOf("claude").initialPlanMode).toBe(true);
   });
 });

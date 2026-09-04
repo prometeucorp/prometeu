@@ -37,3 +37,4 @@ Status: Proposto
 | [0002](0002-canonical-conversation-protocol.md) | Aceito; espelho substituído | protocolo canônico de conversa |
 | [0003](0003-agent-capabilities.md) | Aceito | features dirigidas por capacidades |
 | [0004](0004-prometeu-independent-identity.md) | Aceito | identidade independente do Prometeu |
+| [0005](0005-portable-plugin-marketplace.md) | Aceito | marketplace portátil para Claude e Codex |

@@ -100,11 +100,12 @@ export type McpCheck = {
   probe: McpProbe;
 };
 
-/// Um plugin do Claude Code como o hub o guarda: o nome que ele declara, onde
-/// ele está (pasta, `.zip`, ou a URL de um `.zip`) e a linha embaixo do nome.
-/// `made` é o que está numa pasta do Prometeu — clonado ou escrito por ele —,
-/// e é o único que remover apaga do disco; `from` é o endereço de onde ele
-/// veio, que é o que dá sentido a atualizar.
+/// Um plugin portátil como o hub o guarda: o nome que ele declara, onde ele
+/// está (pasta, `.zip`, ou a URL de um `.zip`) e a linha embaixo do nome. O
+/// backend traduz a mesma entrada para Claude ou Codex. `made` é o que está
+/// numa pasta do Prometeu — clonado ou escrito por ele —, e é o único que
+/// remover apaga do disco; `from` é o endereço de onde ele veio, que é o que
+/// dá sentido a atualizar.
 export type Plugin = {
   id: string;
   source: string;

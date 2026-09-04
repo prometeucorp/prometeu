@@ -1,5 +1,5 @@
-//! O hub de plugins: quais plugins do Claude Code esta máquina conhece, e
-//! quais entram nas conversas de cada workspace.
+//! O hub de plugins: quais plugins esta máquina conhece, e quais entram nas
+//! conversas de cada workspace, no Claude Code e no Codex.
 //!
 //! Um plugin é um pacote de skill, comando, agente e — o que só ele faz —
 //! *hook*: o pedaço de código que o CLI roda antes de cada fala, ao abrir a
@@ -16,14 +16,17 @@
 //! que o time combinou para um repositório tem que valer no worktree dele.
 //!
 //! O hub é a lista de plugins que o Prometeu guarda, e a escolha é do
-//! workspace — como o modelo, o esforço e o MCP já são. Na hora de subir a
-//! conversa cada escolhido vira um `--plugin-dir` (pasta ou `.zip` desta
-//! máquina) ou um `--plugin-url` (um `.zip` na rede): flags de sessão, que não
-//! mexem em cadastro nenhum do CLI. Marcar um que o CLI já carrega por conta
-//! própria não o carrega duas vezes — a deduplicação é por nome, e é dele.
+//! workspace — como o modelo, o esforço e o MCP já são. O Claude recebe cada
+//! escolhido diretamente por `--plugin-dir` ou `--plugin-url`; são flags de
+//! sessão, sem alterar o cadastro do CLI. O Codex exige instalação no cache
+//! próprio: o adapter monta um marketplace local a partir deste mesmo hub e
+//! usa um `CODEX_HOME` derivado por workspace. Só o `config.toml` é isolado;
+//! autenticação, sessões, skills e cache continuam apontando para o home real.
+//! É o que mantém a escolha dentro do workspace sem reescrever a configuração
+//! global da pessoa.
 //!
 //! `None` é workspace que nunca escolheu — todo quadro gravado antes disto
-//! existir —, e aí nada é passado: vale o que o CLI sempre fez.
+//! existir —, e aí nada é passado: vale o que cada CLI sempre fez.
 //!
 //! Instalar é daqui, e não de fora. `plugin_install` recebe o endereço de um
 //! repositório — `github.com/JuliusBrussee/caveman`, ou só o
@@ -41,19 +44,13 @@
 //! repositório seu: aí a origem é a pasta dele, e quem a atualiza é quem a
 //! escreve.
 //!
-//! Vale só no Claude Code, e por ora. O Codex também tem plugin e hook (`codex
-//! plugin`, o `hooks` do `plugin.json` dele, o `~/.codex/hooks.json`), mas o
-//! caminho é outro: lá não há flag de sessão que aponte para uma pasta — o
-//! plugin entra pelo cadastro do próprio CLI. Enquanto isso não for traduzido
-//! (como `codex_config` fez com o MCP), workspace de GPT não mostra o seletor:
-//! um botão que promete o que não acontece é pior que botão nenhum.
-
 use crate::i18n;
 use crate::lock::lock;
 use crate::paths;
 use serde_json::Value;
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -142,7 +139,9 @@ pub fn plugin_save(plugin: Plugin) -> Result<Vec<Plugin>, String> {
 #[tauri::command]
 pub fn plugin_remove(id: String) -> Result<Vec<Plugin>, String> {
     let mut plugins = load();
+    let mut removed = false;
     if let Some(gone) = plugins.iter().find(|p| p.id == id) {
+        removed = true;
         let dir = PathBuf::from(expand(&gone.source));
         if gone.made && dir.starts_with(store()) && dir != store() {
             std::fs::remove_dir_all(&dir).ok();
@@ -150,6 +149,9 @@ pub fn plugin_remove(id: String) -> Result<Vec<Plugin>, String> {
     }
     plugins.retain(|p| p.id != id);
     write_hub(&plugins)?;
+    if removed && slug(&id) == id && !cfg!(test) {
+        codex_remove_everywhere(&format!("{}@{}", id, codex_marketplace_name()));
+    }
     Ok(plugins)
 }
 
@@ -281,6 +283,775 @@ fn expand(source: &str) -> String {
     match source.strip_prefix("~/") {
         Some(rest) => paths::home().join(rest).display().to_string(),
         None => source.to_string(),
+    }
+}
+
+/* ---------- adaptar o mesmo hub para o Codex ---------- */
+
+/// O que o adapter entrega ao processo do Codex. `home` isola a camada de
+/// configuração do workspace; `ids` deixa o handshake confiar apenas nos
+/// hooks que a pessoa acabou de escolher. `hook_ids` distingue os pacotes que
+/// declararam hooks: a thread não pode nascer se o Codex não os descobrir.
+pub struct CodexPlugins {
+    pub home: Option<PathBuf>,
+    pub ids: Vec<String>,
+    pub hook_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PreparedPlugin {
+    id: String,
+    canonical: String,
+    version: String,
+    hooks: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct InstalledPlugin {
+    version: String,
+}
+
+/// Namespace próprio: o cache do Codex é global, portanto uma instalação do
+/// Prometeu nunca pode colidir com um marketplace que a pessoa cadastrou.
+fn codex_marketplace_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "prometeu-dev"
+    } else {
+        "prometeu"
+    }
+}
+
+/// Também entra no cachebuster. Mudança na adaptação do pacote precisa
+/// reinstalar plugins já preparados mesmo quando a origem não mudou.
+const CODEX_PACKAGE_REVISION: &str = "2";
+
+fn codex_workspaces_root() -> PathBuf {
+    paths::root().join("codex-workspaces")
+}
+
+fn codex_marketplace_root(home: &Path) -> PathBuf {
+    home.join("marketplace")
+}
+
+/// O home original continua sendo a fonte de conta e estado. Quando veio por
+/// ambiente, torná-lo absoluto é importante: o app-server muda o cwd para o
+/// worktree e um `CODEX_HOME` relativo passaria a significar outra pasta.
+fn user_codex_home() -> PathBuf {
+    let configured = std::env::var_os("CODEX_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| paths::home().join(".codex"));
+    if configured.is_absolute() {
+        configured
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(configured)
+    }
+}
+
+/// O ID persistido, e não o cwd, é a identidade correta: dois workspaces sem
+/// worktree podem usar o mesmo clone com seleções diferentes. O hash não
+/// depende do UUID efêmero de uma conversa e não usa dado externo como nome de
+/// pasta.
+fn codex_workspace_home(workspace: &str) -> PathBuf {
+    let fingerprint = format!("{:x}", Sha256::digest(workspace.as_bytes()));
+    codex_workspaces_root().join(&fingerprint[..24])
+}
+
+/// A camada não é transcript nem trabalho do usuário. Quando o workspace sai
+/// de vez, ela pode sair junto; os payloads instalados continuam no cache
+/// compartilhado e qualquer workspace restante mantém sua própria config.
+pub fn forget_codex_workspace(workspace: &str) {
+    let root = codex_workspaces_root();
+    let home = codex_workspace_home(workspace);
+    remove_codex_home(&root, &home);
+}
+
+fn remove_codex_home(root: &Path, home: &Path) {
+    if home.starts_with(root) && home != root {
+        std::fs::remove_dir_all(home).ok();
+    }
+}
+
+/// Traduz a seleção para um marketplace e um `CODEX_HOME` próprios do
+/// workspace. O lock cobre materialização, config e cache compartilhado: duas
+/// abas podem abrir juntas sem instalar a mesma versão pela metade.
+pub fn codex_for(workspace: &str, chosen: Option<&Vec<String>>) -> Result<CodexPlugins, String> {
+    let Some(chosen) = chosen else {
+        return Ok(CodexPlugins {
+            home: None,
+            ids: vec![],
+            hook_ids: vec![],
+        });
+    };
+    let hub = load();
+    let mut seen = HashSet::new();
+    let selected: Vec<Plugin> = chosen
+        .iter()
+        .filter_map(|id| hub.iter().find(|plugin| &plugin.id == id).cloned())
+        .filter(|plugin| seen.insert(plugin.id.clone()))
+        .collect();
+
+    static PREPARE: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = lock(PREPARE.get_or_init(|| Mutex::new(())));
+    let home = codex_workspace_home(workspace);
+    let marketplace = codex_marketplace_root(&home);
+    let prepared = prepare_marketplace(&marketplace, codex_marketplace_name(), &selected)?;
+    let ids = prepared
+        .iter()
+        .map(|plugin| plugin.canonical.clone())
+        .collect::<Vec<_>>();
+    let hook_ids = prepared
+        .iter()
+        .filter(|plugin| plugin.hooks)
+        .map(|plugin| plugin.canonical.clone())
+        .collect::<Vec<_>>();
+    let base = user_codex_home();
+    prepare_codex_home(&base, &home, &marketplace, &ids)?;
+
+    if prepared.is_empty() {
+        return Ok(CodexPlugins {
+            home: Some(home),
+            ids,
+            hook_ids,
+        });
+    }
+
+    let installed = codex_installed(&home)?;
+    for plugin in &prepared {
+        let current = installed.get(&plugin.canonical);
+        let needs_install = current.is_none_or(|found| found.version != plugin.version);
+        if needs_install {
+            if let Err(error) = codex_install(&home, &plugin.canonical) {
+                codex_remove(&home, &plugin.canonical);
+                return Err(error);
+            }
+        }
+    }
+    // `codex plugin add` escreve `enabled = true`. Refazer a camada derivada
+    // depois das instalações restaura a seleção exata e preserva a confiança
+    // de hooks que uma sessão anterior gravou neste mesmo workspace.
+    write_codex_config(&base, &home, &marketplace, &ids)?;
+    Ok(CodexPlugins {
+        home: Some(home),
+        ids,
+        hook_ids,
+    })
+}
+
+/// Monta um home que se comporta como o home real em tudo salvo a camada de
+/// configuração. Links mantêm login, rollouts, skills e bancos no lugar que o
+/// Codex já usa; `config.toml` e o marketplace são descartáveis e pertencem ao
+/// Prometeu.
+fn prepare_codex_home(
+    base: &Path,
+    home: &Path,
+    marketplace: &Path,
+    selected: &[String],
+) -> Result<(), String> {
+    if base == home {
+        return Err(i18n::ta(
+            "err.plugin.codex.config",
+            &[(
+                "cause",
+                "derived CODEX_HOME collides with the user home".into(),
+            )],
+        ));
+    }
+    std::fs::create_dir_all(base)
+        .and_then(|()| std::fs::create_dir_all(base.join("plugins")))
+        .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
+    paths::ensure_private_dir(home)
+        .map_err(|cause| i18n::ta("err.plugin.codex.config", &[("cause", cause)]))?;
+    mirror_codex_home(base, home)?;
+    write_codex_config(base, home, marketplace, selected)
+}
+
+/// Espelha todas as entradas conhecidas e futuras do Codex, exceto os
+/// arquivos que podem ser escritos pelo editor de configuração. Uma entrada
+/// material que o próprio Codex já tenha criado nesse home é preservada; só um
+/// link antigo para outro home pode ser trocado.
+fn mirror_codex_home(base: &Path, home: &Path) -> Result<(), String> {
+    let entries = std::fs::read_dir(base)
+        .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])
+        })?;
+        let name = entry.file_name();
+        let text = name.to_string_lossy();
+        if text.starts_with("config.toml")
+            || text.starts_with(".config.toml")
+            || text == "marketplace"
+        {
+            continue;
+        }
+        let target = home.join(&name);
+        replace_with_shared_entry(&entry.path(), &target, home).map_err(|error| {
+            i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])
+        })?;
+    }
+    Ok(())
+}
+
+fn replace_with_shared_entry(source: &Path, target: &Path, home: &Path) -> std::io::Result<()> {
+    if !target.starts_with(home) || target == home {
+        return Err(std::io::Error::other("invalid derived CODEX_HOME target"));
+    }
+    if let Ok(metadata) = std::fs::symlink_metadata(target) {
+        #[cfg(unix)]
+        if metadata.file_type().is_symlink()
+            && std::fs::read_link(target).ok().as_deref() == Some(source)
+        {
+            return Ok(());
+        }
+        if metadata.file_type().is_symlink() {
+            std::fs::remove_file(target)?;
+        } else {
+            return Ok(());
+        }
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(source, target)?;
+    #[cfg(not(unix))]
+    if source.is_dir() {
+        copy_tree(source, target)?;
+    } else {
+        std::fs::copy(source, target)?;
+    }
+    Ok(())
+}
+
+fn read_toml(path: &Path) -> Result<toml::Value, String> {
+    match std::fs::read_to_string(path) {
+        Ok(raw) => raw
+            .parse::<toml::Value>()
+            .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(toml::Value::Table(toml::map::Map::new()))
+        }
+        Err(error) => Err(i18n::ta(
+            "err.plugin.codex.config",
+            &[("cause", error.to_string())],
+        )),
+    }
+}
+
+fn child_table<'a>(
+    parent: &'a mut toml::map::Map<String, toml::Value>,
+    key: &str,
+) -> &'a mut toml::map::Map<String, toml::Value> {
+    let value = parent
+        .entry(key.to_string())
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    if !value.is_table() {
+        *value = toml::Value::Table(toml::map::Map::new());
+    }
+    value.as_table_mut().expect("table inserted above")
+}
+
+fn prometeu_plugin(id: &str) -> bool {
+    id.rsplit_once('@')
+        .is_some_and(|(_, marketplace)| matches!(marketplace, "prometeu" | "prometeu-dev"))
+}
+
+/// Reconstrói a config derivada a partir da config real mais o pequeno estado
+/// próprio do workspace. O estado de hooks e opções do plugin sobrevive; toda
+/// entrada Prometeu começa desligada e só a seleção atual é ligada.
+fn write_codex_config(
+    base: &Path,
+    home: &Path,
+    marketplace: &Path,
+    selected: &[String],
+) -> Result<(), String> {
+    // Esta camada é cache. Uma versão do app-server que tenha deixado TOML
+    // incompleto não pode tornar o workspace impossível de abrir: nesse caso
+    // ela renasce da config real e os hooks pedem confiança outra vez.
+    let previous = read_toml(&home.join("config.toml"))
+        .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
+    let previous_hook_state = previous
+        .get("hooks")
+        .and_then(|value| value.get("state"))
+        .and_then(toml::Value::as_table)
+        .cloned();
+    let previous_plugins = previous
+        .get("plugins")
+        .and_then(toml::Value::as_table)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut config = read_toml(&base.join("config.toml"))?;
+    if !config.is_table() {
+        return Err(i18n::ta(
+            "err.plugin.codex.config",
+            &[("cause", "Codex config root is not a TOML table".into())],
+        ));
+    }
+    let root = config.as_table_mut().expect("checked above");
+
+    // O modo padrão já é `file`. Fixá-lo no home derivado também cobre `auto`:
+    // um refresh precisa atravessar o symlink de auth.json, em vez de criar
+    // uma credencial de keychain separada para cada workspace. Uma escolha
+    // explícita por keyring/ephemeral continua sendo respeitada.
+    let auth_store = root
+        .get("cli_auth_credentials_store")
+        .and_then(toml::Value::as_str);
+    if base.join("auth.json").exists() && !matches!(auth_store, Some("keyring" | "ephemeral")) {
+        root.insert(
+            "cli_auth_credentials_store".into(),
+            toml::Value::String("file".into()),
+        );
+    }
+
+    if let Some(previous_state) = previous_hook_state {
+        let state = child_table(child_table(root, "hooks"), "state");
+        state.extend(previous_state);
+    }
+
+    let marketplaces = child_table(root, "marketplaces");
+    marketplaces.remove("prometeu");
+    marketplaces.remove("prometeu-dev");
+    let mut source = toml::map::Map::new();
+    source.insert("source_type".into(), toml::Value::String("local".into()));
+    source.insert(
+        "source".into(),
+        toml::Value::String(marketplace.display().to_string()),
+    );
+    marketplaces.insert(codex_marketplace_name().into(), toml::Value::Table(source));
+
+    let plugins = child_table(root, "plugins");
+    for (id, value) in previous_plugins {
+        if prometeu_plugin(&id) {
+            plugins.insert(id, value);
+        }
+    }
+    for (id, value) in plugins.iter_mut() {
+        if prometeu_plugin(id) {
+            if !value.is_table() {
+                *value = toml::Value::Table(toml::map::Map::new());
+            }
+            value
+                .as_table_mut()
+                .expect("table inserted above")
+                .insert("enabled".into(), toml::Value::Boolean(false));
+        }
+    }
+    for id in selected {
+        child_table(plugins, id).insert("enabled".into(), toml::Value::Boolean(true));
+    }
+
+    let body = toml::to_string_pretty(&config)
+        .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
+    paths::write_private(&home.join("config.toml"), &body)
+        .map_err(|cause| i18n::ta("err.plugin.codex.config", &[("cause", cause)]))
+}
+
+/// Faz uma cópia que o Codex pode versionar sem tocar no plugin do Claude. A
+/// versão ganha o hash da origem: atualizar um repositório que esqueceu de
+/// subir a própria versão ainda produz outra entrada de cache.
+fn prepare_marketplace(
+    root: &Path,
+    marketplace: &str,
+    plugins: &[Plugin],
+) -> Result<Vec<PreparedPlugin>, String> {
+    let plugin_root = root.join("plugins");
+    paths::ensure_private_dir(&plugin_root)
+        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))?;
+    let mut prepared = Vec::new();
+    let mut entries = Vec::new();
+    for plugin in plugins {
+        if plugin.id.len() > 64 || slug(&plugin.id) != plugin.id {
+            return Err(i18n::ta(
+                "err.plugin.codex.name",
+                &[("name", plugin.id.clone())],
+            ));
+        }
+        if remote(&plugin.source) {
+            return Err(i18n::ta(
+                "err.plugin.codex.source",
+                &[("name", plugin.id.clone())],
+            ));
+        }
+        let source = PathBuf::from(expand(&plugin.source));
+        if !source.is_dir() {
+            return Err(i18n::ta(
+                "err.plugin.codex.source",
+                &[("name", plugin.id.clone())],
+            ));
+        }
+        let source = source.canonicalize().map_err(|error| {
+            i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())])
+        })?;
+        if root.starts_with(&source) {
+            return Err(i18n::ta(
+                "err.plugin.codex.prepare",
+                &[("cause", "plugin source contains the adapter cache".into())],
+            ));
+        }
+        let fingerprint = codex_package_fingerprint(&source)?;
+        let version = portable_version(&source, &fingerprint);
+        let target = plugin_root.join(&plugin.id);
+        stage_plugin(&source, &target, &plugin.id, &version, &fingerprint)?;
+        let canonical = format!("{}@{marketplace}", plugin.id);
+        entries.push(serde_json::json!({
+            "name": plugin.id,
+            "source": { "source": "local", "path": format!("./plugins/{}", plugin.id) },
+            "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
+            "category": "Productivity",
+        }));
+        prepared.push(PreparedPlugin {
+            id: plugin.id.clone(),
+            canonical,
+            version,
+            hooks: plugin_has_hooks(&target),
+        });
+    }
+    let marketplace_path = root
+        .join(".agents")
+        .join("plugins")
+        .join("marketplace.json");
+    let body = serde_json::to_string_pretty(&serde_json::json!({
+        "name": marketplace,
+        "interface": { "displayName": "Prometeu" },
+        "plugins": entries,
+    }))
+    .map_err(|error| error.to_string())?;
+    paths::write_private(&marketplace_path, &body)
+        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))?;
+    Ok(prepared)
+}
+
+fn codex_package_fingerprint(root: &Path) -> Result<String, String> {
+    let source = fingerprint(root)?;
+    let mut hash = Sha256::new();
+    hash.update(b"prometeu-codex-package\0");
+    hash.update(CODEX_PACKAGE_REVISION.as_bytes());
+    hash.update(b"\0");
+    hash.update(source.as_bytes());
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+/// Manifesto que nomeia hooks assume que eles fazem parte do comportamento do
+/// pacote, mesmo se o caminho estiver quebrado: nesse caso o handshake precisa
+/// recusar a sessão, não reinterpretar o plugin como uma coleção de skills.
+/// Sem campo explícito, vale a convenção nativa `hooks/hooks.json`.
+fn plugin_has_hooks(root: &Path) -> bool {
+    let declared = read_json(&root.join(".codex-plugin").join("plugin.json"))
+        .and_then(|manifest| manifest.get("hooks").cloned());
+    match declared {
+        Some(Value::String(path)) => !path.trim().is_empty(),
+        Some(Value::Array(paths)) => !paths.is_empty(),
+        Some(Value::Object(hooks)) => !hooks.is_empty(),
+        Some(Value::Null) | None => root.join("hooks").join("hooks.json").is_file(),
+        Some(_) => true,
+    }
+}
+
+fn fingerprint(root: &Path) -> Result<String, String> {
+    fn visit(root: &Path, at: &Path, hash: &mut Sha256) -> std::io::Result<()> {
+        let mut entries = std::fs::read_dir(at)?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            if entry.file_name() == ".git" {
+                continue;
+            }
+            let path = entry.path();
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            hash.update(rel.to_string_lossy().as_bytes());
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                visit(root, &path, hash)?;
+            } else if kind.is_symlink() {
+                hash.update(std::fs::read_link(&path)?.to_string_lossy().as_bytes());
+            } else if kind.is_file() {
+                let mut file = std::fs::File::open(path)?;
+                let mut chunk = [0_u8; 16 * 1024];
+                loop {
+                    let read = file.read(&mut chunk)?;
+                    if read == 0 {
+                        break;
+                    }
+                    hash.update(&chunk[..read]);
+                }
+            }
+        }
+        Ok(())
+    }
+    let mut hash = Sha256::new();
+    visit(root, root, &mut hash)
+        .map_err(|error| i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())]))?;
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+fn portable_version(source: &Path, fingerprint: &str) -> String {
+    let native = read_json(&source.join(".codex-plugin").join("plugin.json"));
+    let claude = read_json(&manifest_path(source));
+    let version = [native.as_ref(), claude.as_ref()]
+        .into_iter()
+        .flatten()
+        .find_map(|manifest| manifest.get("version").and_then(Value::as_str))
+        .unwrap_or("0.0.0")
+        .trim();
+    let candidate = version
+        .split('+')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or("0.0.0");
+    let base = semver::Version::parse(candidate)
+        .map(|version| version.to_string())
+        .unwrap_or_else(|_| "0.0.0".into());
+    format!("{base}+prometeu.{}", &fingerprint[..16])
+}
+
+fn stage_plugin(
+    source: &Path,
+    target: &Path,
+    id: &str,
+    version: &str,
+    fingerprint: &str,
+) -> Result<(), String> {
+    let marker = target.with_file_name(format!(".{id}.source-hash"));
+    if target.is_dir() && std::fs::read_to_string(&marker).ok().as_deref() == Some(fingerprint) {
+        return Ok(());
+    }
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let temporary = parent.join(format!(".{id}.{}.tmp", uuid::Uuid::new_v4()));
+    if let Err(error) = copy_tree(source, &temporary) {
+        let _ = std::fs::remove_dir_all(&temporary);
+        return Err(i18n::ta(
+            "err.plugin.codex.prepare",
+            &[("cause", error.to_string())],
+        ));
+    }
+    if let Err(error) = write_portable_manifest(&temporary, id, version) {
+        let _ = std::fs::remove_dir_all(&temporary);
+        return Err(error);
+    }
+    if target.exists() {
+        std::fs::remove_dir_all(target).map_err(|error| {
+            i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())])
+        })?;
+    }
+    std::fs::rename(&temporary, target).map_err(|error| {
+        let _ = std::fs::remove_dir_all(&temporary);
+        i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())])
+    })?;
+    paths::write_private(&marker, fingerprint)
+        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))
+}
+
+fn copy_tree(source: &Path, target: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(target)?;
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let from = entry.path();
+        let to = target.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_tree(&from, &to)?;
+        } else if kind.is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(from)?, to)?;
+            #[cfg(not(unix))]
+            if from.is_dir() {
+                copy_tree(&from, &to)?;
+            } else {
+                std::fs::copy(from, to)?;
+            }
+        } else if kind.is_file() {
+            std::fs::copy(from, to)?;
+        }
+    }
+    Ok(())
+}
+
+/// O manifesto do Codex é um overlay do manifesto compatível com Claude. Se o
+/// pacote já traz os dois, campos nativos ganham; se traz só o de Claude, a
+/// cópia recebe o mínimo nativo sem alterar a origem.
+fn write_portable_manifest(root: &Path, id: &str, version: &str) -> Result<(), String> {
+    let claude = read_json(&manifest_path(root));
+    let native_path = root.join(".codex-plugin").join("plugin.json");
+    let native = read_json(&native_path);
+    let mut merged = serde_json::Map::new();
+    if let Some(fields) = claude.as_ref().and_then(Value::as_object) {
+        for (key, value) in fields {
+            // No manifesto Claude, o objeto inline já é o mapa de eventos. O
+            // manifesto Codex recebe um `HooksFile` completo, cujo mapa fica
+            // dentro de `hooks`. Caminho em string é idêntico nos dois.
+            let value = if key == "hooks" {
+                codex_hooks(value)
+            } else {
+                value.clone()
+            };
+            merged.insert(key.clone(), value);
+        }
+    }
+    if let Some(fields) = native.as_ref().and_then(Value::as_object) {
+        for (key, value) in fields {
+            // Um overlay nativo já está na forma que o Codex espera.
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    merged.insert("name".into(), Value::String(id.to_string()));
+    merged.insert("version".into(), Value::String(version.to_string()));
+    if !merged.contains_key("skills") && root.join("skills").is_dir() {
+        merged.insert("skills".into(), Value::String("./skills/".into()));
+    }
+    if !merged.contains_key("commands") && root.join("commands").is_dir() {
+        merged.insert("commands".into(), Value::String("./commands/".into()));
+    }
+    if !merged.contains_key("mcpServers") {
+        if let Some(name) = [".mcp.json", "mcp.json"]
+            .into_iter()
+            .find(|name| root.join(name).is_file())
+        {
+            merged.insert("mcpServers".into(), Value::String(format!("./{name}")));
+        }
+    }
+    let body =
+        serde_json::to_string_pretty(&Value::Object(merged)).map_err(|error| error.to_string())?;
+    paths::write_private(&native_path, &body)
+        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))
+}
+
+fn codex_hooks(hooks: &Value) -> Value {
+    match hooks {
+        Value::Object(fields) if !fields.contains_key("hooks") => {
+            serde_json::json!({ "hooks": hooks })
+        }
+        _ => hooks.clone(),
+    }
+}
+
+fn codex_command(home: &Path) -> Command {
+    let mut command = Command::new("codex");
+    command
+        .env("CODEX_HOME", home)
+        .args(["--enable", "plugins", "--enable", "hooks"]);
+    command
+}
+
+fn codex_installed(home: &Path) -> Result<HashMap<String, InstalledPlugin>, String> {
+    let output = codex_command(home)
+        .args([
+            "plugin",
+            "list",
+            "--marketplace",
+            codex_marketplace_name(),
+            "--available",
+            "--json",
+        ])
+        .output()
+        .map_err(|error| i18n::ta("err.plugin.codex.cli", &[("cause", error.to_string())]))?;
+    if !output.status.success() {
+        return Err(i18n::ta(
+            "err.plugin.codex.cli",
+            &[("cause", last_line(&String::from_utf8_lossy(&output.stderr)))],
+        ));
+    }
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| i18n::ta("err.plugin.codex.cli", &[("cause", error.to_string())]))?;
+    Ok(value["installed"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            Some((
+                entry["pluginId"].as_str()?.to_string(),
+                InstalledPlugin {
+                    version: entry["version"].as_str().unwrap_or_default().to_string(),
+                },
+            ))
+        })
+        .collect())
+}
+
+fn codex_install(home: &Path, canonical: &str) -> Result<(), String> {
+    let output = codex_command(home)
+        .args(["plugin", "add", canonical, "--json"])
+        .output()
+        .map_err(|error| i18n::ta("err.plugin.codex.cli", &[("cause", error.to_string())]))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(i18n::ta(
+            "err.plugin.codex.cli",
+            &[("cause", last_line(&String::from_utf8_lossy(&output.stderr)))],
+        ))
+    }
+}
+
+fn codex_remove(home: &Path, canonical: &str) {
+    let _ = codex_command(home)
+        .args(["plugin", "remove", canonical, "--json"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+fn forget_codex_config(home: &Path, canonical: &str) {
+    let Ok(mut config) = read_toml(&home.join("config.toml")) else {
+        return;
+    };
+    let Some(root) = config.as_table_mut() else {
+        return;
+    };
+    if let Some(plugins) = root.get_mut("plugins").and_then(toml::Value::as_table_mut) {
+        plugins.remove(canonical);
+    }
+    if let Ok(body) = toml::to_string_pretty(&config) {
+        let _ = paths::write_private(&home.join("config.toml"), &body);
+    }
+}
+
+fn remove_marketplace_entry(home: &Path, id: &str) {
+    let marketplace = codex_marketplace_root(home);
+    let target = marketplace.join("plugins").join(id);
+    if target.starts_with(&marketplace) && target != marketplace {
+        std::fs::remove_dir_all(&target).ok();
+        std::fs::remove_file(
+            marketplace
+                .join("plugins")
+                .join(format!(".{id}.source-hash")),
+        )
+        .ok();
+    }
+    let catalogue = marketplace
+        .join(".agents")
+        .join("plugins")
+        .join("marketplace.json");
+    let Some(mut value) = read_json(&catalogue) else {
+        return;
+    };
+    let Some(entries) = value.get_mut("plugins").and_then(Value::as_array_mut) else {
+        return;
+    };
+    entries.retain(|entry| entry.get("name").and_then(Value::as_str) != Some(id));
+    if let Ok(body) = serde_json::to_string_pretty(&value) {
+        let _ = paths::write_private(&catalogue, &body);
+    }
+}
+
+/// Remove a instalação compartilhada e apaga a referência em cada camada
+/// derivada. Falhas são best effort: o item já saiu do hub, e o próximo spawn
+/// reconstrói a configuração sem ele.
+fn codex_remove_everywhere(canonical: &str) {
+    let id = canonical.split_once('@').map_or(canonical, |(id, _)| id);
+    let Ok(entries) = std::fs::read_dir(codex_workspaces_root()) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let home = entry.path();
+        if !home.is_dir() {
+            continue;
+        }
+        codex_remove(&home, canonical);
+        forget_codex_config(&home, canonical);
+        remove_marketplace_entry(&home, id);
     }
 }
 
@@ -485,20 +1256,26 @@ fn plugins_in(dir: &Path, from: &str) -> Vec<Plugin> {
         return vec![read_plugin(dir, from)];
     }
     let mut found: Vec<Plugin> = Vec::new();
-    let market = read_json(&dir.join(".claude-plugin").join("marketplace.json"));
-    for entry in market
-        .as_ref()
-        .and_then(|m| m.get("plugins"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    for market in [
+        dir.join(".agents").join("plugins").join("marketplace.json"),
+        dir.join(".claude-plugin").join("marketplace.json"),
+    ]
+    .iter()
+    .filter_map(|path| read_json(path))
     {
-        let Some(rel) = entry.get("source").and_then(Value::as_str) else {
-            continue;
-        };
-        if let Some(at) = within(dir, rel) {
-            if manifest_path(&at).exists() {
-                found.push(read_plugin(&at, from));
+        for entry in market
+            .get("plugins")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(rel) = marketplace_local_source(entry) else {
+                continue;
+            };
+            if let Some(at) = within(dir, rel) {
+                if manifest_path(&at).exists() {
+                    found.push(read_plugin(&at, from));
+                }
             }
         }
     }
@@ -508,6 +1285,19 @@ fn plugins_in(dir: &Path, from: &str) -> Vec<Plugin> {
     found.sort_by_key(|p| p.id.to_lowercase());
     found.dedup_by(|a, b| a.source == b.source);
     found
+}
+
+/// Claude usa `"source": "./plugins/x"`; o formato nativo do Codex usa
+/// `"source": {"source":"local","path":"./plugins/x"}`. O hub lê os
+/// dois, mas só segue caminhos internos ao clone.
+fn marketplace_local_source(entry: &Value) -> Option<&str> {
+    match entry.get("source")? {
+        Value::String(path) => Some(path),
+        Value::Object(source) if source.get("source")?.as_str()? == "local" => {
+            source.get("path")?.as_str()
+        }
+        _ => None,
+    }
 }
 
 /// Uma pasta abaixo, e a de `plugins/` também: o suficiente para achar o que um
@@ -600,17 +1390,21 @@ const MAX_STEP: usize = 140;
 /// para o script dele em qualquer máquina. O pedido da pessoa vai depois
 /// disto, como prompt — este texto é o que impede que ele vire um projeto de
 /// software em vez de um plugin.
-const MAKER: &str = r#"Você escreve um plugin do Claude Code, do zero, dentro da pasta em que está — e nada além disso.
+const MAKER: &str = r#"Você escreve um plugin portátil para Claude Code e Codex, do zero, dentro da pasta em que está — e nada além disso.
 
-O formato, que é o que o CLI vai ler:
+O formato compartilhado, que os dois CLIs vão ler:
 
-- `.claude-plugin/plugin.json`, obrigatório: {"name": "<NOME>", "description": "…", "version": "0.1.0"}. O `name` tem que ser exatamente <NOME>.
+- `.claude-plugin/plugin.json`, obrigatório: {"name": "<NOME>", "description": "…", "version": "0.1.0", "hooks": "./hooks/hooks.json"}. O `name` tem que ser exatamente <NOME>. Omita `hooks` se o plugin não tiver hook.
+- `.codex-plugin/plugin.json`, obrigatório, com o mesmo `name`, `description` e `version`. Aponte recursos existentes com caminhos relativos iniciados por `./`: `"skills": "./skills/"`, `"commands": "./commands/"`, `"mcpServers": "./.mcp.json"` e `"hooks": "./hooks/hooks.json"`; omita o que não existir.
 - `skills/<assunto>/SKILL.md`: a instrução que o agente carrega quando o assunto aparece. Frontmatter YAML com `name` e `description`; é a `description` que decide se a skill é carregada, então diga nela quando usar.
 - `commands/<nome>.md`: um comando de barra. Frontmatter opcional com `description` e `argument-hint`; o corpo é o prompt, e `$ARGUMENTS` recebe o que a pessoa escreveu depois do comando.
-- `agents/<nome>.md`: um subagente. Frontmatter com `name`, `description` e, se for o caso, `tools`.
+- `.mcp.json`: servidores empacotados, no formato `{"mcpServers":{"nome":{"command":"…","args":[]}}}`. Use só quando o plugin realmente precisa iniciar um servidor.
+- `agents/<nome>.md`: subagente exclusivo do Claude. Frontmatter com `name`, `description` e, se for o caso, `tools`. Quando o mesmo fluxo precisar existir nos dois CLIs, escreva uma skill em vez de um agent.
 - `hooks/hooks.json`: o que roda sozinho, turno após turno, sem depender da atenção do modelo. Formato:
   {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/nome.sh"}]}]}}
-  Os eventos são PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop, PreCompact e Notification; PreToolUse e PostToolUse aceitam `matcher` com o nome da ferramenta. O script recebe um JSON no stdin, e o que ele escreve no stdout de UserPromptSubmit e de SessionStart entra na conversa como contexto. Chame todo script por `sh` ou por `python3` — nunca conte com bit de execução. `${CLAUDE_PLUGIN_ROOT}` é a pasta do plugin em qualquer máquina: nunca escreva caminho absoluto.
+  Os eventos comuns aos dois são PreToolUse, PostToolUse, UserPromptSubmit, SessionStart, SessionEnd, Stop, SubagentStop e PreCompact; PreToolUse e PostToolUse aceitam `matcher` com o nome da ferramenta. O script recebe um JSON no stdin, e o que ele escreve no stdout de UserPromptSubmit e de SessionStart entra na conversa como contexto. Chame todo script por `sh` ou por `python3` — nunca conte com bit de execução. `${CLAUDE_PLUGIN_ROOT}` é preenchido pelos dois CLIs com a pasta do plugin em qualquer máquina: nunca escreva caminho absoluto.
+
+Selecionar o plugin já é ativá-lo. Se o pedido descreve um modo contínuo — estilo, persona, política ou comportamento para toda a conversa — crie um hook `SessionStart` que escreva a instrução completa no stdout desde a primeira resposta. Use também `UserPromptSubmit` quando for importante reforçá-la a cada turno. Não exija comando de barra, menção à skill ou uma segunda ativação para iniciar esse modo, e não crie opção desligada por padrão salvo se a pessoa pedir isso explicitamente.
 
 Escreva só o que o pedido pede: um plugin de uma skill é uma skill, e não um pacote de exemplos. Nada de README, LICENSE, .gitignore, teste ou CHANGELOG. Não rode comando, não instale nada, não use a rede. Ao terminar, responda em uma linha só o que o plugin faz."#;
 
@@ -770,6 +1564,8 @@ fn watch(run: u64) {
 fn born(dir: &Path, slug: &str) -> Result<(), String> {
     let manifest =
         read_json(&manifest_path(dir)).ok_or_else(|| i18n::t("err.plugin.made.empty"))?;
+    let native = read_json(&dir.join(".codex-plugin").join("plugin.json"))
+        .ok_or_else(|| i18n::t("err.plugin.made.empty"))?;
     let text = |key: &str| {
         manifest
             .get(key)
@@ -782,6 +1578,9 @@ fn born(dir: &Path, slug: &str) -> Result<(), String> {
         name if !name.is_empty() => name,
         _ => slug.to_string(),
     };
+    if native.get("name").and_then(Value::as_str) != Some(id.as_str()) {
+        return Err(i18n::t("err.plugin.made.empty"));
+    }
     plugin_save(Plugin {
         id,
         source: dir.display().to_string(),
@@ -1057,10 +1856,16 @@ mod tests {
             r#"{"plugins":[{"name":"a","source":"./plugins/a"},{"name":"fora","source":{"source":"git-subdir","url":"https://exemplo/outro.git"}}]}"#,
         )
         .unwrap();
+        std::fs::create_dir_all(many.join(".agents").join("plugins")).unwrap();
+        std::fs::write(
+            many.join(".agents").join("plugins").join("marketplace.json"),
+            r#"{"name":"nativo","plugins":[{"name":"b","source":{"source":"local","path":"./plugins/b"}}]}"#,
+        )
+        .unwrap();
         let found = plugins_in(&many, "https://exemplo/muitos");
         assert_eq!(
             found.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
-            ["a"]
+            ["a", "b"]
         );
 
         // Sem manifesto e sem marketplace, uma pasta abaixo ainda é achada.
@@ -1078,6 +1883,576 @@ mod tests {
         std::fs::create_dir_all(root.join("vazio")).unwrap();
         assert!(plugins_in(&root.join("vazio"), "").is_empty());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// O mesmo pacote vira entrada de marketplace nativa e recebe um
+    /// manifesto Codex sem perder os hooks do manifesto compatível com Claude.
+    /// O hash na versão é o cachebuster de atualizações sem versão upstream.
+    #[test]
+    fn o_marketplace_do_codex_nasce_do_mesmo_plugin() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-codex-market-{}", uuid::Uuid::new_v4()));
+        let source = root.join("origem");
+        let market = root.join("mercado");
+        std::fs::create_dir_all(source.join(".claude-plugin")).unwrap();
+        std::fs::create_dir_all(source.join("skills").join("curta")).unwrap();
+        std::fs::create_dir_all(source.join("commands")).unwrap();
+        std::fs::write(
+            source.join(".claude-plugin").join("plugin.json"),
+            r#"{"name":"curta","description":"responde curto","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"sh ${CLAUDE_PLUGIN_ROOT}/hooks/curta.sh"}]}]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            source.join("skills/curta/SKILL.md"),
+            "---\nname: curta\n---\n",
+        )
+        .unwrap();
+        std::fs::write(
+            source.join(".mcp.json"),
+            r#"{"mcpServers":{"curta":{"command":"node","args":["server.js"]}}}"#,
+        )
+        .unwrap();
+
+        let prepared = prepare_marketplace(
+            &market,
+            "prometeu-test",
+            &[plugin("curta", &source.display().to_string())],
+        )
+        .unwrap();
+        assert_eq!(prepared[0].id, "curta");
+        assert_eq!(prepared[0].canonical, "curta@prometeu-test");
+        assert!(prepared[0].version.starts_with("0.0.0+prometeu."));
+        assert!(prepared[0].hooks);
+
+        let native = read_json(
+            &market
+                .join("plugins/curta")
+                .join(".codex-plugin/plugin.json"),
+        )
+        .unwrap();
+        assert_eq!(native["name"], "curta");
+        assert_eq!(native["skills"], "./skills/");
+        assert_eq!(native["commands"], "./commands/");
+        assert_eq!(native["mcpServers"], "./.mcp.json");
+        assert!(native["hooks"]["hooks"]["UserPromptSubmit"].is_array());
+        assert_eq!(native["version"], prepared[0].version);
+
+        let catalogue = read_json(&market.join(".agents/plugins/marketplace.json")).unwrap();
+        assert_eq!(catalogue["name"], "prometeu-test");
+        assert_eq!(catalogue["plugins"][0]["source"]["source"], "local");
+        assert_eq!(catalogue["plugins"][0]["source"]["path"], "./plugins/curta");
+
+        // Um snapshot feito pela revisão anterior guardava o hash puro da
+        // origem e o objeto inline sem o envelope do Codex. Mesmo sem mudar o
+        // plugin, a revisão do adapter precisa refazer essa cópia.
+        let staged = market.join("plugins/curta");
+        std::fs::write(
+            staged.join(".codex-plugin/plugin.json"),
+            r#"{"name":"curta","hooks":{"UserPromptSubmit":[]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            market.join("plugins/.curta.source-hash"),
+            fingerprint(&source).unwrap(),
+        )
+        .unwrap();
+        prepare_marketplace(
+            &market,
+            "prometeu-test",
+            &[plugin("curta", &source.display().to_string())],
+        )
+        .unwrap();
+        let migrated = read_json(&staged.join(".codex-plugin/plugin.json")).unwrap();
+        assert!(migrated["hooks"]["hooks"]["UserPromptSubmit"].is_array());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn detecta_hooks_que_precisam_nascer_ativos() {
+        let root = std::env::temp_dir().join(format!(
+            "prometeu-codex-hook-detect-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let inline = root.join("inline");
+        let conventional = root.join("conventional");
+        let declared_but_broken = root.join("declared-broken");
+        let plain = root.join("plain");
+
+        for plugin in [&inline, &conventional, &declared_but_broken, &plain] {
+            std::fs::create_dir_all(plugin.join(".codex-plugin")).unwrap();
+        }
+        std::fs::write(
+            inline.join(".codex-plugin/plugin.json"),
+            r#"{"name":"inline","hooks":{"SessionStart":[{"hooks":[]}]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            conventional.join(".codex-plugin/plugin.json"),
+            r#"{"name":"conventional"}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(conventional.join("hooks")).unwrap();
+        std::fs::write(conventional.join("hooks/hooks.json"), r#"{"hooks":{}}"#).unwrap();
+        std::fs::write(
+            declared_but_broken.join(".codex-plugin/plugin.json"),
+            r#"{"name":"declared-broken","hooks":"./missing.json"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            plain.join(".codex-plugin/plugin.json"),
+            r#"{"name":"plain"}"#,
+        )
+        .unwrap();
+
+        assert!(plugin_has_hooks(&inline));
+        assert!(plugin_has_hooks(&conventional));
+        assert!(plugin_has_hooks(&declared_but_broken));
+        assert!(!plugin_has_hooks(&plain));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn versao_livre_do_claude_nao_quebra_o_cache_do_codex() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-plugin-version-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/plugin.json"),
+            r#"{"name":"x","version":"v-next"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            portable_version(&root, "0123456789abcdef0123456789abcdef"),
+            "0.0.0+prometeu.0123456789abcdef"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn home_do_codex_pertence_ao_workspace_e_nao_ao_cwd() {
+        assert_eq!(
+            codex_workspace_home("workspace-a"),
+            codex_workspace_home("workspace-a")
+        );
+        assert_ne!(
+            codex_workspace_home("workspace-a"),
+            codex_workspace_home("workspace-b")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apagar_home_derivado_nao_segue_links_para_o_home_real() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-codex-remove-{}", uuid::Uuid::new_v4()));
+        let homes = root.join("homes");
+        let home = homes.join("workspace");
+        let real = root.join("real");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(real.join("auth.json"), "conta").unwrap();
+        std::os::unix::fs::symlink(real.join("auth.json"), home.join("auth.json")).unwrap();
+
+        remove_codex_home(&homes, &home);
+
+        assert!(!home.exists());
+        assert_eq!(
+            std::fs::read_to_string(real.join("auth.json")).unwrap(),
+            "conta"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn home_derivado_preserva_estado_sem_mudar_a_config_global() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-codex-home-{}", uuid::Uuid::new_v4()));
+        let base = root.join("base");
+        let home = root.join("workspace");
+        let marketplace = home.join("marketplace");
+        std::fs::create_dir_all(base.join("plugins")).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(base.join("auth.json"), "conta").unwrap();
+        let global = r#"
+[projects."/tmp/projeto"]
+trust_level = "trusted"
+
+[plugins."global@outro"]
+enabled = true
+
+[hooks.state.global]
+trusted_hash = "sha256:global"
+"#;
+        std::fs::write(base.join("config.toml"), global).unwrap();
+        let selected = format!("novo@{}", codex_marketplace_name());
+        let old = format!("antigo@{}", codex_marketplace_name());
+        std::fs::write(
+            home.join("config.toml"),
+            format!(
+                r#"
+[hooks.state.workspace]
+trusted_hash = "sha256:workspace"
+
+[plugins."{old}"]
+enabled = true
+opcao = "preservada"
+"#
+            ),
+        )
+        .unwrap();
+
+        prepare_codex_home(&base, &home, &marketplace, std::slice::from_ref(&selected)).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(base.join("config.toml")).unwrap(),
+            global
+        );
+        let config = read_toml(&home.join("config.toml")).unwrap();
+        assert_eq!(
+            config["projects"]["/tmp/projeto"]["trust_level"].as_str(),
+            Some("trusted")
+        );
+        assert_eq!(
+            config["plugins"]["global@outro"]["enabled"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(config["cli_auth_credentials_store"].as_str(), Some("file"));
+        assert_eq!(
+            config["plugins"][&selected]["enabled"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(config["plugins"][&old]["enabled"].as_bool(), Some(false));
+        assert_eq!(
+            config["plugins"][&old]["opcao"].as_str(),
+            Some("preservada")
+        );
+        assert_eq!(
+            config["hooks"]["state"]["global"]["trusted_hash"].as_str(),
+            Some("sha256:global")
+        );
+        assert_eq!(
+            config["hooks"]["state"]["workspace"]["trusted_hash"].as_str(),
+            Some("sha256:workspace")
+        );
+        assert_eq!(
+            config["marketplaces"][codex_marketplace_name()]["source"].as_str(),
+            Some(marketplace.to_string_lossy().as_ref())
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            std::fs::read_link(home.join("auth.json")).unwrap(),
+            base.join("auth.json")
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// Prova o contrato contra o CLI instalado: marketplace local, cópia no
+    /// cache, skill visível e `SessionStart` ativo no runtime isolado. É opt-in
+    /// porque escreve e remove uma entrada temporária no cache real do Codex.
+    #[test]
+    #[ignore]
+    fn codex_instala_plugin_portatil_de_verdade() {
+        let root = std::env::temp_dir().join(format!(
+            "prometeu-codex-plugin-live-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let id = format!("prometeu-smoke-{}", &suffix[..8]);
+        let marker = format!("runtime-marker-{}", &suffix[8..16]);
+        let hook_marker = format!("session-hook-{}", &suffix[24..32]);
+        let updated_marker = format!("runtime-updated-{}", &suffix[16..24]);
+        let hook_ran = root.join("session-start-ran");
+        let source = root.join("source");
+        std::fs::create_dir_all(source.join(".claude-plugin")).unwrap();
+        std::fs::create_dir_all(source.join("skills").join(&id)).unwrap();
+        std::fs::create_dir_all(source.join("hooks")).unwrap();
+        std::fs::write(
+            source.join(".claude-plugin/plugin.json"),
+            format!(
+                r#"{{"name":"{id}","version":"0.1.0","hooks":{{"SessionStart":[{{"hooks":[{{"type":"command","command":"sh ${{CLAUDE_PLUGIN_ROOT}}/hooks/activate.sh"}}]}}]}}}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            source.join("hooks/activate.sh"),
+            format!(
+                "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{hook_marker}'\nprintf '%s\\n' '{hook_marker}' > '{}'\n",
+                hook_ran.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            source.join("skills").join(&id).join("SKILL.md"),
+            format!("---\nname: {id}\ndescription: {marker}\n---\n"),
+        )
+        .unwrap();
+
+        let previous = std::env::var_os("PROMETEU_ROOT");
+        let global_config = user_codex_home().join("config.toml");
+        let global_before = std::fs::read(&global_config).ok();
+        std::env::set_var("PROMETEU_ROOT", &root);
+        let canonical = format!("{id}@{}", codex_marketplace_name());
+        let workspace = format!("workspace-{suffix}");
+        let home = codex_workspace_home(&workspace);
+        let result = (|| -> Result<(), String> {
+            plugin_save(plugin(&id, &source.display().to_string()))?;
+            let chosen = vec![id.clone()];
+            let selected = codex_for(&workspace, Some(&chosen))?;
+            if selected.ids != [canonical.clone()] {
+                return Err(format!("ids inesperados: {:?}", selected.ids));
+            }
+            if selected.hook_ids != [canonical.clone()] {
+                return Err(format!("hooks inesperados: {:?}", selected.hook_ids));
+            }
+            if selected.home.as_ref() != Some(&home) {
+                return Err(format!("home inesperado: {:?}", selected.home));
+            }
+            let first_version = codex_installed(&home)?
+                .get(&canonical)
+                .ok_or_else(|| "plugin não apareceu no cache do Codex".to_string())?
+                .version
+                .clone();
+            let listed = codex_command(&home)
+                .args(["plugin", "list", "--json"])
+                .output()
+                .map_err(|error| error.to_string())?;
+            if !listed.status.success() {
+                return Err(last_line(&String::from_utf8_lossy(&listed.stderr)));
+            }
+            let listed: Value = serde_json::from_slice(&listed.stdout)
+                .map_err(|error| format!("lista ilegível: {error}"))?;
+            let active = listed["installed"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|entry| entry["pluginId"].as_str() == Some(&canonical));
+            if active.and_then(|entry| entry["enabled"].as_bool()) != Some(true) {
+                return Err(format!("plugin não ficou ativo no home: {active:?}"));
+            }
+            let output = Command::new("codex")
+                .env("CODEX_HOME", &home)
+                .args(["--enable", "plugins", "--enable", "hooks"])
+                .args(["debug", "prompt-input", "smoke"])
+                .output()
+                .map_err(|error| error.to_string())?;
+            if !output.status.success() {
+                return Err(last_line(&String::from_utf8_lossy(&output.stderr)));
+            }
+            if !String::from_utf8_lossy(&output.stdout).contains(&marker) {
+                return Err("a sessão Codex não recebeu a skill instalada".into());
+            }
+
+            // `debug prompt-input` prova a descoberta da skill, mas não abre
+            // uma sessão. A prova do hook usa o app-server real e observa o
+            // efeito do `SessionStart` antes de qualquer turno ou modelo.
+            use std::io::Write as _;
+            let mut server = Command::new("codex")
+                .env("CODEX_HOME", &home)
+                .arg("app-server")
+                .args(["--enable", "plugins", "--enable", "hooks"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .map_err(|error| error.to_string())?;
+            let live = (|| -> Result<(), String> {
+                let mut input = server
+                    .stdin
+                    .take()
+                    .ok_or_else(|| "app-server sem stdin".to_string())?;
+                let output = server
+                    .stdout
+                    .take()
+                    .ok_or_else(|| "app-server sem stdout".to_string())?;
+                let (send, receive) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    for line in BufReader::new(output).lines().map_while(Result::ok) {
+                        if let Ok(message) = serde_json::from_str::<Value>(&line) {
+                            if send.send(message).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                });
+                let response = |id: u64| -> Result<Value, String> {
+                    loop {
+                        let message = receive
+                            .recv_timeout(Duration::from_secs(5))
+                            .map_err(|error| format!("app-server sem resposta {id}: {error}"))?;
+                        if message["id"].as_u64() == Some(id) {
+                            if let Some(error) = message["error"]["message"].as_str() {
+                                return Err(format!("app-server recusou {id}: {error}"));
+                            }
+                            return Ok(message);
+                        }
+                    }
+                };
+
+                writeln!(
+                    input,
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "clientInfo": { "name": "prometeu-smoke", "title": "Prometeu smoke", "version": "0" },
+                            "capabilities": { "experimentalApi": true },
+                        },
+                    })
+                )
+                .map_err(|error| error.to_string())?;
+                input.flush().map_err(|error| error.to_string())?;
+                response(1)?;
+                writeln!(
+                    input,
+                    "{}",
+                    serde_json::json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })
+                )
+                .map_err(|error| error.to_string())?;
+                writeln!(
+                    input,
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "hooks/list",
+                        "params": { "cwds": [root.display().to_string()] },
+                    })
+                )
+                .map_err(|error| error.to_string())?;
+                input.flush().map_err(|error| error.to_string())?;
+                let listed = response(2)?;
+                let hook = listed["result"]["data"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|entry| entry["hooks"].as_array().into_iter().flatten())
+                    .find(|hook| hook["pluginId"].as_str() == Some(&canonical))
+                    .ok_or_else(|| format!("hook não descoberto: {}", listed["result"]))?;
+                let key = hook["key"]
+                    .as_str()
+                    .ok_or_else(|| format!("hook sem key: {hook}"))?;
+                let hash = hook["currentHash"]
+                    .as_str()
+                    .ok_or_else(|| format!("hook sem hash: {hook}"))?;
+                let state = serde_json::Map::from_iter([(
+                    key.to_string(),
+                    serde_json::json!({ "trusted_hash": hash, "enabled": true }),
+                )]);
+                writeln!(
+                    input,
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "config/batchWrite",
+                        "params": {
+                            "edits": [{
+                                "keyPath": "hooks.state",
+                                "value": state,
+                                "mergeStrategy": "upsert",
+                            }],
+                            "reloadUserConfig": true,
+                        },
+                    })
+                )
+                .map_err(|error| error.to_string())?;
+                input.flush().map_err(|error| error.to_string())?;
+                response(3)?;
+                writeln!(
+                    input,
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "thread/start",
+                        "params": {
+                            "cwd": root.display().to_string(),
+                            "approvalPolicy": "never",
+                            "sandbox": "danger-full-access",
+                        },
+                    })
+                )
+                .map_err(|error| error.to_string())?;
+                input.flush().map_err(|error| error.to_string())?;
+                let opened = response(4)?;
+                if !hook_ran.is_file() {
+                    let thread = opened["result"]["thread"]["id"]
+                        .as_str()
+                        .ok_or_else(|| "thread/start sem id".to_string())?;
+                    writeln!(
+                        input,
+                        "{}",
+                        serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": 5,
+                            "method": "turn/start",
+                            "params": {
+                                "threadId": thread,
+                                "input": [{ "type": "text", "text": "smoke", "text_elements": [] }],
+                                "summary": "auto",
+                            },
+                        })
+                    )
+                    .map_err(|error| error.to_string())?;
+                    input.flush().map_err(|error| error.to_string())?;
+                }
+                for _ in 0..100 {
+                    if hook_ran.is_file() {
+                        return Ok(());
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err("o SessionStart do plugin não nasceu ativo".into())
+            })();
+            server.kill().ok();
+            server.wait().ok();
+            live?;
+            if std::fs::read_to_string(&hook_ran).ok().as_deref()
+                != Some(format!("{hook_marker}\n").as_str())
+            {
+                return Err("o SessionStart do plugin não nasceu ativo".into());
+            }
+
+            std::fs::write(
+                source.join("skills").join(&id).join("SKILL.md"),
+                format!("---\nname: {id}\ndescription: {updated_marker}\n---\n"),
+            )
+            .map_err(|error| error.to_string())?;
+            codex_for(&workspace, Some(&chosen))?;
+            let updated_version = codex_installed(&home)?
+                .get(&canonical)
+                .ok_or_else(|| "plugin atualizado sumiu do cache do Codex".to_string())?
+                .version
+                .clone();
+            if updated_version == first_version {
+                return Err("o hash novo não invalidou a versão instalada".into());
+            }
+            let updated = Command::new("codex")
+                .env("CODEX_HOME", &home)
+                .args(["--enable", "plugins", "--enable", "hooks"])
+                .args(["debug", "prompt-input", "smoke atualizado"])
+                .output()
+                .map_err(|error| error.to_string())?;
+            if !updated.status.success() {
+                return Err(last_line(&String::from_utf8_lossy(&updated.stderr)));
+            }
+            if !String::from_utf8_lossy(&updated.stdout).contains(&updated_marker) {
+                return Err("a sessão Codex não recebeu a versão atualizada".into());
+            }
+            if std::fs::read(&global_config).ok() != global_before {
+                return Err("a config global do Codex foi alterada".into());
+            }
+            Ok(())
+        })();
+        codex_remove(&home, &canonical);
+        match previous {
+            Some(value) => std::env::set_var("PROMETEU_ROOT", value),
+            None => std::env::remove_var("PROMETEU_ROOT"),
+        }
+        std::fs::remove_dir_all(root).ok();
+        result.unwrap();
     }
 
     /// A instalação de verdade, contra o GitHub: clona, acha o plugin na raiz

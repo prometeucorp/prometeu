@@ -35,7 +35,7 @@
 
 use crate::lock::lock;
 use crate::session::Launch;
-use crate::{agents, chat, conversation, i18n, paths};
+use crate::{agents, chat, conversation, i18n, paths, plugins};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Write;
@@ -49,26 +49,33 @@ use tauri::AppHandle;
 pub fn spawn(
     app: &AppHandle,
     id: &str,
+    workspace: &str,
     worktree: &Path,
     resume: Option<String>,
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
+    let selected_plugins = plugins::codex_for(workspace, launch.plugins.as_ref())?;
     let mut cmd = Command::new("codex");
-    cmd.args(["app-server", "--enable", "default_mode_request_user_input"])
-        .current_dir(worktree);
+    cmd.args(["app-server", "--enable", "default_mode_request_user_input"]);
+    if let Some(home) = &selected_plugins.home {
+        cmd.env("CODEX_HOME", home);
+    }
+    // Não exigir as features novas de quem abriu uma sessão sem plugin: uma
+    // instalação antiga do Codex continua capaz de conversar e usar MCP.
+    if !selected_plugins.ids.is_empty() {
+        cmd.args(["--enable", "plugins", "--enable", "hooks"]);
+    }
+    cmd.current_dir(worktree);
     // As ferramentas escolhidas para este workspace. O Codex não tem
     // `--mcp-config`: a tabela inteira vai por `-c`, e os segredos vão pelo
-    // ambiente deste processo — ver `mcp::codex_config`. Falhar aqui não
-    // derruba a conversa; ela sobe sem MCP, como sobe a de quem não escolheu.
-    match crate::mcp::codex_config(id, launch.mcp.as_ref()) {
-        Ok(Some((servers, env))) => {
-            cmd.args(["-c", &format!("mcp_servers={servers}")]);
-            for (key, value) in env {
-                cmd.env(key, value);
-            }
+    // ambiente deste processo — ver `mcp::codex_config`. Uma escolha que não
+    // possa ser materializada precisa falhar visivelmente: subir sem as
+    // ferramentas marcadas faria a sessão parecer correta até o primeiro uso.
+    if let Some((servers, env)) = crate::mcp::codex_config(id, launch.mcp.as_ref())? {
+        cmd.args(["-c", &format!("mcp_servers={servers}")]);
+        for (key, value) in env {
+            cmd.env(key, value);
         }
-        Ok(None) => {}
-        Err(error) => eprintln!("mcp do codex em {id}: {error}"),
     }
     let log = paths::chat_log(id);
     let start = Start {
@@ -76,6 +83,8 @@ pub fn spawn(
         resume,
         model: launch.model.trim().to_string(),
         effort: agents::effort(&launch.effort).to_string(),
+        plugin_ids: selected_plugins.ids,
+        plugin_hook_ids: selected_plugins.hook_ids,
     };
     let io = chat::ProcessIo::new(process_stderr, move |stdin| {
         let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), start)));
@@ -103,6 +112,12 @@ pub struct Start {
     pub model: String,
     /// Já no nome do Codex (`ultra`, não `ultracode`). Vazio é não passar.
     pub effort: String,
+    /// IDs canônicos (`plugin@marketplace`) escolhidos explicitamente neste
+    /// workspace. Só hooks destes IDs podem ganhar confiança no handshake.
+    pub plugin_ids: Vec<String>,
+    /// Subconjunto selecionado que declarou hooks. Todos precisam aparecer
+    /// ativos antes de a thread nascer; ausência não pode virar skill-only.
+    pub plugin_hook_ids: Vec<String>,
 }
 
 /// O que cada pedido nosso em voo era, para saber o que fazer com a resposta.
@@ -120,6 +135,10 @@ enum Sent {
     /// cota só chega quando ela muda, e a barra de baixo não pode ficar
     /// esperando o primeiro turno para ter um número.
     Usage,
+    /// Hooks dos plugins escolhidos, antes de abrir a thread.
+    Hooks,
+    /// A gravação dos hashes que a seleção explícita acabou de aprovar.
+    HookTrust,
 }
 
 /// Um pedido do servidor esperando a tela responder.
@@ -433,7 +452,15 @@ impl Link {
             Some(Sent::Init) => {
                 let _ = self.notify("initialized", json!({}));
                 let _ = self.call("account/rateLimits/read", json!({}), Sent::Usage);
-                self.open_thread();
+                if self.start.plugin_hook_ids.is_empty() {
+                    self.open_thread();
+                } else {
+                    let _ = self.call(
+                        "hooks/list",
+                        json!({ "cwds": [self.start.cwd.clone()] }),
+                        Sent::Hooks,
+                    );
+                }
                 vec![]
             }
             // Codex sem conta logada responde erro aqui, e a barra fica sem a
@@ -445,6 +472,111 @@ impl Link {
                 // cotas separadas por modelo antes de chegarem ao `usage`.
                 None => vec![rate_limits(&msg["result"])],
             },
+            Some(Sent::Hooks) => {
+                if let Some(cause) = error {
+                    return self.fail_plugin_hooks(cause);
+                }
+                let selected = self
+                    .start
+                    .plugin_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<std::collections::HashSet<_>>();
+                let expected = self
+                    .start
+                    .plugin_hook_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<std::collections::HashSet<_>>();
+                let mut found = std::collections::HashSet::new();
+                let mut invalid = std::collections::HashSet::new();
+                let mut managed_disabled = std::collections::HashSet::new();
+                let mut trusts = serde_json::Map::new();
+                for hook in msg["result"]["data"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|entry| entry["hooks"].as_array().into_iter().flatten())
+                {
+                    let Some(plugin) = hook["pluginId"].as_str() else {
+                        continue;
+                    };
+                    if !selected.contains(plugin) {
+                        continue;
+                    }
+                    found.insert(plugin);
+                    let enabled = hook["enabled"].as_bool() == Some(true);
+                    let status = hook["trustStatus"].as_str();
+                    if status == Some("managed") {
+                        if !enabled {
+                            managed_disabled.insert(plugin);
+                        }
+                        continue;
+                    }
+                    if status == Some("trusted") && enabled {
+                        continue;
+                    }
+                    let (Some(key), Some(hash)) =
+                        (hook["key"].as_str(), hook["currentHash"].as_str())
+                    else {
+                        invalid.insert(plugin);
+                        continue;
+                    };
+                    trusts.insert(
+                        key.to_string(),
+                        json!({ "trusted_hash": hash, "enabled": true }),
+                    );
+                }
+                let mut missing = expected.difference(&found).copied().collect::<Vec<_>>();
+                missing.sort_unstable();
+                if !missing.is_empty() {
+                    return self.fail_plugin_hooks(i18n::ta(
+                        "err.plugin.codex.hooksMissing",
+                        &[("plugins", missing.join(", "))],
+                    ));
+                }
+                if !invalid.is_empty() {
+                    let mut plugins = invalid.into_iter().collect::<Vec<_>>();
+                    plugins.sort_unstable();
+                    return self.fail_plugin_hooks(i18n::ta(
+                        "err.plugin.codex.hooksInvalid",
+                        &[("plugins", plugins.join(", "))],
+                    ));
+                }
+                if !managed_disabled.is_empty() {
+                    let mut plugins = managed_disabled.into_iter().collect::<Vec<_>>();
+                    plugins.sort_unstable();
+                    return self.fail_plugin_hooks(i18n::ta(
+                        "err.plugin.codex.hooksManaged",
+                        &[("plugins", plugins.join(", "))],
+                    ));
+                }
+                if trusts.is_empty() {
+                    self.open_thread();
+                } else {
+                    let _ = self.call(
+                        "config/batchWrite",
+                        json!({
+                            "edits": [{
+                                "keyPath": "hooks.state",
+                                "value": trusts,
+                                "mergeStrategy": "upsert",
+                            }],
+                            "reloadUserConfig": true,
+                        }),
+                        Sent::HookTrust,
+                    );
+                }
+                vec![]
+            }
+            Some(Sent::HookTrust) => {
+                if let Some(cause) = error {
+                    self.fail_plugin_hooks(cause)
+                } else {
+                    self.open_thread();
+                    vec![]
+                }
+            }
             Some(Sent::Thread { resumed }) => {
                 if let Some(cause) = error {
                     // Retomar falhou: a conversa de antes ficou para trás, mas a
@@ -522,6 +654,16 @@ impl Link {
                 let _ = self.call("thread/start", params, Sent::Thread { resumed: false });
             }
         }
+    }
+
+    /// Um plugin marcado é uma expectativa de comportamento, não só de
+    /// descoberta. Se seus hooks não puderem nascer ativos, a conversa não
+    /// abre silenciosamente em outro modo.
+    fn fail_plugin_hooks(&mut self, cause: String) -> Vec<Value> {
+        let message = i18n::ta("err.plugin.codex.hooks", &[("cause", cause)]);
+        self.failed = Some(message.clone());
+        self.queue.clear();
+        vec![notice("error", "plugin.hooks", &message)]
     }
 
     /// Um pedido do servidor vira um card que espera resposta, conservando o
@@ -1135,6 +1277,8 @@ mod tests {
             resume: resume.map(str::to_string),
             model: "gpt-5.4".into(),
             effort: "high".into(),
+            plugin_ids: vec![],
+            plugin_hook_ids: vec![],
         };
         (Link::new(Box::new(out.clone()), start), out)
     }
@@ -1189,6 +1333,115 @@ mod tests {
         assert_eq!(sent[0]["params"]["threadId"], "t-1");
         assert_eq!(sent[0]["params"]["input"][0]["text"], "oi");
         assert_eq!(sent[0]["params"]["effort"], "high");
+    }
+
+    /// Marcar o plugin é a autorização que o Claude já recebe pela flag. No
+    /// Codex ela também aprova o hash atual dos hooks daquele plugin — nunca
+    /// hooks de usuário, projeto ou de outro pacote que apareceram na lista.
+    #[test]
+    fn plugins_escolhidos_aprovam_so_os_proprios_hooks_antes_da_thread() {
+        let (mut link, out) = link(None);
+        link.start.plugin_ids = vec!["ponytail@prometeu-dev".into()];
+        link.start.plugin_hook_ids = vec!["ponytail@prometeu-dev".into()];
+        out.take();
+
+        link.on_line(r#"{"id":1,"result":{}}"#);
+        let sent = out.take();
+        let hooks = call_id(&sent, "hooks/list");
+        assert!(sent
+            .iter()
+            .all(|message| message["method"] != "thread/start"));
+        assert_eq!(sent[hooks.1]["params"]["cwds"][0], "/wt");
+
+        link.on_line(&format!(
+            r#"{{"id":{},"result":{{"data":[{{"cwd":"/wt","hooks":[
+              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:0","currentHash":"sha256:novo","trustStatus":"trusted","enabled":false}},
+              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:1","currentHash":"sha256:novo-1","trustStatus":"untrusted","enabled":true}},
+              {{"pluginId":"ponytail@prometeu-dev","key":"plugin:ponytail:2","currentHash":"sha256:pronto","trustStatus":"trusted","enabled":true}},
+              {{"pluginId":"outro@prometeu-dev","key":"plugin:outro:0","currentHash":"sha256:outro","trustStatus":"untrusted","enabled":false}},
+              {{"pluginId":null,"key":"/tmp/hooks.json:0","currentHash":"sha256:user","trustStatus":"untrusted","enabled":false}}
+            ]}}]}}}}"#,
+            hooks.0
+        ));
+        let sent = out.take();
+        let trust = call_id(&sent, "config/batchWrite");
+        let value = &sent[trust.1]["params"]["edits"][0]["value"];
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        assert_eq!(value["plugin:ponytail:0"]["trusted_hash"], "sha256:novo");
+        assert_eq!(value["plugin:ponytail:0"]["enabled"], true);
+        assert_eq!(value["plugin:ponytail:1"]["trusted_hash"], "sha256:novo-1");
+        assert_eq!(value["plugin:ponytail:1"]["enabled"], true);
+        assert!(value.get("plugin:ponytail:2").is_none());
+        assert_eq!(sent[trust.1]["params"]["reloadUserConfig"], true);
+
+        link.on_line(&format!(r#"{{"id":{},"result":{{}}}}"#, trust.0));
+        assert_eq!(out.take()[0]["method"], "thread/start");
+    }
+
+    #[test]
+    fn plugin_com_hook_declarado_nao_abre_sem_ser_descoberto() {
+        let (mut link, out) = link(None);
+        link.start.plugin_ids = vec!["caveman@prometeu-dev".into()];
+        link.start.plugin_hook_ids = vec!["caveman@prometeu-dev".into()];
+        out.take();
+        assert!(link.write(&user("fala como caveman")).unwrap().is_empty());
+
+        link.on_line(r#"{"id":1,"result":{}}"#);
+        let sent = out.take();
+        let hooks = call_id(&sent, "hooks/list");
+        let frames = link.on_line(&format!(
+            r#"{{"id":{},"result":{{"data":[{{"cwd":"/wt","hooks":[
+              {{"pluginId":"outro@prometeu-dev","key":"plugin:outro:0","currentHash":"sha256:outro","trustStatus":"untrusted","enabled":false}}
+            ]}}]}}}}"#,
+            hooks.0
+        ));
+
+        assert_eq!(frames[0]["type"], "system.notice");
+        assert_eq!(frames[0]["level"], "error");
+        assert_eq!(frames[0]["code"], "plugin.hooks");
+        assert!(frames[0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("caveman@prometeu-dev"));
+        assert!(out
+            .take()
+            .iter()
+            .all(|message| message["method"] != "thread/start"));
+        assert!(link.write(&user("oi")).is_err());
+    }
+
+    #[test]
+    fn falha_ao_ativar_hook_impede_a_thread() {
+        let (mut link, out) = link(None);
+        link.start.plugin_ids = vec!["caveman@prometeu-dev".into()];
+        link.start.plugin_hook_ids = vec!["caveman@prometeu-dev".into()];
+        out.take();
+
+        link.on_line(r#"{"id":1,"result":{}}"#);
+        let sent = out.take();
+        let hooks = call_id(&sent, "hooks/list");
+        link.on_line(&format!(
+            r#"{{"id":{},"result":{{"data":[{{"cwd":"/wt","hooks":[
+              {{"pluginId":"caveman@prometeu-dev","key":"plugin:caveman:0","currentHash":"sha256:caveman","trustStatus":"untrusted","enabled":false}}
+            ]}}]}}}}"#,
+            hooks.0
+        ));
+        let sent = out.take();
+        let trust = call_id(&sent, "config/batchWrite");
+        let frames = link.on_line(&format!(
+            r#"{{"id":{},"error":{{"code":-32603,"message":"config read-only"}}}}"#,
+            trust.0
+        ));
+
+        assert_eq!(frames[0]["level"], "error");
+        assert!(frames[0]["detail"]
+            .as_str()
+            .unwrap()
+            .contains("config read-only"));
+        assert!(out
+            .take()
+            .iter()
+            .all(|message| message["method"] != "thread/start"));
     }
 
     #[test]

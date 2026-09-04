@@ -28,8 +28,9 @@ para virar capacidade contratual.
 | interrupção | control request | `turn/interrupt` | `codex.rs`, testes Rust |
 | compactação | comando do CLI | `thread/compact/start` | testes de `codex.rs` |
 | relatório de contexto | stream/transcript | sintetizado de token usage | `context.test.ts`, testes de `codex.rs` |
-| seleção de MCP por workspace | config do CLI | config montada pelo app | `mcp.rs`, `codex.rs` |
-| seleção de plugins por workspace | flags do Claude | indisponível | `plugins.rs`, `launcher.ts` |
+| seleção de MCP por workspace | config estrita do CLI | tabela e ambiente montados pelo app | `mcp.rs`, `codex.rs`; erro de preparação impede spawn |
+| seleção de plugins por workspace | flags de sessão | marketplace + config isolada por workspace | `plugins.rs`, smoke do CLI, `codex.rs`, `launcher.ts`, E2E |
+| hooks de plugin escolhido | ativos desde `SessionStart` | `enabled = true` + confiança limitada a `pluginId` e hash antes da thread | testes de `codex.rs`; falha impede a thread |
 | anexos na fala | adaptado por caminho local | adaptado por caminho local | capability + `chat.ts`; falta teste transversal dedicado |
 | evento externo desconhecido | ignorado pelo adapter | ignorado pelo adapter | `conversation.test.ts`, testes de `claude.rs`/`codex.rs` |
 | compartilhamento ao vivo | V1 após normalização | V1 após normalização | `team*.test.ts`, E2E sobre mock |
@@ -46,6 +47,16 @@ Antes de habilitar uma feature para um provider:
 6. atualizar esta matriz com o caminho da evidência.
 
 Ausência de teste não deve virar `true` por semelhança entre providers.
+
+## Limitações conhecidas
+
+- origem de plugin em `.zip` local ou URL funciona no Claude e é recusada com
+  erro visível no Codex; pasta local é o formato portátil;
+- skills, comandos, MCP e hooks possuem adaptação portátil; `agents/*.md`
+  permanece exclusivo do Claude porque não integra o manifesto Codex atual;
+- plugins habilitados fora do Prometeu continuam sujeitos ao cadastro global
+  de cada CLI e não fazem parte da seleção do workspace;
+- anexos ainda não possuem teste transversal dedicado.
 
 ## Suíte de conformidade desejada
 

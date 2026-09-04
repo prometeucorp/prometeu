@@ -82,12 +82,18 @@ Semântica dos valores opcionais:
 - `null` em modelo ou esforço deixa o provider escolher seu padrão;
 - `null` em MCP/plugins significa não impor seleção e preservar a configuração
   do CLI;
-- lista vazia significa uma escolha explícita por nenhum item;
+- lista vazia significa não injetar nenhum item do hub do Prometeu; cadastro
+  global que o próprio CLI carrega permanece sob controle dele;
 - `resume` é uma identidade opaca aceita pelo provider. Pode ter sido escolhida
   pelo Prometeu, como no Claude, ou devolvida pelo provider, como no Codex.
 
 O core valida `SessionLaunch` contra as capacidades antes de iniciar o adapter.
 O adapter não deve corrigir silenciosamente uma combinação inválida.
+Configuração MCP ou de plugin escolhida que não possa ser materializada falha
+antes do spawn; hook declarado que não possa ser ativado falha antes da abertura
+da thread. Iniciar sem o comportamento solicitado não é fallback válido. O
+contrato detalhado de plugins está em
+[`plugin-marketplace.md`](plugin-marketplace.md).
 
 ## Port conceitual
 
@@ -109,6 +115,8 @@ Responsabilidades do adapter:
 
 - iniciar o executável e configurar seu ambiente;
 - converter `SessionLaunch` para argumentos ou requests do provider;
+- materializar MCP e plugins na forma exigida pelo provider sem expor essa
+  forma ao domínio;
 - correlacionar requests e respostas próprias do protocolo externo;
 - transformar saída externa em `ConversationEventV1`;
 - transformar `ConversationCommandV1` em entrada externa;

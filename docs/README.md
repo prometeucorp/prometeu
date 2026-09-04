@@ -17,6 +17,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   protocolo canônico pertencente ao Prometeu.
 - [`contracts/agent-runtime.md`](contracts/agent-runtime.md): descoberta,
   capacidades e port de execução dos agentes.
+- [`contracts/plugin-marketplace.md`](contracts/plugin-marketplace.md): hub,
+  pacote portátil e adaptação por provider.
 - [`contracts/ipc.md`](contracts/ipc.md): fronteira TypeScript/Rust.
 - [`contracts/persistence.md`](contracts/persistence.md): board e transcripts.
 - [`contracts/relay-v3.md`](contracts/relay-v3.md): protocolo de colaboração.
@@ -32,6 +34,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   disponibilidade de features por capacidades — aceita.
 - [`decisions/0004-prometeu-independent-identity.md`](decisions/0004-prometeu-independent-identity.md):
   identidade, persistência e release independentes do produto anterior — aceita.
+- [`decisions/0005-portable-plugin-marketplace.md`](decisions/0005-portable-plugin-marketplace.md):
+  um marketplace de plugins para Claude e Codex — aceita.
 
 ## Qualidade e operação
 

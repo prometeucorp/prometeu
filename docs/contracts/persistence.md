@@ -27,6 +27,8 @@ isoladas.
 | time e credencial | `<root>/team.json` | `team.rs` |
 | último snapshot de cotas | `<root>/usage.json` | `usage.rs` |
 | transcript V1 do Codex | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| hub de plugins | `<root>/plugins.json` | `plugins.rs` |
+| home/marketplace Codex derivado | `<root>/codex-workspaces/<workspace-hash>/` | `plugins.rs`; reconstruível |
 
 Worktrees ficam em `~/prometeu/worktrees[-dev]/...`, fora da raiz de estado.
 
@@ -52,6 +54,20 @@ Ao carregar:
 
 Mudança que remove, renomeia ou altera semântica de campo persistido exige teste
 com JSON da versão anterior.
+
+## Plugins derivados
+
+O hub é a fonte de verdade do Prometeu. A cópia e o marketplace sob
+`<root>/codex-workspaces/<workspace-hash>/marketplace/` são cache: carregam um
+hash da origem, podem ser recriados e não entram no board. O mesmo diretório
+contém um `config.toml` derivado que herda a configuração real e conserva a
+confiança e o estado ativo dos hooks daquele workspace. As demais entradas do
+`CODEX_HOME`, inclusive conta, sessões, skills e cache instalado, apontam para
+o home real do Codex. A configuração global não recebe marketplace nem
+ativação do Prometeu. Remover o workspace do quadro ou devolver seu worktree
+apaga essa camada derivada, sem seguir os links para o estado compartilhado. O
+contrato completo está em
+[`plugin-marketplace.md`](plugin-marketplace.md).
 
 ## Cotas
 

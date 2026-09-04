@@ -21,6 +21,7 @@ sequenceDiagram
     UI->>Session: new_tab / chat_send
     Session->>Session: resolve Launch do workspace ou da aba
     Session->>Adapter: spawn ou resume
+    Adapter->>Adapter: materializa MCP/plugins escolhidos
     Adapter->>Agent: inicia processo
     Agent-->>Adapter: saída do protocolo externo
     Adapter-->>Chat: ConversationEventV1
@@ -31,6 +32,16 @@ sequenceDiagram
 `Launch` reúne agente, modelo, esforço, plan mode, MCP e plugins. Uma aba pode
 sobrescrever agente/modelo/esforço do workspace; MCP e plugins continuam sendo
 escolhas do workspace.
+
+Materialização pertence à borda. Claude recebe MCP e plugins por seus arquivos
+e flags; Codex recebe a tabela MCP por override e plugins por um marketplace
+derivado dentro de um `CODEX_HOME` de configuração isolado por workspace. Conta,
+sessões e cache continuam compartilhados com o home real, sem escrever a
+seleção no `config.toml` global. Se uma seleção explícita não puder ser
+preparada, ou se os hooks declarados de um plugin não puderem ser ativados antes
+do `SessionStart`, a conversa não abre silenciosamente sem ela. O fluxo completo
+do marketplace está em
+[`plugin-marketplace.md`](../contracts/plugin-marketplace.md).
 
 Trocar modelo dentro do mesmo CLI derruba o processo e preserva a sessão.
 Trocar de Claude para Codex ou vice-versa exige outra aba, pois seus mecanismos

@@ -101,6 +101,9 @@ diretamente o JSON-RPC do Codex; ambos dependem das primitivas canônicas de
   `ProviderId` fica no catálogo ou nos adapters. `npm run architecture:check`
   protege essa fronteira nas telas principais e impede que o adapter Codex
   volte a emitir stream-json legado.
+- O hub de MCP/plugins é comum; arquivos, flags, marketplace, home de
+  configuração, ativação e confiança exigidos por um CLI são materializados
+  somente no adapter daquele provider.
 
 As regras detalhadas e o estado atual de cada uma estão em
 [`docs/architecture/dependency-rules.md`](docs/architecture/dependency-rules.md).
@@ -114,7 +117,7 @@ As regras detalhadas e o estado atual de cada uma estão em
 | agentes | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | Git e arquivos | `src/viewer.ts`, `src/csv.ts`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
-| MCP e plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs` |
+| MCP e plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
 | colaboração | `src/team.ts`, `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
 | terminal e preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
 
