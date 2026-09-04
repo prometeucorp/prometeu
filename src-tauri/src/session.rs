@@ -567,12 +567,16 @@ fn validate_multi_root(ws: &Workspace) -> Result<(), String> {
     }
     let names: Vec<String> = ws.repos.iter().map(|repo| repo.name.clone()).collect();
     let expected = paths::multi_dir(&names, &ws.branch);
+    // A importação preserva os worktrees no lugar para não copiar dezenas
+    // de gigabytes nem alterar a origem. A raiz antiga passa pela mesma conta
+    // exata; nenhum outro caminho ganha permissão para `remove_dir_all`.
+    let legacy = paths::prometheus_multi_dir(&names, &ws.branch);
     let root = Path::new(&ws.worktree);
     let children_match = ws.repos.iter().all(|repo| {
         let child = Path::new(&repo.worktree);
         child.parent() == Some(root) && child.file_name() == Some(repo.name.as_ref())
     });
-    if root == expected && children_match {
+    if (root == expected || root == legacy) && children_match {
         Ok(())
     } else {
         Err(i18n::t("err.cleanup.badRoot"))
@@ -1925,6 +1929,20 @@ mod tests {
             repo.worktree = multi.join(&repo.name).display().to_string();
         }
         super::validate_multi_root(&ws).unwrap();
+
+        // O importador não move os worktrees. A raiz antiga calculada pela
+        // mesma branch também é segura; um caminho apenas parecido, não.
+        let legacy = super::paths::prometheus_multi_dir(&names, &ws.branch);
+        ws.worktree = legacy.display().to_string();
+        for repo in &mut ws.repos {
+            repo.worktree = legacy.join(&repo.name).display().to_string();
+        }
+        super::validate_multi_root(&ws).unwrap();
+        ws.worktree = legacy.join("vizinho").display().to_string();
+        assert!(super::validate_multi_root(&ws)
+            .unwrap_err()
+            .contains("badRoot"));
+
         ws.worktree = super::paths::home().display().to_string();
         assert!(super::validate_multi_root(&ws)
             .unwrap_err()

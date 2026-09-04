@@ -282,6 +282,30 @@ export type Scripts = {
 
 export type Board = { stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
+/// A prévia do importador temporário do Prometheus. O backend calcula tudo a
+/// partir do disco; a tela apenas explica e pede a confirmação.
+export type LegacyImportPlan = {
+  state: "ready" | "missing" | "imported" | "targetNotEmpty" | "invalid";
+  source: string;
+  counts: {
+    projects: number;
+    workspaces: number;
+    activeWorkspaces: number;
+    archivedWorkspaces: number;
+    tabs: number;
+    transcripts: number;
+    missingTranscripts: number;
+    codexFiles: number;
+    plugins: number;
+    settings: number;
+    worktrees: number;
+    existingWorktrees: number;
+  };
+  problem: string | null;
+  importedAt: number | null;
+  backup: string | null;
+};
+
 /// Quem está do outro lado da conexão com o Linear: a pessoa e o workspace
 /// (a organização) que ela autorizou.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };

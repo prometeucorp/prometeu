@@ -451,6 +451,31 @@ let pluginHub: Plugin[] = [
   { id: "ponytail", source: "~/dev/ponytail", note: "em construção" },
 ];
 
+/// A importação existe no mock para a folha poder ser vista e testada. O
+/// navegador não toca no disco; a marca só sobrevive ao fluxo desta aba.
+let legacyImported = false;
+const legacyPlan = () => ({
+  state: legacyImported ? "imported" : "ready",
+  source: "/Users/gustavo/.prometheus",
+  counts: {
+    projects: 5,
+    workspaces: 166,
+    activeWorkspaces: 4,
+    archivedWorkspaces: 162,
+    tabs: 168,
+    transcripts: 163,
+    missingTranscripts: 5,
+    codexFiles: 35,
+    plugins: 2,
+    settings: 2,
+    worktrees: 66,
+    existingWorktrees: 66,
+  },
+  problem: null,
+  importedAt: legacyImported ? Math.floor(Date.now() / 1000) : null,
+  backup: legacyImported ? "/Users/gustavo/.prometeu/imports/prometheus-mock" : null,
+});
+
 /// A corrida da criação, no navegador: os passos saem de um relógio, e não de
 /// um agente.
 let pluginRun = 0;
@@ -578,6 +603,11 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
     }
     case "load_board":
       return board;
+    case "legacy_import_plan":
+      return legacyPlan();
+    case "legacy_import_run":
+      legacyImported = true;
+      return legacyPlan();
     // O time fica no localStorage aqui, para sobreviver a recarregar a aba —
     // no app é o `team.json` do back.
     case "team_config":

@@ -72,6 +72,10 @@ Atualização de implementação em 2026-09-04: a exceção foi encerrada. O
 Prometeu passou a usar seu próprio cadastro OAuth antes da primeira release
 pública, preservando o fluxo Authorization Code com PKCE e o escopo de leitura.
 
+Atualização de implementação em 2026-09-04: a importação posterior foi
+implementada pelo [ADR 0006](0006-explicit-prometheus-import.md), mantendo a
+origem independente e adotando os worktrees antigos sem movê-los.
+
 ## Evidência
 
 - testes de `paths.rs` cobrem as raízes novas;

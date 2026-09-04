@@ -49,6 +49,13 @@ pub fn ensure_private_dir(dir: &Path) -> Result<(), String> {
 /// nunca truncado e preenchido, para não haver um instante com ele vazio. O
 /// erro é a causa crua; quem chama embrulha no código da sua tela.
 pub fn write_private(target: &Path, body: &str) -> Result<(), String> {
+    write_private_bytes(target, body.as_bytes())
+}
+
+/// A mesma gravação privada e atômica para dados que não queremos
+/// transformar em `String` no caminho. A importação usa isto para preservar
+/// snapshots e transcripts byte a byte.
+pub fn write_private_bytes(target: &Path, body: &[u8]) -> Result<(), String> {
     use std::io::Write;
     if let Some(dir) = target.parent() {
         ensure_private_dir(dir)?;
@@ -68,10 +75,7 @@ pub fn write_private(target: &Path, body: &str) -> Result<(), String> {
         opts.mode(0o600);
     }
     let mut file = opts.open(&tmp).map_err(|e| e.to_string())?;
-    if let Err(error) = file
-        .write_all(body.as_bytes())
-        .and_then(|()| file.sync_all())
-    {
+    if let Err(error) = file.write_all(body).and_then(|()| file.sync_all()) {
         let _ = std::fs::remove_file(&tmp);
         return Err(error.to_string());
     }
@@ -120,6 +124,16 @@ pub fn multi_dir(names: &[String], branch: &str) -> PathBuf {
         .join(dir_name(branch))
 }
 
+/// A raiz exata que a versão instalada do Prometheus usava. Só entra na
+/// validação de workspaces importados: o Prometeu nunca cria nada aqui.
+pub(crate) fn prometheus_multi_dir(names: &[String], branch: &str) -> PathBuf {
+    home()
+        .join("prometheus")
+        .join("worktrees")
+        .join(names.join("+"))
+        .join(dir_name(branch))
+}
+
 /// O nome da pasta de uma branch. Trocar `/` por `-` é o que dá nome legível,
 /// mas sozinho ele colide: `feat/x` e `feat-x` viravam a mesma pasta, e a
 /// segunda sessão pegava silenciosamente o worktree da primeira — na branch
@@ -164,13 +178,18 @@ pub fn chat_log(id: &str) -> PathBuf {
 }
 
 pub fn transcript(id: &str, cwd: &Path) -> PathBuf {
+    transcript_at(&home(), id, cwd)
+}
+
+/// Variante injetável para a prévia da importação e seus testes. O Claude
+/// continua sendo dono do arquivo; apenas calculamos onde ele o guardou.
+pub(crate) fn transcript_at(home: &Path, id: &str, cwd: &Path) -> PathBuf {
     let slug: String = cwd
         .to_string_lossy()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    home()
-        .join(".claude/projects")
+    home.join(".claude/projects")
         .join(slug)
         .join(format!("{id}.jsonl"))
 }

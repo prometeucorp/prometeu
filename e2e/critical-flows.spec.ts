@@ -666,6 +666,30 @@ test("cria um plugin pelo Prometeu e ele entra na lista", async ({ page }) => {
   await expect(row).toContainText("~/.prometeu/plugins/diario-do-dia");
 });
 
+test("revê e confirma a importação temporária do Prometheus", async ({ page }) => {
+  await boot(page);
+  await page.locator("#settings").click();
+  await page.locator(".setnavitem", { hasText: "Aplicativo" }).click();
+
+  const row = page.locator(".setrow", { hasText: "Migrar do Prometheus" });
+  await expect(row).toContainText("5 projetos · 166 workspaces · 168 conversas");
+  await row.locator("button", { hasText: "Revisar" }).click();
+
+  const sheet = page.locator(".sheet.migration");
+  await expect(sheet).toContainText("163 históricos disponíveis");
+  await expect(sheet).toContainText("5 abas sem arquivo de histórico");
+  await expect(sheet).toContainText("sem cópia nem mudança de pasta");
+  const go = sheet.locator("button", { hasText: "Importar" });
+  await expect(go).toBeDisabled();
+
+  await sheet.locator(".migration-check input").check();
+  await expect(go).toBeEnabled();
+  await go.click();
+
+  await expect(sheet).toHaveCount(0);
+  await expect(row).toContainText("Dados importados em");
+});
+
 /// Instalar plugin era assunto de fora do app: instalar no CLI e importar
 /// depois. Agora é o endereço do repositório e mais nada — e o repositório que
 /// traz vários pergunta quais antes de cadastrar.

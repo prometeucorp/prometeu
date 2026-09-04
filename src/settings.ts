@@ -2,7 +2,7 @@ import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import * as alert from "./alert";
 import { avatar, icon } from "./icons";
-import { LANGS, choose, chosen, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
+import { LANGS, choose, chosen, current as locale, fromBack, fromSystem, t, tn, type Key, type Lang } from "./i18n";
 import {
   defaultEffort,
   defaultMcp,
@@ -21,7 +21,7 @@ import * as menu from "./menu";
 import * as plugins from "./plugins";
 import * as news from "./news";
 import * as team from "./team";
-import type { LinearStatus } from "./types";
+import type { LegacyImportPlan, LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
 
@@ -40,6 +40,7 @@ type Ctx = { say: (text: string, isError?: boolean) => void };
 
 let ctx: Ctx;
 let status: LinearStatus = { connected: false, who: null, busy: false };
+let legacy: LegacyImportPlan | null = null;
 
 export async function init(context: Ctx) {
   ctx = context;
@@ -51,6 +52,11 @@ export async function init(context: Ctx) {
     status = await invoke<LinearStatus>("linear_status");
   } catch {
     // Sem back (ou back velho) a tela continua de pé, só desconectada.
+  }
+  try {
+    legacy = await invoke<LegacyImportPlan>("legacy_import_plan");
+  } catch {
+    // Back anterior à feature: a linha temporária simplesmente não aparece.
   }
   // Cadastrar, importar ou remover um servidor muda a lista desta página.
   mcp.onChange(() => {
@@ -121,7 +127,7 @@ const PAGES: Page[] = [
     id: "app",
     title: "settings.app",
     glyph: "flame",
-    rows: () => [settingsRow(), news.settingsRow()],
+    rows: appRows,
   },
 ];
 
@@ -157,6 +163,153 @@ export function draw() {
   const wrap = h("div", "setwrap");
   wrap.append(nav, body);
   view.replaceChildren(wrap);
+}
+
+/* ---------- importação temporária do Prometheus ---------- */
+
+function appRows(): HTMLElement[] {
+  const rows = [settingsRow(), news.settingsRow()];
+  if (legacy && legacy.state !== "missing") rows.unshift(migrationRow(legacy));
+  return rows;
+}
+
+function importSummary(plan: LegacyImportPlan): string {
+  return [
+    tn(plan.counts.projects, "migration.projects"),
+    tn(plan.counts.workspaces, "migration.workspaces"),
+    tn(plan.counts.tabs, "migration.tabs"),
+  ].join(" · ");
+}
+
+function migrationRow(plan: LegacyImportPlan): HTMLElement {
+  const row = template(
+    "div",
+    "setrow",
+    `<span class="glyph">${icon("archive-restore", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
+  );
+  row.querySelector(".txt b")!.textContent = t("migration.title");
+  const body = row.querySelector(".txt span")!;
+  const action = row.querySelector(".act")!;
+
+  if (plan.state === "ready") {
+    body.textContent = t("migration.row.ready", { summary: importSummary(plan) });
+    const review = h("button", "outline md", t("migration.review"));
+    review.addEventListener("click", () => openMigration(plan));
+    action.append(review);
+  } else if (plan.state === "imported") {
+    const date = plan.importedAt
+      ? new Intl.DateTimeFormat(locale(), { dateStyle: "medium" }).format(new Date(plan.importedAt * 1000))
+      : "";
+    body.innerHTML = `<span class="ok"></span>`;
+    body.querySelector(".ok")!.textContent = t("migration.row.imported", { date });
+  } else if (plan.state === "targetNotEmpty") {
+    body.textContent = t("migration.row.targetNotEmpty");
+  } else {
+    body.innerHTML = `<span class="bad"></span>`;
+    body.querySelector(".bad")!.textContent = plan.problem ? fromBack(plan.problem) : t("migration.row.invalid");
+  }
+  return row;
+}
+
+function openMigration(plan: LegacyImportPlan) {
+  const veil = $("veil");
+  const sheet = template(
+    "div",
+    "sheet migration",
+    `<div class="sheettop"><b></b></div><div class="mbody"></div><div class="sheetbar"></div>`,
+  );
+  sheet.querySelector(".sheettop b")!.textContent = t("migration.title");
+  const body = sheet.querySelector(".mbody")!;
+  body.append(
+    h("p", "lead", t("migration.preview", { summary: importSummary(plan) })),
+    h(
+      "p",
+      "fact",
+      t("migration.preview.history", {
+        found: tn(plan.counts.transcripts, "migration.histories"),
+        missing: tn(plan.counts.missingTranscripts, "migration.missingHistories"),
+      }),
+    ),
+    h(
+      "p",
+      "fact",
+      t("migration.preview.extras", {
+        plugins: tn(plan.counts.plugins, "migration.plugins"),
+        settings: tn(plan.counts.settings, "migration.settingsFiles"),
+      }),
+    ),
+    h(
+      "p",
+      "fact",
+      t("migration.preview.worktrees", {
+        existing: plan.counts.existingWorktrees,
+        total: plan.counts.worktrees,
+      }),
+    ),
+    h("p", "fact", t("migration.preview.excluded")),
+  );
+
+  const closed = template("label", "migration-check", `<input type="checkbox"><span></span>`);
+  closed.querySelector("span")!.textContent = t("migration.closed");
+  const check = closed.querySelector("input") as HTMLInputElement;
+  body.append(closed);
+
+  const cancel = h("button", "ghost md", t("migration.cancel")) as HTMLButtonElement;
+  const hint = h("span", "hint");
+  const go = h("button", "pri md", t("migration.go")) as HTMLButtonElement;
+  go.disabled = true;
+  sheet.querySelector(".sheetbar")!.append(cancel, hint, go);
+
+  let running = false;
+  const hide = () => {
+    if (running) return;
+    veil.hidden = true;
+    veil.replaceChildren();
+    window.removeEventListener("keydown", key);
+  };
+  const key = (event: KeyboardEvent) => {
+    if (event.key === "Escape") hide();
+  };
+  check.addEventListener("change", () => (go.disabled = !check.checked));
+  cancel.addEventListener("click", hide);
+  go.addEventListener("click", async () => {
+    if (!check.checked || running) return;
+    running = true;
+    check.disabled = true;
+    cancel.disabled = true;
+    go.disabled = true;
+    go.textContent = t("migration.doing");
+    hint.textContent = "";
+    try {
+      const result = await invoke<LegacyImportPlan>("legacy_import_run");
+      legacy = result;
+      running = false;
+      hide();
+      try {
+        await plugins.refresh();
+      } catch {
+        // O quadro e os arquivos já foram importados; a próxima abertura
+        // relê o hub mesmo se este refresh visual falhar.
+      }
+      draw();
+      ctx.say(t("migration.done", { backup: result.backup ?? "" }));
+    } catch (error) {
+      running = false;
+      check.disabled = false;
+      cancel.disabled = false;
+      go.disabled = !check.checked;
+      go.textContent = t("migration.go");
+      hint.textContent = fromBack(error);
+      hint.classList.add("bad");
+    }
+  });
+
+  veil.onmousedown = (event) => {
+    if (event.target === veil) hide();
+  };
+  window.addEventListener("keydown", key);
+  veil.replaceChildren(sheet);
+  veil.hidden = false;
 }
 
 /// O idioma da tela. Guardado neste Mac e em mais lugar nenhum; sem escolha, o

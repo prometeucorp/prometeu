@@ -36,6 +36,8 @@ como índice curto para agentes e `README.md` apresenta o produto.
   identidade, persistência e release independentes do produto anterior — aceita.
 - [`decisions/0005-portable-plugin-marketplace.md`](decisions/0005-portable-plugin-marketplace.md):
   um marketplace de plugins para Claude e Codex — aceita.
+- [`decisions/0006-explicit-prometheus-import.md`](decisions/0006-explicit-prometheus-import.md):
+  importação explícita dos dados da instalação anterior — aceita.
 
 ## Qualidade e operação
 

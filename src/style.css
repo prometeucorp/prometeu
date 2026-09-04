@@ -1448,6 +1448,25 @@ body.noside .side { display: none; }
 .setrow .mem.off { color: var(--fg-3); }
 .setrow .mem.off .dot { background: var(--line-ghost); }
 
+/* Importador de transição: uma confirmação curta, mas com o inventário
+   inteiro à vista antes de tocar no estado local. */
+.sheet.migration { width: min(600px, 100%); }
+.sheet.migration .sheettop b { font-weight: 500; }
+.sheet.migration .mbody {
+  display: flex; flex-direction: column; gap: 9px; padding: 18px 20px 20px;
+  font-size: 12.5px; line-height: 1.5;
+}
+.sheet.migration .lead { margin: 0 0 4px; color: var(--fg); }
+.sheet.migration .fact { margin: 0; color: var(--fg-2); }
+.sheet.migration .migration-check {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 9px; padding: 12px;
+  background: var(--bg); border: 1px solid var(--line-raised); border-radius: var(--r-lg);
+  color: var(--fg);
+}
+.sheet.migration .migration-check input { flex: none; margin-top: 2px; accent-color: var(--accent); }
+.sheet.migration .sheetbar { border-top: 1px solid var(--line-raised); }
+.sheet.migration .sheetbar .hint { text-align: left; }
+
 /* ---------- time: quem olha e compartilhar ---------- */
 
 .watchers { display: inline-flex; align-items: center; padding-left: 2px; }

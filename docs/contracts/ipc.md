@@ -56,6 +56,18 @@ consumidor.
 `prometheusV1Mirror` são ignoradas pelo leitor atual. O Prometeu não produz
 essas projeções em logs novos.
 
+## Importação legada
+
+`legacy_import_plan` não altera estado. Ele devolve a origem, uma das situações
+`ready | missing | imported | targetNotEmpty | invalid`, as contagens da prévia
+e, quando aplicável, erro, instante e caminho do backup.
+
+`legacy_import_run` não recebe caminhos da apresentação: origem e destino são
+resolvidos pelo backend. Ele repete todas as validações, recusa o Prometheus
+aberto e um destino ocupado, executa a importação e devolve o mesmo DTO no
+estado `imported`. A mudança do board continua sendo publicada pelo evento
+`board`.
+
 ## Checklist de mudança
 
 Ao criar ou mudar comando:

@@ -260,7 +260,7 @@ async function remove(plugin: Plugin) {
 }
 
 /// Depois de uma criação: quem gravou foi o back, e a lista daqui está velha.
-async function refresh() {
+export async function refresh() {
   hub = await invoke<Plugin[]>("plugin_hub");
   announce();
 }

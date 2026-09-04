@@ -151,6 +151,18 @@ contexto pesa. A do Codex o app grava, em `~/.prometeu/chats/<aba>.jsonl`,
 nas mesmas linhas que a tela desenhou: o rollout do Codex tem outra forma, e o
 id da thread dele fica no estado do workspace para o `thread/resume`.
 
+### Migrar do Prometheus
+
+Quem usava a instalação anterior encontra **Configurações → Aplicativo →
+Migrar do Prometheus** enquanto o Prometeu ainda está vazio. A prévia conta
+projetos, workspaces, conversas, plugins e configurações antes da confirmação.
+
+O quadro e os históricos são copiados com backup; tokens e caches ficam de fora.
+Os worktrees continuam em `~/prometheus/worktrees`, sem duplicar o que costuma
+ser a maior parte do disco. Por isso o Prometheus deve ficar fechado depois da
+troca: enquanto esses worktrees não forem limpos ou movidos, os dois aplicativos
+apontam para as mesmas pastas Git.
+
 ### Os scripts do repositório
 
 Worktree separado só serve para editar até a hora de **testar**: worktree novo

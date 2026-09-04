@@ -38,3 +38,4 @@ Status: Proposto
 | [0003](0003-agent-capabilities.md) | Aceito | features dirigidas por capacidades |
 | [0004](0004-prometeu-independent-identity.md) | Aceito | identidade independente do Prometeu |
 | [0005](0005-portable-plugin-marketplace.md) | Aceito | marketplace portátil para Claude e Codex |
+| [0006](0006-explicit-prometheus-import.md) | Aceito | importação explícita e não destrutiva do Prometheus |

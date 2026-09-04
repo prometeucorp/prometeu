@@ -420,7 +420,7 @@ impl Board {
     /// Separado do `load` para poder ser testado: `load` lê de `paths::root()`,
     /// que sai de uma variável de ambiente — e ambiente é global, enquanto o
     /// cargo roda cada teste numa thread.
-    fn revive(&mut self) {
+    pub(crate) fn revive(&mut self) {
         for ws in &mut self.workspaces {
             // O app fechou no meio da montagem. A thread que montava morreu com
             // o processo, então continuar dizendo "montando" seria esperar por

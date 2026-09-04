@@ -43,6 +43,8 @@ export const IPC_COMMANDS = [
   "linear_issues",
   "linear_open",
   "linear_status",
+  "legacy_import_plan",
+  "legacy_import_run",
   "list_branches",
   "list_dir",
   "load_board",
