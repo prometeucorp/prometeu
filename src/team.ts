@@ -596,7 +596,6 @@ export async function share(id: string, audience: string[] | null | false) {
   await invoke("set_shared", { id, shared: on, audience: on ? audience : null });
 }
 
-export const isShared = (id: string) => announced.has(id);
 export const watchersOf = (tab: string): string[] => (watchers.get(tab) ?? []).map(nameOf);
 
 function watched(tab: string, who: string[], added: string[]) {
@@ -757,10 +756,6 @@ export function remotes(): Workspace[] {
 /// Este id de workspace é de um colega? Pelo prefixo, e não por busca: a
 /// resposta não pode mudar porque um share chegou ou saiu no meio.
 export const isRemote = (id: string) => id.startsWith(PREFIX);
-
-/// A aba remota que está na tela, se é uma. É por aqui que a tecla decide
-/// para onde vai — o id da aba sozinho não diz de quem ela é.
-export const attachedTab = () => attached?.tab ?? null;
 
 /// Abrir a aba de um colega: pede ao relay, espera as linhas chegarem e
 /// devolve o que a tela desenha. Uma aba por vez — abrir outra solta a

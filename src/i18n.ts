@@ -141,9 +141,6 @@ export function stage(name: string): string {
   return key in PT ? t(key) : name;
 }
 
-/// Número no formato do idioma: `1.234` em português, `1,234` em inglês.
-export const num = (n: number) => n.toLocaleString(lang);
-
 /// O que está escrito direto no `index.html`: `data-t` é o texto do nó e
 /// `data-t-title` é o `title` do botão. Marcar no HTML mantém o arquivo
 /// legível — a alternativa era mudar vinte rótulos para dentro do `main.ts` só

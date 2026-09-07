@@ -205,9 +205,6 @@ export function seeAll(id: string, repos: RepoDiff[]) {
   saveSeen(id);
 }
 
-export const unseen = (id: string, repos: RepoDiff[]) =>
-  repos.reduce((n, r) => n + r.files.filter((c) => !isSeen(id, r.name, c)).length, 0);
-
 /// Workspace que saiu do quadro leva junto o que você tinha lido nele.
 export function pruneSeen(alive: Set<string>) {
   const gone: string[] = [];

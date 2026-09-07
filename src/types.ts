@@ -75,7 +75,6 @@ export type GitStatus = {
   conflicts: GitFile[];
   error: string | null;
 };
-export type GitScope = "staged" | "changes" | "compare" | "commit";
 export type GitDiff = { base: string; head: string; files: Change[] };
 export type GitCommit = { oid: string; subject: string; author: string; date: string; outgoing: boolean };
 export type GitBranch = { name: string; current: boolean; remote: boolean; worktree: string | null; workspace: string | null };
