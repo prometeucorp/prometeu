@@ -1,6 +1,9 @@
 use crate::domain::Pr;
 use crate::lock::lock;
-use crate::state::{publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, Workspace};
+use crate::selection::{Selection, Tools};
+use crate::state::{
+    publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, ToolTrust, Workspace,
+};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -174,51 +177,337 @@ pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned:
     publish(&app);
 }
 
-/// MCP selections apply at process startup. Stop idle processes so the next message resumes their
-/// transcripts with the new tools. Active turns must finish first; stopping them would lose ongoing
-/// work.
+/// Which axis a payload selects for; standalone skills ride the plugin hub as `skill-<id>` but
+/// only belong to the skills axis.
+#[derive(Clone, Copy, PartialEq)]
+enum Axis {
+    Mcp,
+    Plugins,
+    Skills,
+}
+
+/// Interpret and validate one tool-axis argument: JSON `null` returns the axis to inherit, an
+/// object must deserialize as a `Selection` carrying only ids of its own axis. The workspace and
+/// global setters take `Option<Value>` so an absent axis stays unchanged while an explicit `null`
+/// clears it; a bare `Option<Selection>` argument would reject `null` instead of reading it as
+/// inherit. A malformed payload is an error rather than a silent reset to inherit, so a bad write
+/// cannot erase a persisted layer.
+fn axis(value: serde_json::Value, kind: Axis) -> Result<Option<Selection>, String> {
+    let selection = match value {
+        serde_json::Value::Null => return Ok(None),
+        other => serde_json::from_value::<Selection>(other)
+            .map_err(|_| i18n::t("err.tools.badPayload"))?,
+    };
+    let misplaced = |id: &str| match kind {
+        Axis::Skills => !id.starts_with("skill-"),
+        Axis::Plugins => id.starts_with("skill-"),
+        Axis::Mcp => false,
+    };
+    if selection
+        .add
+        .iter()
+        .chain(&selection.remove)
+        .any(|id| misplaced(id))
+    {
+        return Err(i18n::t("err.tools.badAxis"));
+    }
+    Ok(Some(selection))
+}
+
+/// Persist one workspace tool axis. The change applies at the next spawn or resume; a running session
+/// keeps the set it was born with (ADR 0043), so the picker states that instead of restarting the
+/// process, and this command only writes and republishes.
 #[tauri::command]
 pub fn set_workspace_mcp(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-    mcp: Option<Vec<String>>,
-) {
-    let tabs = {
+    mcp: Option<serde_json::Value>,
+) -> Result<(), String> {
+    let parsed = mcp.map(|value| axis(value, Axis::Mcp)).transpose()?;
+    {
         let mut board = lock(&state.board);
-        let Some(ws) = board.workspace_mut(&id) else {
-            return;
-        };
-        ws.mcp = mcp;
-        ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
-    };
-    for tab in tabs {
-        chat::kill(&state, &tab);
+        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), parsed) {
+            ws.mcp = value;
+        }
     }
     publish(&app);
+    Ok(())
 }
 
-/// Plugin selections apply at process startup. Restart idle tabs on their next message without
-/// losing their transcripts.
+/// Plugin selection shares the next-spawn application rule. Standalone skills live on their own axis
+/// now, so this no longer re-derives them from a combined list.
 #[tauri::command]
 pub fn set_workspace_plugins(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-    plugins: Option<Vec<String>>,
-) {
-    let tabs = {
+    plugins: Option<serde_json::Value>,
+) -> Result<(), String> {
+    let parsed = plugins
+        .map(|value| axis(value, Axis::Plugins))
+        .transpose()?;
+    {
         let mut board = lock(&state.board);
-        let Some(ws) = board.workspace_mut(&id) else {
-            return;
-        };
-        ws.plugins = plugins;
-        ws.tabs.iter().map(|t| t.id.clone()).collect::<Vec<_>>()
-    };
-    for tab in tabs {
-        chat::kill(&state, &tab);
+        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), parsed) {
+            ws.plugins = value;
+        }
     }
     publish(&app);
+    Ok(())
+}
+
+/// Standalone-skill selection, its own axis since ADR 0043. Skills still materialize through the
+/// plugin-package pipeline; only the state and the picker are separate.
+#[tauri::command]
+pub fn set_workspace_skills(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    skills: Option<serde_json::Value>,
+) -> Result<(), String> {
+    let parsed = skills.map(|value| axis(value, Axis::Skills)).transpose()?;
+    {
+        let mut board = lock(&state.board);
+        if let (Some(ws), Some(value)) = (board.workspace_mut(&id), parsed) {
+            ws.skills = value;
+        }
+    }
+    publish(&app);
+    Ok(())
+}
+
+/// Set the global layer of the tool selection, one axis at a time. An absent axis is unchanged; an
+/// explicit `null` returns it to inherit. The global layer is a board field, so the result reaches the
+/// frontend through the `board` event and the command returns nothing.
+#[tauri::command]
+pub fn set_tools_global(
+    app: AppHandle,
+    state: State<AppState>,
+    mcp: Option<serde_json::Value>,
+    plugins: Option<serde_json::Value>,
+    skills: Option<serde_json::Value>,
+) -> Result<(), String> {
+    let mcp = mcp.map(|value| axis(value, Axis::Mcp)).transpose()?;
+    let plugins = plugins
+        .map(|value| axis(value, Axis::Plugins))
+        .transpose()?;
+    let skills = skills.map(|value| axis(value, Axis::Skills)).transpose()?;
+    {
+        let mut board = lock(&state.board);
+        if let Some(value) = mcp {
+            board.tools.mcp = value;
+        }
+        if let Some(value) = plugins {
+            board.tools.plugins = value;
+        }
+        if let Some(value) = skills {
+            board.tools.skills = value;
+        }
+    }
+    publish(&app);
+    Ok(())
+}
+
+/// The project `[tools]` declaration and its trust state, for the interface (ADR 0043). `hash` and
+/// `repo` are empty and `tools` inherits when the primary repository declares nothing.
+#[derive(serde::Serialize)]
+pub struct ProjectTools {
+    /// Repository identity that keys the trust decision: `origin` URL or absolute clone path.
+    pub repo: String,
+    /// The settings file that declared the layer, if any.
+    pub file: Option<String>,
+    /// SHA-256 of the declared section; empty when the repository declares nothing.
+    pub hash: String,
+    /// The declared layer; every axis inherits when nothing is declared.
+    pub tools: Tools,
+    /// True when a declaration exists whose current hash is not approved, so the interface prompts.
+    pub pending: bool,
+    /// The stored decision for this repository, if any.
+    pub decision: Option<ToolTrust>,
+}
+
+/// Resolve a workspace or project id to the worktree and clone of the repository whose `[tools]`
+/// governs. A workspace uses its primary repository; a project uses its registered clone for both.
+/// Project and workspace ids never overlap (see `cwd_of`).
+fn tool_roots(board: &Board, id: &str) -> Option<(PathBuf, PathBuf)> {
+    board
+        .workspaces
+        .iter()
+        .find(|w| w.id == id)
+        .map(|w| {
+            let primary = w.primary();
+            (PathBuf::from(primary.worktree), PathBuf::from(primary.path))
+        })
+        .or_else(|| {
+            board
+                .projects
+                .iter()
+                .find(|p| p.id == id)
+                .map(|p| (PathBuf::from(&p.path), PathBuf::from(&p.path)))
+        })
+}
+
+/// Return the `[tools]` declared by the primary repository, the file that declared it, the hash of
+/// that section and the stored decision, so the project surface and the trust dialog can render
+/// without re-deriving them. `pending` is true only while no decision (approval or rejection)
+/// exists for the current hash, so an explicit rejection quiets the prompt until the declaration
+/// changes (ADR 0043).
+#[tauri::command]
+pub fn project_tools(state: State<AppState>, id: String) -> ProjectTools {
+    // Snapshot the board references; reading the repository settings runs a git subprocess and
+    // parses TOML, which must not hold the board mutex.
+    let (roots, trust) = {
+        let board = lock(&state.board);
+        (tool_roots(&board, &id), board.tool_trust.clone())
+    };
+    let declaration = roots.and_then(|(worktree, repo)| project_declaration(&worktree, &repo));
+    let Some(declaration) = declaration else {
+        return ProjectTools {
+            repo: String::new(),
+            file: None,
+            hash: String::new(),
+            tools: Tools::default(),
+            pending: false,
+            decision: None,
+        };
+    };
+    let decision = trust.iter().find(|t| t.repo == declaration.repo).cloned();
+    let pending = !decided(&trust, &declaration.repo, &declaration.hash);
+    ProjectTools {
+        repo: declaration.repo,
+        file: declaration.file,
+        hash: declaration.hash,
+        tools: declaration.tools,
+        pending,
+        decision,
+    }
+}
+
+/// Record the trust decision for a project declaration. The backend derives both the repository
+/// identity and the declaration hash — the presentation supplies only the person's verdict — so a
+/// recorded decision always binds to the declaration this command just read (ADR 0043). A
+/// repository without a declaration has nothing to trust and the command is a no-op. One decision
+/// per repository: a new verdict replaces the previous one, and a changed hash leaves the old
+/// decision until the person decides again. The decision is app-local and published through the
+/// `board` event.
+#[tauri::command]
+pub fn project_tools_trust(app: AppHandle, state: State<AppState>, id: String, approved: bool) {
+    let roots = {
+        let board = lock(&state.board);
+        tool_roots(&board, &id)
+    };
+    let Some(declaration) =
+        roots.and_then(|(worktree, repo)| project_declaration(&worktree, &repo))
+    else {
+        return;
+    };
+    {
+        let mut board = lock(&state.board);
+        let at = crate::actions::now();
+        match board
+            .tool_trust
+            .iter_mut()
+            .find(|t| t.repo == declaration.repo)
+        {
+            Some(decision) => {
+                decision.hash = declaration.hash;
+                decision.approved = approved;
+                decision.at = at;
+            }
+            None => board.tool_trust.push(ToolTrust {
+                repo: declaration.repo,
+                hash: declaration.hash,
+                approved,
+                at,
+            }),
+        }
+    }
+    publish(&app);
+}
+
+/// The effective tool selection of one workspace, per axis, each item labeled with where it came
+/// from, so the picker shows the resolved result without reading the three layers (ADR 0043).
+#[derive(serde::Serialize)]
+pub struct WorkspaceTools {
+    pub mcp: Vec<EffectiveItem>,
+    pub plugins: Vec<EffectiveItem>,
+    pub skills: Vec<EffectiveItem>,
+}
+
+/// Resolve the workspace's effective set with provenance. The project layer is read from the
+/// primary repository and gated on its stored trust decision: a declaration nobody decided on
+/// shows its items as pending, an explicitly rejected one shows them as rejected, and only an
+/// approval activates them. On the mcp axis of a Claude workspace the CLI-inherited servers join
+/// the universe as the visible base (ADR 0044).
+#[tauri::command]
+pub fn workspace_tools(state: State<AppState>, id: String) -> Result<WorkspaceTools, String> {
+    // Snapshot the board data; hub loads, git and CLI-config reads must not hold the board mutex.
+    let (global, trust, ws) = {
+        let board = lock(&state.board);
+        let Some(ws) = board.workspaces.iter().find(|w| w.id == id).cloned() else {
+            return Err(i18n::t("err.session.noWorkspace"));
+        };
+        (board.tools.clone(), board.tool_trust.clone(), ws)
+    };
+    let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
+    let (mcp_base, mcp_universe) = mcp_base_and_universe(&ws);
+    let primary = ws.primary();
+    let declaration = project_declaration(Path::new(&primary.worktree), Path::new(&primary.path));
+    let (project, gate) = match &declaration {
+        Some(declaration) => (
+            declaration.tools.clone(),
+            gate_of(&trust, &declaration.repo, &declaration.hash),
+        ),
+        None => (Tools::default(), Gate::Trusted),
+    };
+    let workspace = ws.tools();
+    Ok(WorkspaceTools {
+        mcp: axis_provenance(
+            &global.mcp,
+            &project.mcp,
+            gate,
+            &workspace.mcp,
+            &mcp_base,
+            &mcp_universe,
+        ),
+        plugins: axis_provenance(
+            &global.plugins,
+            &project.plugins,
+            gate,
+            &workspace.plugins,
+            &[],
+            &plugin_hub,
+        ),
+        // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters it too.
+        skills: axis_provenance(
+            &global.skills,
+            &project.skills,
+            gate,
+            &workspace.skills,
+            &[],
+            &plugin_hub,
+        ),
+    })
+}
+
+/// The CLI-inherited servers of one workspace, absent from the hub, for the composer's picker rows
+/// and button gating (ADR 0044). Discovery reads Claude's configuration, so a Codex workspace has
+/// no inherited base and its rows stay hub-only.
+#[tauri::command]
+pub fn mcp_inherited(state: State<AppState>, id: String) -> Vec<crate::mcp::Server> {
+    // Discovery reads the CLI configuration files; it must not hold the board mutex.
+    let ws = {
+        let board = lock(&state.board);
+        board.workspaces.iter().find(|w| w.id == id).cloned()
+    };
+    let Some(ws) = ws else {
+        return Vec::new();
+    };
+    if ws.agent != ProviderId::Claude {
+        return Vec::new();
+    }
+    crate::mcp::inherited_missing_hub(Path::new(&ws.worktree))
 }
 
 /// Model and effort changes require a process restart; the next message resumes the same transcript
@@ -625,6 +914,10 @@ pub struct Launch {
     /// and plugins.rs.
     #[serde(default)]
     pub plugins: Option<Vec<String>>,
+    /// Standalone-skill hub IDs (`skill-<id>`). They share the plugin-package pipeline, so the
+    /// adapters materialize them together with `plugins`. None preserves the CLI's own configuration.
+    #[serde(default)]
+    pub skills: Option<Vec<String>>,
 }
 
 /// Convert a persisted tab choice into launch settings. Plan mode belongs to the initial request
@@ -638,29 +931,355 @@ impl From<Choice> for Launch {
             plan: false,
             mcp: None,
             plugins: None,
+            skills: None,
             ..Default::default()
         }
     }
 }
 
+impl Launch {
+    /// Plugins and standalone skills share the plugin-package pipeline, so a spawn materializes the
+    /// two resolved axes together. `None` on both preserves the CLI's own plugins; otherwise the
+    /// selected packages are the union, in plugin-then-skill order.
+    pub fn plugin_packages(&self) -> Option<Vec<String>> {
+        match (&self.plugins, &self.skills) {
+            (None, None) => None,
+            (plugins, skills) => {
+                let mut merged = plugins.clone().unwrap_or_default();
+                if let Some(skills) = skills {
+                    merged.extend(skills.iter().cloned());
+                }
+                Some(merged)
+            }
+        }
+    }
+}
+
+/// The hub IDs a session injects, one axis at a time, after composing the layers. `None` on an axis
+/// means no layer declared it, so the provider keeps its own configuration; `Some` is the resolved
+/// set to materialize (possibly empty, which injects nothing from the hub).
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedTools {
+    pub(crate) mcp: Option<Vec<String>>,
+    pub(crate) plugins: Option<Vec<String>>,
+    pub(crate) skills: Option<Vec<String>>,
+}
+
+/// Resolve one axis. When every layer inherits, the axis stays `None` so the provider's own
+/// configuration is preserved; otherwise the composed set — over the CLI-inherited base, when one
+/// applies — is what the session injects.
+fn resolve_axis(
+    global: &Option<Selection>,
+    project: &Option<Selection>,
+    workspace: &Option<Selection>,
+    base: &[String],
+    universe: &[String],
+) -> Option<Vec<String>> {
+    if global.is_none() && project.is_none() && workspace.is_none() {
+        None
+    } else {
+        Some(crate::selection::resolve_with_base(
+            base, global, project, workspace, universe,
+        ))
+    }
+}
+
+/// Compose the three layers into the IDs a launch injects, keeping only IDs the universe still has.
+/// The hubs, the mcp inherited base (ADR 0044) and the project layer come from the caller so the
+/// chain stays testable without disk. The project layer must already be gated on trust before it
+/// reaches here (ADR 0043, phase 4); see `trusted_project`.
+pub(crate) fn resolve_tools(
+    global: &Tools,
+    project: &Tools,
+    workspace: &Tools,
+    mcp_base: &[String],
+    mcp_universe: &[String],
+    plugin_hub: &[String],
+) -> ResolvedTools {
+    ResolvedTools {
+        mcp: resolve_axis(
+            &global.mcp,
+            &project.mcp,
+            &workspace.mcp,
+            mcp_base,
+            mcp_universe,
+        ),
+        plugins: resolve_axis(
+            &global.plugins,
+            &project.plugins,
+            &workspace.plugins,
+            &[],
+            plugin_hub,
+        ),
+        // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters too.
+        skills: resolve_axis(
+            &global.skills,
+            &project.skills,
+            &workspace.skills,
+            &[],
+            plugin_hub,
+        ),
+    }
+}
+
+/// The project `[tools]` declaration of a repository, with the identity and hash that key its trust
+/// decision (ADR 0043). `project_declaration` returns `None` when the repository declares nothing,
+/// so an absent layer needs no approval and simply inherits.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ProjectDeclaration {
+    /// Repository identity: the `origin` remote URL when one exists, else the clone's absolute path.
+    pub repo: String,
+    /// SHA-256 of the canonical form of the declared `[tools]` section.
+    pub hash: String,
+    /// The settings file that declared it, surfaced by the interface.
+    pub file: Option<String>,
+    /// The declared layer.
+    pub tools: Tools,
+}
+
+/// Read the primary repository's `[tools]` and derive its trust identity. Returns `None` when the
+/// repository declares no tools, so there is nothing to trust.
+pub(crate) fn project_declaration(worktree: &Path, repo: &Path) -> Option<ProjectDeclaration> {
+    let scripts = crate::scripts::read_for(worktree, repo);
+    if scripts.tools == Tools::default() {
+        return None;
+    }
+    Some(ProjectDeclaration {
+        repo: repo_identity(repo),
+        hash: tools_hash(&scripts.tools),
+        file: scripts.file,
+        tools: scripts.tools,
+    })
+}
+
+/// Identify a repository for trust: its `origin` remote URL when one exists, else the clone's
+/// absolute path. The URL survives a moved clone; the path covers a repository without a remote.
+fn repo_identity(repo: &Path) -> String {
+    let origin = git(repo, &["remote", "get-url", "origin"]);
+    let origin = origin.trim();
+    if !origin.is_empty() {
+        return origin.to_string();
+    }
+    repo.canonicalize()
+        .unwrap_or_else(|_| repo.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Hash the declared `[tools]` so a changed declaration re-prompts. Hashing the parsed structure,
+/// not the raw TOML, keeps the decision stable across comments, key order and whitespace.
+fn tools_hash(tools: &Tools) -> String {
+    use sha2::{Digest, Sha256};
+    let canonical = serde_json::to_string(tools).unwrap_or_default();
+    format!("{:x}", Sha256::digest(canonical.as_bytes()))
+}
+
+/// True when the person approved this exact declaration for this repository.
+fn approved(trust: &[ToolTrust], repo: &str, hash: &str) -> bool {
+    trust
+        .iter()
+        .any(|t| t.repo == repo && t.hash == hash && t.approved)
+}
+
+/// True when a decision (approval or rejection) exists for this exact declaration; a rejection
+/// quiets the prompt until the hash changes (ADR 0043).
+fn decided(trust: &[ToolTrust], repo: &str, hash: &str) -> bool {
+    trust.iter().any(|t| t.repo == repo && t.hash == hash)
+}
+
+/// Whether a declared project layer may activate, for provenance labeling.
+#[derive(Clone, Copy, PartialEq)]
+enum Gate {
+    Trusted,
+    /// Nobody decided on the current hash yet, so the interface prompts.
+    Pending,
+    /// The current hash was explicitly rejected; resolved yet not injected, and no prompt.
+    Rejected,
+}
+
+fn gate_of(trust: &[ToolTrust], repo: &str, hash: &str) -> Gate {
+    match trust.iter().find(|t| t.repo == repo && t.hash == hash) {
+        Some(decision) if decision.approved => Gate::Trusted,
+        Some(_) => Gate::Rejected,
+        None => Gate::Pending,
+    }
+}
+
+/// The project layer a workspace may inject: the primary repository's declared `[tools]` when its
+/// current hash is approved, otherwise nothing. Until approved, project-declared items stay out of
+/// the composition entirely, so they never reach a spawn (ADR 0043, "Trust").
+fn trusted_project(trust: &[ToolTrust], ws: &Workspace) -> Tools {
+    let primary = ws.primary();
+    let Some(declaration) =
+        project_declaration(Path::new(&primary.worktree), Path::new(&primary.path))
+    else {
+        return Tools::default();
+    };
+    match approved(trust, &declaration.repo, &declaration.hash) {
+        true => declaration.tools,
+        false => Tools::default(),
+    }
+}
+
+/// Load the hubs and resolve one workspace's tools, gating the project layer on its stored trust
+/// decision. Production spawns call this; tests build a `ResolvedTools` directly to stay off disk.
+pub(crate) fn resolve_workspace_tools(
+    global: &Tools,
+    trust: &[ToolTrust],
+    ws: &Workspace,
+) -> ResolvedTools {
+    let (mcp_base, mcp_universe) = mcp_base_and_universe(ws);
+    let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
+    resolve_tools(
+        global,
+        &trusted_project(trust, ws),
+        &ws.tools(),
+        &mcp_base,
+        &mcp_universe,
+        &plugin_hub,
+    )
+}
+
+/// The mcp axis base and universe of one workspace (ADR 0044): the hub IDs plus the servers the CLI
+/// itself loads for the workspace's working directory. Discovery reads Claude's configuration, so a
+/// Codex workspace keeps the hub-only universe and today's coexistence behavior. A hub entry wins
+/// an ID clash, keeping an imported server Prometeu-managed.
+fn mcp_base_and_universe(ws: &Workspace) -> (Vec<String>, Vec<String>) {
+    let mut universe: Vec<String> = crate::mcp::load().into_iter().map(|s| s.id).collect();
+    if ws.agent != ProviderId::Claude {
+        return (Vec::new(), universe);
+    }
+    let base: Vec<String> = crate::mcp::inherited(Path::new(&ws.worktree))
+        .into_iter()
+        .map(|s| s.id)
+        .filter(|id| !universe.contains(id))
+        .collect();
+    universe.extend(base.iter().cloned());
+    (base, universe)
+}
+
+/// Where one effective item came from in the chain, so the picker shows the result without
+/// opening each layer (ADR 0043). `Removed` and `Pending` items are listed but not injected.
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Provenance {
+    /// Active because a layer above the workspace selected it.
+    Inherited,
+    /// Active because the workspace layer added it.
+    Added,
+    /// Inactive because the workspace layer removed an otherwise-inherited item.
+    Removed,
+    /// Declared by the project but not yet trusted, so resolved yet not injected.
+    Pending,
+    /// Declared by the project and explicitly rejected for its current hash; resolved yet not
+    /// injected, and the interface stops prompting until the declaration changes.
+    Rejected,
+    /// Active because the person's CLI configuration loads it, not a Prometeu hub choice; the
+    /// visible inherited base of the mcp axis (ADR 0044).
+    Cli,
+}
+
+/// One item of the axis universe with its provenance.
+#[derive(serde::Serialize)]
+pub struct EffectiveItem {
+    pub id: String,
+    pub provenance: Provenance,
+}
+
+/// Classify every id of the axis universe for the picker. `project` is the declared layer and
+/// `gate` says whether it may activate; while gated, the items it declares appear as `Pending` or
+/// `Rejected`. The workspace layer is the person's own action, so an item it adds is active even
+/// while the project declaration is still gated. `base` holds the CLI-inherited ids (ADR 0044):
+/// an active one is labeled `Cli`, and the workspace can drop it with a removal like any inherited
+/// item. Items with no story (off and untouched) are omitted.
+fn axis_provenance(
+    global: &Option<Selection>,
+    project: &Option<Selection>,
+    gate: Gate,
+    workspace: &Option<Selection>,
+    base: &[String],
+    universe: &[String],
+) -> Vec<EffectiveItem> {
+    let gated = (gate == Gate::Trusted).then(|| project.clone()).flatten();
+    let effective = crate::selection::resolve_with_base(base, global, &gated, workspace, universe);
+    // What the project layer alone would contribute, to label gated items.
+    let declared = crate::selection::resolve(&None, project, &None, universe);
+    universe
+        .iter()
+        .filter_map(|id| {
+            let on = effective.contains(id);
+            let added = workspace.as_ref().is_some_and(|s| s.add.contains(id));
+            let removed = workspace.as_ref().is_some_and(|s| s.remove.contains(id));
+            let provenance = if on && added {
+                Provenance::Added
+            } else if on && base.contains(id) {
+                Provenance::Cli
+            } else if on {
+                Provenance::Inherited
+            } else if removed {
+                Provenance::Removed
+            } else if gate != Gate::Trusted && declared.contains(id) {
+                match gate {
+                    Gate::Rejected => Provenance::Rejected,
+                    _ => Provenance::Pending,
+                }
+            } else {
+                return None;
+            };
+            Some(EffectiveItem {
+                id: id.clone(),
+                provenance,
+            })
+        })
+        .collect()
+}
+
+impl ResolvedTools {
+    /// Plugins and standalone skills share the plugin-package pipeline, so a spawn materializes the
+    /// two resolved axes together. `None` on both preserves the CLI's own plugins; otherwise the
+    /// selected packages are the union, in plugin-then-skill order.
+    pub(crate) fn plugin_packages(&self) -> Option<Vec<String>> {
+        match (&self.plugins, &self.skills) {
+            (None, None) => None,
+            (plugins, skills) => {
+                let mut merged = plugins.clone().unwrap_or_default();
+                if let Some(skills) = skills {
+                    merged.extend(skills.iter().cloned());
+                }
+                Some(merged)
+            }
+        }
+    }
+}
+
 impl Workspace {
-    /// Default conversations inherit the workspace's model, effort, and tools. Plan mode remains an
-    /// explicit launcher choice.
-    pub fn launch(&self) -> Launch {
+    /// This workspace's three axes as the workspace layer of the tool selection.
+    fn tools(&self) -> Tools {
+        Tools {
+            mcp: self.mcp.clone(),
+            plugins: self.plugins.clone(),
+            skills: self.skills.clone(),
+        }
+    }
+
+    /// Default conversations inherit the workspace's model and effort and carry the already resolved
+    /// tools. Plan mode remains an explicit launcher choice.
+    pub(crate) fn launch(&self, tools: &ResolvedTools) -> Launch {
         Launch {
             agent: self.agent,
             model: self.model.clone(),
             effort: self.effort.clone(),
             plan: false,
-            mcp: self.mcp.clone(),
-            plugins: self.plugins.clone(),
+            mcp: tools.mcp.clone(),
+            plugins: tools.plugins.clone(),
+            skills: tools.skills.clone(),
             ..Default::default()
         }
     }
 
-    /// Resume with the tab's model override or workspace defaults. Ordinary tabs inherit current
-    /// workspace tools; tasks retain their resolved profile, instructions, and permissions.
-    pub fn launch_of(&self, tab: &str) -> Launch {
+    /// Resume with the tab's model override or workspace defaults. Ordinary tabs carry the resolved
+    /// tools; tasks retain their frozen profile, instructions, and permissions.
+    pub(crate) fn launch_of(&self, tab: &str, tools: &ResolvedTools) -> Launch {
         if let Some(run) = self
             .tabs
             .iter()
@@ -681,16 +1300,18 @@ impl Workspace {
                 .iter()
                 .find(|t| t.id == tab)
                 .and_then(|t| t.choice.clone()),
+            tools,
         )
     }
 
-    /// Model overrides preserve workspace tool selections for new and resumed tabs.
-    fn launch_with(&self, choice: Option<Choice>) -> Launch {
+    /// Model overrides preserve the resolved tool selection for new and resumed tabs.
+    fn launch_with(&self, choice: Option<Choice>, tools: &ResolvedTools) -> Launch {
         choice.map_or_else(
-            || self.launch(),
+            || self.launch(tools),
             |choice| Launch {
-                mcp: self.mcp.clone(),
-                plugins: self.plugins.clone(),
+                mcp: tools.mcp.clone(),
+                plugins: tools.plugins.clone(),
+                skills: tools.skills.clone(),
                 ..Launch::from(choice)
             },
         )
@@ -703,7 +1324,14 @@ impl Workspace {
         if self.tabs.iter().any(|t| t.id == tab && t.task.is_some()) {
             return Err(i18n::t("err.actions.frozen"));
         }
-        if self.launch_of(tab).agent != choice.agent {
+        // The tab is ordinary, so its provider is the model override or the workspace default.
+        let current = self
+            .tabs
+            .iter()
+            .find(|t| t.id == tab)
+            .and_then(|t| t.choice.clone())
+            .map_or(self.agent, |c| c.agent);
+        if current != choice.agent {
             return Err(i18n::t("err.session.otherAgent"));
         }
         let follows = choice.agent == self.agent
@@ -828,7 +1456,7 @@ pub fn create_workspace(
         .collect();
     let port = scripts::alloc_port(&root, &taken);
 
-    let ws = Workspace {
+    let mut ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
         title: if draft.title.trim().is_empty() {
             branch.clone()
@@ -857,12 +1485,16 @@ pub fn create_workspace(
         agent: draft.launch.agent,
         model: draft.launch.model.clone(),
         effort: draft.launch.effort.clone(),
-        mcp: draft.launch.mcp.clone(),
-        plugins: draft.launch.plugins.clone(),
+        // The launcher's explicit selections become the workspace layer; `None` keeps inheriting the
+        // layers above. Standalone skills are normalized onto their own axis below.
+        mcp: draft.launch.mcp.clone().map(Selection::only),
+        plugins: draft.launch.plugins.clone().map(Selection::only),
+        skills: draft.launch.skills.clone().map(Selection::only),
         port,
         active: None,
         tabs: Vec::new(),
     };
+    crate::state::split_skills(&mut ws.plugins, &mut ws.skills);
 
     // Publish the workspace before startup so setup completion can find pending prompts on its
     // tabs.
@@ -943,13 +1575,34 @@ fn build(app: &AppHandle, id: &str, draft: &Draft, cols: u16, rows: u16) -> Resu
         switch_branch(&repo, &branch, &draft.base)?;
     }
 
+    // The first conversation keeps the launcher's model, instructions, and permissions, but its
+    // tool axes resolve through the global and workspace layers like any other spawn. Resolution
+    // runs git subprocesses and reads CLI configuration, so it happens off the board mutex.
+    let launch = {
+        let (global, trust, ws) = {
+            let board = lock(&state.board);
+            (
+                board.tools.clone(),
+                board.tool_trust.clone(),
+                board.workspaces.iter().find(|w| w.id == id).cloned(),
+            )
+        };
+        let mut launch = draft.launch.clone();
+        if let Some(ws) = &ws {
+            let tools = resolve_workspace_tools(&global, &trust, ws);
+            launch.mcp = tools.mcp;
+            launch.plugins = tools.plugins;
+            launch.skills = tools.skills;
+        }
+        launch
+    };
     let tab = spawn_tab(
         app,
         &state,
         id,
         "",
         first_message(&draft.prompt, &draft.inject),
-        &draft.launch,
+        &launch,
         // The first conversation uses the launch settings already saved on the workspace, so it
         // needs no tab override.
         None,
@@ -997,19 +1650,21 @@ pub fn new_tab(
 ) -> Result<Tab, String> {
     // Neither path restores plan mode; it belongs to the initial request.
     let (launch, choice) = {
-        let board = lock(&state.board);
-        let ws = board
-            .workspaces
-            .iter()
-            .find(|w| w.id == workspace)
-            .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        let (global, trust, ws) = {
+            let board = lock(&state.board);
+            let Some(ws) = board.workspaces.iter().find(|w| w.id == workspace).cloned() else {
+                return Err(i18n::t("err.session.noWorkspace"));
+            };
+            (board.tools.clone(), board.tool_trust.clone(), ws)
+        };
         if ws.cleaned {
             return Err(i18n::t("err.session.cleaned"));
         }
         // Clear choices that match workspace defaults instead of storing duplicate settings.
         let choice =
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
-        let launch = ws.launch_with(choice.clone());
+        let tools = resolve_workspace_tools(&global, &trust, &ws);
+        let launch = ws.launch_with(choice.clone(), &tools);
         (launch, choice)
     };
 
@@ -1095,23 +1750,33 @@ pub fn resume_tab(app: AppHandle, state: State<AppState>, tab: String) -> Result
 
 /// Restart the process for resume_tab or the first message sent to a stopped tab through chat_send.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (workspace, worktree, launch, cleaned, agent_session) = lock(&state.board)
-        .workspace_of(tab)
-        .map(|w| {
-            let previous = w
-                .tabs
-                .iter()
-                .find(|t| t.id == tab)
-                .and_then(|t| t.agent_session.clone());
-            (
-                w.id.clone(),
-                PathBuf::from(&w.worktree),
-                w.launch_of(tab),
-                w.cleaned,
-                previous,
-            )
-        })
-        .ok_or_else(|| i18n::t("err.session.noTab"))?;
+    let (workspace, worktree, launch, cleaned, agent_session) = {
+        // Snapshot under the lock; tool resolution runs git subprocesses and reads CLI
+        // configuration, which must not block board events.
+        let (global, trust, snapshot) = {
+            let board = lock(&state.board);
+            let snapshot = board.workspace_of(tab).map(|w| {
+                let previous = w
+                    .tabs
+                    .iter()
+                    .find(|t| t.id == tab)
+                    .and_then(|t| t.agent_session.clone());
+                (w.clone(), previous)
+            });
+            (board.tools.clone(), board.tool_trust.clone(), snapshot)
+        };
+        let Some((ws, previous)) = snapshot else {
+            return Err(i18n::t("err.session.noTab"));
+        };
+        let tools = resolve_workspace_tools(&global, &trust, &ws);
+        (
+            ws.id.clone(),
+            PathBuf::from(&ws.worktree),
+            ws.launch_of(tab, &tools),
+            ws.cleaned,
+            previous,
+        )
+    };
     if cleaned {
         return Err(i18n::t("err.session.cleaned"));
     }
@@ -1583,7 +2248,8 @@ pub fn list_branches(project: String) -> Branches {
 #[cfg(test)]
 mod tests {
     use super::{
-        multi_pr_text, patch_map, pr_text, Choice, Pr, ProviderId, Repo, RepoPr, Tab, Workspace,
+        multi_pr_text, patch_map, pr_text, resolve_tools, Choice, Pr, ProviderId, Repo, RepoPr,
+        ResolvedTools, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -1673,6 +2339,7 @@ mod tests {
             preparing: false,
             mcp: None,
             plugins: None,
+            skills: None,
             failed: None,
             model: String::new(),
             effort: String::new(),
@@ -1876,6 +2543,7 @@ mod tests {
             preparing: false,
             mcp: None,
             plugins: None,
+            skills: None,
             failed: None,
             agent: ProviderId::Claude,
             model: String::new(),
@@ -1904,21 +2572,28 @@ mod tests {
     }
 
     #[test]
-    fn new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides() {
+    fn new_and_resumed_tabs_preserve_resolved_tools_with_model_overrides() {
         for selected in [None, Some(vec![]), Some(vec!["selected".to_string()])] {
             for provider in [ProviderId::Claude, ProviderId::Codex] {
                 let mut ws = bare();
                 ws.model = "workspace-model".into();
                 ws.effort = "high".into();
-                ws.mcp = selected.clone();
-                ws.plugins = selected.clone();
+                // The caller resolves the layers; a tab carries that result whatever its model.
+                let tools = ResolvedTools {
+                    mcp: selected.clone(),
+                    plugins: selected.clone(),
+                    skills: None,
+                };
                 let choice = Choice {
                     agent: provider,
                     model: "tab-model".into(),
                     effort: "medium".into(),
                 };
                 ws.tabs = vec![tab("custom", Some(choice.clone())), tab("inherited", None)];
-                for launch in [ws.launch_with(Some(choice)), ws.launch_of("custom")] {
+                for launch in [
+                    ws.launch_with(Some(choice), &tools),
+                    ws.launch_of("custom", &tools),
+                ] {
                     assert_eq!(launch.agent, provider);
                     assert_eq!(launch.model, "tab-model");
                     assert_eq!(launch.effort, "medium");
@@ -1926,7 +2601,10 @@ mod tests {
                     assert_eq!(launch.plugins, selected);
                     assert!(!launch.plan);
                 }
-                for launch in [ws.launch_with(None), ws.launch_of("inherited")] {
+                for launch in [
+                    ws.launch_with(None, &tools),
+                    ws.launch_of("inherited", &tools),
+                ] {
                     assert_eq!(launch.model, "workspace-model");
                     assert_eq!(launch.effort, "high");
                     assert_eq!(launch.mcp, selected);
@@ -1936,12 +2614,303 @@ mod tests {
         }
     }
 
+    /// A legacy board stored standalone skills inside `plugins`. After migration the skill moves to
+    /// its own axis, yet a spawn still materializes both through the plugin pipeline, so an old
+    /// workspace keeps the tools it had. See ADR 0043 and docs/contracts/persistence.md.
+    #[test]
+    fn ferramentas_legadas_com_skill_migram_e_continuam_materializando() {
+        use crate::selection::{Selection, Tools};
+        use crate::state::split_skills;
+
+        let mut ws = bare();
+        // The pre-migration selection: one plugin and one standalone skill mixed on the plugin axis.
+        ws.plugins = Some(Selection::only(vec![
+            "revisor".into(),
+            "skill-review".into(),
+        ]));
+        split_skills(&mut ws.plugins, &mut ws.skills);
+        assert_eq!(ws.plugins, Some(Selection::only(vec!["revisor".into()])));
+        assert_eq!(
+            ws.skills,
+            Some(Selection::only(vec!["skill-review".into()]))
+        );
+
+        // Both ride the plugin hub, so resolution keeps them and a launch materializes the union in
+        // plugin-then-skill order, exactly as the old single-axis selection did.
+        let hub = vec!["revisor".to_string(), "skill-review".to_string()];
+        let tools = resolve_tools(
+            &Tools::default(),
+            &Tools::default(),
+            &ws.tools(),
+            &[],
+            &[],
+            &hub,
+        );
+        let launch = ws.launch(&tools);
+        assert_eq!(launch.plugins, Some(vec!["revisor".into()]));
+        assert_eq!(launch.skills, Some(vec!["skill-review".into()]));
+        assert_eq!(
+            launch.plugin_packages(),
+            Some(vec!["revisor".into(), "skill-review".into()])
+        );
+    }
+
+    /// A project `[tools]` declaration is gated on trust: it composes only when the person approved
+    /// the current hash, a changed declaration re-gates until approved again, and a rejection never
+    /// activates it (ADR 0043, phase 4).
+    #[test]
+    fn projeto_so_injeta_depois_de_aprovado_e_reprova_quando_o_hash_muda() {
+        use super::{project_declaration, tools_hash, trusted_project};
+        use crate::selection::{Selection, Tools};
+        use crate::state::ToolTrust;
+
+        let root = std::env::temp_dir().join(format!("prometeu-trust-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".prometeu")).unwrap();
+        std::fs::write(
+            root.join(".prometeu/settings.toml"),
+            "[tools]\nplugins = { base = \"none\", add = [\"revisor\"] }\n",
+        )
+        .unwrap();
+
+        let mut ws = bare();
+        ws.repo = root.display().to_string();
+        ws.worktree = root.display().to_string();
+        ws.repos.push(Repo {
+            path: root.display().to_string(),
+            name: "trust".into(),
+            worktree: root.display().to_string(),
+            base: String::new(),
+            pr: None,
+        });
+
+        let hub = vec!["revisor".to_string()];
+        let declaration = project_declaration(&root, &root).expect("declaração");
+        assert_eq!(
+            declaration.tools.plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
+
+        // Unapproved: the project layer contributes nothing, so no plugin is injected.
+        assert_eq!(trusted_project(&[], &ws), Tools::default());
+        let gated = resolve_tools(
+            &Tools::default(),
+            &Tools::default(),
+            &ws.tools(),
+            &[],
+            &[],
+            &hub,
+        );
+        assert_eq!(gated.plugins, None);
+
+        // Approved for the current hash: the declaration composes and the plugin is injected.
+        let trust = vec![ToolTrust {
+            repo: declaration.repo.clone(),
+            hash: declaration.hash.clone(),
+            approved: true,
+            at: 0,
+        }];
+        let allowed = trusted_project(&trust, &ws);
+        assert_eq!(
+            allowed.plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
+        let resolved = resolve_tools(&Tools::default(), &allowed, &ws.tools(), &[], &[], &hub);
+        assert_eq!(resolved.plugins, Some(vec!["revisor".into()]));
+
+        // A changed declaration re-gates: the stored hash no longer matches, so approval lapses.
+        std::fs::write(
+            root.join(".prometeu/settings.toml"),
+            "[tools]\nplugins = { base = \"none\", add = [\"revisor\", \"outro\"] }\n",
+        )
+        .unwrap();
+        let changed = project_declaration(&root, &root).expect("declaração");
+        assert_ne!(changed.hash, declaration.hash);
+        assert_eq!(trusted_project(&trust, &ws), Tools::default());
+
+        // A recorded rejection does not activate the layer either.
+        let rejected = vec![ToolTrust {
+            repo: declaration.repo.clone(),
+            hash: declaration.hash.clone(),
+            approved: false,
+            at: 0,
+        }];
+        assert_eq!(trusted_project(&rejected, &ws), Tools::default());
+
+        // The hash is stable for the same declaration.
+        assert_eq!(tools_hash(&declaration.tools), declaration.hash);
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The setters' payload gate: `null` means inherit, a well-formed `Selection` passes, a
+    /// malformed payload errors instead of silently resetting the axis, and ids belonging to the
+    /// other plugin-pipeline axis are refused (ADR 0043).
+    #[test]
+    fn o_payload_do_eixo_e_validado_antes_de_gravar() {
+        use super::{axis, Axis};
+        use crate::selection::{Base, Selection};
+
+        assert_eq!(axis(serde_json::Value::Null, Axis::Mcp).unwrap(), None);
+
+        let ok = serde_json::json!({ "base": "inherit", "add": ["notion"], "remove": [] });
+        assert_eq!(
+            axis(ok, Axis::Mcp).unwrap(),
+            Some(Selection {
+                base: Base::Inherit,
+                add: vec!["notion".into()],
+                remove: vec![]
+            })
+        );
+
+        let bad = axis(serde_json::json!({ "base": "maybe" }), Axis::Mcp);
+        assert!(bad.unwrap_err().contains("err.tools.badPayload"));
+
+        // Standalone skills ride `skill-<id>` and belong to the skills axis only.
+        let misplaced = axis(
+            serde_json::json!({ "add": ["skill-revisor"] }),
+            Axis::Plugins,
+        );
+        assert!(misplaced.unwrap_err().contains("err.tools.badAxis"));
+        let misplaced = axis(serde_json::json!({ "remove": ["revisor"] }), Axis::Skills);
+        assert!(misplaced.unwrap_err().contains("err.tools.badAxis"));
+
+        assert!(axis(
+            serde_json::json!({ "add": ["skill-revisor"] }),
+            Axis::Skills
+        )
+        .unwrap()
+        .is_some());
+        assert!(
+            axis(serde_json::json!({ "add": ["revisor"] }), Axis::Plugins)
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    /// The picker's provenance: a global item is inherited, a workspace add is added, removing an
+    /// inherited item is removed, and an untrusted project item is pending until trusted (ADR 0043).
+    #[test]
+    fn provenance_classifica_cada_item_do_hub() {
+        use super::{axis_provenance, Gate, Provenance};
+        use crate::selection::{Base, Selection};
+
+        let hub = vec!["g".into(), "a".into(), "r".into(), "p".into(), "off".into()];
+        let global = Some(Selection::only(vec!["g".into(), "r".into()]));
+        // The project declares `p`; it stays pending until trusted.
+        let project = Some(Selection {
+            base: Base::Inherit,
+            add: vec!["p".into()],
+            remove: vec![],
+        });
+        // The workspace adds `a` and removes the inherited `r`.
+        let workspace = Some(Selection {
+            base: Base::Inherit,
+            add: vec!["a".into()],
+            remove: vec!["r".into()],
+        });
+
+        let items = axis_provenance(&global, &project, Gate::Pending, &workspace, &[], &hub);
+        let prov = |id: &str| items.iter().find(|i| i.id == id).map(|i| i.provenance);
+        assert_eq!(prov("g"), Some(Provenance::Inherited));
+        assert_eq!(prov("a"), Some(Provenance::Added));
+        assert_eq!(prov("r"), Some(Provenance::Removed));
+        assert_eq!(prov("p"), Some(Provenance::Pending));
+        // An off, untouched hub item carries no story and is omitted.
+        assert_eq!(prov("off"), None);
+
+        // Once trusted, the project item activates and inherits into the effective set.
+        let trusted_items =
+            axis_provenance(&global, &project, Gate::Trusted, &workspace, &[], &hub);
+        assert_eq!(
+            trusted_items
+                .iter()
+                .find(|i| i.id == "p")
+                .map(|i| i.provenance),
+            Some(Provenance::Inherited)
+        );
+
+        // An explicitly rejected declaration keeps its items visible, labeled rejected, so the
+        // picker shows the state without prompting again.
+        let rejected_items =
+            axis_provenance(&global, &project, Gate::Rejected, &workspace, &[], &hub);
+        assert_eq!(
+            rejected_items
+                .iter()
+                .find(|i| i.id == "p")
+                .map(|i| i.provenance),
+            Some(Provenance::Rejected)
+        );
+    }
+
+    /// The CLI-inherited base is visible without any layer action: an active base id is labeled
+    /// `Cli`, the workspace may remove it, and an explicit add wins over the base label (ADR 0044).
+    #[test]
+    fn provenance_classifica_a_base_herdada_do_cli() {
+        use super::{axis_provenance, Gate, Provenance};
+        use crate::selection::{Base, Selection};
+
+        let universe = vec!["hub-a".into(), "cli-on".into(), "cli-off".into()];
+        let base = vec!["cli-on".into(), "cli-off".into()];
+        let delta = |add: &[&str], remove: &[&str]| Selection {
+            base: Base::Inherit,
+            add: add.iter().map(|id| id.to_string()).collect(),
+            remove: remove.iter().map(|id| id.to_string()).collect(),
+        };
+        let prov = |items: &[super::EffectiveItem], id: &str| {
+            items.iter().find(|i| i.id == id).map(|i| i.provenance)
+        };
+
+        // With no declared layer, every base id is active and labeled as inherited from the CLI;
+        // an untouched hub id stays omitted.
+        let items = axis_provenance(&None, &None, Gate::Trusted, &None, &base, &universe);
+        assert_eq!(prov(&items, "cli-on"), Some(Provenance::Cli));
+        assert_eq!(prov(&items, "cli-off"), Some(Provenance::Cli));
+        assert_eq!(prov(&items, "hub-a"), None);
+
+        // A workspace removal drops one inherited server without relisting the rest.
+        let items = axis_provenance(
+            &None,
+            &None,
+            Gate::Trusted,
+            &Some(delta(&[], &["cli-off"])),
+            &base,
+            &universe,
+        );
+        assert_eq!(prov(&items, "cli-on"), Some(Provenance::Cli));
+        assert_eq!(prov(&items, "cli-off"), Some(Provenance::Removed));
+
+        // An explicit workspace add over a base id reads as the person's own action.
+        let items = axis_provenance(
+            &None,
+            &None,
+            Gate::Trusted,
+            &Some(delta(&["cli-on", "hub-a"], &[])),
+            &base,
+            &universe,
+        );
+        assert_eq!(prov(&items, "cli-on"), Some(Provenance::Added));
+        assert_eq!(prov(&items, "hub-a"), Some(Provenance::Added));
+
+        // A global replacement clears the base, and a base id no layer mentions is omitted.
+        let items = axis_provenance(
+            &Some(Selection::only(vec!["hub-a".into()])),
+            &None,
+            Gate::Trusted,
+            &None,
+            &base,
+            &universe,
+        );
+        assert_eq!(prov(&items, "hub-a"), Some(Provenance::Inherited));
+        assert_eq!(prov(&items, "cli-on"), None);
+    }
+
     #[test]
     fn task_launch_uses_project_override_and_freezes_tools_and_model() {
         use crate::actions::{Catalog, Permission, Profile};
+        use crate::selection::Selection;
         let mut ws = bare();
         ws.project = "project".into();
-        ws.mcp = Some(vec!["original".into()]);
+        ws.mcp = Some(Selection::only(vec!["original".into()]));
         let base = Profile {
             id: "review".into(),
             name: "Revisor".into(),
@@ -1967,7 +2936,13 @@ mod tests {
             .entry("project".into())
             .or_default()
             .insert("review".into(), customized);
-        let profile = crate::actions::resolve(&catalog, &ws.project, "review", &ws).unwrap();
+        // The profile leaves MCP unset, so it freezes the resolved layer the caller supplies.
+        let resolved = ResolvedTools {
+            mcp: Some(vec!["original".into()]),
+            plugins: None,
+            skills: None,
+        };
+        let profile = crate::actions::resolve(&catalog, &ws.project, "review", &resolved).unwrap();
         let mut task = tab("task", None);
         task.task = Some(
             serde_json::from_value(serde_json::json!({
@@ -1977,9 +2952,10 @@ mod tests {
             .unwrap(),
         );
         ws.tabs.push(task);
-        ws.mcp = Some(vec!["changed".into()]);
+        // Changing the workspace afterwards must not reach the frozen task.
+        ws.mcp = Some(Selection::only(vec!["changed".into()]));
         ws.model = "haiku".into();
-        let launch = ws.launch_of("task");
+        let launch = ws.launch_of("task", &ResolvedTools::default());
         assert_eq!(launch.model, "opus");
         assert_eq!(launch.mcp, Some(vec!["original".into()]));
         assert_eq!(launch.plugins, Some(vec![]));
@@ -2008,14 +2984,14 @@ mod tests {
             ),
         ];
 
-        let herda = ws.launch_of("herda");
+        let herda = ws.launch_of("herda", &ResolvedTools::default());
         assert_eq!(
             (herda.model.as_str(), herda.effort.as_str()),
             ("opus[1m]", "high")
         );
         assert_eq!(herda.agent, ProviderId::Claude);
 
-        let propria = ws.launch_of("propria");
+        let propria = ws.launch_of("propria", &ResolvedTools::default());
         assert_eq!(propria.agent, ProviderId::Codex);
         assert_eq!(
             (propria.model.as_str(), propria.effort.as_str()),
@@ -2025,7 +3001,10 @@ mod tests {
         assert!(!propria.plan);
 
         // A tab removed while the request was in flight falls back to workspace defaults.
-        assert_eq!(ws.launch_of("sumiu").model, "opus[1m]");
+        assert_eq!(
+            ws.launch_of("sumiu", &ResolvedTools::default()).model,
+            "opus[1m]"
+        );
     }
 
     /// Retuning persists a tab override; choosing workspace defaults clears it. Reject switching
@@ -2044,7 +3023,7 @@ mod tests {
         };
 
         ws.retune("aberta", choice("sonnet", "medium")).unwrap();
-        let launch = ws.launch_of("aberta");
+        let launch = ws.launch_of("aberta", &ResolvedTools::default());
         assert_eq!(
             (launch.model.as_str(), launch.effort.as_str()),
             ("sonnet", "medium")
@@ -2387,6 +3366,7 @@ diff --git a/docs/com espaco.md b/docs/com espaco.md
             preparing: false,
             mcp: None,
             plugins: None,
+            skills: None,
             failed: None,
             model: String::new(),
             effort: String::new(),

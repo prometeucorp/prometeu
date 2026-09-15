@@ -28,6 +28,7 @@ mod paths;
 mod plugins;
 mod pty;
 mod scripts;
+mod selection;
 mod session;
 mod skills;
 mod state;
@@ -128,6 +129,11 @@ fn main() {
             session::pin_workspace,
             session::set_workspace_mcp,
             session::set_workspace_plugins,
+            session::set_workspace_skills,
+            session::set_tools_global,
+            session::workspace_tools,
+            session::project_tools,
+            session::project_tools_trust,
             session::set_tab_choice,
             session::set_unread,
             session::set_shared,
@@ -193,6 +199,7 @@ fn main() {
             mcp::mcp_save,
             mcp::mcp_remove,
             mcp::mcp_found,
+            session::mcp_inherited,
             mcp::mcp_check,
             mcp::mcp_login,
             mcp::mcp_logout,

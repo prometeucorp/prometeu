@@ -427,12 +427,12 @@ export function openLauncher(board: Board, opts: Open) {
     mcpBtn.hidden =
       !capabilitiesOf(draft.agent).workspaceMcpSelection ||
       (!mcp.list().length && draft.mcp === null);
-    mcpBtn.querySelector("span")!.textContent = mcp.label(draft.mcp);
+    mcpBtn.querySelector("span")!.textContent = mcp.flatLabel(draft.mcp);
     mcpBtn.classList.toggle("on", !!draft.mcp?.length);
   };
   mcpBtn.addEventListener("click", () => {
     const at = mcpBtn.getBoundingClientRect();
-    mcp.openPicker({
+    mcp.openDefaultPicker({
       chosen: () => draft.mcp,
       set: (ids) => {
         draft.mcp = ids;
@@ -450,12 +450,12 @@ export function openLauncher(board: Board, opts: Open) {
     plugBtn.hidden =
       !capabilitiesOf(draft.agent).workspacePluginSelection ||
       (!plugins.list().length && draft.plugins === null);
-    plugBtn.querySelector("span")!.textContent = plugins.label(draft.plugins);
+    plugBtn.querySelector("span")!.textContent = plugins.flatLabel(draft.plugins);
     plugBtn.classList.toggle("on", !!draft.plugins?.length);
   };
   plugBtn.addEventListener("click", () => {
     const at = plugBtn.getBoundingClientRect();
-    plugins.openPicker({
+    plugins.openDefaultPicker({
       chosen: () => draft.plugins,
       set: (ids) => {
         draft.plugins = ids;

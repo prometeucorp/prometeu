@@ -114,6 +114,66 @@ export type Plugin = {
   from?: string;
 };
 
+/// One axis of one tool-selection layer. `null` inherits the layers above; `base: "none"` replaces
+/// the inherited set with `add`; `base: "inherit"` applies `add`/`remove` over it. See ADR 0043.
+export type Selection = { base: "none" | "inherit"; add: string[]; remove: string[] };
+
+/// The three independent axes of a tool-selection layer, shared by the board's global layer and the
+/// workspace triple. The project layer lives in the repository's `[tools]` table, not on the board.
+export type Tools = { mcp: Selection | null; plugins: Selection | null; skills: Selection | null };
+
+/// One project-trust decision (ADR 0043): a repository's versioned `[tools]` activates only after the
+/// person approves its current hash. App-local on the board, never written into the repository, so a
+/// changed declaration re-prompts. `repo` is the origin URL when present, else the clone's path.
+export type ToolTrust = { repo: string; hash: string; approved: boolean; at: number };
+
+/// The project `[tools]` declaration and its trust state, returned by `project_tools`. An empty
+/// `hash` means the primary repository declares nothing, so the layer inherits and needs no approval.
+export type ProjectTools = {
+  repo: string;
+  file: string | null;
+  hash: string;
+  tools: Tools;
+  /// True when a declaration exists whose current hash has no decision yet (approved or rejected),
+  /// so the interface prompts.
+  pending: boolean;
+  decision: ToolTrust | null;
+};
+
+/// Where an effective item came from (ADR 0043). `inherited` flows down from a layer above,
+/// `added`/`removed` come from this layer's deltas, `pending` is a project-declared item held
+/// back until the person decides on its hash, `rejected` is a project-declared item the person
+/// refused (it stays visible but is never injected), and `cli` is an active MCP server the
+/// person's CLI configuration loads by itself — the visible inherited base of the mcp axis
+/// (ADR 0044).
+export type Provenance = "inherited" | "added" | "removed" | "pending" | "rejected" | "cli";
+
+/// One ID of the axis universe in a resolved axis, tagged with its origin so the picker can
+/// explain each row.
+export type EffectiveItem = { id: string; provenance: Provenance };
+
+/// The resolved effective set for a workspace, one list per axis. `removed` items stay in the list so
+/// the picker can show what this layer turned off; `pending` and `rejected` items show project
+/// declarations awaiting or refused by the trust decision.
+export type WorkspaceTools = {
+  mcp: EffectiveItem[];
+  plugins: EffectiveItem[];
+  skills: EffectiveItem[];
+};
+
+/// Toggle one hub id in a layer while preserving what the layers above contribute (ADR 0043). Turning
+/// an item on records an `add` and drops any `remove`; turning it off records a `remove` and drops any
+/// `add`. The layer's `base` is preserved, defaulting to `inherit` so a first pick never erases the
+/// set flowing down from the global and project layers.
+export function toggleSelection(current: Selection | null, id: string, on: boolean): Selection {
+  const base = current?.base ?? "inherit";
+  const add = (current?.add ?? []).filter((x) => x !== id);
+  const remove = (current?.remove ?? []).filter((x) => x !== id);
+  if (on) add.push(id);
+  else remove.push(id);
+  return { base, add, remove };
+}
+
 export type Workspace = {
   id: string;
   title: string;
@@ -136,10 +196,14 @@ export type Workspace = {
   /// Workspace model/effort defaults for new or resumed tabs; empty values use CLI defaults.
   model: string;
   effort: string;
-  /// MCP names selected from the hub. Null inherits CLI behavior; an empty list explicitly selects no MCP servers.
-  mcp: string[] | null;
-  /// Plugin names selected from the hub. Null inherits CLI behavior; an empty list selects no additional plugins.
-  plugins: string[] | null;
+  /// MCP selection from the hub, as the workspace layer. Null inherits the layers above and the CLI;
+  /// a replacement with an empty `add` selects no MCP servers. See ADR 0043.
+  mcp: Selection | null;
+  /// Plugin selection from the hub, as the workspace layer, following the MCP inheritance rules.
+  plugins: Selection | null;
+  /// Standalone-skill selection from the hub, as its own axis. Skills still materialize through the
+  /// plugin pipeline. Absent, therefore inherited, on boards saved before the axis existed.
+  skills: Selection | null;
   /// Base of the ten ports reserved for this worktree.
   port: number | null;
   /// The originating Linear issue, when present.
@@ -236,7 +300,7 @@ export type Scripts = {
   port: number | null;
 };
 
-export type Board = { actions?: import("./actions").Catalog; stages: string[]; projects: Project[]; workspaces: Workspace[] };
+export type Board = { actions?: import("./actions").Catalog; tools?: Tools; tool_trust?: ToolTrust[]; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
 /// The authenticated Linear user and organization.
 export type LinearWho = { name: string; email: string; org: string; org_key: string };

@@ -4,7 +4,8 @@ import { icon } from "./icons";
 import { fromBack, t, tn, type Key } from "./i18n";
 import * as menu from "./menu";
 import * as catalog from "./catalog";
-import type { McpCheck, McpServer, McpStep } from "./types";
+import * as toolPicker from "./tool-picker";
+import type { McpCheck, McpServer, McpStep, Selection } from "./types";
 import { $, h, template } from "./util";
 
 /// Present the backend-owned MCP registry in Settings and shared launcher/conversation pickers. Writes replace the whole local snapshot. Keep secrets and persistence in the backend; reopen the existing single-choice menu after each checkbox selection.
@@ -43,6 +44,33 @@ export async function load() {
 /// Deleted registry entries remain in persisted workspace choices. Show unavailable selections explicitly so users can remove them.
 export const known = (id: string) => hub.some((s) => s.id === id);
 
+/// Servers discovered from the person's CLI configuration that the hub lacks (ADR 0044). They form
+/// the visible inherited base of the workspace picker, cached per workspace because discovery
+/// reads files under the workspace directory.
+const inherited = new Map<string, McpServer[]>();
+/// Workspaces with a discovery in flight, so repeated paints do not stack fetches.
+const inflight = new Set<string>();
+
+export const inheritedOf = (workspace: string) => inherited.get(workspace) ?? [];
+
+/// Fetch the inherited base once per workspace; the announce repaints gated composer buttons. A
+/// failure leaves no cache entry, so a later paint retries instead of pinning the empty base;
+/// opening the picker rediscovers it anyway.
+export function loadInherited(workspace: string) {
+  if (inherited.has(workspace) || inflight.has(workspace)) return;
+  inflight.add(workspace);
+  void (async () => {
+    try {
+      inherited.set(workspace, await invoke("mcp_inherited", { id: workspace }));
+    } catch {
+      // An unavailable backend leaves the base uncached for a retry.
+    } finally {
+      inflight.delete(workspace);
+    }
+    announce();
+  })();
+}
+
 /// Authenticated state controls the Settings label and sign-in/sign-out action.
 export const signedIn = (id: string) => logins.includes(id);
 
@@ -58,73 +86,112 @@ async function refreshLogins() {
 /* Picker. */
 
 type Pick = {
-  /// Current selection; null means the workspace inherits defaults.
-  chosen: () => string[] | null;
-  /// Explicit picks always return a list, never null.
-  set: (ids: string[]) => void;
+  /// The workspace whose layer is edited.
+  workspace: string;
+  /// The workspace MCP layer; null inherits the global and project layers.
+  current: () => Selection | null;
+  /// Persist the new layer, or null to return the axis to inherit.
+  set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
   at: () => { x: number; y: number };
-  /// Disable changes during a turn because changing MCP selection restarts the agent process.
-  locked?: () => string;
+  /// True while the agent works; the change then lands on the next message rather than restarting.
+  working?: () => boolean;
+  /// Opens the project-trust prompt when the project layer has pending items.
+  trust?: () => void;
 };
 
-/// Keep the latest local selection while the backend restarts the process and republishes the board; chosen() can still return the previous value.
-export function openPicker(p: Pick, live?: string[]) {
-  const lock = p.locked?.() ?? "";
-  const chosen = live ?? p.chosen() ?? [];
-  const items: menu.Item[] = [];
-  if (lock) {
-    items.push({ label: lock, disabled: true }, "sep");
+/// Provenance-aware MCP picker (ADR 0043): it shows the resolved effective set and writes the
+/// workspace layer as deltas over what the global and project layers already contribute. Rows come
+/// from the hub plus the CLI-inherited base (ADR 0044), so servers Claude Code loads on its own are
+/// visible and removable without importing them first.
+export async function openPicker(p: Pick) {
+  try {
+    inherited.set(p.workspace, await invoke("mcp_inherited", { id: p.workspace }));
+    // Rediscovery may change the base; repaint the gated composer buttons that read the cache.
+    announce();
+  } catch {
+    // Keep the cached base when the backend cannot rediscover it.
   }
-  if (!hub.length) {
-    items.push({ label: t("mcp.none"), disabled: true });
+  const rows: toolPicker.Row[] = hub.map((server) => ({
+    id: server.id,
+    label: server.id,
+    hint: subtitle(server),
+    section: t("tools.section.hub"),
+  }));
+  for (const server of inheritedOf(p.workspace)) {
+    if (!rows.some((r) => r.id === server.id))
+      rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli") });
   }
-  for (const server of hub) {
-    const on = chosen.includes(server.id);
-    items.push({
-      label: server.id,
-      checked: on,
-      disabled: !!lock,
-      run: () => {
-        const next = on ? chosen.filter((id) => id !== server.id) : [...chosen, server.id];
-        p.set(next);
-        // Reopen the single-choice menu after each selection to support multiple picks.
-        openPicker(p, next);
-      },
-    });
+  const current = p.current();
+  // Retain ids the registry no longer has so they can still be dropped from the layer.
+  for (const id of [...(current?.add ?? []), ...(current?.remove ?? [])]) {
+    if (!known(id) && !rows.some((r) => r.id === id)) rows.push({ id, label: t("mcp.gone", { name: id }) });
   }
-  // Retain missing names in the menu so they can be deselected.
-  for (const id of chosen.filter((c) => !known(c))) {
-    items.push({
-      label: t("mcp.gone", { name: id }),
-      checked: true,
-      disabled: !!lock,
-      run: () => {
-        const next = chosen.filter((c) => c !== id);
-        p.set(next);
-        openPicker(p, next);
-      },
-    });
-  }
-  if (hub.length && !lock) {
-    items.push("sep", {
-      label: t("mcp.clear"),
-      disabled: !chosen.length,
-      run: () => {
-        p.set([]);
-        openPicker(p, []);
-      },
-    });
-  }
-  menu.openAt(p.at(), items);
+  void toolPicker.open({
+    workspace: p.workspace,
+    axis: "mcp",
+    rows,
+    current: p.current,
+    set: p.set,
+    at: p.at,
+    working: p.working,
+    noneLabel: t("mcp.none"),
+    trust: p.trust,
+  });
 }
 
-/// Distinguish explicit no-MCP selection from inherited defaults in the button label.
-export function label(chosen: string[] | null): string {
-  if (chosen === null) return t("mcp.default");
-  if (!chosen.length) return t("mcp.zero");
-  if (chosen.length === 1) return chosen[0];
-  return t("mcp.count", { n: String(chosen.length) });
+/// Summarize the workspace layer for the button: inherit, a single pick, or its +/- deltas.
+export function label(sel: Selection | null): string {
+  if (!sel) return t("mcp.default");
+  if (sel.base === "none") {
+    // Under an explicit none base the layer is a flat list; removals are no-ops there.
+    if (!sel.add.length) return t("mcp.zero");
+    if (sel.add.length === 1) return sel.add[0];
+    return t("mcp.count", { n: String(sel.add.length) });
+  }
+  if (sel.add.length === 1 && !sel.remove.length) return sel.add[0];
+  const bits = [sel.add.length ? `+${sel.add.length}` : "", sel.remove.length ? `−${sel.remove.length}` : ""].filter(Boolean);
+  return bits.length ? bits.join(" ") : t("mcp.default");
+}
+
+/// Label for the launcher's flat default preset, which is a plain id list rather than a layered delta.
+export function flatLabel(ids: string[] | null): string {
+  if (ids === null) return t("mcp.default");
+  if (!ids.length) return t("mcp.zero");
+  if (ids.length === 1) return ids[0];
+  return t("mcp.count", { n: String(ids.length) });
+}
+
+/// Picker for the launcher's default preset: a flat list over the registry, stored as `string[] | null`
+/// rather than as a board layer. New workspaces start from this preset.
+export function openDefaultPicker(p: {
+  chosen: () => string[] | null;
+  set: (ids: string[] | null) => void;
+  at: () => { x: number; y: number };
+}) {
+  const rows: toolPicker.Row[] = hub.map((server) => ({ id: server.id, label: server.id, hint: subtitle(server) }));
+  const asSel = (): Selection | null => {
+    const ids = p.chosen();
+    return ids === null ? null : { base: "none", add: ids, remove: [] };
+  };
+  toolPicker.openFlat({
+    rows,
+    current: asSel,
+    set: (sel) => p.set(sel === null ? null : sel.add),
+    at: p.at,
+    noneLabel: t("mcp.none"),
+  });
+}
+
+/// Picker for the board's global MCP layer (ADR 0043), the base every project and workspace inherits.
+/// It is a flat selection because nothing sits above it.
+export function openGlobalPicker(p: {
+  current: () => Selection | null;
+  set: (sel: Selection | null) => void;
+  at: () => { x: number; y: number };
+}) {
+  const rows: toolPicker.Row[] = hub.map((server) => ({ id: server.id, label: server.id, hint: subtitle(server) }));
+  toolPicker.openFlat({ rows, current: p.current, set: p.set, at: p.at, noneLabel: t("mcp.none") });
 }
 
 /* Settings list. */

@@ -6,7 +6,8 @@ import { fromBack, t, type Key } from "./i18n";
 import * as menu from "./menu";
 import * as catalog from "./catalog";
 import * as skills from "./skills";
-import type { Plugin } from "./types";
+import * as toolPicker from "./tool-picker";
+import type { Plugin, Selection } from "./types";
 import { $, h, template } from "./util";
 
 /// Present the backend-owned plugin registry and shared launcher/conversation picker using the same interaction patterns as MCP. Refresh the full snapshot after writes. Installation clones repositories into app storage; creation uses a separate agent-driven flow.
@@ -45,74 +46,132 @@ export const known = (id: string) => hub.some((p) => p.id === id);
 /* Picker. */
 
 type Pick = {
-  /// Current selection; null means inherited defaults.
-  chosen: () => string[] | null;
-  /// Explicit picks return a list, never null.
-  set: (ids: string[]) => void;
+  /// The workspace whose layer is edited.
+  workspace: string;
+  /// The workspace layer for this axis; null inherits the global and project layers.
+  current: () => Selection | null;
+  /// Persist the new layer, or null to return the axis to inherit.
+  set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
   at: () => { x: number; y: number };
-  /// Disable selection during a turn because plugins require restarting the session.
-  locked?: () => string;
+  /// True while the agent works; the change then lands on the next message rather than restarting.
+  working?: () => boolean;
+  /// Opens the project-trust prompt when the project layer has pending items.
+  trust?: () => void;
 };
 
-/// Retain the latest local pick until the restarted process republishes the board; chosen() may still return the old selection.
-export function openPicker(p: Pick, live?: string[]) {
-  const lock = p.locked?.() ?? "";
-  const chosen = live ?? p.chosen() ?? [];
-  const items: menu.Item[] = [];
-  if (lock) {
-    items.push({ label: lock, disabled: true }, "sep");
+/// Registry entries that are standalone-skill packages, which ride the plugin pipeline as `skill-<id>`
+/// but live on their own selection axis (ADR 0043).
+const isSkillPackage = (id: string) => skills.packageIds().has(id);
+
+/// Add rows for ids the registry no longer has so they can still be dropped from the layer.
+function withGone(rows: toolPicker.Row[], current: Selection | null, gone: (id: string) => string) {
+  for (const id of [...(current?.add ?? []), ...(current?.remove ?? [])]) {
+    if (!known(id) && !rows.some((r) => r.id === id)) rows.push({ id, label: gone(id) });
   }
-  if (!hub.length) {
-    items.push({ label: t("plugin.none"), disabled: true });
-  }
-  for (const plugin of hub) {
-    const on = chosen.includes(plugin.id);
-    items.push({
-      label: plugin.id,
-      hint: plugin.note.trim(),
-      checked: on,
-      disabled: !!lock,
-      run: () => {
-        const next = on ? chosen.filter((id) => id !== plugin.id) : [...chosen, plugin.id];
-        p.set(next);
-        // Reopen the menu with the latest local selection instead of waiting for backend confirmation.
-        openPicker(p, next);
-      },
-    });
-  }
-  // Show missing selected names so they can be removed.
-  for (const id of chosen.filter((c) => !known(c))) {
-    items.push({
-      label: t("plugin.gone", { name: id }),
-      checked: true,
-      disabled: !!lock,
-      run: () => {
-        const next = chosen.filter((c) => c !== id);
-        p.set(next);
-        openPicker(p, next);
-      },
-    });
-  }
-  if (hub.length && !lock) {
-    items.push("sep", {
-      label: t("plugin.clear"),
-      disabled: !chosen.length,
-      run: () => {
-        p.set([]);
-        openPicker(p, []);
-      },
-    });
-  }
-  menu.openAt(p.at(), items);
+  return rows;
 }
 
-/// Distinguish explicitly empty plugin selection from inherited defaults in the label.
-export function label(chosen: string[] | null): string {
-  if (chosen === null) return t("plugin.default");
-  if (!chosen.length) return t("plugin.zero");
-  if (chosen.length === 1) return chosen[0];
-  return t("plugin.count", { n: String(chosen.length) });
+/// Provenance-aware plugin picker (ADR 0043): shows the resolved effective set and writes the
+/// workspace layer as deltas over the global and project layers.
+export function openPicker(p: Pick) {
+  const rows = hub.filter((pl) => !isSkillPackage(pl.id)).map((pl) => ({ id: pl.id, label: pl.id, hint: pl.note.trim() }));
+  void toolPicker.open({
+    workspace: p.workspace,
+    axis: "plugins",
+    rows: withGone(rows, p.current(), (id) => t("plugin.gone", { name: id })),
+    current: p.current,
+    set: p.set,
+    at: p.at,
+    working: p.working,
+    noneLabel: t("plugin.none"),
+    trust: p.trust,
+  });
+}
+
+/// Standalone-skill picker: its own axis, but the ids are the `skill-<id>` plugin packages.
+export function openSkillPicker(p: Pick) {
+  const rows = hub.filter((pl) => isSkillPackage(pl.id)).map((pl) => ({ id: pl.id, label: pl.id.replace(/^skill-/, ""), hint: pl.note.trim() }));
+  void toolPicker.open({
+    workspace: p.workspace,
+    axis: "skills",
+    rows: withGone(rows, p.current(), (id) => t("plugin.gone", { name: id.replace(/^skill-/, "") })),
+    current: p.current,
+    set: p.set,
+    at: p.at,
+    working: p.working,
+    noneLabel: t("skill.none"),
+    trust: p.trust,
+  });
+}
+
+/// Wording for one axis label: the inherit text, the zero/count texts for an explicit empty
+/// selection, and the optional prefix stripped from ids before display (skills ride `skill-<id>`).
+export type Words = { def: Key; zero: Key; count: Key; prefix?: string };
+
+const PLUGIN_WORDS: Words = { def: "plugin.default", zero: "plugin.zero", count: "plugin.count" };
+export const SKILL_WORDS: Words = { def: "skill.default", zero: "skill.zero", count: "skill.count", prefix: "skill-" };
+
+/// Summarize the workspace layer for the button: inherit, a single pick, or its +/- deltas. The
+/// skills axis shares this function and passes its own wording.
+export function label(sel: Selection | null, words: Words = PLUGIN_WORDS): string {
+  const bare = (id: string) => (words.prefix ? id.replace(new RegExp(`^${words.prefix}`), "") : id);
+  if (!sel) return t(words.def);
+  if (sel.base === "none") {
+    // Under an explicit none base the layer is a flat list; removals are no-ops there.
+    if (!sel.add.length) return t(words.zero);
+    if (sel.add.length === 1) return bare(sel.add[0]);
+    return t(words.count, { n: String(sel.add.length) });
+  }
+  if (sel.add.length === 1 && !sel.remove.length) return bare(sel.add[0]);
+  const bits = [sel.add.length ? `+${sel.add.length}` : "", sel.remove.length ? `−${sel.remove.length}` : ""].filter(Boolean);
+  return bits.length ? bits.join(" ") : t(words.def);
+}
+
+/// Label for the launcher's flat default preset, a plain id list rather than a layered delta.
+export function flatLabel(ids: string[] | null): string {
+  if (ids === null) return t("plugin.default");
+  if (!ids.length) return t("plugin.zero");
+  if (ids.length === 1) return ids[0];
+  return t("plugin.count", { n: String(ids.length) });
+}
+
+/// Picker for the launcher's default plugin preset, stored as `string[] | null`.
+export function openDefaultPicker(p: {
+  chosen: () => string[] | null;
+  set: (ids: string[] | null) => void;
+  at: () => { x: number; y: number };
+}) {
+  const rows = hub.filter((pl) => !isSkillPackage(pl.id)).map((pl) => ({ id: pl.id, label: pl.id, hint: pl.note.trim() }));
+  const asSel = (): Selection | null => {
+    const ids = p.chosen();
+    return ids === null ? null : { base: "none", add: ids, remove: [] };
+  };
+  toolPicker.openFlat({
+    rows,
+    current: asSel,
+    set: (sel) => p.set(sel === null ? null : sel.add),
+    at: p.at,
+    noneLabel: t("plugin.none"),
+  });
+}
+
+type GlobalPick = {
+  current: () => Selection | null;
+  set: (sel: Selection | null) => void;
+  at: () => { x: number; y: number };
+};
+
+/// Picker for the board's global plugin layer (ADR 0043), the base every project and workspace inherits.
+export function openGlobalPicker(p: GlobalPick) {
+  const rows = hub.filter((pl) => !isSkillPackage(pl.id)).map((pl) => ({ id: pl.id, label: pl.id, hint: pl.note.trim() }));
+  toolPicker.openFlat({ rows, current: p.current, set: p.set, at: p.at, noneLabel: t("plugin.none") });
+}
+
+/// Picker for the board's global standalone-skill layer; ids are the `skill-<id>` plugin packages.
+export function openSkillGlobalPicker(p: GlobalPick) {
+  const rows = hub.filter((pl) => isSkillPackage(pl.id)).map((pl) => ({ id: pl.id, label: pl.id.replace(/^skill-/, ""), hint: pl.note.trim() }));
+  toolPicker.openFlat({ rows, current: p.current, set: p.set, at: p.at, noneLabel: t("skill.none") });
 }
 
 /* Settings list. */

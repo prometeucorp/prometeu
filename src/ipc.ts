@@ -82,6 +82,7 @@ export type Commands = {
   mcp_check: { args: { server: T.McpServer }; result: T.McpCheck };
   mcp_found: { args: undefined; result: T.McpServer[] };
   mcp_hub: { args: undefined; result: T.McpServer[] };
+  mcp_inherited: { args: { id: string }; result: T.McpServer[] };
   mcp_login: { args: { server: T.McpServer }; result: void };
   mcp_logins: { args: undefined; result: string[] };
   mcp_logout: { args: { id: string }; result: void };
@@ -105,6 +106,8 @@ export type Commands = {
   plugin_update: { args: { id: string }; result: T.Plugin[] };
   pr_open: { args: { id: string }; result: void };
   pr_prompt: { args: { id: string }; result: string };
+  project_tools: { args: { id: string }; result: T.ProjectTools };
+  project_tools_trust: { args: { id: string; approved: boolean }; result: void };
   pty_buffer: { args: { session: string }; result: number[] };
   pty_resize: { args: { session: string; cols: number; rows: number }; result: void };
   pty_write: { args: { session: string; data: string }; result: void };
@@ -123,9 +126,11 @@ export type Commands = {
   set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null }; result: void };
   set_stage: { args: { id: string; stage: string }; result: void };
   set_tab_choice: { args: { id: string; tab: string; choice: T.Choice }; result: void };
+  set_tools_global: { args: { mcp?: T.Selection | null; plugins?: T.Selection | null; skills?: T.Selection | null }; result: void };
   set_unread: { args: { id: string; unread: boolean }; result: void };
-  set_workspace_mcp: { args: { id: string; mcp?: string[] | null }; result: void };
-  set_workspace_plugins: { args: { id: string; plugins?: string[] | null }; result: void };
+  set_workspace_mcp: { args: { id: string; mcp?: T.Selection | null }; result: void };
+  set_workspace_plugins: { args: { id: string; plugins?: T.Selection | null }; result: void };
+  set_workspace_skills: { args: { id: string; skills?: T.Selection | null }; result: void };
   skill_hub: { args: undefined; result: Skill[] };
   skill_remove: { args: { id: string }; result: Skill[] };
   skill_save: { args: { skill: Skill; revision?: number | null }; result: Skill[] };
@@ -144,6 +149,7 @@ export type Commands = {
   workspace_git_resolve: { args: { id: string; repo: number; path: string; was: string; text: string }; result: void };
   workspace_git_status: { args: { id: string }; result: T.GitStatus[] };
   workspace_scripts: { args: { id: string }; result: T.Scripts };
+  workspace_tools: { args: { id: string }; result: T.WorkspaceTools };
   write_file: { args: { id: string; rel: string; text: string; was: string }; result: void };
 };
 

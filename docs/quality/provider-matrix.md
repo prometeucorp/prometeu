@@ -52,6 +52,8 @@ contractual capability.
 | MCP selection per workspace | the CLI's strict config | table and environment assembled by the app | `mcp.rs`, `codex.rs`; a preparation error prevents the spawn |
 | plugin selection per workspace | session flags | marketplace + config isolated per workspace | `plugins.rs`, the CLI smoke test, `codex.rs`, `launcher.ts`, E2E |
 | local and account skills | a package with SKILL.md through the plugin selection | the same package with a native manifest | `skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; installation does not activate automatically |
+| layered selection (global, project, workspace) per axis | resolved at spawn before the adapter | resolved at spawn before the adapter | `selection.rs` resolve tests, `session.rs::provenance_classifica_cada_item_do_hub`, `session.rs::projeto_so_injeta_depois_de_aprovado_e_reprova_quando_o_hash_muda` and `session.rs::o_payload_do_eixo_e_validado_antes_de_gravar`; the project `[tools]` layer is gated on trust-on-first-use of its hash, an undecided item stays `pending` and a rejected one stays `rejected` (both resolved yet not injected), and the setters refuse a malformed payload or an id on the wrong axis |
+| CLI-inherited MCP base (ADR 0044) | discovered from `~/.claude.json` and the working directory's `.mcp.json` plus its ancestors, nearest first; visible in the picker with the `cli` provenance and removable as a workspace delta; a declared axis materializes the whole effective set through the strict config | no discovered base; the CLI keeps loading its own configuration outside the picker | `selection.rs::a_base_do_cli_participa_da_cadeia`, `mcp.rs` inherited/universe tests and `mcp.rs::escolhido_ausente_impede_a_materializacao`, `session.rs::provenance_classifica_a_base_herdada_do_cli`, `src/mcp.test.ts`, the picker scenario in `e2e/critical-flows.spec.ts` |
 | hooks of a chosen plugin | active from `SessionStart` | `enabled = true` + trust limited to the `pluginId` and hash before the thread | `codex.rs` tests; a failure prevents the thread |
 | attachments in a message, capture thumbnails and pasting | adapted through a local path; promise and pasteboard materialized by macOS | adapted through a local path; promise and pasteboard materialized by macOS | `file_drop.rs`, `chat.ts`, `paste.ts`; `e2e/file-drop.spec.ts` and dropped-file scenarios in `e2e/critical-flows.spec.ts` cover the UI over the mock; `paste.test.ts` covers the paste detour |
 | the browser's visual context | a tag in the draft and the history; complete HTML, CSS, URL and PNG mention on send | the same interface and textual contract | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, `browser.rs` tests; WKWebView capture and the AppKit gesture still require native verification |
@@ -87,6 +89,9 @@ A missing test must not become `true` by similarity between providers.
   manifest;
 - plugins enabled outside Prometeu stay subject to each CLI's global registry
   and are not part of the workspace's selection;
+- the CLI-inherited MCP base (ADR 0044) covers Claude only; servers configured
+  for Codex in `~/.codex/config.toml` are not discovered and stay invisible to
+  the picker, a recorded follow-up;
 - attachments have UI tests over the mock and native validation of the saved
   destination; the real thumbnail gesture was confirmed in Prometeu Dev on
   2026-09-06. Actual reading by the CLI still requires manual verification.

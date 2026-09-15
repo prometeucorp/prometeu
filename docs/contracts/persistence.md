@@ -94,16 +94,20 @@ catalog. `Tab.task` stores the resolved configuration and the tasks' cursors.
 The absence of those fields keeps previous sessions working. The catalog
 receives Code review exactly once, recorded in `actions.defaults_initialized`;
 see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
-agent configuration, MCP/plugins, sharing and tabs. `Tab.tokens` stores an
-incremental estimate of the tokens used in the conversation;
-`Tab.context_tokens` stores the last observed context so only the growth is
-added. When the context drops after compaction, the new value starts another
-segment and adds to the total. Old boards without `context_tokens` treat
+agent configuration, the MCP/plugins/skills selection, sharing and tabs.
+`Tab.tokens` stores an incremental estimate of the tokens used in the
+conversation; `Tab.context_tokens` stores the last observed context so only the
+growth is added. When the context drops after compaction, the new value starts
+another segment and adds to the total. Old boards without `context_tokens` treat
 `tokens` as the total and the initial cursor, without duplicating the value. The
 tab also contains identity, status, pending message, model override and the
 external identity used for resume when needed. An empty `Tab.title` is an
 unnamed tab: the interface shows the model it talks to. Old boards with the
 invented name `conversa` or `conversa N` are normalized to empty on load.
+
+`Board.tools` keeps the global layer of the tool selection and
+`Board.tool_trust` the decisions that let a repository's declaration activate;
+both are described in [Tool selection layers](#tool-selection-layers).
 
 Removing a project only takes its registration out of the board. The repository,
 worktrees and conversations are not deleted; workspaces linked to it appear
@@ -154,6 +158,61 @@ marketplace nor its activation. Removing the workspace from the board or
 returning its worktree deletes that derived layer, without following the links
 to the shared state. The complete contract is in
 [`plugin-marketplace.md`](plugin-marketplace.md).
+
+## Tool selection layers
+
+MCP servers, plugins and skills are three independent axes, each selected in
+three layers resolved in the order global → project → workspace
+([ADR 0043](../decisions/0043-layered-tool-selection.md)). Per axis, a layer is
+either absent — inherit from the layer above — or an object:
+
+```ts
+type Selection = null | { base: "none" | "inherit"; add: string[]; remove: string[] };
+```
+
+An omitted `base` means `"inherit"`, so a hand-written `[tools]` that declares
+only `add` never erases the layers above it. Within one layer `add` is applied
+first and `remove` has the last word.
+
+| Layer | Where it lives | Owner |
+| --- | --- | --- |
+| global | `Board.tools` in `<root>/board.json` | `state.rs` |
+| project | the `[tools]` table of `.prometeu/settings.toml`, in the repository | `scripts.rs` |
+| workspace | `Workspace.mcp`, `Workspace.plugins` and `Workspace.skills` | `state.rs` |
+
+`Board.tools` is app-local and holds one `Selection` per axis, all absent by
+default, so an old board keeps injecting exactly what it used to. The project
+layer is the only one written outside the app root: the file is versioned, so a
+repository author could otherwise choose packages and hooks for whoever clones
+it. For a multi-repository workspace only the **primary** repository's `[tools]`
+is read, matching the single-root behavior of Claude Code and Cursor and the
+launcher's existing use of the primary repository.
+
+`Board.tool_trust` stores one decision per primary repository:
+`{ repo, hash, approved, at }`. `repo` is the `origin` remote URL when one
+exists and the clone's absolute path otherwise; `hash` is the SHA-256 of the
+declared `[tools]` section, recomputed by the backend when the decision is
+recorded. `approved: false` is an explicit rejection: it quiets the prompt but
+keeps the declaration's items out of every spawn, labeled as rejected. A
+declaration whose hash differs from the stored decision — approval or rejection
+— is resolved but not injected, and prompts again, until the person decides;
+the decision is never written into the repository. See
+[`plugin-marketplace.md`](plugin-marketplace.md).
+
+### Workspace migration
+
+`Workspace.mcp` and `Workspace.plugins` were `Option<Vec<String>>`. On load
+`null` stays `null`, `[]` becomes `{base:"none", add:[]}` and `[ids]` becomes
+`{base:"none", add:ids}`, so a migrated board resolves to the same set it used
+to inject. Entries matching `skill-<id>` move from `plugins` to the new `skills`
+axis; the hub keeps them as packages, so only the state and the interface change.
+`Workspace.skills` is absent, therefore inherited, in old boards.
+
+The migration is one-way: a previous version cannot deserialize the object form
+and falls back to the board backup, then to a default board. The resolved set is
+captured at spawn, so a change in any layer takes effect at the next spawn or
+resume
+([`agent-runtime.md`](agent-runtime.md)).
 
 ## Quotas
 

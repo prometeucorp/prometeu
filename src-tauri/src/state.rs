@@ -3,6 +3,7 @@
 //! tab can continue using the same files.
 
 use crate::lock::lock;
+use crate::selection::{Base, Selection, Tools};
 use crate::{paths, AppState};
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc::{channel, Sender};
@@ -238,18 +239,48 @@ pub struct Workspace {
     /// resolve an existing branch or partially prepared workspace.
     #[serde(default)]
     pub failed: Option<String>,
-    /// MCP server IDs selected from the hub for this workspace. `None` preserves the CLI's existing
-    /// configuration; an explicit empty list selects no MCP servers.
-    #[serde(default)]
-    pub mcp: Option<Vec<String>>,
-    /// Plugin IDs selected from the hub for this workspace. `None` preserves the CLI's existing
-    /// plugins; an explicit empty list adds no managed plugins.
-    #[serde(default)]
-    pub plugins: Option<Vec<String>>,
+    /// MCP servers selected from the hub for this workspace, as the workspace layer of the tool
+    /// selection. `None` inherits the layers above; a replacement with an empty `add` selects no MCP
+    /// servers. Legacy boards stored `Option<Vec<String>>`; `legacy_axis` migrates it on load.
+    #[serde(default, deserialize_with = "legacy_axis")]
+    pub mcp: Option<Selection>,
+    /// Plugins selected from the hub for this workspace, as the workspace layer. Legacy boards
+    /// stored `Option<Vec<String>>` and mixed standalone skills in; `revive` moves `skill-<id>`
+    /// entries to the `skills` axis.
+    #[serde(default, deserialize_with = "legacy_axis")]
+    pub plugins: Option<Selection>,
+    /// Standalone skills selected from the hub for this workspace, as their own axis. They still
+    /// materialize through the plugin-package pipeline. Absent, therefore inherited, in old boards.
+    #[serde(default, deserialize_with = "legacy_axis")]
+    pub skills: Option<Selection>,
     #[serde(default)]
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub active: Option<String>,
+}
+
+/// Read one workspace tool axis from either the layered `Selection` object or the legacy
+/// `Option<Vec<String>>` form, so a pre-migration board still loads: `null` and an absent field
+/// inherit, `[]` and `[ids]` become a replacement, and an object is the layered form. The migration
+/// is one-way; see docs/contracts/persistence.md and ADR 0043.
+fn legacy_axis<'de, D>(deserializer: D) -> Result<Option<Selection>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Form {
+        // The legacy array must be tried first: an empty array also deserializes as a `Selection`
+        // with every field defaulted, which would lose the `base: none` replacement meaning.
+        Legacy(Vec<String>),
+        New(Selection),
+    }
+    Ok(
+        Option::<Form>::deserialize(deserializer)?.map(|form| match form {
+            Form::New(selection) => selection,
+            Form::Legacy(ids) => Selection::only(ids),
+        }),
+    )
 }
 
 impl Workspace {
@@ -307,10 +338,36 @@ impl Workspace {
     }
 }
 
+/// One project-trust decision (ADR 0043). A repository's versioned `[tools]` declaration activates
+/// only after the person approves it for the current hash; a changed hash needs a new decision. The
+/// decision is app-local on the board and never written into the repository, so cloning a project
+/// cannot activate its packages silently. See docs/contracts/persistence.md.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ToolTrust {
+    /// Repository identity: the `origin` remote URL when one exists, else the clone's absolute path.
+    pub repo: String,
+    /// SHA-256 of the declared `[tools]` section, in canonical form.
+    pub hash: String,
+    pub approved: bool,
+    /// Epoch seconds when the decision was recorded.
+    #[serde(default)]
+    pub at: u64,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
     #[serde(default)]
     pub actions: crate::actions::Catalog,
+    /// The global layer of the tool selection, one `Selection` per axis, app-local under the root.
+    /// Absent by default so an old board keeps injecting exactly what it used to. See
+    /// docs/contracts/persistence.md and ADR 0043.
+    #[serde(default)]
+    pub tools: Tools,
+    /// Per-repository decisions that let a versioned project `[tools]` declaration activate. Empty
+    /// by default, so an old board has approved nothing and project-declared items stay uninjected
+    /// until the person decides. See docs/contracts/persistence.md and ADR 0043.
+    #[serde(default)]
+    pub tool_trust: Vec<ToolTrust>,
     /// Ordered work stages. Position determines each stage's icon.
     #[serde(alias = "columns")]
     pub stages: Vec<String>,
@@ -329,10 +386,59 @@ fn is_placeholder_title(title: &str) -> bool {
     }
 }
 
+/// Standalone skills ride the plugin hub as `skill-<id>` but are selected on their own axis
+/// (ADR 0043). Legacy boards stored them inside `plugins`; move them to `skills`, preserving the
+/// source layer's base mode. Idempotent, so it is safe on every load: a migrated board has no
+/// `skill-<id>` left in `plugins`.
+pub(crate) fn split_skills(plugins: &mut Option<Selection>, skills: &mut Option<Selection>) {
+    let is_skill = |id: &str| id.starts_with("skill-");
+    let Some(source) = plugins else { return };
+    let moved_add: Vec<String> = source
+        .add
+        .iter()
+        .filter(|id| is_skill(id))
+        .cloned()
+        .collect();
+    let moved_remove: Vec<String> = source
+        .remove
+        .iter()
+        .filter(|id| is_skill(id))
+        .cloned()
+        .collect();
+    if moved_add.is_empty() && moved_remove.is_empty() {
+        return;
+    }
+    source.add.retain(|id| !is_skill(id));
+    source.remove.retain(|id| !is_skill(id));
+    let base = source.base;
+    let target = skills.get_or_insert_with(|| Selection {
+        base,
+        add: Vec::new(),
+        remove: Vec::new(),
+    });
+    // A replacement on the source axis replaces on the destination too; keeping `inherit` would
+    // silently re-add whatever the skills axis used to receive from the layers above.
+    if base == Base::None {
+        target.base = Base::None;
+    }
+    for id in moved_add {
+        if !target.add.contains(&id) {
+            target.add.push(id);
+        }
+    }
+    for id in moved_remove {
+        if !target.remove.contains(&id) {
+            target.remove.push(id);
+        }
+    }
+}
+
 impl Default for Board {
     fn default() -> Self {
         Board {
             actions: Default::default(),
+            tools: Tools::default(),
+            tool_trust: Vec::new(),
             stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"]
                 .map(String::from)
                 .to_vec(),
@@ -448,6 +554,8 @@ impl Board {
                     main.pr.get_or_insert(pr);
                 }
             }
+            // Standalone skills left the plugin axis for their own; migrate legacy selections.
+            split_skills(&mut ws.plugins, &mut ws.skills);
         }
 
         // An unknown stage would hide the workspace from every group. Fall back to the first stage.
@@ -946,5 +1054,85 @@ mod tests {
         assert_eq!(tab.tokens, Some(24_000));
         tab.observe_tokens(3_000);
         assert_eq!(tab.tokens, Some(27_000));
+    }
+
+    /// Legacy tool axes (`Option<Vec<String>>`) migrate to the layered `Selection` form on load.
+    #[test]
+    fn selecao_legada_de_ferramentas_vira_objeto() {
+        use crate::selection::{Base, Selection};
+        let legacy = board_json(r#","mcp":["a","b"],"plugins":[]"#);
+        assert_eq!(
+            legacy.workspaces[0].mcp,
+            Some(Selection::only(vec!["a".into(), "b".into()]))
+        );
+        assert_eq!(legacy.workspaces[0].plugins, Some(Selection::only(vec![])));
+        assert_eq!(legacy.workspaces[0].skills, None);
+
+        // An absent axis inherits the layers above it.
+        assert_eq!(board_json("").workspaces[0].mcp, None);
+
+        // The new object form round-trips, including the `inherit` base.
+        let novo = board_json(r#","mcp":{"base":"inherit","add":["x"],"remove":["y"]}"#);
+        assert_eq!(
+            novo.workspaces[0].mcp,
+            Some(Selection {
+                base: Base::Inherit,
+                add: vec!["x".into()],
+                remove: vec!["y".into()],
+            })
+        );
+    }
+
+    /// Standalone skills move from the plugin axis to their own on load, and stay moved.
+    #[test]
+    fn skills_saem_dos_plugins_na_migracao() {
+        use crate::selection::Selection;
+        let mut board = board_json(r#","plugins":["revisor","skill-review"]"#);
+        board.revive();
+        assert_eq!(
+            board.workspaces[0].plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
+        assert_eq!(
+            board.workspaces[0].skills,
+            Some(Selection::only(vec!["skill-review".into()]))
+        );
+
+        // The migration is idempotent: a second load changes nothing.
+        board.revive();
+        assert_eq!(
+            board.workspaces[0].skills,
+            Some(Selection::only(vec!["skill-review".into()]))
+        );
+    }
+
+    /// A replacement on the plugins axis propagates to an existing skills axis, so moved skill
+    /// ids do not degrade the replacement into inherit-plus-add.
+    #[test]
+    fn migracao_de_skills_preserva_substituicao_no_destino_existente() {
+        use crate::selection::{Base, Selection};
+        let mut plugins = Some(Selection::only(vec!["skill-a".into()]));
+        let mut skills = Some(Selection {
+            base: Base::Inherit,
+            add: vec!["skill-b".into()],
+            remove: vec![],
+        });
+        split_skills(&mut plugins, &mut skills);
+        assert_eq!(plugins, Some(Selection::only(vec![])));
+        let skills = skills.expect("eixo");
+        assert_eq!(skills.base, Base::None);
+        assert_eq!(skills.add, ["skill-b".to_string(), "skill-a".to_string()]);
+    }
+
+    /// The global tool layer is absent by default so an old board injects exactly what it used to.
+    #[test]
+    fn board_antigo_nao_tem_camada_global() {
+        let board = board_json("");
+        assert_eq!(board.tools, Tools::default());
+        assert!(board.tools.mcp.is_none());
+        assert!(board.tools.plugins.is_none());
+        assert!(board.tools.skills.is_none());
+        // An old board has approved no project declaration, so its `[tools]` stays gated.
+        assert!(board.tool_trust.is_empty());
     }
 }

@@ -39,21 +39,60 @@ A local entry of the Codex marketplace uses
 Remote entries are another installation and do not make the importer cross the
 repository boundary.
 
-## Selection per workspace
+## Layered selection
 
-`Workspace.plugins` contains hub IDs and applies to whichever provider is chosen
-for that workspace:
+Three independent axes — `mcp`, `plugins` and `skills` — are selected in three
+layers, resolved in the order global → project → workspace
+([ADR 0043](../decisions/0043-layered-tool-selection.md)). Per axis and layer
+the value is either absent, meaning inherit, or
+`{ base, add, remove }`, where `base` is `"none"` — the inherited set is
+replaced by `add` — or `"inherit"` — `add` and `remove` are applied over it.
+`selection.rs` resolves the chain and stays free of Tauri, DOM and network;
+where each layer is persisted is in
+[`persistence.md`](persistence.md).
 
-- `null` preserves the previous behavior and injects no selection;
-- `[]` injects no item from the hub;
-- a list injects only items still present in the hub;
-- an ID removed from the hub is ignored so that an old workspace still opens.
+The resolved list applies to whichever provider is chosen for that workspace:
+
+- a terminal inheritance, when no layer declares the axis, injects nothing from
+  the hub;
+- a list injects only items still present in the axis universe;
+- an ID removed from the universe is ignored so that an old layer still
+  resolves.
+
+For the `mcp` axis of a Claude workspace the universe is the hub plus the
+**CLI-inherited base** ([ADR 0044](../decisions/0044-cli-inherited-mcp-base.md)):
+the servers discovered read-only from `~/.claude.json` (user scope and the
+project entry for the working directory) and from the working directory's
+`.mcp.json`. A hub server shadows a discovered ID; the first discovered
+occurrence wins. The base participates in resolution as an implicit
+`{ base: "inherit", add: <base> }` layer below global
+(`selection.rs::resolve_with_base`), so `base: "none"` at any layer also
+replaces it, and a removal of a base ID is an ordinary workspace-layer
+`remove`. Base items that stay on carry the `cli` provenance. Codex has no
+discovered base yet; see
+[`provider-matrix.md`](../quality/provider-matrix.md).
+
+Skills leave the plugin axis and become their own, and keep using the same
+plugin-package pipeline: `skills-packages/<id>`, `--plugin-dir` for Claude and
+the derived marketplace for Codex. The split is a state and interface concern,
+not a new materialization mechanism.
+
+The resolved set is captured at spawn. A change at any layer takes effect at the
+next spawn or resume; a running session keeps the set it was born with, so the
+interface states that a change applies on the next session instead of restarting
+the process.
 
 The selection controls what Prometeu injects. Plugins the person enabled
 directly in the CLI's global registry are still subject to that CLI's rules. In
 Codex, the real configuration is re-read while preparing each spawn so those
 preferences keep following the user; only the entries of the reserved `prometeu`
-and `prometeu-dev` marketplaces are controlled by the workspace.
+and `prometeu-dev` marketplaces are controlled by the workspace. For MCP in
+Claude, when any layer declares the axis the spawn passes
+`--strict-mcp-config` with a private file that materializes the **whole
+effective set**, including the kept CLI-inherited servers, so the resolved list
+is exactly what the CLI loads; when no layer declares it, no strict flag is
+passed and the CLI loads its own defaults — the same set the picker shows
+(ADR 0044 amends the Authority section of ADR 0043).
 
 Selecting is activating. The package must be enabled from the start of the
 session and, when it declares hooks, they must be active before the first
@@ -165,12 +204,27 @@ belongs to the current selection. A hook that is already trusted but disabled is
 also re-enabled: the workspace's selection prevails over the previous derived
 state.
 
-Global, project or other-plugin hooks never gain trust through that flow. If the
-content changes, the new hash is accepted only when a session that still selects
-the plugin opens. If a package declares hooks and `hooks/list` does not assign
-them to its `pluginId`, or if writing the activation/trust fails, the adapter
-shows an error and does not open the thread. That way the session cannot be born
-as a collection of skills when the person chose an automatic behavior.
+Hooks of the CLI's own global configuration, of the project's files and of
+plugins outside the resolved selection never gain trust through that flow. If
+the content changes, the new hash is accepted only when a session that still
+selects the plugin opens. If a package declares hooks and `hooks/list` does not
+assign them to its `pluginId`, or if writing the activation/trust fails, the
+adapter shows an error and does not open the thread. That way the session cannot
+be born as a collection of skills when the person chose an automatic behavior.
+
+### Project declarations
+
+The project layer comes from a versioned `.prometeu/settings.toml`, so it cannot
+activate on its own. The first time a repository's `[tools]` declares items —
+and again whenever the declared set changes, compared by the SHA-256 of that
+section — Prometeu asks before activating them, and the decision is stored
+app-local on the board, never in the repository. The prompt offers approval or
+rejection, and both bind to the hash the backend recomputes at call time. Until
+a decision exists, project-declared items are resolved and shown as pending; a
+rejection keeps them resolved and shown as rejected. Either way they are not
+injected, so their hooks are neither enabled nor trusted, and a rejection also
+quiets the prompt until the declaration changes and re-pends. Global and
+workspace choices stay the person's explicit action and need no extra approval.
 
 ## Failures and compatibility
 
@@ -188,5 +242,7 @@ as a collection of skills when the person chose an automatic behavior.
 
 Skills registered on the desktop or installed from the account are materialized
 in `<root>/skills-packages/<id>/`, with both manifests and `skills/<id>/SKILL.md`.
-The hub uses the ID `skill-<id>` and the same plugin selectors, without changing
-the CLIs' global configuration. See the [catalog contract](cloud-catalog.md).
+The hub keeps them under the ID `skill-<id>`, and they are chosen on their own
+`skills` axis, which still materializes through the plugin-package pipeline
+above, without changing the CLIs' global configuration. See the
+[catalog contract](cloud-catalog.md).

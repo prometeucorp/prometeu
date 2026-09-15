@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { branchTaken, fmtTokens, tabLabel, type Board, type Tab, type Workspace } from "./types";
+import { branchTaken, fmtTokens, tabLabel, toggleSelection, type Board, type Selection, type Tab, type Workspace } from "./types";
 
 // Portuguese formatting uses a decimal comma, as in 1,2M.
 use("pt-BR");
@@ -80,5 +80,27 @@ describe("tabLabel", () => {
   it("modelo que o catálogo não conhece e workspace remoto sem modelo caem no nome do provider", () => {
     const remote = tab("r");
     expect(tabLabel({ tabs: [remote], agent: "claude", model: "" } as Workspace, remote)).toBe("Claude Code");
+  });
+});
+
+describe("toggleSelection", () => {
+  it("a primeira escolha herda e adiciona, sem apagar o que vem de cima", () => {
+    expect(toggleSelection(null, "notion", true)).toEqual({ base: "inherit", add: ["notion"], remove: [] });
+  });
+
+  it("desligar troca o add por remove e preserva a base", () => {
+    const on: Selection = { base: "none", add: ["notion"], remove: [] };
+    expect(toggleSelection(on, "notion", false)).toEqual({ base: "none", add: [], remove: ["notion"] });
+  });
+
+  it("religar um item removido o tira do remove e devolve ao add", () => {
+    const off: Selection = { base: "inherit", add: [], remove: ["notion"] };
+    expect(toggleSelection(off, "notion", true)).toEqual({ base: "inherit", add: ["notion"], remove: [] });
+  });
+
+  it("os outros ids da camada ficam intactos", () => {
+    const layer: Selection = { base: "inherit", add: ["a"], remove: ["r"] };
+    expect(toggleSelection(layer, "b", true)).toEqual({ base: "inherit", add: ["a", "b"], remove: ["r"] });
+    expect(toggleSelection(layer, "a", false)).toEqual({ base: "inherit", add: [], remove: ["r", "a"] });
   });
 });

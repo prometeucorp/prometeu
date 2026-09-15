@@ -250,6 +250,7 @@ listen<Board>("board", ({ payload }) => {
   actions.update(state);
   team.boardChanged(state);
   alert.boardChanged(state);
+  settings.boardChanged(state);
   refresh();
 });
 
@@ -638,8 +639,9 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   workspace: w?.id ?? null,
   status: tab?.status ?? null,
   task: tab?.task ?? null,
-  mcp: tab?.task ? tab.task.profile.mcp : (w?.mcp ?? null),
-  plugins: tab?.task ? tab.task.profile.plugins : (w?.plugins ?? null),
+  mcp: tab?.task ? null : (w?.mcp ?? null),
+  plugins: tab?.task ? null : (w?.plugins ?? null),
+  skills: tab?.task ? null : (w?.skills ?? null),
   pending: tab?.pending_prompt ?? null,
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
@@ -680,6 +682,7 @@ state = await invoke("load_board");
 actions.update(state);
 team.boardChanged(state);
 alert.boardChanged(state);
+settings.boardChanged(state);
 showDesk();
 
 // Show release notes after the initial page renders so the dialog overlays the application.

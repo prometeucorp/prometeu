@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { Board, Status } from "../src/types";
 
 async function boot(page: Page) {
@@ -1009,35 +1009,81 @@ test("instala um plugin pelo endereço do repositório", async ({ page }) => {
   await expect(page.locator(".setrow", { hasText: "muitos-plugins-dois" })).toHaveCount(0);
 });
 
-/// Plugin toggles update immediately while debounced persistence restarts processes and republishes the
-/// board.
-test("marcar plugins na conversa responde na hora e grava uma vez só", async ({ page }) => {
+/// Each tool toggle persists on its own and applies at the next spawn; the picker re-opens showing the
+/// resolved effective set instead of restarting the running session (ADR 0043, phases 6 and 7).
+test("marcar plugins na conversa grava cada mudança e vale para a próxima fala", async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Ola");
 
   // Target the workspace composer; hidden desk panels also remain in the DOM.
   const plugbtn = page.locator("#chatwrap .plugbtn");
   const mcpbtn = page.locator("#chatwrap .mcpbtn");
+  const menuRow = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
+  const reopen = async () => {
+    // The picker closes on click and re-opens after the write resolves; wait for it, then dismiss it.
+    await expect(page.locator(".menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".menu")).toHaveCount(0);
+  };
+
   await plugbtn.click();
-  const row = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
-  await row("caveman").click();
-  // The checkmark updates before the board response arrives.
-  await expect(row("caveman").locator(".mc svg")).toBeVisible();
-  await row("ponytail").click();
-  await expect(row("caveman").locator(".mc svg")).toBeVisible();
-  await expect(row("ponytail").locator(".mc svg")).toBeVisible();
+  await menuRow("caveman").click();
+  await reopen();
 
-  // Closing the menu commits both clicks in one save and updates the footer count.
+  await plugbtn.click();
+  await menuRow("ponytail").click();
+  // Both picks survive the re-open: the resolved provenance marks each row as on.
+  await expect(page.locator(".menu")).toBeVisible();
+  await expect(menuRow("caveman").locator(".mc svg")).toBeVisible();
+  await expect(menuRow("ponytail").locator(".mc svg")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(plugbtn).toContainText("2 plugins");
-  expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(1);
+  await expect(page.locator(".menu")).toHaveCount(0);
 
-  // A subsequent MCP selection uses a separate save; debounce queues must not consume each other.
+  // Two deltas over the inherited base summarize as "+2", and each toggle saved on its own.
+  await expect(plugbtn).toContainText("+2");
+  expect(await page.evaluate(() => (window as unknown as { mock: { writes: () => number } }).mock.writes())).toBe(2);
+
+  // The MCP axis is independent: a single pick shows its own id and leaves the plugin label intact.
   await mcpbtn.click();
-  await page.locator(".menu .mrow").filter({ hasText: "capim-ds" }).first().click();
-  await page.keyboard.press("Escape");
+  await menuRow("capim-ds").click();
+  await reopen();
   await expect(mcpbtn).toContainText("capim-ds");
-  await expect(plugbtn).toContainText("2 plugins");
+  await expect(plugbtn).toContainText("+2");
+});
+
+/// Servers Claude Code loads from the person's CLI configuration appear in the picker as the visible
+/// inherited base (ADR 0044), badged as such and removable without importing them first.
+test("o picker mostra a base herdada do CLI e remove sem importar", async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Ola");
+
+  const mcpbtn = page.locator("#chatwrap .mcpbtn");
+  const menuRow = (name: string) => page.locator(".menu .mrow").filter({ hasText: name }).first();
+  await mcpbtn.click();
+  await expect(page.locator(".menu")).toBeVisible();
+  // Discovered CLI servers join the hub rows, checked and badged as inherited from the CLI.
+  await expect(menuRow("metabase")).toContainText("herdado do CLI");
+  await expect(menuRow("metabase").locator(".mc svg")).toBeVisible();
+  await expect(menuRow("n8n")).toContainText("herdado do CLI");
+  // The mixed universe reads as two labeled sections rather than one flat list.
+  const headers = page.locator(".menu .mrow.off");
+  await expect(headers.filter({ hasText: "Cadastrados" })).toHaveCount(1);
+  await expect(headers.filter({ hasText: "Herdados do CLI" })).toHaveCount(1);
+
+  // Unchecking a CLI server writes a removal into the workspace layer, keeping inherit as the base.
+  await menuRow("metabase").click();
+  await expect(page.locator(".menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".menu")).toHaveCount(0);
+  await expect(mcpbtn).toContainText("−1");
+
+  const layer = await page.evaluate(async () => {
+    type Invoke = (command: string) => Promise<Board>;
+    const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    const board = await invoke("load_board");
+    return board.workspaces.find((w) => w.title === "Ola")!.mcp;
+  });
+  expect(layer).toEqual({ base: "inherit", add: [], remove: ["metabase"] });
 });
 
 /// The desk supports direct replies and preserves panel order, size and collapse state across reloads.
@@ -1227,25 +1273,27 @@ test("a mesa ignora um snapshot atrasado da mesma conversa", async ({ page }) =>
   await expect(tile.locator(".bubble", { hasText: "SNAPSHOT_ANTIGO" })).toHaveCount(1);
 });
 
-/// Debounce combines clicks within one selector but preserves independent workspace saves.
-test("a mesa grava escolhas rápidas de MCP em workspaces diferentes", async ({ page }) => {
+/// The desk persists each workspace's MCP pick independently; the provenance picker opens asynchronously
+/// and re-opens after each write (ADR 0043, phases 6 and 7).
+test("a mesa grava escolhas de MCP em workspaces diferentes", async ({ page }) => {
   await boot(page);
   const first = page.locator('#tiles .tile[data-tab="t1"] .mcpbtn');
   const second = page.locator('#tiles .tile[data-tab="t5"] .mcpbtn');
   await expect(first).toBeVisible();
   await expect(second).toBeVisible();
 
-  await page.evaluate(() => {
-    const choose = (button: string, name: string) => {
-      document.querySelector<HTMLButtonElement>(button)!.click();
-      [...document.querySelectorAll<HTMLButtonElement>(".menu .mrow")]
-        .find((row) => row.textContent?.includes(name))!
-        .click();
-    };
-    choose('#tiles .tile[data-tab="t1"] .mcpbtn', "capim-ds");
-    choose('#tiles .tile[data-tab="t5"] .mcpbtn', "notion");
-  });
-  await page.keyboard.press("Escape");
+  const pick = async (button: Locator, name: string) => {
+    await button.click();
+    await page.locator(".menu .mrow").filter({ hasText: name }).first().click();
+    // The picker re-opens after the write resolves; dismiss it before the next interaction.
+    await expect(page.locator(".menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".menu")).toHaveCount(0);
+    await expect(button).toContainText(name);
+  };
+
+  await pick(first, "capim-ds");
+  await pick(second, "notion");
 
   await expect(first).toContainText("capim-ds");
   await expect(second).toContainText("notion");

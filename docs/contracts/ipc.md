@@ -159,6 +159,54 @@ Run still require a workspace and answer `err.session.noWorkspace`.
 `workspace_scripts` and `dock_state` already tolerated an id without a workspace
 — they return an empty catalog and no port.
 
+## Tool selection
+
+The global, project and workspace layers of MCP, plugin and skill selection
+([ADR 0043](../decisions/0043-layered-tool-selection.md)) travel as one shape:
+
+```ts
+type Selection = null | { base: "none" | "inherit"; add: string[]; remove: string[] };
+```
+
+- `set_tools_global`: receives `{ mcp?, plugins?, skills? }`, each an optional
+  `Selection`. An absent axis is not changed; `null` returns it to inherit. The
+  global layer is a board field, so the result reaches the frontend through the
+  existing `board` event and the command returns nothing on success.
+- `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills`:
+  receive `{ id }` plus the axis value as a `Selection`, replacing the previous
+  `string[] | null`. Absent keeps the current value; `null` inherits.
+- All four setters validate the payload before writing and answer an i18n-coded
+  error instead of storing garbage: a malformed `Selection` fails with
+  `err.tools.badPayload`, and an id on the wrong axis — a `skill-<id>` package
+  on `plugins`, or a plain plugin on `skills` — fails with `err.tools.badAxis`.
+- `workspace_tools`: receives `{ id }` and returns the effective set per axis,
+  each item with its provenance — inherited, added, removed, or `cli` for the
+  MCP servers the person's Claude configuration loads (ADR 0044) — and the
+  project-declared items whose trust is pending or was rejected. An unknown
+  workspace answers `err.session.noWorkspace`. It exists so the picker shows the
+  result without reading the three layers.
+- `mcp_inherited`: receives `{ id }` of a workspace and returns the MCP servers
+  discovered from the CLI configuration for its working directory that the hub
+  lacks, empty for other providers. It is the visible inherited base of the
+  workspace picker (ADR 0044).
+- `project_tools`: receives the `{ id }` of a project or a workspace and returns
+  the `[tools]` declared by the primary repository, the settings file that
+  declared it, the SHA-256 of that section and the stored decision, if any.
+  `pending` is true only while no decision — approval or rejection — exists for
+  the current hash, so an explicit rejection quiets the prompt until the
+  declaration changes.
+- `project_tools_trust`: receives `{ id, approved }` and records the decision on
+  the board. The backend derives both the repository identity and the current
+  declaration hash from `id`, so a recorded decision always binds to the
+  declaration the command just read; a repository without a declaration is a
+  no-op. One decision per repository: a new verdict replaces the previous one.
+
+There is no new event: the global layer and the trust decisions are board
+fields, and the workspace layer already was. `Selection` is a typed shape in
+`src/types.ts`, and the mock implements every command above. ADR 0043 introduces
+them in its interface phase; the parity test in `src-tauri/tests/mock.rs` is what
+makes each one real.
+
 ## Legacy import
 
 `legacy_import_plan` does not change state. It returns the source, one of the

@@ -145,6 +145,99 @@ fn slug(text: &str) -> String {
     cleaned.trim_matches('-').replace("--", "-")
 }
 
+/// The servers the CLI itself loads for one working directory (ADR 0044): the user-scope
+/// `mcpServers` of `~/.claude.json`, the project-scope entry keyed by the directory, and the
+/// directory's `.mcp.json` plus every ancestor directory's, as the CLI walks the tree upward from
+/// the working directory (ADR 0043). They form the inherited base of the mcp axis, visible in the
+/// picker without importing. IDs keep their original names; the first occurrence of a repeated
+/// name wins, so user scope precedes project scope, the nearest repository file precedes its
+/// ancestors, and the closest definition of a name is the one materialized.
+pub fn inherited(workdir: &Path) -> Vec<Server> {
+    let claude = read_json(&paths::home().join(".claude.json"));
+    let mut files: Vec<(String, Value)> = Vec::new();
+    let mut dir = Some(workdir);
+    while let Some(current) = dir {
+        if let Some(value) = read_json(&current.join(".mcp.json")) {
+            let origin = current
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| current.to_string_lossy().into_owned());
+            files.push((origin, value));
+        }
+        dir = current.parent();
+    }
+    inherited_from(claude.as_ref(), workdir, &files)
+}
+
+/// The pure core of `inherited`, injectable so tests need no home directory or file tree. `files`
+/// holds the repository `.mcp.json` values nearest first; the note carries the origin: empty for
+/// user scope, the directory name otherwise, mirroring `from_claude_json`.
+fn inherited_from(
+    claude: Option<&Value>,
+    workdir: &Path,
+    files: &[(String, Value)],
+) -> Vec<Server> {
+    let origin = workdir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| workdir.to_string_lossy().into_owned());
+    let mut out: Vec<Server> = Vec::new();
+    if let Some(root) = claude {
+        out.extend(servers_in(root, ""));
+        // Claude Code keys projects by the resolved working directory; try the given path and its
+        // canonical form so a symlinked worktree still matches.
+        let projects = root.get("projects").and_then(Value::as_object);
+        let key = workdir.to_string_lossy().into_owned();
+        let canonical = workdir
+            .canonicalize()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned());
+        let project = projects.and_then(|p| {
+            p.get(&key)
+                .or_else(|| canonical.as_deref().and_then(|c| p.get(c)))
+        });
+        if let Some(project) = project {
+            out.extend(servers_in(project, &origin));
+        }
+    }
+    for (file_origin, file) in files {
+        out.extend(servers_in(file, file_origin));
+    }
+    let mut unique: Vec<Server> = Vec::new();
+    for server in out {
+        if !unique.iter().any(|s| s.id == server.id) {
+            unique.push(server);
+        }
+    }
+    unique
+}
+
+/// The mcp universe of one working directory: hub servers plus the CLI-inherited ones (ADR 0044).
+/// A hub entry wins an ID clash, so an imported server stays Prometeu-managed with its own config.
+pub fn universe(workdir: &Path) -> Vec<Server> {
+    merge_universe(load(), inherited(workdir))
+}
+
+fn merge_universe(hub: Vec<Server>, inherited: Vec<Server>) -> Vec<Server> {
+    let mut all = hub;
+    for server in inherited {
+        if !all.iter().any(|s| s.id == server.id) {
+            all.push(server);
+        }
+    }
+    all
+}
+
+/// The CLI-inherited servers absent from the hub, for the picker's rows and the composer's button
+/// gating. Importing stays optional: these rows are visible and adjustable without it.
+pub fn inherited_missing_hub(workdir: &Path) -> Vec<Server> {
+    let hub = load();
+    inherited(workdir)
+        .into_iter()
+        .filter(|s| !hub.iter().any(|h| h.id == s.id))
+        .collect()
+}
+
 /// Read user and project mcpServers from ~/.claude.json. Use the final project path component for
 /// source labels and name collisions; an empty source represents user configuration for the
 /// frontend to label.
@@ -213,32 +306,43 @@ fn servers_in(value: &Value, origin: &str) -> Vec<Server> {
 }
 
 /// Generate a Claude session config only for explicit selections. None preserves CLI defaults; an
-/// empty list still generates an empty file for strict MCP exclusion.
-pub fn config_for(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<PathBuf>, String> {
+/// empty list still generates an empty file for strict MCP exclusion. The strict file must carry
+/// the whole effective set, so CLI-inherited servers the layers kept are materialized from their
+/// discovered configuration too (ADR 0044); otherwise the first selection would silently drop
+/// what the picker shows as inherited from the CLI.
+pub fn config_for(
+    id: &str,
+    chosen: Option<&Vec<String>>,
+    workdir: &Path,
+) -> Result<Option<PathBuf>, String> {
     let Some(chosen) = chosen else {
         return Ok(None);
     };
     let path = session_path(id);
     // Refresh OAuth tokens while materializing session configuration, without persisting them in
     // the registry; see mcp_auth.rs.
-    let body = serde_json::to_string_pretty(&config_body(&load(), chosen, mcp_auth::bearer))
-        .map_err(|e| e.to_string())?;
+    let body =
+        serde_json::to_string_pretty(&config_body(&universe(workdir), chosen, mcp_auth::bearer)?)
+            .map_err(|e| e.to_string())?;
     paths::write_private(&path, &body)
         .map_err(|cause| i18n::ta("err.mcp.session", &[("cause", cause)]))?;
     Ok(Some(path))
 }
 
-/// Include selected servers still present in the hub, skipping deleted entries for compatibility.
-/// Inject token lookup so configuration tests do not require disk state.
+/// Materialize every chosen server. Resolution already filtered the chosen ids against the
+/// universe, so a miss here means the hub or the CLI configuration changed between resolve and
+/// spawn; starting without a requested server is not a valid fallback
+/// (docs/contracts/agent-runtime.md), so the spawn fails with the missing id. Inject token lookup
+/// so configuration tests do not require disk state.
 fn config_body(
     hub: &[Server],
     chosen: &[String],
     bearer: impl Fn(&str) -> Option<String>,
-) -> Value {
+) -> Result<Value, String> {
     let mut servers = Map::new();
     for name in chosen {
         let Some(server) = hub.iter().find(|s| &s.id == name) else {
-            continue;
+            return Err(i18n::ta("err.mcp.missing", &[("id", name.clone())]));
         };
         let mut config = server.config.clone();
         // Inject the OAuth bearer header so the CLI can use an authenticated server without owning
@@ -256,7 +360,7 @@ fn config_body(
         }
         servers.insert(server.id.clone(), config);
     }
-    json!({ "mcpServers": servers })
+    Ok(json!({ "mcpServers": servers }))
 }
 
 /* Codex configuration */
@@ -276,7 +380,7 @@ pub fn codex_config(id: &str, chosen: Option<&Vec<String>>) -> Result<Option<Cod
     let mut entries: Vec<String> = Vec::new();
     for name in chosen {
         let Some(server) = hub.iter().find(|s| &s.id == name) else {
-            continue;
+            return Err(i18n::ta("err.mcp.missing", &[("id", name.clone())]));
         };
         let entry = match server.config.get("url").and_then(Value::as_str) {
             Some(url) => remote_entry(server, url, &mut env),
@@ -1008,7 +1112,82 @@ mod tests {
     /// behavior.
     #[test]
     fn sem_escolha_nao_ha_arquivo() {
-        assert!(config_for("aba", None).expect("sem erro").is_none());
+        assert!(config_for("aba", None, Path::new("/tmp"))
+            .expect("sem erro")
+            .is_none());
+    }
+
+    /// The inherited base of one working directory: user scope, the project entry keyed by the
+    /// directory, and the repository's .mcp.json plus its ancestors' nearest first, deduplicated
+    /// by name with the first origin winning (ADR 0044).
+    #[test]
+    fn a_base_herdada_vem_do_usuario_do_projeto_e_do_repositorio() {
+        let workdir = Path::new("/dev/projeto");
+        let claude = json!({
+            "mcpServers": { "do-usuario": { "type": "http", "url": "https://u/mcp" } },
+            "projects": {
+                "/dev/projeto": { "mcpServers": { "do-projeto": { "command": "p" } } },
+                "/dev/outro": { "mcpServers": { "estranho": { "command": "x" } } }
+            }
+        });
+        let files = vec![
+            (
+                "projeto".to_string(),
+                json!({
+                    "mcpServers": {
+                        "do-repo": { "command": "r" },
+                        "do-usuario": { "command": "conflito" }
+                    }
+                }),
+            ),
+            (
+                "dev".to_string(),
+                json!({
+                    "mcpServers": {
+                        "do-ancestral": { "command": "a" },
+                        "do-repo": { "command": "conflito-ancestral" }
+                    }
+                }),
+            ),
+        ];
+        let got = inherited_from(Some(&claude), workdir, &files);
+        let ids: Vec<&str> = got.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["do-usuario", "do-projeto", "do-repo", "do-ancestral"]);
+        // The first occurrence keeps its configuration and origin.
+        assert_eq!(got[0].config["url"], "https://u/mcp");
+        assert_eq!(got[0].note, "");
+        assert_eq!(got[1].note, "projeto");
+        // The nearest repository file wins over an ancestor's definition of the same name.
+        assert_eq!(got[2].config["command"], "r");
+        assert_eq!(got[3].note, "dev");
+        // Without configuration files the base is empty.
+        assert!(inherited_from(None, workdir, &[]).is_empty());
+    }
+
+    /// A hub entry wins an ID clash, so an imported server stays Prometeu-managed.
+    #[test]
+    fn o_hub_vence_colisao_no_universo() {
+        let hub = vec![Server {
+            id: "notion".into(),
+            config: json!({ "url": "https://hub" }),
+            note: String::new(),
+        }];
+        let inherited = vec![
+            Server {
+                id: "notion".into(),
+                config: json!({ "url": "https://cli" }),
+                note: String::new(),
+            },
+            Server {
+                id: "n8n".into(),
+                config: json!({ "command": "npx" }),
+                note: String::new(),
+            },
+        ];
+        let universe = merge_universe(hub, inherited);
+        assert_eq!(universe.len(), 2);
+        assert_eq!(universe[0].config["url"], "https://hub");
+        assert_eq!(universe[1].id, "n8n");
     }
 
     #[test]
@@ -1025,10 +1204,19 @@ mod tests {
                 note: String::new(),
             },
         ];
-        let body = config_body(&hub, &["notion".to_string(), "sumiu".to_string()], |_| None);
+        let body = config_body(&hub, &["notion".to_string()], |_| None).expect("materializa");
         let servers = body["mcpServers"].as_object().expect("objeto");
         assert_eq!(servers.len(), 1);
         assert!(servers.contains_key("notion"));
+    }
+
+    /// A chosen id the universe no longer has fails the spawn instead of silently shrinking the
+    /// effective set (docs/contracts/agent-runtime.md).
+    #[test]
+    fn escolhido_ausente_impede_a_materializacao() {
+        let got = config_body(&[], &["sumiu".to_string()], |_| None);
+        let err = got.expect_err("falha");
+        assert!(err.contains("sumiu"), "{err}");
     }
 
     /// An empty selection still generates strict empty configuration. Inject OAuth authorization
@@ -1042,7 +1230,8 @@ mod tests {
         }];
         let body = config_body(&hub, &["capisce".to_string()], |id| {
             (id == "capisce").then(|| "abc123".to_string())
-        });
+        })
+        .expect("materializa");
         let headers = &body["mcpServers"]["capisce"]["headers"];
         assert_eq!(headers["Authorization"], "Bearer abc123");
         assert_eq!(headers["X-Id"], "7");
@@ -1050,7 +1239,7 @@ mod tests {
 
     #[test]
     fn escolher_nenhum_tem_arquivo_vazio() {
-        let body = config_body(&[], &[], |_| None);
+        let body = config_body(&[], &[], |_| None).expect("materializa");
         assert_eq!(body["mcpServers"].as_object().expect("objeto").len(), 0);
     }
 }

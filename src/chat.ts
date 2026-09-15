@@ -30,13 +30,15 @@ import { md } from "./markdown";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
 import * as plugins from "./plugins";
+import * as skills from "./skills";
+import * as trust from "./trust";
 import * as commands from "./commands";
 import * as notes from "./notes";
 import * as paths from "./paths";
 import { pasteFiles } from "./paste";
 import * as team from "./team";
 import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
-import type { Choice, ProviderId, Status } from "./types";
+import type { Choice, ProviderId, Selection, Status } from "./types";
 import { button } from "./ui";
 import { h, template } from "./util";
 
@@ -62,10 +64,12 @@ export type Info = {
   agent: ProviderId;
   model: string;
   effort: string;
-  /// Workspace MCP selection; null preserves CLI inheritance.
-  mcp: string[] | null;
-  /// Workspace plugin selection follows MCP inheritance rules.
-  plugins: string[] | null;
+  /// Workspace MCP layer; null inherits the global and project layers.
+  mcp: Selection | null;
+  /// Workspace plugin layer follows the same inheritance rules.
+  plugins: Selection | null;
+  /// Workspace standalone-skill layer, its own axis since ADR 0043.
+  skills: Selection | null;
 };
 
 export type Ctx = {
@@ -74,30 +78,6 @@ export type Ctx = {
   comment?: (target: notes.Target) => void;
   thread?: (id: string) => void;
 };
-
-/* Batch MCP and plugin changes. */
-
-/// Update selection immediately but persist after input settles because each write restarts the process and republishes the board.
-const SETTLE = 300;
-/// Track pending changes separately for MCP and plugins so neither overwrites the other.
-const settling = new Map<string, () => void>();
-let settleAt: number | undefined;
-
-function settleWrite(what: string, workspace: string, fn: () => void) {
-  // Key pending selection by workspace as well as category so desk panels cannot overwrite one another.
-  settling.set(`${what}\u0000${workspace}`, fn);
-  clearTimeout(settleAt);
-  settleAt = window.setTimeout(settleNow, SETTLE);
-}
-
-/// Flush before sending a prompt; a delayed configuration write would otherwise kill the newly resumed process.
-function settleNow() {
-  clearTimeout(settleAt);
-  settleAt = undefined;
-  const runs = [...settling.values()];
-  settling.clear();
-  for (const run of runs) run();
-}
 
 /* Conversation-owned transient state. */
 
@@ -986,6 +966,7 @@ export class ChatView {
           <button class="ghost sm actionsbtn"></button>
           <button class="ghost sm mcpbtn" hidden><span></span></button>
           <button class="ghost sm plugbtn" hidden><span></span></button>
+          <button class="ghost sm skillbtn" hidden><span></span></button>
         </div>
         <div class="composer-controls"></div>
       </div>
@@ -1020,6 +1001,8 @@ export class ChatView {
     q(".actionsbtn").setAttribute("aria-label", t("actions.title"));
     q(".actionsbtn").addEventListener("click", () => this.actionMenu());
     this.cleanup.push(actions.onChange(() => this.paintComposer()));
+    // The CLI-inherited base arrives asynchronously and can unhide the MCP button (ADR 0044).
+    this.cleanup.push(mcp.onChange(() => this.paintComposer()));
     q(".addfile").addEventListener("click", () => void this.addFile());
     q(".quotesel").addEventListener("click", () => this.quoteSelection());
 
@@ -1119,8 +1102,6 @@ export class ChatView {
 
   private send() {
     if (this.key && drafts.pending.has(this.key)) return;
-    // Persist pending configuration before resuming the process with a new prompt.
-    settleNow();
     const text = this.area.value.trim();
     if (this.selectAction()) return;
     const files = this.attached();
@@ -1267,6 +1248,7 @@ export class ChatView {
     this.paintWith(info);
     this.paintMcp(info);
     this.paintPlugins(info);
+    this.paintSkills(info);
     this.paintRemoteControl(info);
     const send = q(".send");
     (send as HTMLButtonElement).disabled = receiving;
@@ -1372,72 +1354,123 @@ export class ChatView {
     );
   }
 
-  /// Change MCP selection only for local idle conversations. Restarting preserves the transcript, while interrupting an active turn would lose its work. Hide controls without registry entries or existing selection.
+  /// Tool selection applies at the next spawn or resume; a running session keeps the set it was born
+  /// with (ADR 0043), so the picker is available even mid-turn and only states that the change lands on
+  /// the next message. Hide controls without registry entries, a CLI-inherited base, or an existing
+  /// layer (ADR 0044).
   private paintMcp(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".mcpbtn")!;
     if (info.task) { btn.hidden = true; return; }
-    const has = mcp.list().length > 0 || info.mcp !== null;
+    if (info.workspace) mcp.loadInherited(info.workspace);
+    const has =
+      mcp.list().length > 0 ||
+      info.mcp !== null ||
+      (!!info.workspace && mcp.inheritedOf(info.workspace).length > 0);
     btn.hidden =
       !!info.remote ||
       !info.workspace ||
       !capabilitiesOf(info.agent).workspaceMcpSelection ||
       !has;
     if (btn.hidden) return;
-    const working = info.status === "rodando" || info.status === "querendo";
+    // Read the status when the picker opens, not when this paint ran, so a session that started
+    // working in between still gets the "applies on the next message" notice.
+    const working = () => {
+      const status = this.ctx.info().status;
+      return status === "rodando" || status === "querendo";
+    };
     btn.innerHTML = `${icon("plug", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = mcp.label(info.mcp);
-    btn.classList.toggle("on", !!info.mcp?.length);
+    btn.classList.toggle("on", !!info.mcp);
     btn.title = `${t("mcp.title")}: ${mcp.label(info.mcp)}`;
     btn.setAttribute("aria-label", btn.title);
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
       const workspace = info.workspace!;
-      mcp.openPicker({
-        chosen: () => this.ctx.info().mcp,
-        set: (ids) => {
-          settleWrite("mcp", workspace, () => {
-            void invoke("set_workspace_mcp", { id: workspace, mcp: ids }).catch((e) =>
-              this.ctx.say(fromBack(e), true),
-            );
-          });
-        },
+      void mcp.openPicker({
+        workspace,
+        current: () => this.ctx.info().mcp,
+        set: (sel) =>
+          invoke("set_workspace_mcp", { id: workspace, mcp: sel }).catch((e) =>
+            this.ctx.say(fromBack(e), true),
+          ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        locked: () => (working ? t("mcp.busy") : ""),
+        working,
+        trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
   }
 
-  /// Plugin selection shares MCP's ownership, idle-state, and next-prompt restart rules.
+  /// Plugin selection shares MCP's ownership and next-spawn application rule.
   private paintPlugins(info: Info) {
     const btn = this.box.querySelector<HTMLButtonElement>(".plugbtn")!;
     if (info.task) { btn.hidden = true; return; }
-    const has = plugins.list().length > 0 || info.plugins !== null;
+    const has = plugins.list().some((p) => !skills.packageIds().has(p.id)) || info.plugins !== null;
     btn.hidden =
       !!info.remote ||
       !info.workspace ||
       !has ||
       !capabilitiesOf(info.agent).workspacePluginSelection;
     if (btn.hidden) return;
-    const working = info.status === "rodando" || info.status === "querendo";
+    const working = () => {
+      const status = this.ctx.info().status;
+      return status === "rodando" || status === "querendo";
+    };
     btn.innerHTML = `${icon("puzzle", 13)}<span></span>`;
     btn.querySelector("span")!.textContent = plugins.label(info.plugins);
-    btn.classList.toggle("on", !!info.plugins?.length);
+    btn.classList.toggle("on", !!info.plugins);
     btn.title = `${t("plugin.title")}: ${plugins.label(info.plugins)}`;
     btn.setAttribute("aria-label", btn.title);
     btn.onclick = () => {
       const at = btn.getBoundingClientRect();
       const workspace = info.workspace!;
       plugins.openPicker({
-        chosen: () => this.ctx.info().plugins,
-        set: (ids) => {
-          settleWrite("plugins", workspace, () => {
-            void invoke("set_workspace_plugins", { id: workspace, plugins: ids }).catch((e) =>
-              this.ctx.say(fromBack(e), true),
-            );
-          });
-        },
+        workspace,
+        current: () => this.ctx.info().plugins,
+        set: (sel) =>
+          invoke("set_workspace_plugins", { id: workspace, plugins: sel }).catch((e) =>
+            this.ctx.say(fromBack(e), true),
+          ),
         at: () => ({ x: at.left, y: at.bottom + 4 }),
-        locked: () => (working ? t("plugin.busy") : ""),
+        working,
+        trust: () => void trust.open(workspace, this.ctx.say),
+      });
+    };
+  }
+
+  /// Standalone skills are their own axis (ADR 0043) but ride the plugin pipeline, so they share the
+  /// plugin capability gate and next-spawn rule.
+  private paintSkills(info: Info) {
+    const btn = this.box.querySelector<HTMLButtonElement>(".skillbtn")!;
+    if (info.task) { btn.hidden = true; return; }
+    const has = skills.packageIds().size > 0 || info.skills !== null;
+    btn.hidden =
+      !!info.remote ||
+      !info.workspace ||
+      !has ||
+      !capabilitiesOf(info.agent).workspacePluginSelection;
+    if (btn.hidden) return;
+    const working = () => {
+      const status = this.ctx.info().status;
+      return status === "rodando" || status === "querendo";
+    };
+    btn.innerHTML = `${icon("sparkles", 13)}<span></span>`;
+    btn.querySelector("span")!.textContent = plugins.label(info.skills, plugins.SKILL_WORDS);
+    btn.classList.toggle("on", !!info.skills);
+    btn.title = `${t("skill.title")}: ${plugins.label(info.skills, plugins.SKILL_WORDS)}`;
+    btn.setAttribute("aria-label", btn.title);
+    btn.onclick = () => {
+      const at = btn.getBoundingClientRect();
+      const workspace = info.workspace!;
+      plugins.openSkillPicker({
+        workspace,
+        current: () => this.ctx.info().skills,
+        set: (sel) =>
+          invoke("set_workspace_skills", { id: workspace, skills: sel }).catch((e) =>
+            this.ctx.say(fromBack(e), true),
+          ),
+        at: () => ({ x: at.left, y: at.bottom + 4 }),
+        working,
+        trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
   }

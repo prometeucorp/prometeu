@@ -5,6 +5,7 @@
 //! configuration, but does not infer project commands itself.
 
 use crate::i18n;
+use crate::selection::Tools;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 
@@ -64,6 +65,10 @@ struct File {
     scripts: Table,
     #[serde(default)]
     worktree: WorktreeTable,
+    /// The project layer of the tool selection (ADR 0043). Versioned, so it never activates on its
+    /// own; project-declared items are gated on trust before injection.
+    #[serde(default)]
+    tools: Tools,
 }
 
 #[derive(Serialize, Clone)]
@@ -86,6 +91,9 @@ pub struct Scripts {
     /// Resolved files to copy from the clone determine the Setup header and can create a Setup tab
     /// without a command.
     pub copy: Vec<String>,
+    /// The project layer of the tool selection read from the authoritative settings file, inherited
+    /// from the clone like the scripts. Absent axes inherit the layers above (ADR 0043).
+    pub tools: Tools,
     /// Retain the raw optional copy declaration for read_for; the frontend receives the resolved
     /// list.
     #[serde(skip)]
@@ -130,6 +138,7 @@ pub fn read(root: &Path) -> Scripts {
             runs: runs(parsed.scripts.run),
             archive: trimmed(parsed.scripts.archive),
             copy: Vec::new(),
+            tools: parsed.tools,
             declared: parsed.worktree.copy,
         };
     }
@@ -739,5 +748,65 @@ default = true
         for p in [a, b] {
             assert!(port_start(p) < SLOTS, "{}", port_start(p));
         }
+    }
+
+    /// The `[tools]` table parses into the layered Selections; an absent axis inherits.
+    #[test]
+    fn tools_da_tabela_vira_camada_do_projeto() {
+        use crate::selection::{Base, Selection};
+        let dir = tmp("tools");
+        write(
+            &dir,
+            ".prometeu/settings.toml",
+            "[scripts]\nsetup = \"npm i\"\n\n[tools]\nmcp = { base = \"inherit\", add = [\"notion\"] }\nplugins = { base = \"none\", add = [\"revisor\"] }\n",
+        );
+        let s = read(&dir);
+        assert_eq!(
+            s.tools.mcp,
+            Some(Selection {
+                base: Base::Inherit,
+                add: vec!["notion".into()],
+                remove: vec![],
+            })
+        );
+        assert_eq!(
+            s.tools.plugins,
+            Some(Selection::only(vec!["revisor".into()]))
+        );
+        assert_eq!(s.tools.skills, None);
+    }
+
+    /// A worktree without settings inherits the clone's `[tools]`, and only the repository passed to
+    /// read_for governs: for a multi-repository workspace the caller selects the primary one.
+    #[test]
+    fn tools_herdados_do_clone_e_so_do_repositorio_primario() {
+        use crate::selection::Selection;
+        let primary = tmp("tools-primario");
+        let secondary = tmp("tools-secundario");
+        let wt = tmp("tools-wt");
+        write(
+            &primary,
+            ".prometeu/settings.toml",
+            "[tools]\nplugins = { base = \"none\", add = [\"do-primario\"] }\n",
+        );
+        write(
+            &secondary,
+            ".prometeu/settings.toml",
+            "[tools]\nplugins = { base = \"none\", add = [\"do-secundario\"] }\n",
+        );
+
+        let from_primary = read_for(&wt, &primary);
+        assert!(from_primary.inherited);
+        assert_eq!(
+            from_primary.tools.plugins,
+            Some(Selection::only(vec!["do-primario".into()]))
+        );
+
+        // Reading against the secondary repository yields its own layer, never the primary's.
+        let from_secondary = read_for(&wt, &secondary);
+        assert_eq!(
+            from_secondary.tools.plugins,
+            Some(Selection::only(vec!["do-secundario".into()]))
+        );
     }
 }

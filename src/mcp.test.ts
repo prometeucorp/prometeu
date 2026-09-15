@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { toDraft, toServer, type Draft } from "./mcp";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("./ipc", () => ({ invoke: vi.fn() }));
+
+import { invoke } from "./ipc";
+import { inheritedOf, loadInherited, onChange, toDraft, toServer, type Draft } from "./mcp";
+import type { McpServer } from "./types";
 
 /// Translate editable form fields into the provider configuration shape.
 describe("o formulário e o cadastro", () => {
@@ -84,5 +89,39 @@ describe("o formulário e o cadastro", () => {
 
   it("o formulário em branco começa como um programa daqui", () => {
     expect(toDraft(null)).toEqual({ stdio: true, id: "", cmd: "", url: "", pairs: [], note: "" });
+  });
+});
+
+/// The CLI-inherited base (ADR 0044) arrives per workspace and repaints gated buttons.
+describe("a base herdada do CLI", () => {
+  const metabase: McpServer = { id: "metabase", config: { type: "http", url: "https://x/mcp" }, note: "" };
+
+  it("busca uma vez por workspace e anuncia quando chega", async () => {
+    vi.mocked(invoke).mockResolvedValue([metabase]);
+    let painted = 0;
+    const forget = onChange(() => painted++);
+    expect(inheritedOf("ws-base")).toEqual([]);
+    loadInherited("ws-base");
+    loadInherited("ws-base");
+    await vi.waitFor(() => expect(inheritedOf("ws-base")).toEqual([metabase]));
+    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "ws-base" });
+    expect(painted).toBe(1);
+    forget();
+  });
+
+  it("sem backend, a base fica vazia, o botão continua escondido e uma paint seguinte tenta de novo", async () => {
+    vi.mocked(invoke).mockRejectedValue("mcp.inherited.failed");
+    let painted = 0;
+    const forget = onChange(() => painted++);
+    loadInherited("ws-falha");
+    // The announce still fires so gated buttons repaint with the empty base.
+    await vi.waitFor(() => expect(painted).toBe(1));
+    expect(inheritedOf("ws-falha")).toEqual([]);
+    // The failure left no cache entry, so a later paint retries the discovery.
+    vi.mocked(invoke).mockResolvedValue([metabase]);
+    loadInherited("ws-falha");
+    await vi.waitFor(() => expect(inheritedOf("ws-falha")).toEqual([metabase]));
+    forget();
   });
 });

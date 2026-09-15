@@ -45,8 +45,8 @@ for (const [agent, model, locale, remoteLabel, busyLabel] of [
       const workspace = board.workspaces[0];
       workspace.tabs[0].choice = choice;
       workspace.tabs[0].status = "rodando";
-      workspace.mcp = ["capim-ds"];
-      workspace.plugins = ["caveman", "ponytail"];
+      workspace.mcp = { base: "none", add: ["capim-ds"], remove: [] };
+      workspace.plugins = { base: "none", add: ["caveman", "ponytail"], remove: [] };
       await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
       w.mock.line("t1", { v: 1, at: 1, type: "session.state", state: "busy" });
       w.controls = [];

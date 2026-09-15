@@ -194,7 +194,7 @@ pub fn spawn(
     resume: bool,
     launch: &crate::session::Launch,
 ) -> Result<chat::Chat, String> {
-    let args = launch_args(id, resume, launch)?;
+    let args = launch_args(id, resume, launch, worktree)?;
     let profile = accounts::active(crate::state::ProviderId::Claude)?;
     profile.prepare()?;
     if profile.managed && !account_status_at(&profile, worktree)?.connected {
@@ -229,6 +229,7 @@ fn launch_args(
     id: &str,
     resume: bool,
     launch: &crate::session::Launch,
+    worktree: &Path,
 ) -> Result<Vec<String>, String> {
     let mut args: Vec<String> = [
         "-p",
@@ -267,9 +268,10 @@ fn launch_args(
         args.extend(["--effort".into(), launch.effort.trim().into()]);
     }
     // An explicit MCP selection requires strict configuration; without one, retain the CLI
-    // defaults. Materialization failures must prevent startup rather than silently discard selected
-    // tools.
-    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref())? {
+    // defaults. The strict file carries the whole effective set, including the CLI-inherited
+    // servers the layers kept (ADR 0044). Materialization failures must prevent startup rather
+    // than silently discard selected tools.
+    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref(), worktree)? {
         args.extend([
             "--mcp-config".into(),
             path.display().to_string(),
@@ -278,8 +280,10 @@ fn launch_args(
     }
     // Inject selected plugins through session flags without modifying the CLI registry. Claude owns
     // name-based deduplication with globally enabled plugins. Without a selection, leave those
-    // defaults intact; Codex materializes its own configuration in its adapter.
-    args.extend(crate::plugins::args_for(launch.plugins.as_ref()));
+    // defaults intact; Codex materializes its own configuration in its adapter. Standalone skills
+    // ride the same plugin-package pipeline, so they materialize together with the plugins.
+    let packages = launch.plugin_packages();
+    args.extend(crate::plugins::args_for(packages.as_ref()));
     Ok(args)
 }
 
@@ -1091,7 +1095,14 @@ mod launch_tests {
     use crate::paths;
     use crate::session::Launch;
     use crate::state::ProviderId;
+    use std::path::Path;
     use std::process::Command;
+
+    /// A directory without `.mcp.json`; the strict-config test also redirects HOME in its child
+    /// process, so CLI-inherited discovery (ADR 0044) finds nothing in these tests.
+    fn work() -> &'static Path {
+        Path::new("/prometeu-launch-test")
+    }
 
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
         Launch {
@@ -1112,7 +1123,7 @@ mod launch_tests {
             instructions: "Review independently".into(),
             ..Default::default()
         };
-        let args = launch_args("id", true, &launch).unwrap();
+        let args = launch_args("id", true, &launch, work()).unwrap();
         assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(args
             .windows(2)
@@ -1121,7 +1132,7 @@ mod launch_tests {
             permission: Some(crate::actions::Permission::Auto),
             ..launch
         };
-        assert!(launch_args("id", true, &automatic)
+        assert!(launch_args("id", true, &automatic, work())
             .unwrap()
             .contains(&"--dangerously-skip-permissions".to_string()));
     }
@@ -1141,6 +1152,7 @@ mod launch_tests {
                 ])
                 .env("PROMETEU_CLAUDE_MCP_TEST_CHILD", "1")
                 .env("PROMETEU_ROOT", &root)
+                .env("HOME", &root)
                 .output()
                 .unwrap();
             std::fs::remove_dir_all(&root).ok();
@@ -1152,15 +1164,23 @@ mod launch_tests {
             );
             return;
         }
-        let sem = launch_args("id", false, &launch("", "", false)).unwrap();
+        let sem = launch_args("id", false, &launch("", "", false), work()).unwrap();
         assert!(!sem.contains(&"--mcp-config".to_string()));
         assert!(!sem.contains(&"--strict-mcp-config".to_string()));
 
+        // A chosen id must exist in the universe: materialization fails instead of silently
+        // starting without the requested server.
+        crate::mcp::store(&[crate::mcp::Server {
+            id: "notion".into(),
+            config: serde_json::json!({ "command": "npx" }),
+            note: String::new(),
+        }])
+        .expect("hub");
         let escolheu = Launch {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)
         };
-        let args = launch_args("id", false, &escolheu).unwrap();
+        let args = launch_args("id", false, &escolheu, work()).unwrap();
         let at = args
             .iter()
             .position(|a| a == "--mcp-config")
@@ -1174,7 +1194,7 @@ mod launch_tests {
     /// plugins.rs.
     #[test]
     fn sem_escolha_nao_ha_flag_de_plugin() {
-        let args = launch_args("id", false, &launch("", "", false)).unwrap();
+        let args = launch_args("id", false, &launch("", "", false), work()).unwrap();
         assert!(!args.contains(&"--plugin-dir".to_string()));
         assert!(!args.contains(&"--plugin-url".to_string()));
     }
@@ -1183,11 +1203,11 @@ mod launch_tests {
     /// immediately.
     #[test]
     fn plan_mode_nao_leva_o_bypass_junto() {
-        let solto = launch_args("id", false, &launch("", "", false)).unwrap();
+        let solto = launch_args("id", false, &launch("", "", false), work()).unwrap();
         assert!(solto.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(!solto.contains(&"--permission-mode".to_string()));
 
-        let plano = launch_args("id", false, &launch("", "", true)).unwrap();
+        let plano = launch_args("id", false, &launch("", "", true), work()).unwrap();
         assert!(!plano.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(plano.contains(&"--allow-dangerously-skip-permissions".to_string()));
         let at = plano.iter().position(|a| a == "--permission-mode").unwrap();
@@ -1197,13 +1217,14 @@ mod launch_tests {
     /// Omit empty model and effort flags so Claude can choose its defaults.
     #[test]
     fn modelo_e_esforco_so_quando_escolhidos() {
-        let padrao = launch_args("id", true, &launch("", " ", false)).unwrap();
+        let padrao = launch_args("id", true, &launch("", " ", false), work()).unwrap();
         assert!(!padrao.contains(&"--model".to_string()));
         assert!(!padrao.contains(&"--effort".to_string()));
         let at = padrao.iter().position(|a| a == "--resume").unwrap();
         assert_eq!(padrao[at + 1], "id");
 
-        let escolhido = launch_args("id", false, &launch("opus[1m]", "max", false)).unwrap();
+        let escolhido =
+            launch_args("id", false, &launch("opus[1m]", "max", false), work()).unwrap();
         assert_eq!(
             escolhido[escolhido.len() - 4..],
             ["--model", "opus[1m]", "--effort", "max"]
@@ -1215,7 +1236,7 @@ mod launch_tests {
     /// Keep conversation input, output, and permission requests on the same stream-json transport.
     #[test]
     fn a_conversa_e_stream_json_com_permissao_por_stdio() {
-        let args = launch_args("id", false, &launch("", "", false)).unwrap();
+        let args = launch_args("id", false, &launch("", "", false), work()).unwrap();
         let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
         assert_eq!(args[0], "-p");
         assert!(has(["--input-format", "stream-json"]));

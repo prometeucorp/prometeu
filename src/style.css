@@ -582,8 +582,8 @@ main { flex: 1; min-height: 0; position: relative; }
   height: var(--button-height); padding: 0 var(--space-2); gap: 6px; font-size: var(--text-sm); color: var(--fg-2); white-space: nowrap;
 }
 .composer .addfile { width: var(--button-height); padding: 0; }
-.composer .mcpbtn span, .composer .plugbtn span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
-.composer .mcpbtn.on, .composer .plugbtn.on { color: var(--fg); }
+.composer .mcpbtn span, .composer .plugbtn span, .composer .skillbtn span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.composer .mcpbtn.on, .composer .plugbtn.on, .composer .skillbtn.on { color: var(--fg); }
 .composer .remotebtn { border-radius: var(--r); }
 .composer .remotebtn.on {
   color: var(--tab-line); background: color-mix(in srgb, var(--tab-line) 12%, transparent);
@@ -1504,6 +1504,11 @@ body.noside .side { display: none; }
 .menu.cmds .mrow { flex: none; }
 .menu.cmds .ml { flex: none; max-width: 240px; }
 .menu.cmds .mh { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* Tool picker: ids stay readable while long command lines and URLs ellipsize instead of stretching the menu. */
+.menu.tools { max-width: min(420px, calc(100vw - 16px)); }
+.menu.tools .mrow { flex: none; }
+.menu.tools .ml { flex: none; max-width: 200px; }
+.menu.tools .mh { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 
 /* External file drop. */
 
@@ -1839,7 +1844,7 @@ body.noside .side { display: none; }
 /* Desk prompts start on one line; the shared footer adapts to each tile's width. */
 .tile .composer { width: calc(100% - 16px); margin: 4px 0 8px; padding: 6px 10px; border-radius: var(--r-lg); }
 .tile .composer textarea { font-family: var(--mono); font-size: 12.5px; min-height: 22px; }
-.tile .composer .crow, .tile .composer .hint, .tile .composer .with button, .tile .composer .mcpbtn, .tile .composer .plugbtn, .tile .composer .remotebtn { font-family: var(--mono); font-size: 11.5px; }
+.tile .composer .crow, .tile .composer .hint, .tile .composer .with button, .tile .composer .mcpbtn, .tile .composer .plugbtn, .tile .composer .skillbtn, .tile .composer .remotebtn { font-family: var(--mono); font-size: 11.5px; }
 
 .actionwatch { display: flex; flex-direction: column; gap: 12px; }
 .taskwatch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

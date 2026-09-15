@@ -56,6 +56,10 @@ This is the minimum set observed by the current interface. A capability only
 enters here when it changes behavior offered by the application. Protocol
 details, such as the name of a JSON-RPC method, are not capabilities.
 
+Skills selection reuses the plugin pipeline, so the existing
+`workspacePluginSelection` also gates it. Resolving the global and project
+layers is a core concern and adds no capability.
+
 Some capabilities may vary by CLI version or model. In that case, the descriptor
 returned at runtime is the source of truth; the frontend does not keep a
 parallel table. Before discovery, or if IPC fails, the frontend bootstrap keeps
@@ -82,6 +86,7 @@ type SessionLaunch = {
   initialPlanMode: boolean;
   mcp: string[] | null;
   plugins: string[] | null;
+  skills: string[] | null;
   cwd: string;
   resume: string | null;
 };
@@ -90,32 +95,46 @@ type SessionLaunch = {
 Semantics of the optional values:
 
 - `null` in model or effort lets the provider choose its default;
-- `null` in MCP/plugins means imposing no selection and preserving the CLI's
-  configuration;
+- `null` in MCP/plugins/skills means imposing no selection and preserving the
+  CLI's configuration;
 - an empty list means injecting no item from Prometeu's hub; a global registry
   that the CLI itself loads stays under its control;
+- the three lists arrive already resolved: composing the global, project and
+  workspace layers is a core concern, and an adapter never resolves layers or
+  reads the board;
 - `resume` is an opaque identity accepted by the provider. It may have been
   chosen by Prometeu, as in Claude, or returned by the provider, as in Codex.
 
 The core validates `SessionLaunch` against the capabilities before starting the
-adapter. The adapter must not silently fix an invalid combination. A chosen MCP
-or plugin configuration that cannot be materialized fails before the spawn; a
-declared hook that cannot be activated fails before the thread is opened.
-Starting without the requested behavior is not a valid fallback. The detailed
-plugin contract is in [`plugin-marketplace.md`](plugin-marketplace.md).
+adapter. The adapter must not silently fix an invalid combination. A chosen MCP,
+plugin or skill configuration that cannot be materialized fails before the
+spawn; a declared hook that cannot be activated fails before the thread is
+opened. A chosen MCP id the registry no longer has is such a case: both adapters
+fail with `err.mcp.missing` instead of quietly dropping it. Starting without the
+requested behavior is not a valid fallback. The
+detailed plugin contract is in
+[`plugin-marketplace.md`](plugin-marketplace.md).
 
 ## Workspace launch resolution
 
-Ordinary tab creation and resume both use `Workspace::launch_with`. A tab's
-provider/model/effort override changes its choice while preserving the workspace's
-MCP and plugin selections, including the distinction between absent, empty,
-and populated lists. Task tabs continue to use their frozen resolved profile.
-The regression in `session.rs` covers these selections for Claude and Codex.
+Ordinary tab creation and resume both use `Workspace::launch_with`. Tool
+selection is resolved by the core: `session.rs` composes the global layer from
+the board, the project layer from the primary repository's
+`.prometeu/settings.toml` and the workspace layer into the three `SessionLaunch`
+lists, leaving out project-declared items whose hash is not approved yet
+([ADR 0043](../decisions/0043-layered-tool-selection.md)). A tab's
+provider/model/effort override changes its choice while preserving that resolved
+set. Task tabs continue to use their frozen resolved profile. The regressions in
+`session.rs` cover these selections for Claude and Codex.
 
-`claude.rs::launch_args` owns Claude flags and MCP/plugin materialization;
+The resolved set is captured at spawn, following the execution-account rule
+above: a change at any layer applies at the next spawn or resume and never
+restarts a running session.
+
+`claude.rs::launch_args` owns Claude flags and MCP/plugin/skill materialization;
 `session.rs` resolves application choices and passes `Launch` to the adapter.
 The relocated argument tests preserve existing flags, resume behavior, and
-configuration handling. No runtime or persisted format changes.
+configuration handling.
 
 ## Conceptual port
 
@@ -137,8 +156,8 @@ Adapter responsibilities:
 
 - start the executable and configure its environment;
 - convert `SessionLaunch` into the provider's arguments or requests;
-- materialize MCP and plugins in the form the provider requires without exposing
-  that form to the domain;
+- materialize MCP, plugins and skills in the form the provider requires without
+  exposing that form to the domain;
 - correlate the external protocol's own requests and responses;
 - turn external output into `ConversationEventV1`;
 - turn `ConversationCommandV1` into external input;

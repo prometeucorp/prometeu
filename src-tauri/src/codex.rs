@@ -32,9 +32,12 @@ pub fn spawn(
 ) -> Result<chat::Chat, String> {
     let profile = accounts::active(crate::state::ProviderId::Codex)?;
     profile.prepare()?;
+    // Standalone skills ride the plugin-package pipeline, so Codex materializes them together with
+    // the selected plugins.
+    let packages = launch.plugin_packages();
     let selected_plugins = plugins::codex_for(
         launch.config_scope.as_deref().unwrap_or(workspace),
-        launch.plugins.as_ref(),
+        packages.as_ref(),
         &profile,
     )?;
     let mut cmd = Command::new("codex");
