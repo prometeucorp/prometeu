@@ -83,7 +83,7 @@ export type Commands = {
   linear_issues: { args: { force: boolean }; result: T.Issues };
   linear_open: { args: { url: string }; result: void };
   linear_status: { args: undefined; result: T.LinearStatus };
-  list_branches: { args: { project: string }; result: { all: string[]; default: string; git: boolean } };
+  list_branches: { args: { project: string }; result: { all: string[]; local: string[]; default: string; git: boolean } };
   list_dir: { args: { id: string; rel: string }; result: PathEntry[] };
   load_board: { args: undefined; result: T.Board };
   look_at: { args: { id?: string | null }; result: void };

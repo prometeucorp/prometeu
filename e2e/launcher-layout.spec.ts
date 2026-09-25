@@ -69,9 +69,14 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
   await seed(page);
   await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.locator("#d-nb")).toBeChecked();
-  await expect(page.locator("#d-nb")).toBeDisabled();
-  await page.locator("#d-wt").uncheck();
+  await expect(page.locator("#d-nb")).toBeEnabled();
   await page.locator("#d-nb").uncheck();
+  await expect(page.locator("#d-go")).toBeDisabled();
+  await page.locator("#d-base").click();
+  await page.locator("#d-picker").getByRole("button", { name: "origin/coworker-feature" }).click();
+  await expect(page.locator("#d-basename")).toHaveText("origin/coworker-feature");
+  await expect(page.locator("#d-go")).toBeEnabled();
+  await page.locator("#d-wt").uncheck();
   await expect(page.locator("#d-base")).toBeDisabled();
   await page.locator("#d-more").click();
   await page.getByRole("menuitem", { name: "prometeu", exact: true }).click();
@@ -79,6 +84,7 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
   await expect(page.locator("#d-wt")).toBeDisabled();
   await expect(page.locator("#d-nb")).toBeChecked();
   await expect(page.locator("#d-nb")).toBeDisabled();
+  await expect(page.locator("#d-hint")).not.toContainText("coworker-feature");
   await page.getByTitle("Remove prometeu from this workspace", { exact: true }).click();
   await expect(page.locator("#d-wt")).toBeEnabled();
 });

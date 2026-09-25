@@ -25,8 +25,9 @@ After a successful manual archive or finish, open the cleanup dialog with only
 that workspace. Keep archive and cleanup as separate decisions. A safe row
 starts selected; a blocked row starts unselected and must be selected before the
 destructive action becomes available. The dialog states that cleanup removes
-the folder and local branch while preserving the archived card and PR metadata.
-The scoped title explicitly states that the workspace is already archived, and
+the folder and, for a newly created branch, the local branch, while preserving
+the archived card and PR metadata. The scoped title explicitly states that the
+workspace is already archived, and
 the dismissal button says **Keep worktree** instead of **Cancel**. This avoids
 presenting the cleanup choice as an archive confirmation (issue #100). Keeping
 the worktree leaves **Unarchive** available; the full cleanup screen retains its
@@ -44,9 +45,12 @@ without weakening the backend guards. Blocked worktrees still permit explicit
 force cleanup, but require both selecting the risk-marked row and confirming the
 destructive action.
 
-Cleanup still deletes the local branch with the worktree. Refusing the offer
-keeps the diff reachable and does not suppress future cleanup access. No board,
-transcript or IPC format changes, so no migration or compatibility shim applies.
+Cleanup deletes branches created for the workspace but preserves branches
+already present in the clone or selected as existing at creation. The persisted
+`preserve_branches` list records clone paths separately; an older board defaults
+to an empty list and keeps its previous cleanup behavior. A preserved branch
+does not need to be merged before its clean worktree is removed. Refusing the
+offer keeps the diff reachable and does not suppress future cleanup access.
 
 ## Evidence
 

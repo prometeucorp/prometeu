@@ -30,6 +30,9 @@ in [ADR 0043](0043-retire-unused-ipc.md). The current operations are described i
 Branch selection reuses the launcher and the worktree lifecycle. It does not
 switch the checkout of a workspace that has running conversations. The colored
 initial avatar remains the repository's visual identity.
+The launcher can attach a new worktree to an existing local branch or create a
+local branch from a remote ref. The branch must be free in Git's worktree list.
+This keeps checkout selection explicit and leaves the source clone unchanged.
 
 ## Consequences
 

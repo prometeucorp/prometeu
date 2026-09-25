@@ -1993,8 +1993,9 @@ const mockCommands: IpcHandlers = {
         "origin/main", "main", "entire/checkpoints/v1", "manual-sleep-button",
         "dashboard-app-preview", "export-project-zip", "fix/deploy-build-cache",
         "password-reset-crud", "project-renaming", "refactor/railsway-specs-and-lint",
-        "origin/entire/checkpoints/v1", "origin/manual-sleep-button",
+        "origin/entire/checkpoints/v1", "origin/manual-sleep-button", "origin/coworker-feature",
       ],
+      local: ["main", "entire/checkpoints/v1", "manual-sleep-button", "dashboard-app-preview", "export-project-zip", "fix/deploy-build-cache", "password-reset-crud", "project-renaming", "refactor/railsway-specs-and-lint"],
       default: "origin/main",
       git: true,
     };
@@ -2003,11 +2004,14 @@ const mockCommands: IpcHandlers = {
   create_workspace(args) {
     const draft = args.draft;
     if (!mockAccounts.active[draft.agent]) throw 'i18n:{"code":"err.account.noActive"}';
+    if (draft.worktree && draft.newBranch === false && !draft.source)
+      throw 'i18n:{"code":"err.session.branchUnavailable","args":{"branch":""}}';
     mockKickoff(draft.kickoff, draft.agent);
     const id = `nova-${nextId++}`;
     const repo = String(draft.project).split("/").pop() ?? "repo";
     const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
     fresh.branch = draft.branch || "main";
+    fresh.preserve_branches = draft.worktree && draft.newBranch === false ? [draft.project] : [];
     // Multiple repositories share a parent directory with one worktree each.
     const extras: string[] = draft.extras ?? [];
     if (extras.length) {

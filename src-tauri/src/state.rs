@@ -232,6 +232,9 @@ pub struct Workspace {
     /// reopen here.
     #[serde(default)]
     pub cleaned: bool,
+    /// Clone paths whose branches must survive cleanup, including selected remote branches.
+    #[serde(default)]
+    pub preserve_branches: Vec<String>,
     /// Sharing consent persists across app restarts. The frontend advertises this workspace and
     /// forwards conversation output to authorized viewers through the relay.
     #[serde(default)]
