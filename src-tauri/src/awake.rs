@@ -4,52 +4,73 @@
 //! our PID. The UI chooses when to enable it based on user preference and active agents.
 
 use crate::lock::lock;
+use serde::Deserialize;
 use std::process::{Child, Command};
 use std::sync::{Mutex, OnceLock};
 
-fn running() -> &'static Mutex<Option<Child>> {
-    static RUNNING: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Off,
+    System,
+    Display,
+}
+
+fn running() -> &'static Mutex<Option<(Mode, Child)>> {
+    static RUNNING: OnceLock<Mutex<Option<(Mode, Child)>>> = OnceLock::new();
     RUNNING.get_or_init(|| Mutex::new(None))
 }
 
 /// Repeated requests for the same state are no-ops because the UI updates this setting with every
 /// board change.
 #[tauri::command]
-pub fn set_awake(on: bool) -> Result<(), String> {
+pub fn set_awake(mode: Mode) -> Result<(), String> {
     // Not an error: the UI repeats this call on every board change.
     if !supported() {
         return Ok(());
+    }
+    #[cfg(not(target_os = "macos"))]
+    if mode == Mode::System {
+        return Err("system-only sleep inhibition is unavailable on this platform".into());
     }
     let mut child = lock(running());
     // Restart an unexpectedly exited inhibitor process instead of treating its stale handle as
     // active.
     let mut alive = child.take();
-    if let Some(caffeinate) = &mut alive {
+    if let Some((_, caffeinate)) = &mut alive {
         // Only Ok(None) proves the process is still running; a status or error does not.
         if !matches!(caffeinate.try_wait(), Ok(None)) {
             alive = None;
         }
     }
-    match (on, alive) {
-        (true, Some(alive)) => *child = Some(alive),
-        (true, None) => {
-            let spawned = inhibitor().spawn().map_err(|error| error.to_string())?;
-            *child = Some(spawned);
+    if let Some((current, alive)) = alive {
+        if current == mode {
+            *child = Some((current, alive));
+            return Ok(());
         }
-        (false, Some(mut alive)) => {
-            stop(&alive);
-            let _ = alive.kill();
-            let _ = alive.wait();
-        }
-        (false, None) => {}
+        let mut alive = alive;
+        stop(&alive);
+        let _ = alive.kill();
+        let _ = alive.wait();
+    }
+    if mode != Mode::Off {
+        let spawned = inhibitor(mode).spawn().map_err(|error| error.to_string())?;
+        *child = Some((mode, spawned));
     }
     Ok(())
 }
 
+pub fn shutdown() {
+    let _ = set_awake(Mode::Off);
+}
+
 #[cfg(target_os = "macos")]
-fn inhibitor() -> Command {
+fn inhibitor(mode: Mode) -> Command {
     let mut cmd = Command::new("/usr/bin/caffeinate");
-    cmd.args(["-d", "-i", "-s", "-w", &std::process::id().to_string()]);
+    if mode == Mode::Display {
+        cmd.arg("-d");
+    }
+    cmd.args(["-i", "-s", "-w", &std::process::id().to_string()]);
     cmd
 }
 
@@ -76,7 +97,7 @@ fn stop(child: &Child) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn inhibitor() -> Command {
+fn inhibitor(_: Mode) -> Command {
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new("systemd-inhibit");
     cmd.process_group(0);
@@ -111,8 +132,8 @@ mod tests {
             eprintln!("skipped: no systemd session to inhibit");
             return;
         }
-        set_awake(true).expect("inhibitor did not start");
-        let first = lock(running()).as_ref().map(|c| c.id());
+        set_awake(Mode::Display).expect("inhibitor did not start");
+        let first = lock(running()).as_ref().map(|(_, child)| child.id());
         assert!(first.is_some());
 
         // Verify the flags as well as the child: caffeinate with only -i allowed the display to
@@ -124,13 +145,33 @@ mod tests {
         let command = String::from_utf8_lossy(&command.stdout);
         assert!(command.contains(EXPECTED), "{command}");
 
-        set_awake(true).expect("second request");
-        assert_eq!(lock(running()).as_ref().map(|c| c.id()), first);
+        set_awake(Mode::Display).expect("second request");
+        assert_eq!(lock(running()).as_ref().map(|(_, child)| child.id()), first);
 
-        set_awake(false).expect("desligar");
+        #[cfg(target_os = "macos")]
+        {
+            set_awake(Mode::System).expect("system-only inhibitor");
+            let second = lock(running()).as_ref().map(|(_, child)| child.id());
+            assert_ne!(second, first);
+            let output = Command::new("/bin/ps")
+                .args(["-p", &second.unwrap().to_string(), "-o", "command="])
+                .output()
+                .unwrap();
+            let command = String::from_utf8_lossy(&output.stdout);
+            assert!(command.contains("caffeinate -i -s -w"), "{command}");
+            assert!(!command.contains(" -d "), "{command}");
+        }
+        set_awake(Mode::Off).expect("disable");
         assert!(lock(running()).is_none());
         // Disabling an already disabled assertion is a no-op.
-        set_awake(false).expect("desligar de novo");
+        set_awake(Mode::Off).expect("disable again");
         assert!(lock(running()).is_none());
+        set_awake(Mode::Display).expect("restart before normal exit");
+        shutdown();
+        assert!(lock(running()).is_none());
+        assert_eq!(
+            serde_json::from_str::<Mode>("\"system\"").unwrap(),
+            Mode::System
+        );
     }
 }

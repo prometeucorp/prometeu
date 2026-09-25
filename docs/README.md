@@ -111,6 +111,8 @@ compatibility still in use stays documented in the current contracts.
   events, usage semantics, SQLite persistence, coverage, queries and verification.
 - [ADR 0059](decisions/0059-local-telemetry-foundation.md): local telemetry with
   common columns and typed JSON payloads in SQLite.
+- [ADR 0060](decisions/0060-background-energy-policy.md): explicit system-only
+  inhibition while a macOS agent works.
 
 ## Quality and operations
 

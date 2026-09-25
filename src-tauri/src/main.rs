@@ -316,6 +316,7 @@ fn main() {
         .run(|app, event| {
             // Flush deferred board writes during shutdown, when no later save can be assumed.
             if matches!(event, tauri::RunEvent::Exit) {
+                awake::shutdown();
                 embedded_mcp::shutdown();
                 notifications::shutdown();
                 accounts::shutdown();

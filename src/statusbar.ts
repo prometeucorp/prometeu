@@ -9,6 +9,7 @@ import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import type { Board, ProviderId } from "./types";
+import { mac } from "./platform";
 import { $ } from "./util";
 
 /// App-wide provider usage and machine resources. Values cover all workspaces; clicking a chip opens its detail panel.
@@ -33,14 +34,21 @@ let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
 /// Sleep preference belongs to this Mac and is not synchronized.
-type Awake = "on" | "agent" | "off";
+type Awake = "on" | "agent" | "agent-system" | "off";
+type AwakeMode = "off" | "system" | "display";
 const AWAKE_STORE = "prometeu:acordado";
-const AWAKE: Awake[] = ["on", "agent", "off"];
+const AWAKE: Awake[] = mac ? ["on", "agent", "agent-system", "off"] : ["on", "agent", "off"];
 let awake: Awake = read();
 /// Board activity controls the keep-awake-while-working mode.
 let working = false;
 /// Remember the backend state to avoid redundant commands.
-let held: boolean | null = null;
+let held: AwakeMode | null = null;
+
+export function awakeMode(preference: Awake, active: boolean): AwakeMode {
+  if (preference === "on" || (preference === "agent" && active)) return "display";
+  if (preference === "agent-system" && active) return "system";
+  return "off";
+}
 
 /// Without localStorage, including in Node tests, default to allowing sleep.
 function read(): Awake {
@@ -71,13 +79,13 @@ export function boardChanged(board: Board) {
 
 /// Send a sleep command only when its desired state changes; agent tools publish frequent board updates.
 function hold() {
-  const want = awake === "on" || (awake === "agent" && working);
+  const want = awakeMode(awake, working);
   if (want === held) return;
   held = want;
-  invoke("set_awake", { on: want }).catch((err) => say(fromBack(err), true));
+  invoke("set_awake", { mode: want }).catch((err) => say(fromBack(err), true));
 }
 
-const holding = () => awake === "on" || (awake === "agent" && working);
+const holding = () => awakeMode(awake, working) !== "off";
 
 export function showUsage(next: Usage) {
   usage = next;

@@ -84,3 +84,12 @@ independently of Energy Impact:
 
 Do not report a battery-life gain unless a controlled energy or discharge
 comparison supports it.
+
+## Sleep-assertion check, 2026-09-25
+
+On AC power, a short isolated `caffeinate -i -s -w <pid>` run produced
+`PreventUserIdleSystemSleep` and `PreventSystemSleep`, without
+`PreventUserIdleDisplaySleep`. Adding `-d` produced all three. Both children
+were terminated after inspection. The macOS native test in `awake.rs` verifies
+the app chooses these exact flags and releases the child on mode change and
+normal shutdown. Battery assertions remain unverified on this machine.

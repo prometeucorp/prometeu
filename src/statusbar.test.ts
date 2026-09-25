@@ -1,8 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { ago, bytes, groups, span, until, type Window } from "./statusbar";
+import { ago, awakeMode, bytes, groups, span, until, type Window } from "./statusbar";
 
 beforeEach(() => use("en"));
+
+it("preserves saved display modes and enables system-only inhibition only when opted in", () => {
+  expect(awakeMode("off", true)).toBe("off");
+  expect(awakeMode("on", false)).toBe("display");
+  expect(awakeMode("agent", true)).toBe("display");
+  expect(awakeMode("agent", false)).toBe("off");
+  expect(awakeMode("agent-system", true)).toBe("system");
+  expect(awakeMode("agent-system", false)).toBe("off");
+});
 
 describe("span", () => {
   it("uses two duration units: days and hours, or hours and minutes", () => {

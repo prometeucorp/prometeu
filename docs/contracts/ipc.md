@@ -194,6 +194,16 @@ with a five-second visibility fallback and a 60-second power fallback. This
 context is advisory for UI refresh only: agent processes, transcript capture,
 terminals, sharing and explicit task monitoring continue independently.
 
+`set_awake` accepts `{ mode: "off" | "system" | "display" }`. `display` starts
+the macOS `caffeinate -d -i -s -w <app pid>` assertion used by existing choices;
+`system` starts `-i -s -w` without `-d`; `off` stops either. The app also stops
+the child on normal exit, while `-w` ties it to the app PID on an unexpected
+exit. Linux offers only `off` and `display` through the UI; its existing
+`systemd-inhibit` implementation remains desktop-dependent. The command is
+idempotent for an already-running mode and replaces an assertion when modes
+change. The desktop IPC is shipped atomically with its frontend, so no older
+`{ on: boolean }` caller remains supported.
+
 `chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the rest to the legacy reader; historical
 `prometheusV1Mirror` projections are ignored by the current reader. Prometeu

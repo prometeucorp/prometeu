@@ -98,3 +98,4 @@ Status: Proposed
 | [0058](0058-optional-context-evaluation.md) | Optional context evaluation behind an application-owned port |
 
 | [0059](0059-local-telemetry-foundation.md) | Local telemetry with canonical events in SQLite |
+| [0060](0060-background-energy-policy.md) | Separate display sleep from agent work |

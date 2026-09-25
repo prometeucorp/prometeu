@@ -147,6 +147,18 @@ longer offers, or unavailable storage, starts without a skill. Tests:
 `src/kickoff.test.ts`. See
 [ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md).
 
+## Sleep preference
+
+`prometeu:acordado` is a desktop webview localStorage string. `off` permits
+normal sleep; `on` keeps the system and display awake while the app is open;
+`agent` keeps both awake only while a local tab is `rodando`; and the additive
+macOS option `agent-system` keeps the system awake during that same state but
+permits display sleep. The original three values retain their behavior and are
+never rewritten automatically. Linux presents the original choices only.
+The preference is local to this Mac, never the board or relay. Missing or
+unrecognized values resolve to `off`. The native assertion is ephemeral and
+ends when the app exits; no sleep assertion is persisted.
+
 ## Model selection preferences
 
 These preferences live in desktop webview localStorage, not the board or relay:
