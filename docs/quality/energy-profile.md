@@ -145,3 +145,17 @@ No `fswatch`, `inotifywait` or `watchman` tool is available in this environment.
 A watcher would also need to follow the resolved gitdir, index, branch and
 worktree on both macOS and Linux. Without a comparable idle-cost and
 correctness benchmark, the visible fallback remains the implementation.
+
+## General PR discovery verification
+
+The source-level general scan interval changes from 60 seconds (up to 60
+scheduled attempts per hour) to three minutes on foreground AC (up to 20),
+five minutes on foreground battery (up to 12) and 15 minutes while hidden or
+unfocused (up to four). Opening a workspace and returning to foreground add
+immediate requests. A request during a slow scan queues only one follow-up;
+one clone is queried once per general scan. Rust tests cover the gate, an
+aborted CLI process, archived/cleaned exclusion, and preservation of known PR
+metadata. The explicit task monitor retains its original cadence and richer
+queries. These are scheduler limits, not measured `gh` launches or watts; a
+controlled fixture with the same clone count and authenticated `gh` state is
+still needed for a native before/after comparison.

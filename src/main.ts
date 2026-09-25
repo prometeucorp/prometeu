@@ -24,6 +24,7 @@ import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
+import { PrScanPolicy } from "./pr-refresh";
 import { fileDropTarget as launcherDropTarget, openLauncher, type Draft, type Open } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
@@ -747,8 +748,23 @@ showDesk();
 // Show release notes after the initial page renders so the dialog overlays the application.
 void news.init();
 
-// Refresh PR states through gh once per repository every minute, including immediately at startup so merged badges are current.
-const PR_SCAN = 60_000;
-const scanPrs = () => void invoke("refresh_prs").catch(() => {});
+// General discovery is advisory; explicit task monitors keep their configured clock in Rust.
+const prScan = new PrScanPolicy();
+let prTimer: ReturnType<typeof setTimeout> | null = null;
+const schedulePrs = () => {
+  if (prTimer) clearTimeout(prTimer);
+  prTimer = setTimeout(() => scanPrs(), prScan.remaining(background.current(), Date.now()));
+};
+const scanPrs = () => {
+  prScan.mark(Date.now());
+  void invoke("refresh_prs").catch(() => {});
+  schedulePrs();
+};
+let previousPrContext = background.current();
+background.subscribe((next) => {
+  const returned = prScan.returnedToForeground(previousPrContext, next);
+  previousPrContext = next;
+  if (returned) scanPrs();
+  else schedulePrs();
+});
 scanPrs();
-setInterval(scanPrs, PR_SCAN);

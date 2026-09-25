@@ -198,6 +198,7 @@ export async function open(ws: Workspace, tab?: string) {
   else if (fs.active) await showFile();
   else showTerm();
   if (!stillHere(epoch, ws.id)) return;
+  if (!ws.archived) void invoke("pr_open", { id: ws.id }).catch(() => {});
   ctx.redraw();
 }
 
@@ -547,9 +548,6 @@ const hasDiff = () => {
 /* Branch PRs. */
 
 /// Choose PR actions from observed state: create, update unpublished work, open existing up-to-date PRs, or finish merged work. List multiple repositories in a menu and throttle backend refreshes.
-const prAt = new Map<string, number>();
-const PR_EVERY = 20_000;
-
 function paintPr(ws: Workspace) {
   const done = merged(ws);
   const all = prs(ws);
@@ -601,16 +599,6 @@ const openIn = (ws: Workspace, repo: string) =>
 
 function drawPr(ws: Workspace) {
   paintPr(ws);
-  askPr(ws);
-}
-
-/// Cleaned workspaces retain recorded PR metadata without querying a vanished branch.
-function askPr(ws: Workspace) {
-  const now = Date.now();
-  if (ws.cleaned || now - (prAt.get(ws.id) ?? 0) < PR_EVERY) return;
-  prAt.set(ws.id, now);
-  // Backend publication updates the board, and redraw presents the result.
-  invoke("pr_open", { id: ws.id }).catch(() => {});
 }
 
 /// Finish moves work to the final stage and archives it, stopping its agent and docks.
