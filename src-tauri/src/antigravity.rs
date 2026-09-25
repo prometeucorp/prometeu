@@ -11,17 +11,23 @@ use std::{
 };
 
 fn discover(args: &[&str]) -> Option<String> {
+    let mut command = Command::new("agy");
+    command.args(args);
+    run_bounded(command, Duration::from_secs(10))
+}
+
+fn run_bounded(mut command: Command, timeout: Duration) -> Option<String> {
     use std::os::unix::process::CommandExt;
-    let mut child = Command::new("agy")
-        .args(args)
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .process_group(0)
         .spawn()
         .ok()?;
+    let pid = child.id() as i32;
     let mut stdout = child.stdout.take()?;
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (data_tx, data_rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut data = String::new();
         let result = stdout
@@ -29,27 +35,24 @@ fn discover(args: &[&str]) -> Option<String> {
             .take(1_048_576)
             .read_to_string(&mut data)
             .map(|_| data);
-        let _ = tx.send(result);
+        let _ = data_tx.send(result);
     });
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                return status
-                    .success()
-                    .then(|| rx.recv_timeout(Duration::from_millis(200)).ok()?.ok())
-                    .flatten()
-            }
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
-                }
-                let _ = child.wait();
-                return None;
-            }
+    let (exit_tx, exit_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = exit_tx.send(child.wait());
+    });
+    if matches!(exit_rx.recv_timeout(timeout), Ok(Ok(status)) if status.success()) {
+        if let Ok(Ok(data)) = data_rx.recv_timeout(Duration::from_millis(200)) {
+            return Some(data);
         }
     }
+    // The process owns its group. Killing it also releases a descendant that inherited stdout;
+    // the wait thread reaps the direct child without a 20 ms completion poll.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+    let _ = exit_rx.recv_timeout(Duration::from_secs(2));
+    None
 }
 pub fn installed() -> bool {
     discover(&["--version"]).is_some_and(|version| supported_version(&version))
@@ -511,6 +514,22 @@ impl Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_discovery_reaps_success_and_times_out_a_hung_child() {
+        let mut success = Command::new("/bin/sh");
+        success.args(["-c", "printf 'ready'"]);
+        assert_eq!(
+            run_bounded(success, Duration::from_secs(1)).as_deref(),
+            Some("ready")
+        );
+
+        let mut hung = Command::new("/bin/sh");
+        hung.args(["-c", "sleep 5"]);
+        let started = Instant::now();
+        assert!(run_bounded(hung, Duration::from_millis(100)).is_none());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
     #[derive(Clone, Default)]
     struct Output(Arc<Mutex<Vec<u8>>>);
     impl Write for Output {

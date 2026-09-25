@@ -159,6 +159,7 @@ export type Commands = {
   telemetry_clear: { args: undefined; result: null };
   typesafe_status: { args: undefined; result: import("./evaluation").EvaluationStatus };
   usage: { args: undefined; result: Usage };
+  usage_refresh: { args: { provider?: T.ProviderId }; result: void };
   workspace_branch: { args: { id: string }; result: string | null };
   workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };
   workspace_git_branches: { args: { id: string; repo: number }; result: T.GitBranch[] };

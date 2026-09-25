@@ -46,6 +46,7 @@ mod telemetry;
 mod transcript;
 mod typesafe;
 mod usage;
+mod usage_scheduler;
 mod workspace_tools;
 
 use state::Board;
@@ -136,6 +137,7 @@ fn main() {
             work: Mutex::new(HashMap::new()),
         })
         .manage(background::State::default())
+        .manage(usage::Service::new())
         .invoke_handler(tauri::generate_handler![
             background::background_context,
             notifications::notification_permission,
@@ -156,6 +158,7 @@ fn main() {
             accounts::account_login,
             accounts::account_login_cancel,
             usage::usage,
+            usage::usage_refresh,
             telemetry::telemetry_summary,
             telemetry::telemetry_events,
             telemetry::telemetry_export,

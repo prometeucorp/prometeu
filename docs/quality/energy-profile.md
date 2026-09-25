@@ -93,3 +93,17 @@ On AC power, a short isolated `caffeinate -i -s -w <pid>` run produced
 were terminated after inspection. The macOS native test in `awake.rs` verifies
 the app chooses these exact flags and releases the child on mode change and
 normal shutdown. Battery assertions remain unverified on this machine.
+
+## Quota scheduling verification
+
+The implementation keeps `usage.json` unchanged and schedules each registered
+profile separately. The controlled-clock tests in `usage_scheduler.rs` count
+due tickets, the point where a provider probe is launched: on foreground AC,
+one selected profile is due after 60 seconds while one inactive profile is not
+due until 600 seconds. On battery these intervals are 120 and 1,200 seconds;
+when hidden they are 900 and 1,800 seconds. Failures back off per profile and
+an old in-flight generation cannot publish after removal, reconnection or a
+newer live event. These deterministic counts are a source-level comparison,
+not a native process-launch trace or an energy measurement. A native provider
+fixture with identical account count remains necessary for before/after launch
+counts.

@@ -84,6 +84,7 @@ data retroactively.
 | `account_remove` | `{ id }` | `Accounts` |
 | `account_login` | `{ provider, id: string \| null, method?: string }` | `Accounts` on completion |
 | `account_login_cancel` | `{ id }` | empty |
+| `usage_refresh` | `{ provider?: ProviderId }` | empty; schedules stale selected profile probes |
 
 `id: null` creates a disconnected profile before starting the login, allowing it
 to be reconnected after a cancellation, an error or an app restart. There is one
@@ -157,11 +158,30 @@ of the selected account, or a dash when there is no selection. Emails and
 controls stay in the panel, which presents the provider's accounts with their
 own quotas.
 
-The poll queries the registered profiles and preserves the last reading when a
-provider does not answer. Claude still depends on the internal quota endpoint;
-Codex prefers the app-server, with the previous endpoint as a fallback. Missing
-quotas are not a zero percentage. The catalog is reloaded when switching
-accounts; late responses from the previous selection are discarded.
+The native quota scheduler queries registered profiles independently and
+preserves the last reading when a provider does not answer. Selected profiles
+have a 60-second AC or 120-second battery foreground budget; inactive profiles
+have 10- or 20-minute budgets. Hidden, minimized or unfocused windows extend
+those budgets to 15 minutes for selected and 30 minutes for other profiles.
+Unknown power uses the battery budget. Failed attempts back off at 1, 2, 5,
+15 and 30 minutes per account. Opening the account panel, selecting an account
+or returning to the foreground can request an immediate attempt if its last
+attempt is at least 30 seconds old. A visible selected quota can refresh at a
+known reset boundary sooner than its ordinary interval. These are dispatch
+budgets; provider execution has its own timeout.
+
+At most one probe per account runs at once. A per-account generation rejects a
+late probe after removal or reconnection, and live events take precedence over
+an in-flight probe. Removing an account clears its cached quota; a process that
+was already running may finish its turn, but its late quota event cannot
+recreate a removed or reconnected account's reading. Scheduler timestamps and
+failures are runtime-only; `usage.json` retains the original per-account
+`{ windows, at }` format, and `at` changes only when the reading changes.
+Claude still depends on the internal quota endpoint; Codex prefers the
+app-server, with the previous endpoint as a fallback. Antigravity uses its
+native `/usage` report. Missing quotas are not a zero percentage. The catalog
+is reloaded when switching accounts; late catalog responses from the previous
+selection are discarded.
 
 ## Evidence and verification limits
 

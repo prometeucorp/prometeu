@@ -990,6 +990,7 @@ const mockCommands: IpcHandlers = {
     emit("usage", call("usage"));
     return snapshot;
   },
+  usage_refresh() { return; },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
     if (!["claude", "codex", "antigravity"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';

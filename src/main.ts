@@ -43,7 +43,10 @@ import * as ws from "./workspace";
 
 // Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
-await background.start();
+await background.start().catch(() => {});
+background.subscribe((context) => {
+  if (background.foreground(context)) void invoke("usage_refresh", {}).catch(() => {});
+});
 
 let state: Board = { stages: [], projects: [], workspaces: [] };
 
@@ -332,7 +335,7 @@ listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
 /// Machine resource updates arrive every three seconds only when values change.
 listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
-statusbar.init({ say, accounts: () => { settings.showAccounts(); showSettings(); } });
+statusbar.init({ say, accounts: () => { void invoke("usage_refresh", {}).catch(() => {}); settings.showAccounts(); showSettings(); } });
 invoke("machine").then(statusbar.showMachine).catch(() => {});
 
 /* File drops into conversations and terminals. */

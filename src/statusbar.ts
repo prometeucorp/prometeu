@@ -250,6 +250,7 @@ function toggle(which: Which, at: HTMLElement, e: MouseEvent, provider?: Provide
     );
   }
   open = which;
+  if (which === "usage") void invoke("usage_refresh", { provider }).catch(() => {});
   panel = document.createElement("div");
   panel.className = `upop ${which}`;
   panel.setAttribute("role", "dialog");

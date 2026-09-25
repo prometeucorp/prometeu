@@ -176,6 +176,10 @@ accounts use UUIDs, without changing the format of the values. Each entry has
 not erase the others, and `label` is optional external text for display.
 Consumers must accept both fields being absent for compatibility with the
 previous cache.
+`usage_refresh({ provider? })` requests a bounded immediate attempt for stale
+selected profiles, without returning quota data or credentials. The native
+scheduler publishes the existing `usage` and `accounts` events when values
+actually change; the browser mock implements the command as a no-op.
 
 Tauri events are dynamic; the generic passed to `listen<T>` does not validate
 the Rust payload at build time. A new event needs a test of the emitter and of
