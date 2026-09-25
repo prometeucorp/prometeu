@@ -48,13 +48,14 @@ let editing = false;
 let marks: GitMarks = gitMarks([]);
 /// Agents and terminals change files without board events, so visible marks refresh on a timer.
 let marksTimer: ReturnType<typeof setTimeout> | null = null;
+let delayedRedraw: ReturnType<typeof setTimeout> | null = null;
 function scheduleMarks() {
   if (marksTimer) clearTimeout(marksTimer);
-  const interval = marksInterval(background.current());
+  const interval = marksInterval(background.currentOrDocument());
   if (interval === null) return;
   marksTimer = setTimeout(() => {
     const id = workspace();
-    if (id && $("tree").offsetParent) void repaint(id);
+    if (id && background.foreground(background.currentOrDocument()) && $("tree").offsetParent) void repaint(id);
     scheduleMarks();
   }, interval);
 }
@@ -81,16 +82,28 @@ export function init(ctx: {
     openDirs.clear();
     redraw();
   });
+  let wasForeground = background.foreground(background.currentOrDocument());
   background.subscribe((context) => {
     const id = workspace();
-    if (id && background.foreground(context) && $("tree").offsetParent) void repaint(id);
+    const foreground = background.foreground(context);
+    if (id && foreground && !wasForeground && $("tree").offsetParent) redraw();
+    wasForeground = foreground;
     scheduleMarks();
+  });
+  window.addEventListener("focus", () => {
+    if (!background.hasObservation()) {
+      if (workspace() && $("tree").offsetParent) redraw();
+      scheduleMarks();
+    }
   });
   scheduleMarks();
 }
 
 /// User clicks redraw immediately to avoid visible lag.
 export function redraw() {
+  if (delayedRedraw) clearTimeout(delayedRedraw);
+  delayedRedraw = null;
+  if (!background.foreground(background.currentOrDocument())) return;
   const id = workspace();
   if (id) void draw(id);
 }
@@ -103,7 +116,16 @@ export function reset() {
 }
 
 /// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
-export const redrawSoon = debounce(200, redraw);
+export function redrawSoon() {
+  if (delayedRedraw) clearTimeout(delayedRedraw);
+  delayedRedraw = setTimeout(redraw, 200);
+}
+
+/// Saving an open file changes marks but does not change the tree's file list.
+export const refreshMarksSoon = debounce(200, () => {
+  const id = workspace();
+  if (id) void repaint(id);
+});
 
 /// Mark the file the viewer shows, or none. Paths are relative to the tree's root, as list_dir
 /// returns them. The row is only marked, never scrolled into view: the person may be browsing
@@ -152,6 +174,7 @@ async function loadMarks(id: string) {
 
 /// Repaint rows in place, and rebuild them only when a file was deleted or restored.
 async function repaint(id: string) {
+  if (!background.foreground(background.currentOrDocument())) return;
   if (loading) return;
   const before = marks.goneKey;
   loading = loadMarks(id).finally(() => (loading = null));

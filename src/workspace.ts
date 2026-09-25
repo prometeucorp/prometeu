@@ -128,9 +128,18 @@ export function init(context: Ctx) {
     if (here) invoke("reveal_path", { id: here, rel: "" }).catch((e) => ctx.say(fromBack(e), true));
   });
   // Native focus/power changes choose the visible fallback budget; external edits still surface.
+  let wasForeground = background.foreground(background.currentOrDocument());
   background.subscribe((context) => {
-    if (background.foreground(context) && hasDiff()) reloadChanges(openWs!);
+    const foreground = background.foreground(context);
+    if (foreground && !wasForeground && hasDiff()) reloadChanges(openWs!);
+    wasForeground = foreground;
     scheduleChanges();
+  });
+  window.addEventListener("focus", () => {
+    if (!background.hasObservation()) {
+      if (hasDiff()) reloadChanges(openWs!);
+      scheduleChanges();
+    }
   });
   scheduleChanges();
 
@@ -319,7 +328,7 @@ export function draw() {
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
-  if (gitRefresh.consider(ws)) {
+  if (gitRefresh.consider(ws) && background.foreground(background.currentOrDocument())) {
     reloadChanges(ws.id);
     if (sidePane === "files") tree.redrawSoon();
   }
@@ -1186,7 +1195,7 @@ const total = changesUi.count;
 let changesTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleChanges() {
   if (changesTimer) clearTimeout(changesTimer);
-  const interval = changesInterval(background.current());
+  const interval = changesInterval(background.currentOrDocument());
   if (interval === null) return;
   changesTimer = setTimeout(() => {
     if (hasDiff() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
@@ -1197,6 +1206,7 @@ const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
 let request = 0;
 
 async function loadChanges(id: string) {
+  if (!background.foreground(background.currentOrDocument())) return;
   const mine = ++request;
   try {
     const repos = await invoke("workspace_git_status", { id });
@@ -1217,7 +1227,10 @@ async function loadChanges(id: string) {
 
 export function fileSaved(id: string) {
   const ws = current();
-  if (ws?.id === id && diffable(ws)) { reloadChanges(id); tree.redrawSoon(); }
+  if (ws?.id === id && diffable(ws) && background.foreground(background.currentOrDocument())) {
+    reloadChanges(id);
+    tree.refreshMarksSoon();
+  }
 }
 
 function outstanding(id: string): { dirty: number; unpushed: number } | null {

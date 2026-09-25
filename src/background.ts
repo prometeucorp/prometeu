@@ -21,6 +21,10 @@ export const accept = (current: BackgroundContext, next: BackgroundContext): Bac
 
 export const current = (): BackgroundContext => state;
 export const hasObservation = (): boolean => observed;
+/** The WebView still has focus/visibility signals if the native context cannot start. */
+export const currentOrDocument = (): BackgroundContext => observed ? state : {
+  ...state, visible: !document.hidden, focused: !document.hidden && document.hasFocus(),
+};
 export function subscribe(listener: (next: BackgroundContext) => void): () => void {
   subscribers.add(listener);
   return () => subscribers.delete(listener);

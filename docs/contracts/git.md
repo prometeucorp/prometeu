@@ -115,6 +115,9 @@ scan never runs on the main thread. Visible Files marks refresh every 15
 seconds on AC or 30 on battery/unknown power, plus immediate invalidation and
 foreground return; hidden/unfocused windows do not scan. The tree skips a tick
 while a previous scan is running and only the latest result paints marks.
+Saving an open file refreshes marks in place and retains other file rows and
+their click targets. A full redraw remains for list changes; an explicit redraw
+cancels any older delayed redraw for the same tree.
 
 `tree_restore` brings such a row back to disk, finding the repository that
 holds `rel` under the tree root. The index wins over `HEAD`: a path the index

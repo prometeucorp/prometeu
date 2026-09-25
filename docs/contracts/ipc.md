@@ -197,6 +197,8 @@ use the battery budget for discretionary work. Window events refresh promptly,
 with a five-second visibility fallback and a 60-second power fallback. This
 context is advisory for UI refresh only: agent processes, transcript capture,
 terminals, sharing and explicit task monitoring continue independently.
+If the native context never starts, Git presentation uses the document's
+visibility and focus as a fallback; transcript painting remains enabled.
 
 `set_awake` accepts `{ mode: "off" | "system" | "display" }`. `display` starts
 the macOS `caffeinate -d -i -s -w <app pid>` assertion used by existing choices;
