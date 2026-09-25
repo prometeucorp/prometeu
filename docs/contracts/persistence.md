@@ -36,7 +36,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
 | Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
-| image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG |
+| image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
 | derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
 

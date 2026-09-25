@@ -94,16 +94,15 @@ pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: Stri
 /// Archiving preserves the transcript and initially keeps the worktree and branch. The interface
 /// offers their explicit cleanup after this command succeeds. Stop hidden processes so their
 /// requests do not wait for an absent reader.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, archived: bool) {
-    archive(&state, &id, archived);
-    publish(&app);
+    archive(&app, &state, &id, archived);
 }
 
 /// Finishing moves the workspace to the final stage and archives it. Archiving stops agents, docks,
 /// and resources handled by the archive script. The interface then offers worktree cleanup as a
 /// separate, confirmed decision.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
     {
         let mut board = lock(&state.board);
@@ -112,11 +111,10 @@ pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
             ws.stage = stage;
         }
     }
-    archive(&state, &id, true);
-    publish(&app);
+    archive(&app, &state, &id, true);
 }
 
-fn archive(state: &State<AppState>, id: &str, archived: bool) {
+fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
     let generation = lock(&state.telemetry).generation;
     let mut dead: Vec<String> = Vec::new();
     let mut changed = false;
@@ -154,23 +152,19 @@ fn archive(state: &State<AppState>, id: &str, archived: bool) {
     }
     // Stop processes outside the board lock: signalling and waiting must not block other sessions.
     stop(state, &dead);
+    publish(app);
     if changed {
-        let scope = {
-            let board = lock(&state.board);
-            crate::telemetry::capture_workspace_scope(&board, id)
-        };
-        if let Some(scope) = scope {
-            crate::telemetry::record(
-                &state.telemetry,
-                generation,
-                scope,
-                if archived {
-                    crate::telemetry::Fact::WorkspaceArchived {}
-                } else {
-                    crate::telemetry::Fact::WorkspaceResumed {}
-                },
-            );
-        }
+        crate::telemetry::journey(
+            app,
+            generation,
+            id,
+            None,
+            if archived {
+                crate::telemetry::Fact::WorkspaceArchived {}
+            } else {
+                crate::telemetry::Fact::WorkspaceResumed {}
+            },
+        );
     }
 }
 

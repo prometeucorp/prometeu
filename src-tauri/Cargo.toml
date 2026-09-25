@@ -59,3 +59,8 @@ block2 = "0.6"
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "WKWebView", "WKSnapshotConfiguration", "WKUIDelegate", "WKFrameInfo", "WKSecurityOrigin", "objc2-app-kit", "objc2-core-foundation", "block2"] }
 objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotification", "UNNotificationSettings", "UNNotificationTrigger", "block2"] }
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "objc2-core-foundation"] }
+
+# Already used by Tauri; read pasted images, which WebKitGTK does not expose to the page.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+png = "0.17"

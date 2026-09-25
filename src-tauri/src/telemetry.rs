@@ -4,7 +4,6 @@ mod query;
 #[cfg(test)]
 mod tests;
 use crate::{conversation::now, lock::lock, paths, AppState};
-pub use capture::workspace_scope as capture_workspace_scope;
 pub use capture::{associate, conversation_relations, conversation_scope, journey, Capture};
 pub use query::{Filter, Page, Summary};
 use rusqlite::{params, Connection, OptionalExtension};

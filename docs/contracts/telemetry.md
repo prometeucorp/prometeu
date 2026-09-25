@@ -77,11 +77,13 @@ identity if a repository is registered again. Domain identities are preserved
 when telemetry history is deleted; they contain no execution history.
 
 Board publication prepares aliases before snapshotting. Journey capture flushes
-the board before recording these new references; the first message on a process
-also flushes the board. Failure marks coverage incomplete without rejecting the
-agent command. Logical turn IDs are durable in `turn.started`; no transcript
-format migration or historical backfill is required. A restarted process leaves
-previous unfinished turns open rather than assigning its new work to them.
+the board before recording these new references and archive-state transitions;
+the first message on a process also flushes the board. Failure marks coverage
+incomplete without rejecting the agent command. Logical turn IDs are durable in
+`turn.started`; no transcript format migration or historical backfill is required.
+A restarted process leaves previous unfinished turns open rather than assigning
+its new work to them.
+Archive and finish commands wait for the flush on a Tauri worker thread.
 There is no atomic transaction across the JSON board, provider process and SQLite.
 
 ## Event vocabulary

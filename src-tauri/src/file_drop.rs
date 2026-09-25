@@ -87,15 +87,160 @@ pub fn on_webview_event(webview: &Webview, event: &WebviewEvent) {
 }
 
 /// Clipboard files and images carry no path inside the webview. Materialize them like promised
-/// drops so every attachment path reaching an agent comes from this Mac's private directory.
-/// Tauri runs synchronous commands on the main thread, which AppKit requires for pasteboard reads;
-/// only the current clipboard item is written, so the pause stays imperceptible.
+/// drops so every attachment path reaching an agent comes from this machine's private directory.
+/// AppKit reads on the main thread. GTK requests its image there, then encodes it off-thread.
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub fn paste_files() -> Result<Vec<String>, String> {
     #[cfg(target_os = "macos")]
     return macos::paste();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     Ok(Vec::new())
+}
+
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub async fn paste_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    linux::paste(app).await
+}
+
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "linux", test)),
+    allow(dead_code)
+)]
+fn save_pasted_png(root: &std::path::Path, png: &[u8]) -> Result<String, String> {
+    let file = root
+        .join("attachments")
+        .join(uuid::Uuid::new_v4().to_string())
+        .join("pasted.png");
+    crate::paths::write_private_bytes(&file, png)?;
+    Ok(file.to_string_lossy().into_owned())
+}
+
+/// WebKitGTK hands the page an empty clipboard for images, so GTK's own clipboard is the only
+/// reader. It converts whatever image format the source offered.
+#[cfg(target_os = "linux")]
+mod linux {
+    use gtk::{gdk, Clipboard};
+    use std::time::Duration;
+
+    const IMAGE_LIMIT: usize = 64 * 1024 * 1024;
+
+    struct Pixels {
+        width: u32,
+        height: u32,
+        rowstride: usize,
+        channels: usize,
+        bytes: gtk::glib::Bytes,
+    }
+
+    fn copy_pixels(image: &gtk::gdk_pixbuf::Pixbuf) -> Result<Pixels, String> {
+        let (width, height, rowstride, channels) = (
+            image.width() as usize,
+            image.height() as usize,
+            image.rowstride() as usize,
+            image.n_channels() as usize,
+        );
+        let row = width.checked_mul(channels).ok_or("chat.drop.failed")?;
+        let size = rowstride.checked_mul(height).ok_or("chat.drop.failed")?;
+        if width == 0
+            || height == 0
+            || rowstride < row
+            || size > IMAGE_LIMIT
+            || image.bits_per_sample() != 8
+            || !matches!(channels, 3 | 4)
+        {
+            return Err("chat.drop.failed".into());
+        }
+        let bytes = image.read_pixel_bytes();
+        let needed = rowstride * (height - 1) + row;
+        if bytes.len() < needed {
+            return Err("chat.drop.failed".into());
+        }
+        Ok(Pixels {
+            width: width as u32,
+            height: height as u32,
+            rowstride,
+            channels,
+            bytes,
+        })
+    }
+
+    fn encode_png(image: Pixels) -> Result<Vec<u8>, String> {
+        let row = image.width as usize * image.channels;
+        let mut packed = Vec::with_capacity(row * image.height as usize);
+        for pixels in image
+            .bytes
+            .chunks(image.rowstride)
+            .take(image.height as usize)
+        {
+            packed.extend_from_slice(&pixels[..row]);
+        }
+        let mut png = Vec::new();
+        let mut encoder = png::Encoder::new(&mut png, image.width, image.height);
+        encoder.set_color(if image.channels == 4 {
+            png::ColorType::Rgba
+        } else {
+            png::ColorType::Rgb
+        });
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+        writer
+            .write_image_data(&packed)
+            .map_err(|e| e.to_string())?;
+        writer.finish().map_err(|e| e.to_string())?;
+        if png.len() > IMAGE_LIMIT {
+            return Err("chat.drop.failed".into());
+        }
+        Ok(png)
+    }
+
+    pub async fn paste(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+        let (send, receive) = std::sync::mpsc::sync_channel(1);
+        app.run_on_main_thread(move || {
+            Clipboard::get(&gdk::SELECTION_CLIPBOARD).request_image(move |_, image| {
+                let _ = send.send(image.map(copy_pixels).transpose());
+            });
+        })
+        .map_err(|e| e.to_string())?;
+        let image = tauri::async_runtime::spawn_blocking(move || {
+            receive.recv_timeout(Duration::from_secs(5))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|_| "chat.drop.failed".to_string())??;
+        let Some(image) = image else {
+            return Ok(Vec::new());
+        };
+        tauri::async_runtime::spawn_blocking(move || {
+            let png = encode_png(image)?;
+            super::save_pasted_png(&crate::paths::root(), &png).map(|path| vec![path])
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn png_encoding_discards_row_padding() {
+            let png = encode_png(Pixels {
+                width: 1,
+                height: 2,
+                rowstride: 4,
+                channels: 3,
+                bytes: gtk::glib::Bytes::from_static(&[255, 0, 0, 99, 0, 255, 0]),
+            })
+            .unwrap();
+            let decoder = png::Decoder::new(png.as_slice());
+            let mut reader = decoder.read_info().unwrap();
+            let mut pixels = vec![0; reader.output_buffer_size()];
+            let info = reader.next_frame(&mut pixels).unwrap();
+            assert_eq!(&pixels[..info.buffer_size()], &[255, 0, 0, 0, 255, 0]);
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -201,12 +346,7 @@ mod macos {
         let Some(png) = copied_png(&pasteboard) else {
             return Ok(Vec::new());
         };
-        let directory = crate::paths::root()
-            .join("attachments")
-            .join(uuid::Uuid::new_v4().to_string());
-        let file = directory.join("pasted.png");
-        crate::paths::write_private_bytes(&file, &png)?;
-        Ok(vec![file.to_string_lossy().into_owned()])
+        save_pasted_png(&crate::paths::root(), &png).map(|path| vec![path])
     }
 
     pub fn receive(window: &Window, position: PhysicalPosition<f64>) -> bool {
@@ -334,5 +474,21 @@ mod tests {
         let end = serde_json::to_value(&drag).unwrap();
         assert_eq!(start["id"], end["id"]);
         assert_eq!(end["paths"][0], "/tmp/captura.png");
+    }
+
+    #[test]
+    fn pasted_images_land_privately_under_attachments() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let path = std::path::PathBuf::from(save_pasted_png(&root, b"\x89PNG").unwrap());
+        assert!(path.starts_with(root.join("attachments")));
+        assert_eq!(path.file_name().unwrap(), "pasted.png");
+        assert_eq!(std::fs::read(&path).unwrap(), b"\x89PNG");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
