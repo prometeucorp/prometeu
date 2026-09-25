@@ -1,0 +1,32 @@
+/* Desktop resource composition. No dependency on legacy .setrow/.txt/.act selectors. */
+.resources-view { min-width: 0; container: resources / inline-size; color: var(--fg); font: 13px/1.5 var(--font); }
+.resources-view [hidden] { display: none !important; }
+.resources-intro { align-items: start; margin-bottom: var(--space-6); }
+.resources-intro > .desktop-tools:first-child { flex: 1 1 240px; }
+.resources-intro .desktop-section-copy { padding: var(--space-2) var(--space-3); border-left: 2px solid var(--line-ghost); }
+.resources-intro .desktop-section-copy > .ui-button { padding: 0; color: var(--tab-line); font-size: var(--hint-size); justify-content: start; white-space: normal; }
+.resources-toolbar { margin-bottom: var(--space-4); }
+.resource-filters { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.resource-filters .ui-button { gap: var(--space-2); font-size: var(--text-sm); padding-inline: var(--space-2); }
+.resource-filters [aria-pressed="true"] { background: var(--bg-raised-2); color: var(--fg); }
+.resource-count { color: var(--fg-2); font-size: var(--hint-size); }
+.resources-toolbar .ui-input { width: 190px; min-width: 100px; font-size: var(--text-sm); }
+.resource-headings { display: grid; grid-template-columns: minmax(0, 1fr) 62px 112px 28px; gap: var(--space-3); padding: 0 var(--space-4) var(--space-2); font-size: var(--hint-size); color: var(--fg-2); }
+.resource-list { min-width: 0; background: var(--bg-side); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.resource-row { grid-template-columns: 32px minmax(0, 1fr) 62px 112px 28px; min-height: 72px; }
+.resource-row + .resource-row { border-top: 1px solid var(--line); }
+.resource-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.resource-type, .resource-origin { min-width: 0; color: var(--fg-2); font-size: var(--hint-size); overflow-wrap: anywhere; }
+.resources-message { margin-bottom: var(--space-4); }
+.resources-count { margin: var(--space-3) 0 0; }
+@container resources (max-width: 680px) {
+  .resources-toolbar > .desktop-tools:last-child { width: 100%; }
+  .resources-toolbar .ui-input { width: 100%; }
+  .resource-headings, .resource-row { grid-template-columns: minmax(0, 1fr) 56px 80px 28px; }
+  .resource-glyph { display: none; }
+}
+@container resources (max-width: 480px) {
+  .resources-intro { flex-wrap: wrap; }
+  .resource-headings, .resource-row { grid-template-columns: minmax(0, 1fr) 48px 28px; }
+  .resource-origin { display: none; }
+}

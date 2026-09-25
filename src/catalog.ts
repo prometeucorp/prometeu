@@ -1,7 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./ipc";
 import { fromBack, t } from "./i18n";
-import { button, field, formDialog, input, confirmDialog, menuButton } from "./ui";
+import { field, formDialog, input, confirmDialog } from "./ui";
+import type { Item } from "./menu";
+import type { ResourceItem } from "./resources/model";
 import { h } from "./util";
 
 import type { CatalogProject } from "./projects";
@@ -39,45 +41,39 @@ export function init(refresh: () => Promise<void>) {
 export function tag(kind: Kind, id: string): string {
   return t(shared(kind, id) ? "catalog.cloud" : "catalog.local");
 }
-export function organizationRows(kind: Kind, say: (text: string, bad?: boolean) => void): HTMLElement[] {
+const installing = new Set<string>();
+export function organizationResources(kind: Kind, say: (text: string, bad?: boolean) => void): ResourceItem[] {
   return (state.organization_items ?? []).filter(item => item.kind === kind && !item.installed).map(item => {
-    const row = h("div", "setrow");
-    row.dataset.resourceId = item.id;
-    row.dataset.resourceOrigin = item.organization_name;
-    row.dataset.resourceScope = item.organization;
-    const text = h("div", "txt");
-    text.append(h("b", "", item.id), h("span", "", `${item.organization_name} · ${item.description} · ${t("catalog.notInstalled")}`));
-    const install = button(t("catalog.install"), () => {
-      install.disabled = true;
-      void invoke("catalog_install_organization_item", { organization: item.organization, kind, id: item.id, revision: item.revision })
-        .then(refresh).catch(error => { install.disabled = false; say(fromBack(error), true); });
-    }, "outline");
-    const actions = h("div", "act");
-    const hidden = h("div", ""); hidden.hidden = true; hidden.append(install);
-    const more = menuButton("…", () => [{ label: t("catalog.install"), disabled: install.disabled, run: () => install.click() }]);
-    more.setAttribute("aria-label", `${t("actions.more")} · ${item.id}`);
-    more.dataset.focus = `organization-${item.organization}-${kind}-${item.id}`;
-    actions.append(more, hidden); row.append(text, actions);
-    return row;
+    const key = `organization-${item.organization}-${kind}-${item.id}`;
+    return {
+      key, id: item.id, kind, scope: item.organization, origin: item.organization_name, glyph: "building",
+      description: `${item.organization_name} · ${item.description} · ${t("catalog.notInstalled")}`,
+      busy: installing.has(key),
+      actions: [{ label: t("catalog.install"), run: () => {
+        if (installing.has(key)) return;
+        installing.add(key); watchers.forEach(fn => fn());
+        void invoke("catalog_install_organization_item", { organization: item.organization, kind, id: item.id, revision: item.revision })
+          .then(refresh).catch(error => say(fromBack(error), true))
+          .finally(() => { installing.delete(key); watchers.forEach(fn => fn()); });
+      } }],
+    };
   });
 }
-export function controls(kind: Kind, id: string): HTMLElement[] {
-  const copy = button(t("catalog.copy"), () => {
+export function resourceActions(kind: Kind, id: string): Item[] {
+  if (shared(kind, id)) return [{ label: t("catalog.copy"), run: () => {
     const name = input(`${id.slice(0, 45)}-local`); name.required = true;
     name.maxLength = kind === "skills" ? 56 : 128;
     if (kind === "skills") name.pattern = "[a-z0-9][a-z0-9-]{0,55}";
     const dialog = formDialog({ title: t("catalog.copy"), save: t("catalog.copy"), cancel: t("actions.cancel"), error: fromBack,
       submit: async () => { await invoke("catalog_copy", { kind, id, newId: name.value }); await refresh(); } });
     dialog.body.append(h("p", "ui-hint", t("catalog.copyHint")), field(t("catalog.copyName"), name)); dialog.open();
-  }, "ghost");
-  if (shared(kind, id)) return [copy];
+  } }];
   if (!state.connected) return [];
-  const share = button(t("catalog.share"), () => {
+  return [{ label: t("catalog.share"), run: () => {
     const dialog = formDialog({ title: t("catalog.share"), save: t("catalog.share"), cancel: t("actions.cancel"), error: fromBack,
       submit: async () => { await invoke("catalog_share", { kind, id }); await refresh(); } });
     dialog.body.append(h("p", "ui-hint", t("catalog.shareHint"))); dialog.open();
-  }, "ghost");
-  return [share];
+  } }];
 }
 export async function confirmRemoval(kind: Kind, id: string): Promise<boolean> {
   if (!shared(kind, id)) return true;

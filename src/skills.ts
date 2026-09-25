@@ -1,4 +1,5 @@
 import { invoke } from "./ipc";
+import type { ResourceItem } from "./resources/model";
 import { fromBack, t } from "./i18n";
 import { h } from "./util";
 import * as ui from "./ui";
@@ -20,42 +21,34 @@ export function init(report: typeof say, onChanged: () => Promise<void>) {
 export async function refresh() { hub = await invoke("skill_hub"); for (const fn of watchers) fn(); }
 async function changed() { await refresh(); await afterChange(); }
 
-function row(id: string, description: string, controls: HTMLElement[], origin = catalog.tag("skills", id)) {
-  const row = h("div", "setrow");
-  row.dataset.resourceId = id; row.dataset.resourceOrigin = origin;
-  const text = h("div", "txt"); text.append(h("b", "", id), h("span", "", description));
-  const act = h("div", "act");
-  const source = h("div", ""); source.hidden = true; source.append(...controls);
-  const more = ui.menuButton("…", () => controls.map(control => ({
-    label: control.textContent ?? "", disabled: (control as HTMLButtonElement).disabled,
-    danger: control.textContent === t("skill.remove"), run: () => control.click(),
-  })));
-  more.setAttribute("aria-label", `${t("actions.more")} · ${id}`);
-  more.dataset.focus = `skill-actions-${id}`;
-  act.append(more, source); row.append(text, act); return row;
-}
 export function settingsActions() {
   return [{ label: t("skill.add"), run: () => editor(null) }];
 }
-export function settingsRows(): HTMLElement[] {
-  const rows = [row(t("skill.title"), t("skill.intro"), [ui.button(t("skill.add"), () => editor(null), "outline")])];
-  for (const skill of hub) {
-    rows.push(row(skill.id, skill.description, [
-      ui.button(t("actions.edit"), () => editor(skill), "ghost"),
-      ...catalog.controls("skills", skill.id),
-      ui.button(t("skill.remove"), () => {
-        void invoke("skill_remove", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true));
-      }, "ghost"),
-    ]));
-  }
-  for (const skill of catalog.current().skills.filter(s => !s.installed)) {
-    const install = ui.button(t("catalog.install"), () => {
-      install.disabled = true;
-      void invoke("catalog_install_skill", { id: skill.id }).then(changed).catch(e => { install.disabled = false; say(fromBack(e), true); });
-    }, "outline");
-    rows.push(row(skill.id, `${skill.description} · ${t("catalog.notInstalled")}`, [install], t("catalog.cloud")));
-  }
-  return [...rows, ...catalog.organizationRows("skills", say)];
+const installing = new Set<string>();
+export function resourceItems(): ResourceItem[] {
+  return [
+    ...hub.map((skill): ResourceItem => ({
+      key: `skill-actions-${skill.id}`, id: skill.id, kind: "skills", description: skill.description,
+      origin: catalog.tag("skills", skill.id), glyph: "sparkles", actions: [
+        { label: t("actions.edit"), run: () => editor(skill) },
+        ...catalog.resourceActions("skills", skill.id),
+        { label: t("skill.remove"), danger: true, run: () => {
+          void invoke("skill_remove", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true));
+        } },
+      ],
+    })),
+    ...catalog.current().skills.filter(s => !s.installed).map((skill): ResourceItem => ({
+      key: `skill-cloud-${skill.id}`, id: skill.id, kind: "skills", glyph: "sparkles", origin: t("catalog.cloud"),
+      description: `${skill.description} · ${t("catalog.notInstalled")}`, busy: installing.has(skill.id),
+      actions: [{ label: t("catalog.install"), run: () => {
+        if (installing.has(skill.id)) return;
+        installing.add(skill.id); watchers.forEach(fn => fn());
+        void invoke("catalog_install_skill", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true))
+          .finally(() => { installing.delete(skill.id); watchers.forEach(fn => fn()); });
+      } }],
+    })),
+    ...catalog.organizationResources("skills", say),
+  ];
 }
 function editor(skill: Skill | null) {
   const revision = skill ? catalog.current().revision : null;

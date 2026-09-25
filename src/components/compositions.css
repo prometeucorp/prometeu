@@ -1,0 +1,20 @@
+/* Desktop compositions over the shared controls. No feature or integration selectors. */
+.desktop-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
+.desktop-tools { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.desktop-tools[hidden], .desktop-list-state[hidden] { display: none; }
+.desktop-section-header { margin-bottom: var(--space-3); }
+.desktop-section-copy { min-width: 0; }
+.desktop-section-copy > .ui-hint { margin: 0; }
+.desktop-section-header .desktop-section-title { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--fg); font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.desktop-count { color: var(--fg-3); font-size: var(--hint-size); font-weight: 400; }
+.desktop-item { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-4); min-width: 0; }
+.desktop-item-mark { display: grid; place-items: center; width: 32px; height: 32px; background: var(--bg-raised); border-radius: var(--r-lg); }
+.desktop-item-copy { min-width: 0; overflow-wrap: anywhere; }
+.desktop-item-title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.desktop-item-title > b { font-weight: 500; }
+.desktop-item-description, .desktop-item-status { display: block; margin: var(--space-1) 0 0; color: var(--fg-2); font-size: var(--text-sm); line-height: 1.5; }
+.desktop-item-actions { display: flex; align-items: center; gap: var(--space-2); }
+.desktop-overflow.ui-button { width: 28px; min-height: var(--control-height); padding: 0; flex-shrink: 0; }
+.desktop-list-state { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.desktop-list-state > .ui-notice { flex: 1 1 240px; }
+.desktop-list-state > p { margin: 0; padding: var(--space-6) var(--space-4); }

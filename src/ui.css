@@ -1,7 +1,7 @@
 @import "../packages/design-system/components.css";
 @import "./ui-tokens.css";
 
-button {
+button:where(:not(.ui-button)) {
   font: inherit; font-weight: 500;
   height: 24px; padding: 0 10px;
   border: 1px solid transparent; border-radius: var(--r);
@@ -9,15 +9,15 @@ button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   cursor: default; white-space: nowrap;
 }
-button:hover { background: var(--bg-raised-2); }
-button.pri { background: var(--pri); color: var(--pri-fg); }
-button.pri:hover { background: #fff; }
-button.ghost { background: none; color: var(--fg-2); }
-button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
-button.outline { background: none; border-color: var(--line-ghost); color: var(--fg-2); }
-button.outline:hover { background: var(--bg-raised); color: var(--fg); }
-button.lg { height: 32px; padding: 0 16px; }
-button.md { height: 28px; padding: 0 12px; }
+button:where(:not(.ui-button)):hover { background: var(--bg-raised-2); }
+button:where(:not(.ui-button)).pri { background: var(--pri); color: var(--pri-fg); }
+button:where(:not(.ui-button)).pri:hover { background: #fff; }
+button:where(:not(.ui-button)).ghost { background: none; color: var(--fg-2); }
+button:where(:not(.ui-button)).ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
+button:where(:not(.ui-button)).outline { background: none; border-color: var(--line-ghost); color: var(--fg-2); }
+button:where(:not(.ui-button)).outline:hover { background: var(--bg-raised); color: var(--fg); }
+button:where(:not(.ui-button)).lg { height: 32px; padding: 0 16px; }
+button:where(:not(.ui-button)).md { height: 28px; padding: 0 12px; }
 .ico {
   width: 24px; height: 24px; padding: 0; flex: none; border-radius: var(--r);
   display: inline-flex; align-items: center; justify-content: center;
@@ -27,7 +27,7 @@ button.md { height: 28px; padding: 0 12px; }
 .ico:hover { background: var(--bg-raised-2); color: var(--fg); }
 .ico.sm { width: 20px; height: 20px; }
 .ico.sm .ic { width: 14px; height: 14px; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+button:where(:not(.ui-button)):focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid var(--tab-line); outline-offset: 1px;
 }
 

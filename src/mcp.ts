@@ -1,4 +1,5 @@
 import * as ui from "./ui";
+import type { ResourceItem } from "./resources/model";
 import { invoke } from "./ipc";
 import { icon } from "./icons";
 import { fromBack, t, tn, type Key } from "./i18n";
@@ -207,10 +208,8 @@ export function init(context: Ctx) {
   ctx = context;
 }
 
-/// Start the Tools page with its explanation and registration/import actions, then list servers.
-export function settingsRows(): HTMLElement[] {
-  const rows = [...hub.map(serverRow), ...catalog.organizationRows("mcp", ctx.say)];
-  return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
+export function resourceItems(): ResourceItem[] {
+  return [...hub.map(serverResource), ...catalog.organizationResources("mcp", ctx.say)];
 }
 
 export function settingsActions(anchor: HTMLElement): menu.Item[] {
@@ -220,51 +219,17 @@ export function settingsActions(anchor: HTMLElement): menu.Item[] {
   ];
 }
 
-/// Explain the registry and offer registration in the first row.
-function aboutRow(): HTMLElement {
-  const row = template(
-    "div",
-    "setrow head",
-    `<div class="txt"><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".txt span")!.textContent = t("settings.mcp.body");
-
-  const add = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
-  add.children[0].textContent = t("mcp.add");
-  add.addEventListener("click", () => editor(null));
-
-  const bring = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  bring.children[0].textContent = t("mcp.import");
-  bring.addEventListener("click", () => void importer(bring));
-
-  row.querySelector(".act")!.append(add, bring);
-  return row;
-}
-
-function emptyRow(): HTMLElement {
-  const row = h("div", "setrow none", "");
-  row.textContent = t("mcp.empty");
-  return row;
-}
-
-function serverRow(server: McpServer): HTMLElement {
-  const row = template(
-    "div",
-    "setrow mcp-server",
-    `<span class="glyph"></span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".glyph")!.innerHTML = icon(kind(server) === "stdio" ? "terminal" : "globe", 18);
-  row.querySelector(".txt b")!.textContent = server.id;
-  row.dataset.resourceId = server.id;
-  row.dataset.resourceOrigin = server.config.builtin === true ? t("settings.builtin") : catalog.tag("mcp", server.id);
-  row.querySelector(".txt span")!.textContent = subtitle(server);
-
-  if (server.config.builtin === true) return row;
+function serverResource(server: McpServer): ResourceItem {
+  const item: ResourceItem = {
+    key: `mcp-actions-${server.id}`, id: server.id, kind: "mcp", description: subtitle(server),
+    origin: server.config.builtin === true ? t("settings.builtin") : catalog.tag("mcp", server.id),
+    glyph: kind(server) === "stdio" ? "terminal" : "globe", actions: [],
+  };
+  if (server.config.builtin === true) return item;
 
   const config = JSON.stringify(server.config);
   const previous = connections.get(server.id);
-  // A refreshed definition must not unlock an operation still using the old configuration.
-  // Replace its result only after it settles, so stale success/error never describes the new URL.
+  // Preserve pending operations across catalog replacement, then discard results for old definitions.
   if (!previous || (previous.config !== config && !previous.pending)) connections.set(server.id, { config });
   const connection = connections.get(server.id)!;
   const check = connection.check;
@@ -272,45 +237,22 @@ function serverRow(server: McpServer): HTMLElement {
     : check?.probe.auth ? "mcp.status.auth"
     : check?.probe.ok ? "mcp.connected"
     : check ? "mcp.status.error" : "mcp.status.unchecked");
-  const detail = connection.error || check?.steps.find((s) => !s.ok)?.detail || check?.probe.detail;
-  const statusLine = h("span", "", [t(status), detail ? fromBack(detail) : ""].filter(Boolean).join(" · "));
-  statusLine.setAttribute("role", "status");
-  row.querySelector(".txt")!.append(statusLine);
-  row.setAttribute("aria-busy", String(!!connection.pending));
-
-  const test = ui.button(t("mcp.check"), () => void connect(server, connection, "check"), "ghost");
-  row.querySelector(".act")!.append(test);
+  const detail = connection.error || check?.steps.find(s => !s.ok)?.detail || check?.probe.detail;
+  item.status = [t(status), detail ? fromBack(detail) : ""].filter(Boolean).join(" · ");
+  item.busy = !!connection.pending;
+  item.actions.push({ label: t("mcp.check"), run: () => void connect(server, connection, "check") });
   if (kind(server) === "url") {
     if (check?.probe.auth || (!signedIn(server.id) && !check?.probe.ok)) {
-      row.querySelector(".act")!.append(ui.button(t("mcp.authenticate"), () => void connect(server, connection, "login"), "ghost"));
+      item.actions.push({ label: t("mcp.authenticate"), run: () => void connect(server, connection, "login") });
     }
-    if (signedIn(server.id)) {
-      row.querySelector(".act")!.append(ui.button(t("mcp.logout"), () => void connect(server, connection, "logout"), "ghost"));
-    }
+    if (signedIn(server.id)) item.actions.push({ label: t("mcp.logout"), run: () => void connect(server, connection, "logout") });
   }
-
-  const edit = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  edit.children[0].textContent = t("mcp.edit");
-  edit.addEventListener("click", () => editor(server));
-
-  const drop = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  drop.children[0].textContent = t(catalog.shared("mcp", server.id) ? "catalog.delete" : "mcp.remove");
-  drop.addEventListener("click", () => void remove(server));
-
-  row.querySelector(".act")!.append(edit, ...catalog.controls("mcp", server.id), drop);
-  row.querySelectorAll("button").forEach((button) => { button.disabled = !!connection.pending; });
-  const act = row.querySelector(".act")!;
-  const buttons = [...act.querySelectorAll("button")];
-  const hidden = h("div", ""); hidden.hidden = true; hidden.append(...buttons);
-  const more = ui.menuButton("…", () => buttons.map(button => ({
-    label: button.textContent ?? "", disabled: button.disabled,
-    danger: button === drop, run: () => button.click(),
-  })));
-  more.setAttribute("aria-label", `${t("actions.more")} · ${server.id}`);
-  more.dataset.focus = `mcp-actions-${server.id}`;
-  more.disabled = buttons.every(button => button.disabled);
-  act.replaceChildren(hidden, more);
-  return row;
+  item.actions.push(
+    { label: t("mcp.edit"), run: () => editor(server) },
+    ...catalog.resourceActions("mcp", server.id),
+    { label: t(catalog.shared("mcp", server.id) ? "catalog.delete" : "mcp.remove"), danger: true, run: () => void remove(server) },
+  );
+  return item;
 }
 
 /// Operate on the registered definition without saving or publishing it. Recheck after login/logout

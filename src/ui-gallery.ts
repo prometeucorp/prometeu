@@ -1,4 +1,7 @@
+import { mountCatalog } from "./components/gallery";
 import { current, t } from "./i18n";
+import { compositionExamples } from "./ui-compositions-gallery";
+import { resourceExample } from "./resources/gallery";
 import * as ui from "./ui";
 import * as menu from "./menu";
 import { h } from "./util";
@@ -7,10 +10,11 @@ import "./ui-gallery.css";
 
 document.documentElement.lang = current();
 const gallery = document.querySelector("#gallery")!;
+if (!mountCatalog(gallery as HTMLElement)) {
 gallery.append(h("h1", "", t("ui.gallery")), h("p", "ui-hint", t("ui.galleryHint")));
 const companyGallery = h("a", "ui-link", "@prometeu/design-system");
 companyGallery.setAttribute("href", "/packages/design-system/index.html");
-gallery.append(companyGallery);
+gallery.append(companyGallery, compositionExamples(), resourceExample());
 
 function section(title: string, ...content: HTMLElement[]) {
   const root = h("section", "ui-gallery-section");
@@ -63,3 +67,5 @@ section(t("ui.containers"), disclosure, badge, ui.button(t("actions.profileEdito
   dialog.body.append(ui.field(t("actions.name"), required), ui.field(t("actions.provider"), model.control), simulate.label);
   dialog.open();
 }));
+
+}

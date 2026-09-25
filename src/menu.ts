@@ -1,2 +1,2 @@
-// Compatibility exports for existing screens; the package owns the implementation.
-export * from "../packages/design-system/src/menu";
+// Compatibility facade. Desktop components are discoverable under components/.
+export * from "./components/menu";

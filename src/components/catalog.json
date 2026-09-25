@@ -1,0 +1,395 @@
+[
+  {
+    "id": "button",
+    "name": "button",
+    "source": "src/components/primitives.ts",
+    "exports": [
+      "button"
+    ],
+    "consumers": [
+      "src/action-settings.ts",
+      "src/workspace-changes.ts"
+    ],
+    "states": [
+      "default",
+      "disabled"
+    ],
+    "implementation": "packages/design-system/src/ui.ts"
+  },
+  {
+    "id": "fields",
+    "name": "input · field · password",
+    "source": "src/components/primitives.ts",
+    "exports": [
+      "input",
+      "field",
+      "password",
+      "passwordToggle"
+    ],
+    "consumers": [
+      "src/action-settings.ts"
+    ],
+    "states": [
+      "default",
+      "disabled",
+      "error"
+    ],
+    "implementation": "packages/design-system/src/ui.ts"
+  },
+  {
+    "id": "choices",
+    "name": "checkbox · toggle · radio",
+    "source": "src/components/primitives.ts",
+    "exports": [
+      "checkbox",
+      "toggle",
+      "radio"
+    ],
+    "consumers": [
+      "src/notification-settings.ts"
+    ],
+    "states": [
+      "default",
+      "disabled"
+    ],
+    "implementation": "packages/design-system/src/ui.ts"
+  },
+  {
+    "id": "selection",
+    "name": "select · searchablePicker · menu",
+    "source": "src/components/primitives.ts",
+    "exports": [
+      "select",
+      "dropdown",
+      "searchablePicker",
+      "menuButton"
+    ],
+    "consumers": [
+      "src/model-picker.ts",
+      "src/action-settings.ts"
+    ],
+    "states": [
+      "default",
+      "disabled"
+    ],
+    "implementation": "packages/design-system/src/ui.ts"
+  },
+  {
+    "id": "dialog",
+    "name": "formDialog · confirmDialog",
+    "source": "src/components/primitives.ts",
+    "exports": [
+      "formDialog",
+      "confirmDialog"
+    ],
+    "consumers": [
+      "src/action-settings.ts"
+    ],
+    "states": [
+      "default",
+      "error"
+    ],
+    "implementation": "packages/design-system/src/ui.ts"
+  },
+  {
+    "id": "feedback",
+    "name": "badge · notice · card · disclosure",
+    "source": "src/components/primitives.ts",
+    "exports": [
+      "badge",
+      "notice",
+      "card",
+      "disclosure",
+      "avatar"
+    ],
+    "consumers": [
+      "src/action-settings.ts"
+    ],
+    "states": [
+      "default",
+      "error"
+    ],
+    "implementation": "packages/design-system/src/ui.ts"
+  },
+  {
+    "id": "icons",
+    "name": "icon · fileIcon · stageIcon · brand · avatar",
+    "source": "src/components/icons.ts",
+    "exports": [
+      "icon",
+      "iconNames",
+      "fileIcon",
+      "stageIcon",
+      "brand",
+      "avatar",
+      "avatars",
+      "wave"
+    ],
+    "consumers": [
+      "src/tree.ts",
+      "src/sidebar.ts",
+      "src/statusbar.ts"
+    ],
+    "states": [
+      "default",
+      "files",
+      "stages",
+      "providers"
+    ]
+  },
+  {
+    "id": "icon-button",
+    "name": "iconButton",
+    "source": "src/components/icon-button.ts",
+    "exports": [
+      "iconButton"
+    ],
+    "consumers": [
+      "src/workspace-changes.ts",
+      "src/components/chat/composer.ts"
+    ],
+    "states": [
+      "default",
+      "disabled"
+    ]
+  },
+  {
+    "id": "compositions",
+    "name": "sectionHeader · toolbar · itemRow · listState",
+    "source": "src/components/compositions.ts",
+    "exports": [
+      "sectionHeader",
+      "toolbar",
+      "itemRow",
+      "overflowAction",
+      "listState"
+    ],
+    "consumers": [
+      "src/action-settings.ts",
+      "src/components/resource-view.ts"
+    ],
+    "states": [
+      "ready",
+      "empty",
+      "loading",
+      "error",
+      "busy"
+    ]
+  },
+  {
+    "id": "resources",
+    "name": "resourceView",
+    "source": "src/components/resource-view.ts",
+    "exports": [
+      "resourceView"
+    ],
+    "consumers": [
+      "src/settings-resources.ts"
+    ],
+    "states": [
+      "ready",
+      "empty",
+      "loading",
+      "error",
+      "busy",
+      "unavailable",
+      "long"
+    ]
+  },
+  {
+    "id": "chat-block",
+    "name": "conversationBlock",
+    "source": "src/components/chat/blocks.ts",
+    "exports": [
+      "conversationBlock"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "text",
+      "thinking",
+      "running",
+      "success",
+      "error",
+      "background",
+      "plan"
+    ]
+  },
+  {
+    "id": "chat-work",
+    "name": "workCard",
+    "source": "src/components/chat/blocks.ts",
+    "exports": [
+      "workCard",
+      "paintWorkHead"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "running",
+      "success",
+      "error"
+    ]
+  },
+  {
+    "id": "chat-error",
+    "name": "errorCard",
+    "source": "src/components/chat/blocks.ts",
+    "exports": [
+      "errorCard"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "short",
+      "details"
+    ]
+  },
+  {
+    "id": "chat-request",
+    "name": "requestCard",
+    "source": "src/components/chat/requests.ts",
+    "exports": [
+      "requestCard"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "question",
+      "permission",
+      "plan",
+      "answered"
+    ]
+  },
+  {
+    "id": "composer",
+    "name": "composer · attachmentChip",
+    "source": "src/components/chat/composer.ts",
+    "exports": [
+      "composer",
+      "attachmentChip"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "default",
+      "busy",
+      "offline",
+      "attachments"
+    ]
+  },
+  {
+    "id": "markdown",
+    "name": "md · codeBlock",
+    "source": "src/components/chat/markdown.ts",
+    "exports": [
+      "md",
+      "codeBlock",
+      "initCodeCopy"
+    ],
+    "consumers": [
+      "src/chat.ts",
+      "src/components/chat/blocks.ts"
+    ],
+    "states": [
+      "default",
+      "diff",
+      "untrusted"
+    ]
+  },
+  {
+    "id": "chat-content",
+    "name": "renderUserMessage · browserContextChip · inputView · contextPanel",
+    "source": "src/components/chat/content.ts",
+    "exports": [
+      "renderUserMessage",
+      "browserContextChip",
+      "inputView",
+      "contextPanel"
+    ],
+    "consumers": [
+      "src/chat.ts",
+      "src/mobile/view.ts"
+    ],
+    "states": [
+      "message",
+      "browser",
+      "input",
+      "context"
+    ]
+  },
+  {
+    "id": "git-file",
+    "name": "gitFileRow",
+    "source": "src/components/git/file-row.ts",
+    "exports": [
+      "gitFileRow"
+    ],
+    "consumers": [
+      "src/workspace-changes.ts"
+    ],
+    "states": [
+      "modified",
+      "new",
+      "deleted",
+      "conflict",
+      "disabled",
+      "long"
+    ]
+  },
+  {
+    "id": "git-group",
+    "name": "gitGroup",
+    "source": "src/components/git/group.ts",
+    "exports": [
+      "gitGroup"
+    ],
+    "consumers": [
+      "src/workspace-changes.ts"
+    ],
+    "states": [
+      "expanded",
+      "collapsed"
+    ]
+  },
+  {
+    "id": "git-commit",
+    "name": "commitForm",
+    "source": "src/components/git/commit-form.ts",
+    "exports": [
+      "commitForm"
+    ],
+    "consumers": [
+      "src/workspace-changes.ts"
+    ],
+    "states": [
+      "empty",
+      "ready",
+      "busy",
+      "disabled"
+    ]
+  },
+  {
+    "id": "diff",
+    "name": "diffView",
+    "source": "src/components/git/diff-view.ts",
+    "exports": [
+      "diffView"
+    ],
+    "consumers": [
+      "src/diff.ts"
+    ],
+    "states": [
+      "unified",
+      "split",
+      "empty",
+      "binary",
+      "two-instances"
+    ]
+  }
+]

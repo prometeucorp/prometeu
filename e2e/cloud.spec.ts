@@ -48,7 +48,7 @@ test("the personal catalog keeps skills private, publishes explicitly and create
   await page.locator("#settings").click();
   await page.locator(".setnavitem", { hasText: "Resources" }).click();
   await page.locator('.resource-filters [data-filter="skills"]').click();
-  const pending = page.locator(".setrow", { has: page.locator("b", { hasText: /^cloud-review$/ }) });
+  const pending = page.locator(".resource-row", { has: page.locator("b", { hasText: /^cloud-review$/ }) });
   await expect(pending).toContainText("not installed on this Mac");
   await action(page, pending, "Install here");
   await expect(pending).toContainText("in the cloud");
@@ -59,7 +59,7 @@ test("the personal catalog keeps skills private, publishes explicitly and create
   await dialog.getByLabel("When to use this skill").fill("Before shipping code");
   await dialog.getByLabel("Instructions", { exact: true }).fill("Read the changes and run tests.");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
-  const local = page.locator(".setrow", { has: page.locator("b", { hasText: /^my-review$/ }) });
+  const local = page.locator(".resource-row", { has: page.locator("b", { hasText: /^my-review$/ }) });
   await expect(local).toContainText("this Mac only");
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:catalog") ?? "{}").shared?.["skills:my-review"])).toBeUndefined();
   await action(page, local, "Share in cloud");
@@ -70,7 +70,7 @@ test("the personal catalog keeps skills private, publishes explicitly and create
   dialog = page.getByRole("dialog", { name: "Create local copy" });
   await dialog.getByLabel("Copy name").fill("my-copy");
   await dialog.getByRole("button", { name: "Create local copy" }).click();
-  const copy = page.locator(".setrow", { has: page.locator("b", { hasText: /^my-copy$/ }) });
+  const copy = page.locator(".resource-row", { has: page.locator("b", { hasText: /^my-copy$/ }) });
   await expect(copy).toContainText("this Mac only");
   await page.evaluate(() => localStorage.setItem("mock:cloudOffline", "1"));
   await action(page, copy, "Edit");
@@ -101,7 +101,7 @@ test("the personal catalog rejects stale edits over a newer revision", async ({ 
   await page.locator("#settings").click();
   await page.locator(".setnavitem", { hasText: "Resources" }).click();
   await page.locator('.resource-filters [data-filter="skills"]').click();
-  const row = page.locator(".setrow", { has: page.locator("b", { hasText: /^cloud-review$/ }) });
+  const row = page.locator(".resource-row", { has: page.locator("b", { hasText: /^cloud-review$/ }) });
   await action(page, row, "Install here");
   await action(page, row, "Edit");
   const dialog = page.getByRole("dialog", { name: "Edit skill" });
