@@ -201,11 +201,11 @@ pub fn portable(p: &plugins::Plugin) -> Option<Portable> {
 /// GitHub owners and repositories are case-insensitive; other Git hosts may not be.
 fn source_key(source: &str) -> String {
     let url = plugins::git_url(source);
-    let url = url.strip_suffix(".git").unwrap_or(&url);
-    if url.starts_with("https://github.com/") {
-        url.to_lowercase()
+    let lower = url.to_lowercase();
+    if lower.starts_with("https://github.com/") {
+        lower.strip_suffix(".git").unwrap_or(&lower).to_string()
     } else {
-        url.to_string()
+        url
     }
 }
 
@@ -1444,6 +1444,14 @@ mod tests {
         );
         assert_ne!(
             source_key("https://gitlab.test/Team/tool"),
+            source_key("https://gitlab.test/team/tool")
+        );
+        assert_eq!(
+            source_key("HTTPS://GitHub.com/A/b"),
+            source_key("https://github.com/a/B")
+        );
+        assert_ne!(
+            source_key("https://gitlab.test/team/tool.git"),
             source_key("https://gitlab.test/team/tool")
         );
         let local = plugins::Plugin {

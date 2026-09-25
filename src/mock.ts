@@ -37,8 +37,8 @@ const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:ca
 type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; projects?: { id: string; source: string; note: string }[]; links: Record<string, string> };
 const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
 const sourceKey = (source: string) => {
-  const url = source.replace(/\/$/, "").replace(/\.git$/, "");
-  return url.startsWith("https://github.com/") ? url.toLowerCase() : url;
+  const url = source.replace(/\/$/, "");
+  return url.toLowerCase().startsWith("https://github.com/") ? url.toLowerCase().replace(/\.git$/, "") : url;
 };
 const samePlugin = (cloud: Pick<Plugin, "id" | "source">, local: Plugin) => cloud.id.toLowerCase() === local.id.toLowerCase()
   && sourceKey(cloud.source) === sourceKey(local.from || local.source);
