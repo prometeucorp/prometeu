@@ -181,9 +181,8 @@ export function init(context: Ctx) {
 
 const updating = new Set<string>();
 export function resourceItems(): ResourceItem[] {
-  const missing = catalog.current().plugins.filter(p => !p.installed);
-  return [...hub.filter(p => !skills.packageIds().has(p.id)).map(pluginResource),
-    ...missing.map(cloudResource), ...catalog.organizationResources("plugins", ctx.say)];
+  const local = hub.filter(p => !skills.packageIds().has(p.id));
+  return [...local.map(pluginResource), ...catalog.pendingResources("plugins", local.map(plugin => plugin.id), ctx.say)];
 }
 
 export function settingsActions(): menu.Item[] {
@@ -200,16 +199,8 @@ function installCatalogPlugin(p: catalog.CatalogPlugin, replacing = false) {
   dialog.body.append(h("p", "ui-hint", p.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
 }
 
-function cloudResource(p: catalog.CatalogPlugin): ResourceItem {
-  const where = p.note.trim() ? `${p.source} · ${p.note.trim()}` : p.source;
-  return { key: `plugin-cloud-${p.id}`, id: p.id, kind: "plugins", origin: t("catalog.cloud"), glyph: "globe",
-    description: `${where} · ${t("catalog.notInstalled")}`,
-    actions: [{ label: t("catalog.install"), run: () => installCatalogPlugin(p) }],
-  };
-}
-
 function pluginResource(plugin: Plugin): ResourceItem {
-  const actions = catalog.resourceActions("plugins", plugin.id);
+  const actions = catalog.resourceActions("plugins", plugin.id, ctx.say);
   const cloud = catalog.current().plugins.find(p => p.local_id === plugin.id);
   if (cloud?.source_changed) actions.push({ label: t("catalog.replaceSource"), run: () => installCatalogPlugin(cloud, true) });
   if (plugin.from) actions.push({ label: t("plugin.update"), run: () => {
@@ -232,7 +223,7 @@ function pluginResource(plugin: Plugin): ResourceItem {
     },
   });
   return { key: `plugin-actions-${plugin.id}`, id: plugin.id, kind: "plugins", description: subtitle(plugin),
-    origin: catalog.tag("plugins", plugin.id), glyph: remote(plugin.source) ? "globe" : "puzzle",
+    origins: catalog.installedOrigins("plugins", plugin.id), glyph: remote(plugin.source) ? "globe" : "puzzle",
     busy: updating.has(plugin.id), actions,
   };
 }

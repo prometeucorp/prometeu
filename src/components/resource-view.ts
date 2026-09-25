@@ -1,4 +1,4 @@
-import { button, input, menuButton } from "./primitives";
+import { badge, button, input, menuButton } from "./primitives";
 import { icon } from "../../packages/design-system/src/icons";
 import { sectionHeader, toolbar, itemRow, overflowAction, listState } from "./compositions";
 import { h } from "../util";
@@ -75,7 +75,12 @@ export function resourceView(options: {
     });
     const items = snapshot.items.filter(item => matchesResource(item, selection, labels.kinds[item.kind]));
     for (const item of items) {
-      const origin = h("span", "resource-origin", item.origin); origin.title = item.origin;
+      const origin = h("span", "resource-origin");
+      for (const source of item.origins) {
+        const mark = badge(source.label, source.here);
+        if (source.hint) mark.title = source.hint;
+        origin.append(mark);
+      }
       const row = itemRow({ title: item.id, description: item.description, glyph: item.glyph,
         status: item.status, busy: item.busy,
         metadata: [h("span", "resource-type", labels.kinds[item.kind]), origin],

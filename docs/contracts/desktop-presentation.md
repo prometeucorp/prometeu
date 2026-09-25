@@ -14,11 +14,13 @@ the browser mock, provider catalogs, storage or a backend.
 `ResourceItem` and `ResourceSnapshot` live in `src/resources/model.ts`. These are
 in-process presentation types, not persisted or network formats:
 
-- `key` is unique across kinds and sources, stable across updates, and restores
-  focus. `id` is display data and can repeat across organizations.
+- `key` is unique across kinds and grouped catalog entries, stable across updates,
+  and restores focus. Pending definitions group by case-insensitive name;
+  installed items retain their local identity.
 - `kind` selects a filter and a translated type label.
-- `description`, `origin` and optional `status` are plain text. Callers translate
-  interface copy; resource names and descriptions retain their source language.
+- `description`, `origins[].label`, optional origin hints and `status` are plain
+  text. The view renders source badges, including the local `here` marker. Callers
+  translate interface copy; resource names and descriptions retain their source language.
 - `glyph` is a typed icon name. The view renders the icon; callers do not supply HTML.
 - `actions` are shared menu items with callbacks. Hubs own authorization,
   confirmation, errors, installation and persistence. Constructing a snapshot
@@ -127,7 +129,8 @@ No IPC, persisted identifier, installation rule or wire format changes. Former
 Settings destinations retain their navigation mapping. Existing MCP connection,
 pending OAuth, catalog confirmation, revision and local-copy flows remain in
 their owners. Item order remains plugins, MCP, skills; built-in MCP stays
-read-only. Duplicate ids from organizations retain distinct focus keys.
+read-only. Same-name definitions share a row with all source badges and source-specific
+installation callbacks, preserving the catalog grouping and linking rules.
 
 - `src/components/catalog.test.ts` checks manifest/story coverage and production
   import reachability. It does not infer visual correctness from imports.
@@ -137,7 +140,8 @@ read-only. Duplicate ids from organizations retain distinct focus keys.
 - Existing Git, conversation, Markdown and file-drop journeys protect production
   integration, streaming, drafts, safety guards and copy behavior.
 - `src/resources/adapters.test.ts` constructs real hub snapshots without DOM,
-  checks organization keys and action policy, and exercises a pending MCP lock.
+  checks grouped origins and source-specific actions, and exercises pending
+  MCP and installation locks across refreshes.
 - `src/settings-navigation.test.ts` protects former page destinations and matching.
 - `e2e/settings.spec.ts` protects shared row/menu keyboard focus and narrow
   geometry in an independent composition and the Actions consumer, plus

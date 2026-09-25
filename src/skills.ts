@@ -24,30 +24,19 @@ async function changed() { await refresh(); await afterChange(); }
 export function settingsActions() {
   return [{ label: t("skill.add"), run: () => editor(null) }];
 }
-const installing = new Set<string>();
 export function resourceItems(): ResourceItem[] {
   return [
     ...hub.map((skill): ResourceItem => ({
       key: `skill-actions-${skill.id}`, id: skill.id, kind: "skills", description: skill.description,
-      origin: catalog.tag("skills", skill.id), glyph: "sparkles", actions: [
+      origins: catalog.installedOrigins("skills", skill.id), glyph: "sparkles", actions: [
         { label: t("actions.edit"), run: () => editor(skill) },
-        ...catalog.resourceActions("skills", skill.id),
+        ...catalog.resourceActions("skills", skill.id, say),
         { label: t("skill.remove"), danger: true, run: () => {
           void invoke("skill_remove", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true));
         } },
       ],
     })),
-    ...catalog.current().skills.filter(s => !s.installed).map((skill): ResourceItem => ({
-      key: `skill-cloud-${skill.id}`, id: skill.id, kind: "skills", glyph: "sparkles", origin: t("catalog.cloud"),
-      description: `${skill.description} · ${t("catalog.notInstalled")}`, busy: installing.has(skill.id),
-      actions: [{ label: t("catalog.install"), run: () => {
-        if (installing.has(skill.id)) return;
-        installing.add(skill.id); watchers.forEach(fn => fn());
-        void invoke("catalog_install_skill", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true))
-          .finally(() => { installing.delete(skill.id); watchers.forEach(fn => fn()); });
-      } }],
-    })),
-    ...catalog.organizationResources("skills", say),
+    ...catalog.pendingResources("skills", hub.map(skill => skill.id), say),
   ];
 }
 function editor(skill: Skill | null) {

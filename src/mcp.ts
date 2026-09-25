@@ -209,7 +209,7 @@ export function init(context: Ctx) {
 }
 
 export function resourceItems(): ResourceItem[] {
-  return [...hub.map(serverResource), ...catalog.organizationResources("mcp", ctx.say)];
+  return [...hub.map(serverResource), ...catalog.pendingResources("mcp", hub.map(server => server.id), ctx.say)];
 }
 
 export function settingsActions(anchor: HTMLElement): menu.Item[] {
@@ -222,7 +222,7 @@ export function settingsActions(anchor: HTMLElement): menu.Item[] {
 function serverResource(server: McpServer): ResourceItem {
   const item: ResourceItem = {
     key: `mcp-actions-${server.id}`, id: server.id, kind: "mcp", description: subtitle(server),
-    origin: server.config.builtin === true ? t("settings.builtin") : catalog.tag("mcp", server.id),
+    origins: server.config.builtin === true ? [{ label: t("settings.builtin") }] : catalog.installedOrigins("mcp", server.id),
     glyph: kind(server) === "stdio" ? "terminal" : "globe", actions: [],
   };
   if (server.config.builtin === true) return item;
@@ -249,7 +249,7 @@ function serverResource(server: McpServer): ResourceItem {
   }
   item.actions.push(
     { label: t("mcp.edit"), run: () => editor(server) },
-    ...catalog.resourceActions("mcp", server.id),
+    ...catalog.resourceActions("mcp", server.id, ctx.say),
     { label: t(catalog.shared("mcp", server.id) ? "catalog.delete" : "mcp.remove"), danger: true, run: () => void remove(server) },
   );
   return item;

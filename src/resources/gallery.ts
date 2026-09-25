@@ -17,7 +17,7 @@ export function resourceExample(initialState = "ready") {
   const report = (name: string) => { feedback.textContent = t("ui.resourceAction", { name }); };
   let revision = 0;
   const item = (id: string, kind: ResourceItem["kind"], description: string): ResourceItem => ({
-    key: `${kind}-${id}`, id, kind, description, origin: t("catalog.local"),
+    key: `${kind}-${id}`, id, kind, description, origins: [{ label: t("catalog.thisMac"), here: true }],
     glyph: kind === "mcp" ? "plug" : kind === "plugins" ? "puzzle" : "sparkles",
     actions: [{ label: t("actions.edit"), run: () => { report(id); revision++; view.update(snapshot()); } },
       { label: t("actions.remove"), danger: true, run: () => report(id) }],
@@ -34,7 +34,7 @@ export function resourceExample(initialState = "ready") {
     if (choice.value === "long") {
       items[0].id = "workspace-tools-with-a-long-name-that-must-remain-readable";
       items[0].description = "Local workspace tools with a detailed description that wraps across multiple lines without moving the actions outside the panel.";
-      items[0].origin = "Example organization with a long name";
+      items[0].origins.push({ label: "Example organization with a long name" });
     }
     return { items };
   }

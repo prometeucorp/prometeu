@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.18.0] - 2026-09-25
+
+### New
+
+- **viewer:** Preview workspace images
+- **resources:** List each resource once with every catalog that offers it
+
+### Fixes
+
+- **viewer:** Preserve SVG editing with image preview
+- **catalog:** Keep non-GitHub plugin sources exact when comparing
+
 ## [0.17.0] - 2026-09-25
 
 ### New

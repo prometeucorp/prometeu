@@ -84,7 +84,7 @@ const screen = resourceView({
   snapshot: {
     items: [{
       key: "example-review", id: "review", kind: "skills",
-      description: "Review the current changes", origin: "Example",
+      description: "Review the current changes", origins: [{ label: "Example" }],
       glyph: "sparkles", actions: [],
     }],
   },

@@ -111,8 +111,9 @@ compartilhados; a galeria executável apresenta a implementação atual.
 | As galerias mostravam primitivas, mas nenhuma composição real isolada de Configurações. | A galeria importa `resourceView`, a mesma função usada pelo aplicativo. |
 
 A extração mantém as regras e os fluxos existentes dos catálogos no Desktop.
-Chaves de foco distinguem recursos locais e de organizações, mesmo quando os
-nomes coincidem. Operações pendentes permanecem sob controle dos hubs durante
+A integração com a main mantém uma linha por recurso, com badges de todas as
+origens e instalação por origem; chaves de foco distinguem itens locais e grupos
+de definições pendentes. Operações pendentes permanecem sob controle dos hubs durante
 atualizações da tela. Recursos embutidos continuam sem ações de edição.
 
 ## Organização entregue
@@ -133,8 +134,8 @@ por essa separação incremental com o DOM e as dependências existentes.
 ## Validação
 
 `npm run check` passou: documentação, dependências, formatação Rust, builds
-Desktop e mobile, typechecks, testes de release, 508 testes web, 451 testes
-Rust executados, 176 testes de navegador e Clippy. A suíte Rust mantém 7 testes
+Desktop e mobile, typechecks, testes de release, 511 testes web, 452 testes
+Rust executados, 178 testes de navegador e Clippy. A suíte Rust mantém 7 testes
 ignorados já declarados no projeto.
 
 A evidência específica inclui:
