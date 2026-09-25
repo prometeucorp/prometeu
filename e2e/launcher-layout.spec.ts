@@ -84,6 +84,7 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
   await expect(page.locator("#d-wt")).toBeDisabled();
   await expect(page.locator("#d-nb")).toBeChecked();
   await expect(page.locator("#d-nb")).toBeDisabled();
+  await expect(page.locator("#d-hint")).not.toContainText("coworker-feature");
   await page.getByTitle("Remove prometeu from this workspace", { exact: true }).click();
   await expect(page.locator("#d-wt")).toBeEnabled();
 });

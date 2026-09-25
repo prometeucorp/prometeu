@@ -47,9 +47,9 @@ destructive action.
 
 Cleanup deletes branches created for the workspace but preserves branches
 already present in the clone or selected as existing at creation. The persisted
-`preserve_branch` flag defaults to false on older boards, preserving their
-cleanup behavior. A preserved branch does not need to be merged before its
-clean worktree is removed. Refusing the
+`preserve_branches` list records clone paths separately; an older board defaults
+to an empty list and keeps its previous cleanup behavior. A preserved branch
+does not need to be merged before its clean worktree is removed. Refusing the
 offer keeps the diff reachable and does not suppress future cleanup access.
 
 ## Evidence

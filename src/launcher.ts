@@ -311,6 +311,7 @@ export function openLauncher(board: Board, opts: Open) {
           // A shared parent directory makes multiple repositories available to one agent session.
           draft.worktree = true;
           draft.newBranch = true;
+          draft.branch = generatedBranch;
           drawExtras();
           drawSwitches();
           prompt.focus();

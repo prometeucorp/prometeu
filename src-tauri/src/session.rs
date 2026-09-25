@@ -769,7 +769,7 @@ pub fn cleanup_worktree(
         // Use -D after checking merge safety, or when force explicitly permits loss. A branch
         // deletion failure can leave a harmless ref after successful worktree cleanup, so it must
         // not turn that cleanup into an error.
-        if !ws.branch.is_empty() && !ws.preserve_branch {
+        if !ws.branch.is_empty() && !ws.preserve_branches.contains(&r.path) {
             let _ = git(&repo, &["branch", "-D", &ws.branch]);
         }
         let _ = git(&repo, &["worktree", "prune"]);
@@ -809,7 +809,7 @@ fn check(ws: &Workspace) -> Result<(), String> {
         if dirty > 0 {
             return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
         }
-        if !ws.preserve_branch && !merged(r.pr.as_ref(), &wt) {
+        if !ws.preserve_branches.contains(&r.path) && !merged(r.pr.as_ref(), &wt) {
             return Err(i18n::ta(
                 "err.cleanup.unmerged",
                 &[("branch", ws.branch.clone())],
@@ -1544,11 +1544,7 @@ pub(crate) fn create_workspace_owned(
         .filter_map(|w| w.port)
         .collect();
     let port = scripts::alloc_port(&root, &taken);
-    let preserve_branch = draft.worktree
-        && (draft.new_branch == Some(false)
-            || repos
-                .iter()
-                .any(|r| has_commit(Path::new(&r.path), &format!("refs/heads/{branch}"))));
+    let preserve_branches = branches_to_preserve(&repos, &branch, draft.worktree, draft.new_branch);
 
     let mut ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
@@ -1570,7 +1566,7 @@ pub(crate) fn create_workspace_owned(
         unread: false,
         pr: None,
         cleaned: false,
-        preserve_branch,
+        preserve_branches,
         shared: false,
         share_team: None,
         audience: None,
@@ -2277,6 +2273,23 @@ fn existing_branch_source(repo: &Path, branch: &str, source: Option<&str>) -> Re
     ))
 }
 
+fn branches_to_preserve(
+    repos: &[Repo],
+    branch: &str,
+    worktree: bool,
+    new_branch: Option<bool>,
+) -> Vec<String> {
+    repos
+        .iter()
+        .filter(|r| {
+            worktree
+                && (new_branch == Some(false)
+                    || has_commit(Path::new(&r.path), &format!("refs/heads/{branch}")))
+        })
+        .map(|r| r.path.clone())
+        .collect()
+}
+
 /// Canonicalize paths because Git resolves worktree paths, while HOME may contain aliases such as
 /// /var and /private/var.
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -2684,7 +2697,7 @@ mod tests {
             unread: false,
             pr: None,
             cleaned: false,
-            preserve_branch: false,
+            preserve_branches: Vec::new(),
             shared: false,
             share_team: None,
             audience: None,
@@ -2712,9 +2725,9 @@ mod tests {
         run(&dest, &["add", "-A"]);
         run(&dest, &["commit", "-qm", "b"]);
         assert!(super::check(&ws).unwrap_err().contains("unmerged"));
-        ws.preserve_branch = true;
+        ws.preserve_branches = vec![ws.repos[0].path.clone()];
         super::check(&ws).unwrap();
-        ws.preserve_branch = false;
+        ws.preserve_branches.clear();
 
         // GitHub's merged PR status also permits cleanup after a squash merge, which does not
         // preserve branch ancestry.
@@ -2741,17 +2754,35 @@ mod tests {
 
         // An unmerged commit in any additional repository blocks cleanup of the entire workspace.
         ws.worktree = dest.display().to_string();
+        let local2 = root.join("clone2");
+        run(
+            &origin,
+            &[
+                "clone",
+                "-q",
+                origin.to_str().unwrap(),
+                local2.to_str().unwrap(),
+            ],
+        );
         let dest2 = root.join("wt2");
-        super::add_worktree(&local, "work-2", "origin/main", &dest2).unwrap();
+        super::add_worktree(&local2, "work", "origin/main", &dest2).unwrap();
         ws.repos.push(Repo {
-            path: local.display().to_string(),
+            path: local2.display().to_string(),
             name: "clone-2".into(),
             worktree: dest2.display().to_string(),
             base: String::new(),
             pr: None,
         });
+        ws.repos[0].pr = None;
+        ws.preserve_branches = vec![local.display().to_string()];
         super::check(&ws).unwrap();
         std::fs::write(dest2.join("d.txt"), "d").unwrap();
+        run(&dest2, &["add", "-A"]);
+        run(&dest2, &["commit", "-qm", "other repo work"]);
+        assert!(super::check(&ws).unwrap_err().contains("unmerged"));
+        ws.repos[1].pr = Some(pr(4, "work", "MERGED"));
+        super::check(&ws).unwrap();
+        std::fs::write(dest2.join("e.txt"), "e").unwrap();
         assert!(super::check(&ws).unwrap_err().contains("dirty"));
 
         // Recursive removal requires the exact application-owned grouping path with its worktrees
@@ -2892,7 +2923,7 @@ mod tests {
             unread: false,
             pr: None,
             cleaned: false,
-            preserve_branch: false,
+            preserve_branches: Vec::new(),
             shared: false,
             share_team: None,
             audience: None,
@@ -2915,9 +2946,9 @@ mod tests {
     #[test]
     fn legacy_workspace_defaults_to_removing_its_branch() {
         let mut value = serde_json::to_value(bare()).unwrap();
-        value.as_object_mut().unwrap().remove("preserve_branch");
+        value.as_object_mut().unwrap().remove("preserve_branches");
         let restored: Workspace = serde_json::from_value(value).unwrap();
-        assert!(!restored.preserve_branch);
+        assert!(restored.preserve_branches.is_empty());
     }
 
     /// A minimal tab with an optional provider and model choice.
@@ -3841,6 +3872,22 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             branches.all
         );
 
+        let repos = [&origin, &local].map(|path| Repo {
+            path: path.display().to_string(),
+            name: String::new(),
+            worktree: String::new(),
+            base: String::new(),
+            pr: None,
+        });
+        assert_eq!(
+            super::branches_to_preserve(&repos, "old", true, Some(true)),
+            vec![origin.display().to_string()]
+        );
+        assert_eq!(
+            super::branches_to_preserve(&repos, "old", true, Some(false)),
+            repos.iter().map(|r| r.path.clone()).collect::<Vec<_>>()
+        );
+
         let dest = root.join("wt");
         super::existing_branch_source(&local, "old", Some("origin/old")).unwrap();
         assert!(super::existing_branch_source(&local, "missing", Some("origin/missing")).is_err());
@@ -3982,7 +4029,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             unread: false,
             pr: None,
             cleaned: false,
-            preserve_branch: false,
+            preserve_branches: Vec::new(),
             shared: false,
             share_team: None,
             audience: None,

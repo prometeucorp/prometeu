@@ -2011,7 +2011,7 @@ const mockCommands: IpcHandlers = {
     const repo = String(draft.project).split("/").pop() ?? "repo";
     const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
     fresh.branch = draft.branch || "main";
-    fresh.preserve_branch = draft.worktree && draft.newBranch === false;
+    fresh.preserve_branches = draft.worktree && draft.newBranch === false ? [draft.project] : [];
     // Multiple repositories share a parent directory with one worktree each.
     const extras: string[] = draft.extras ?? [];
     if (extras.length) {
