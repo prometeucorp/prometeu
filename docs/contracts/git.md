@@ -76,6 +76,24 @@ answers `git: false`, and the launcher locks both toggles), and the panel shows
 the Git error as with any repository that does not answer. Old responses cannot
 replace the selection of another workspace or repository.
 
+The backend shares one in-flight porcelain read per canonical worktree. The
+full status, including branch/upstream, remotes, ahead/behind, merging and the
+index fingerprint, also has a single-flight slot per worktree and comparison
+base. App Git mutations and file writes/create/rename/trash invalidate the
+affected cache before publishing their result. Invalidation during a scan
+discards its stale result and runs exactly one follow-up before waiters receive
+the status. Different repositories use independent slots; the mutation lock is
+never held while a status consumer waits. Full status is reused for at most two
+seconds, raw porcelain for one second. A visible fallback catches external
+edits after those bounds without requiring a filesystem watcher.
+
+The frontend refreshes on workspace entry, repository-list changes, saved
+files, Git actions, return to foreground and while Changes is visible. Ordinary
+board/chat redraws do not dispatch status. A visible Changes fallback runs
+every five seconds on AC or ten on battery/unknown power; hidden or unfocused
+windows do not scan. These are request intervals, with the Git command's
+duration in addition.
+
 ### File tree marks
 
 `tree_git_status` feeds the colors of the side **Files** tree and, unlike the
@@ -89,12 +107,14 @@ untracked or added files, `D` for deletions in the index and `M` for the rest. U
 one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
 The tree adds struck-through rows for `D` paths, which no longer exist on disk
 and therefore never come from `list_dir`.
-A directory outside Git, or
-a repository that fails, contributes no marks instead of an error. The command is async so the scan never runs on the main thread. The tree
-refreshes marks every 5 seconds while it is visible, because terminals and
-agents change files without board events, and skips a tick while the previous
-scan is still running. A redraw may scan alongside a tick; only the latest scan
-started replaces the marks, so an older result finishing last is discarded.
+A directory outside Git, or a repository that fails, contributes no marks
+instead of an error. A workspace repository root derives marks from the same
+cached porcelain as Changes. A project opened on a subfolder retains the
+path-limited query so only its own files appear. The command is async so the
+scan never runs on the main thread. Visible Files marks refresh every 15
+seconds on AC or 30 on battery/unknown power, plus immediate invalidation and
+foreground return; hidden/unfocused windows do not scan. The tree skips a tick
+while a previous scan is running and only the latest result paints marks.
 
 `tree_restore` brings such a row back to disk, finding the repository that
 holds `rel` under the tree root. The index wins over `HEAD`: a path the index

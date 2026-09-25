@@ -125,3 +125,23 @@ or watts. A native process-launch trace was unavailable in the baseline.
 preservation risk: replacing footer DOM after a resource event would detach the
 open sleep menu's button and reset panel state. Rust unit tests can prove
 sampling deadlines but cannot prove browser node identity.
+
+## Git refresh verification
+
+The Changes view now schedules fallback scans every five seconds on foreground
+AC or ten seconds on battery. Visible Files marks use 15 or 30 seconds. Both
+pause while hidden or unfocused and refresh on return. Board redraws that do
+not change the workspace or repository identity no longer request status. A
+shared raw porcelain snapshot serves compatible Changes and Files requests
+within one second, while per-worktree single-flight prevents overlapping scans;
+an invalidation during a scan forces a follow-up before returning its result.
+Native Git actions and app file saves invalidate immediately. Real-repository
+tests cover an external edit after the fallback, concurrent consumers,
+conflicts and multi-repository status. These tests count Git invocations in a
+controlled fixture; a comparable native multi-repository process trace is
+unavailable from the baseline, so no measured energy reduction is claimed.
+
+No `fswatch`, `inotifywait` or `watchman` tool is available in this environment.
+A watcher would also need to follow the resolved gitdir, index, branch and
+worktree on both macOS and Linux. Without a comparable idle-cost and
+correctness benchmark, the visible fallback remains the implementation.

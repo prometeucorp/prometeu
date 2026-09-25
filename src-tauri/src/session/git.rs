@@ -8,16 +8,160 @@ use crate::state::Repo;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::Mutex;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::State;
 
 // ponytail: serialize Git mutations across the app; use per-repository locks when concurrent
 // operations on separate repositories are needed.
 static MUTATION: Mutex<()> = Mutex::new(());
 const TEXT_LIMIT: usize = 400_000;
+const STATUS_TTL: Duration = Duration::from_secs(2);
+const PORCELAIN_TTL: Duration = Duration::from_secs(1);
+
+struct SlotState<T> {
+    generation: u64,
+    scanned: u64,
+    at: Option<Instant>,
+    value: Option<Result<T, String>>,
+    scanning: bool,
+}
+
+struct Slot<T> {
+    state: Mutex<SlotState<T>>,
+    changed: Condvar,
+}
+
+impl<T> Default for Slot<T> {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(SlotState {
+                generation: 0,
+                scanned: 0,
+                at: None,
+                value: None,
+                scanning: false,
+            }),
+            changed: Condvar::new(),
+        }
+    }
+}
+
+impl<T: Clone> Slot<T> {
+    fn invalidate(&self) {
+        let mut state = lock(&self.state);
+        state.generation += 1;
+        state.at = None;
+        self.changed.notify_all();
+    }
+
+    fn read(
+        &self,
+        ttl: Duration,
+        mut compute: impl FnMut() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut state = lock(&self.state);
+        loop {
+            if state.scanned == state.generation && state.at.is_some_and(|at| at.elapsed() < ttl) {
+                return state
+                    .value
+                    .as_ref()
+                    .expect("scanned slot has a value")
+                    .clone();
+            }
+            if state.scanning {
+                state = self
+                    .changed
+                    .wait(state)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                continue;
+            }
+            state.scanning = true;
+            break;
+        }
+        drop(state);
+        loop {
+            let generation = lock(&self.state).generation;
+            let result = compute();
+            let mut state = lock(&self.state);
+            if state.generation != generation {
+                // An app mutation arrived during the scan. Keep ownership of the slot and run
+                // exactly one follow-up before any waiter can observe the stale result.
+                drop(state);
+                continue;
+            }
+            state.scanned = generation;
+            state.at = Some(Instant::now());
+            state.value = Some(result.clone());
+            state.scanning = false;
+            self.changed.notify_all();
+            return result;
+        }
+    }
+}
+
+fn cache_key(root: &Path) -> PathBuf {
+    root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
+}
+
+fn raw_slots() -> &'static Mutex<HashMap<PathBuf, Arc<Slot<String>>>> {
+    static SLOTS: OnceLock<Mutex<HashMap<PathBuf, Arc<Slot<String>>>>> = OnceLock::new();
+    SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+type StatusSlots = Mutex<HashMap<(PathBuf, String), Arc<Slot<GitStatus>>>>;
+
+fn status_slots() -> &'static StatusSlots {
+    static SLOTS: OnceLock<StatusSlots> = OnceLock::new();
+    SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn raw_status(root: &Path) -> Result<String, String> {
+    let key = cache_key(root);
+    let slot = lock(raw_slots())
+        .entry(key)
+        .or_insert_with(|| Arc::new(Slot::default()))
+        .clone();
+    slot.read(PORCELAIN_TTL, || {
+        run(
+            root,
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--no-renames",
+            ],
+        )
+    })
+}
+
+fn cached_status(root: &Path, base: &str) -> Result<GitStatus, String> {
+    let key = (cache_key(root), base.to_string());
+    let slot = lock(status_slots())
+        .entry(key)
+        .or_insert_with(|| Arc::new(Slot::default()))
+        .clone();
+    slot.read(STATUS_TTL, || status_with(root, base, || raw_status(root)))
+}
+
+pub fn invalidate_path(path: &Path) {
+    let path = cache_key(path);
+    for (root, slot) in lock(raw_slots()).iter() {
+        if path.starts_with(root) || root.starts_with(&path) {
+            slot.invalidate();
+        }
+    }
+    for ((root, _), slot) in lock(status_slots()).iter() {
+        if path.starts_with(root) || root.starts_with(&path) {
+            slot.invalidate();
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct GitFile {
@@ -25,7 +169,7 @@ pub struct GitFile {
     pub status: String,
 }
 
-#[derive(Default, Serialize)]
+#[derive(Clone, Default, Serialize)]
 pub struct GitStatus {
     pub repo: usize,
     pub name: String,
@@ -137,17 +281,27 @@ fn parse_status(text: &str) -> Result<StatusGroups, String> {
 }
 
 fn status(root: &Path, base: &str) -> Result<GitStatus, String> {
+    status_with(root, base, || {
+        run(
+            root,
+            &[
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--no-renames",
+            ],
+        )
+    })
+}
+
+fn status_with(
+    root: &Path,
+    base: &str,
+    porcelain: impl FnOnce() -> Result<String, String>,
+) -> Result<GitStatus, String> {
     let before = fingerprint(root)?;
-    let (staged, changes, conflicts) = parse_status(&run(
-        root,
-        &[
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "--untracked-files=all",
-            "--no-renames",
-        ],
-    )?)?;
+    let (staged, changes, conflicts) = parse_status(&porcelain()?)?;
     let branch = optional(root, &["symbolic-ref", "--quiet", "--short", "HEAD"]);
     let has_head = optional(root, &["rev-parse", "--verify", "HEAD"]).is_some();
     let upstream = optional(
@@ -204,9 +358,11 @@ pub fn workspace_git_status(state: State<AppState>, id: String) -> Result<Vec<Gi
         .enumerate()
         .map(|(index, repo)| {
             let mut value =
-                status(Path::new(&repo.worktree), &repo.base).unwrap_or_else(|error| GitStatus {
-                    error: Some(error),
-                    ..GitStatus::default()
+                cached_status(Path::new(&repo.worktree), &repo.base).unwrap_or_else(|error| {
+                    GitStatus {
+                        error: Some(error),
+                        ..GitStatus::default()
+                    }
                 });
             value.repo = index;
             value.name = repo.name.clone();
@@ -248,18 +404,23 @@ fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
             continue;
         };
         let inner = inner.trim_end_matches('\n');
-        let Ok(text) = run(
-            dir,
-            &[
-                "status",
-                "--porcelain=v1",
-                "-z",
-                "--untracked-files=all",
-                "--no-renames",
-                "--",
-                ".",
-            ],
-        ) else {
+        let text = if inner.is_empty() {
+            raw_status(dir)
+        } else {
+            run(
+                dir,
+                &[
+                    "status",
+                    "--porcelain=v1",
+                    "-z",
+                    "--untracked-files=all",
+                    "--no-renames",
+                    "--",
+                    ".",
+                ],
+            )
+        };
+        let Ok(text) = text else {
             continue;
         };
         for entry in text.split('\0') {
@@ -369,7 +530,9 @@ pub fn tree_restore(state: State<AppState>, id: String, rel: String) -> Result<(
     let _guard = MUTATION.try_lock().map_err(|_| i18n::t("err.git.busy"))?;
     let (root, repos) =
         tree_repos(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    restore_deleted(&root, &repos, &rel)
+    let result = restore_deleted(&root, &repos, &rel);
+    invalidate_path(&root);
+    result
 }
 
 fn valid_path(root: &Path, path: &str) -> Result<PathBuf, String> {
@@ -793,14 +956,16 @@ pub fn workspace_git_action(
         return Err(i18n::t("err.git.agent"));
     }
     let repo = repository(&state, &id, repo)?;
-    action(
+    let result = action(
         Path::new(&repo.worktree),
         operation,
         &paths,
         message.as_deref(),
         expected.as_deref(),
         remote.as_deref(),
-    )
+    );
+    invalidate_path(Path::new(&repo.worktree));
+    result
 }
 
 #[derive(Serialize)]
@@ -1005,7 +1170,9 @@ pub fn workspace_git_resolve(
 ) -> Result<(), String> {
     let _guard = MUTATION.try_lock().map_err(|_| i18n::t("err.git.busy"))?;
     let repo = repository(&state, &id, repo)?;
-    resolve(Path::new(&repo.worktree), &path, &was, &text)
+    let result = resolve(Path::new(&repo.worktree), &path, &was, &text);
+    invalidate_path(Path::new(&repo.worktree));
+    result
 }
 
 #[cfg(test)]

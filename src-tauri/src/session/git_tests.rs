@@ -1,5 +1,76 @@
 use super::*;
 
+#[test]
+fn concurrent_status_consumers_share_a_scan_and_retry_once_after_invalidation() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
+    use std::time::Duration;
+
+    let slot = Arc::new(Slot::<usize>::default());
+    let count = Arc::new(AtomicUsize::new(0));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let first = {
+        let slot = slot.clone();
+        let count = count.clone();
+        std::thread::spawn(move || {
+            slot.read(Duration::from_secs(30), || {
+                let call = count.fetch_add(1, Ordering::SeqCst) + 1;
+                if call == 1 {
+                    entered_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                }
+                Ok(call)
+            })
+            .unwrap()
+        })
+    };
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let second = {
+        let slot = slot.clone();
+        let count = count.clone();
+        std::thread::spawn(move || {
+            slot.read(Duration::from_secs(30), || {
+                Ok(count.fetch_add(1, Ordering::SeqCst) + 1)
+            })
+            .unwrap()
+        })
+    };
+    slot.invalidate();
+    let other = Slot::<usize>::default();
+    assert_eq!(other.read(Duration::from_secs(30), || Ok(9)).unwrap(), 9);
+    release_tx.send(()).unwrap();
+    assert_eq!(first.join().unwrap(), 2);
+    assert_eq!(second.join().unwrap(), 2);
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn saved_files_invalidate_immediately_and_external_edits_appear_after_fallback() {
+    use std::time::Duration;
+    let repo = Repository::new();
+    repo.write("tracked.txt", "initial\n");
+    repo.commit("initial");
+    let first = cached_status(&repo.0, "main").unwrap();
+    assert!(first.changes.is_empty());
+    repo.write("tracked.txt", "changed\n");
+    invalidate_path(&repo.0.join("tracked.txt"));
+    let changed = cached_status(&repo.0, "main").unwrap();
+    assert!(changed
+        .changes
+        .iter()
+        .any(|file| file.path == "tracked.txt"));
+    repo.write("external.txt", "external\n");
+    std::thread::sleep(STATUS_TTL + Duration::from_millis(50));
+    let external = cached_status(&repo.0, "main").unwrap();
+    assert!(external
+        .changes
+        .iter()
+        .any(|file| file.path == "external.txt"));
+}
+
 struct Repository(PathBuf);
 
 impl Repository {

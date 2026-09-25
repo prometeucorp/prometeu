@@ -1,4 +1,6 @@
 import { fromBack, t } from "./i18n";
+import * as background from "./background";
+import { marksInterval } from "./git-refresh";
 import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
 import * as menu from "./menu";
@@ -45,7 +47,17 @@ let say: (message: string, error?: boolean) => void = () => {};
 let editing = false;
 let marks: GitMarks = gitMarks([]);
 /// Agents and terminals change files without board events, so visible marks refresh on a timer.
-const MARKS_EVERY = 5_000;
+let marksTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleMarks() {
+  if (marksTimer) clearTimeout(marksTimer);
+  const interval = marksInterval(background.current());
+  if (interval === null) return;
+  marksTimer = setTimeout(() => {
+    const id = workspace();
+    if (id && $("tree").offsetParent) void repaint(id);
+    scheduleMarks();
+  }, interval);
+}
 
 export function init(ctx: {
   openFile: (path: string) => void;
@@ -69,10 +81,12 @@ export function init(ctx: {
     openDirs.clear();
     redraw();
   });
-  setInterval(() => {
+  background.subscribe((context) => {
     const id = workspace();
-    if (id && !document.hidden && $("tree").offsetParent) void repaint(id);
-  }, MARKS_EVERY);
+    if (id && background.foreground(context) && $("tree").offsetParent) void repaint(id);
+    scheduleMarks();
+  });
+  scheduleMarks();
 }
 
 /// User clicks redraw immediately to avoid visible lag.

@@ -1,4 +1,6 @@
 import * as actions from "./actions";
+import * as background from "./background";
+import { GitRefreshPolicy, changesInterval } from "./git-refresh";
 import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
@@ -55,6 +57,7 @@ let ctx: Ctx;
 let openWs: string | null = null;
 /// Invalidate asynchronous continuations on every entry/exit, including returning to the same workspace ID.
 let navigation = 0;
+const gitRefresh = new GitRefreshPolicy();
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -66,7 +69,7 @@ export function init(context: Ctx) {
   ctx = context;
   changesUi.init({
     workspace: current,
-    refresh: async () => { if (openWs && hasDiff()) await loadChanges(openWs); },
+    refresh: async () => { if (openWs && hasDiff()) { await loadChanges(openWs); tree.redrawSoon(); } },
     show: activateChanges,
     say: ctx.say,
     openFile: (repo, path) => void openRepoFile(repo, path),
@@ -124,13 +127,12 @@ export function init(context: Ctx) {
     const here = root();
     if (here) invoke("reveal_path", { id: here, rel: "" }).catch((e) => ctx.say(fromBack(e), true));
   });
-  // Agent board events refresh changes, but external commits do not. Refresh on window focus and while Changes is visible.
-  window.addEventListener("focus", () => {
-    if (hasDiff()) reloadChanges(openWs!);
+  // Native focus/power changes choose the visible fallback budget; external edits still surface.
+  background.subscribe((context) => {
+    if (background.foreground(context) && hasDiff()) reloadChanges(openWs!);
+    scheduleChanges();
   });
-  setInterval(() => {
-    if (hasDiff() && document.hasFocus() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
-  }, WATCH_EVERY);
+  scheduleChanges();
 
   // Build the static preparation indicator once instead of on every board redraw.
   $("offwave").innerHTML = wave(22);
@@ -217,6 +219,7 @@ function catchUp(ws: Workspace) {
 
 export function leave() {
   navigation++;
+  gitRefresh.clear();
   proj = null;
   browser.hide();
   restoreBrowserSide();
@@ -315,8 +318,10 @@ export function draw() {
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
-  reloadChanges(ws.id);
-  if (sidePane === "files") tree.redrawSoon();
+  if (gitRefresh.consider(ws)) {
+    reloadChanges(ws.id);
+    if (sidePane === "files") tree.redrawSoon();
+  }
   // Board events refresh the displayed file after agent edits without polling.
   const file = files(ws.id).active;
   if (file) viewer.show(ws.id, file);
@@ -1190,7 +1195,16 @@ export function closeActive(): boolean {
 /* Changes. */
 
 const total = changesUi.count;
-const WATCH_EVERY = 5_000;
+let changesTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleChanges() {
+  if (changesTimer) clearTimeout(changesTimer);
+  const interval = changesInterval(background.current());
+  if (interval === null) return;
+  changesTimer = setTimeout(() => {
+    if (hasDiff() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
+    scheduleChanges();
+  }, interval);
+}
 const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
 let request = 0;
 
@@ -1215,7 +1229,7 @@ async function loadChanges(id: string) {
 
 export function fileSaved(id: string) {
   const ws = current();
-  if (ws?.id === id && diffable(ws)) reloadChanges(id);
+  if (ws?.id === id && diffable(ws)) { reloadChanges(id); tree.redrawSoon(); }
 }
 
 function outstanding(id: string): { dirty: number; unpushed: number } | null {
@@ -1329,6 +1343,7 @@ type Pane = "files" | "diff" | "comments";
 let sidePane: Pane = "files";
 
 function setSidePane(pane: Pane) {
+  const changed = sidePane !== pane;
   sidePane = pane;
   $("tab-files").classList.toggle("on", pane === "files");
   $("tab-diff").classList.toggle("on", pane === "diff");
@@ -1338,6 +1353,7 @@ function setSidePane(pane: Pane) {
   $("comments").hidden = pane !== "comments";
   $("side").classList.toggle("comments-open", pane === "comments");
   if (pane === "files") tree.redraw();
+  if (changed && pane === "diff" && hasDiff()) reloadChanges(openWs!);
   if (pane === "comments") notes.draw();
 }
 
