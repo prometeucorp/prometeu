@@ -48,7 +48,7 @@ const here = () => (shown ? key(shown.id, shown.path) : "");
 const draft = () => drafts.get(here());
 const imageTypes: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
-  webp: "image/webp", avif: "image/avif", bmp: "image/bmp", svg: "image/svg+xml", ico: "image/x-icon",
+  webp: "image/webp", avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon",
 };
 
 export function init(onError: (m: string) => void, onSaved: (id: string) => void) {
@@ -264,7 +264,7 @@ export async function show(id: string, path: string) {
   crumb(path);
   blob(false);
   if (!same) reading = false;
-  $("vview").hidden = !!error || !/\.(md|markdown)$/i.test(path);
+  $("vview").hidden = !!error || !/\.(md|markdown|svg)$/i.test(path);
 
   // Unreadable, binary, or oversized files display an error instead of an editable buffer.
   const ta = box();
@@ -303,10 +303,24 @@ function view(next: boolean) {
   reading = next;
   // Marks belong to the source layout; the rendered preview has no find bar.
   if (next) closeFind(false);
-  $("vcode").hidden = next;
-  $("vread").hidden = !next;
   $("vsource").setAttribute("aria-pressed", String(!next));
   $("vpreview").setAttribute("aria-pressed", String(next));
+  if (shown && /\.svg$/i.test(shown.path)) {
+    blob(false);
+    $("vcode").hidden = next;
+    $("vfile").hidden = !next;
+    if (next) {
+      const into = $("vfile");
+      renderImage(into, new Blob([box().value], { type: "image/svg+xml" }), shown.path, () => {
+        URL.revokeObjectURL(fileUrl);
+        fileUrl = "";
+        into.textContent = t("viewer.imageError");
+      });
+    }
+    return;
+  }
+  $("vcode").hidden = next;
+  $("vread").hidden = !next;
   if (next) $("vread").innerHTML = md(box().value);
 }
 
@@ -329,6 +343,16 @@ function blob(on: boolean) {
   if (fileUrl) URL.revokeObjectURL(fileUrl);
   fileUrl = "";
   $("vfile").replaceChildren();
+}
+
+function renderImage(into: HTMLElement, content: Blob, path: string, onError: () => void) {
+  into.className = "vfile image";
+  fileUrl = URL.createObjectURL(content);
+  const img = document.createElement("img");
+  img.alt = path.split("/").pop() || path;
+  img.onerror = () => { if (into.contains(img)) onError(); };
+  img.src = fileUrl;
+  into.append(img);
 }
 
 /// WebKit renders PDF in an iframe; CSV uses a table; images use the browser decoder.
@@ -374,16 +398,11 @@ async function showBlob(id: string, path: string, kind: "pdf" | "csv" | "image")
   }
   if (kind === "image") {
     const type = imageTypes[path.split(".").pop()?.toLowerCase() ?? ""];
-    fileUrl = URL.createObjectURL(new Blob([bytes!], { type }));
-    const img = document.createElement("img");
-    img.alt = path.split("/").pop() || path;
-    img.onerror = () => {
+    renderImage(into, new Blob([bytes!], { type }), path, () => {
       if (currentRequest !== request) return;
       blob(false);
       $("vpre").textContent = t("viewer.imageError");
-    };
-    img.src = fileUrl;
-    into.append(img);
+    });
     return;
   }
   table(into, parse(decode(bytes!)));

@@ -236,11 +236,12 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
     { name: "customers.csv", path: "docs/customers.csv", dir: false },
     { name: "rules.pdf", path: "docs/rules.pdf", dir: false },
   ],
-  public: [{ name: "logo.png", path: "public/logo.png", dir: false }],
+  public: ["logo.png", "broken.png", "logo.svg"].map(name => ({ name, path: `public/${name}`, dir: false })),
 };
 
 const samplePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
 const files: Record<string, string> = {
+  "public/logo.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>',
   "docs/rules.pdf":
     "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
   // Brazilian Excel format: semicolon delimiters, decimal commas, and a multiline field.
@@ -1535,6 +1536,7 @@ const mockCommands: IpcHandlers = {
   },
   read_bytes(args) {
     if (args.rel === "public/logo.png") return Uint8Array.from(atob(samplePng), char => char.charCodeAt(0)).buffer;
+    if (args.rel === "public/broken.png") return new TextEncoder().encode("not an image").buffer;
     if (args.rel in files) return new TextEncoder().encode(files[args.rel]).buffer;
     throw `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
   },

@@ -795,7 +795,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "diff.reviewFile": "Mark {path} reviewed",
   "diff.toggle": "Toggle diff for {path}",
   "viewer.copyPath": "Copy path",
-  "viewer.mode": "Markdown view",
+  "viewer.mode": "File view",
   "viewer.edit": "Edit",
   "viewer.preview": "Preview",
   "viewer.imageError": "Could not display image",

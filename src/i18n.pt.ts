@@ -817,7 +817,7 @@ export const PT = {
   "diff.reviewFile": "Marcar {path} como revisado",
   "diff.toggle": "Alternar diff de {path}",
   "viewer.copyPath": "Copiar caminho",
-  "viewer.mode": "Visualização Markdown",
+  "viewer.mode": "Visualização do arquivo",
   "viewer.edit": "Editar",
   "viewer.preview": "Prévia",
   "viewer.imageError": "Não foi possível exibir a imagem",

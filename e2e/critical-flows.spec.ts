@@ -187,6 +187,21 @@ test("project file viewer previews image bytes", { tag: "@webkit" }, async ({ pa
   await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
   await expect(page.locator("#vfile")).toBeHidden();
   await expect(page.locator("#vtext")).toBeVisible();
+
+  await page.locator("#tree .treerow", { hasText: "broken.png" }).click();
+  await expect(page.locator("#vpre")).toHaveText("Could not display image");
+  await expect(page.locator("#vfile")).toBeHidden();
+
+  await page.locator("#tree .treerow", { hasText: "logo.svg" }).click();
+  await expect(page.locator("#vtext")).toBeVisible();
+  const source = '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="6"><rect width="8" height="6" fill="blue"/></svg>';
+  await page.locator("#vtext").fill(source);
+  await page.locator("#vpreview").click();
+  await expect.poll(() => page.locator("#vfile.image img").evaluate(el => (el as HTMLImageElement).naturalWidth)).toBe(8);
+  await page.locator("#vsource").click();
+  await expect(page.locator("#vtext")).toHaveValue(source);
+  await page.locator("#vsave").click();
+  await expect(page.locator("#vsave")).toBeHidden();
 });
 
 test("the sidebar preserves conversation and terminal when leaving a project file", { tag: "@webkit" }, async ({ page }) => {
