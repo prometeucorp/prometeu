@@ -1,4 +1,5 @@
 import * as actions from "./actions";
+import * as background from "./background";
 import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
@@ -42,6 +43,7 @@ import * as ws from "./workspace";
 
 // Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
+await background.start();
 
 let state: Board = { stages: [], projects: [], workspaces: [] };
 

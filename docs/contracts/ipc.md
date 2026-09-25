@@ -181,6 +181,19 @@ Tauri events are dynamic; the generic passed to `listen<T>` does not validate
 the Rust payload at build time. A new event needs a test of the emitter and of
 the consumer.
 
+`background_context` returns `{ visible, focused, power, revision }`, where
+`power` is `ac`, `battery`, or `unknown`. The `background-context` event has the
+same shape and is emitted only when the observed native state changes. The
+frontend subscribes before requesting the snapshot and ignores an older
+revision if the event arrives first. `visible` is false for a hidden or
+minimized main window; `focused` is true only when that native window is both
+visible and focused. macOS reads the IOKit power-source snapshot; Linux reads
+`/sys/class/power_supply`; unsupported or failed readings are `unknown` and
+use the battery budget for discretionary work. Window events refresh promptly,
+with a five-second visibility fallback and a 60-second power fallback. This
+context is advisory for UI refresh only: agent processes, transcript capture,
+terminals, sharing and explicit task monitoring continue independently.
+
 `chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the rest to the legacy reader; historical
 `prometheusV1Mirror` projections are ignored by the current reader. Prometeu

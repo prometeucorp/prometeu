@@ -64,6 +64,17 @@ function saveMockSkill(skill: Skill) {
   pluginHub = [...pluginHub.filter(p => p.id !== id), { id, source: `~/.prometeu/skills-packages/${skill.id}`, note: skill.description, made: false }];
 }
 const w = window as unknown as Record<string, unknown>;
+let backgroundRevision = 0;
+function mockBackground() {
+  return { visible: !document.hidden, focused: !document.hidden && document.hasFocus(), power: "unknown" as const, revision: backgroundRevision };
+}
+function emitBackground() {
+  backgroundRevision++;
+  emit("background-context", mockBackground());
+}
+window.addEventListener("focus", emitBackground);
+window.addEventListener("blur", emitBackground);
+document.addEventListener("visibilitychange", emitBackground);
 
 const accountDefaults: Accounts = {
   accounts: [
@@ -925,6 +936,9 @@ function fakeEvaluation(request: import("./evaluation").EvaluationRequest): impo
 }
 
 const mockCommands: IpcHandlers = {
+  background_context() {
+    return mockBackground();
+  },
   notification_permission({ request }) {
     const status = localStorage.getItem("mock:notification-permission");
     if (status === "default" && request) {

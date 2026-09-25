@@ -5,6 +5,7 @@ mod actions;
 mod agents;
 mod antigravity;
 mod awake;
+mod background;
 mod browser;
 mod catalog;
 mod chat;
@@ -134,7 +135,9 @@ fn main() {
             ready: Mutex::new(HashSet::new()),
             work: Mutex::new(HashMap::new()),
         })
+        .manage(background::State::default())
         .invoke_handler(tauri::generate_handler![
+            background::background_context,
             notifications::notification_permission,
             notifications::notification_show,
             notifications::notification_current,
@@ -294,6 +297,10 @@ fn main() {
             typesafe::context_evaluate,
         ])
         .setup(|app| {
+            if let Some(window) = tauri::Manager::get_window(app, "main") {
+                background::refresh_window(&window);
+            }
+            background::watch(app.handle().clone());
             notifications::install(app.handle());
             embedded_mcp::start(app.handle().clone())?;
             file_drop::install(app.handle())?;
@@ -303,6 +310,7 @@ fn main() {
             Ok(())
         })
         .on_webview_event(file_drop::on_webview_event)
+        .on_window_event(|window, _event| background::refresh_window(window))
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometeu")
         .run(|app, event| {
