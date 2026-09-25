@@ -2777,6 +2777,8 @@ mod tests {
         ws.preserve_branches = vec![local.display().to_string()];
         super::check(&ws).unwrap();
         std::fs::write(dest2.join("d.txt"), "d").unwrap();
+        run(&dest2, &["config", "user.email", "t@t"]);
+        run(&dest2, &["config", "user.name", "t"]);
         run(&dest2, &["add", "-A"]);
         run(&dest2, &["commit", "-qm", "other repo work"]);
         assert!(super::check(&ws).unwrap_err().contains("unmerged"));
