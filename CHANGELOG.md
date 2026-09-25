@@ -4,6 +4,29 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.17.0] - 2026-09-25
+
+### New
+
+- **chat:** Show sent attachments as numbered image tags
+- **telemetry:** Add local usage history with export and deletion
+- **workspace:** Open worktrees on existing branches
+
+### Fixes
+
+- **linux:** Attach screenshots pasted into the chat
+- **linux:** Read pasted screenshots from the gtk clipboard
+- **linux:** Keep screenshot paste responsive
+- **typesafe:** Make request review work with Jev
+- **settings:** Show TypeSafe key prerequisite
+- **chat:** Keep sent attachment tags inside the bubble on desktop and mobile
+- **telemetry:** Keep local history accurate and responsive
+- **telemetry:** Preserve existing files when export fails
+- **telemetry:** Persist export replacements before reporting success
+- **telemetry:** Record archive transitions after board persistence
+- **workspace:** Keep archiving responsive during telemetry save
+- **workspace:** Preserve branch ownership per repository
+
 ## [0.16.0] - 2026-09-24
 
 ### New
