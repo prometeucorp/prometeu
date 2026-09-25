@@ -820,6 +820,7 @@ export const PT = {
   "viewer.mode": "Visualização Markdown",
   "viewer.edit": "Editar",
   "viewer.preview": "Prévia",
+  "viewer.imageError": "Não foi possível exibir a imagem",
   "viewer.save": "Salvar — ⌘S",
   "viewer.cancel": "Desfazer o que não foi salvo — Esc",
   "viewer.find.placeholder": "Buscar no arquivo",

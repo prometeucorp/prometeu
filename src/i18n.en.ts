@@ -798,6 +798,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "viewer.mode": "Markdown view",
   "viewer.edit": "Edit",
   "viewer.preview": "Preview",
+  "viewer.imageError": "Could not display image",
   "viewer.save": "Save — ⌘S",
   "viewer.cancel": "Undo what was not saved — Esc",
   "viewer.find.placeholder": "Find in file",

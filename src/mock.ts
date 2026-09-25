@@ -236,8 +236,10 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
     { name: "customers.csv", path: "docs/customers.csv", dir: false },
     { name: "rules.pdf", path: "docs/rules.pdf", dir: false },
   ],
+  public: [{ name: "logo.png", path: "public/logo.png", dir: false }],
 };
 
+const samplePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
 const files: Record<string, string> = {
   "docs/rules.pdf":
     "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
@@ -1532,6 +1534,7 @@ const mockCommands: IpcHandlers = {
     return "0";
   },
   read_bytes(args) {
+    if (args.rel === "public/logo.png") return Uint8Array.from(atob(samplePng), char => char.charCodeAt(0)).buffer;
     if (args.rel in files) return new TextEncoder().encode(files[args.rel]).buffer;
     throw `i18n:${JSON.stringify({ code: "err.session.binary" })}`;
   },
@@ -2071,10 +2074,10 @@ const mockCommands: IpcHandlers = {
     return ["/Users/gustavo/.prometeu/attachments/pasted.png"];
   },
   feedback_capture() {
-    return "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
+    return samplePng;
   },
   feedback_image(args) {
-    return { name: args.path.split(/[\\/]/).pop() || "feedback.png", type: "image/png" as const, data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=" };
+    return { name: args.path.split(/[\\/]/).pop() || "feedback.png", type: "image/png" as const, data: samplePng };
   },
   // The browser mock records the report; no issue is created and nothing leaves the machine.
   // mock:feedbackFailures makes that many attempts fail, as a recoverable delivery error does.

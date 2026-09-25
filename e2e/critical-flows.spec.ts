@@ -174,6 +174,21 @@ test("clicking a project opens clone files without a workspace", async ({ page }
   await expect(page.locator("#railbody .navitem.sub", { hasText: "Match the Conductor screen" })).toHaveCount(0);
 });
 
+test("project file viewer previews image bytes", { tag: "@webkit" }, async ({ page }) => {
+  await boot(page);
+  const project = page.locator("#railbody .group", { hasText: "prometeu", hasNotText: "+ njord" });
+  await project.locator("span").nth(1).click();
+  await page.locator("#tree .treerow", { hasText: "public" }).click();
+  await page.locator("#tree .treerow", { hasText: "logo.png" }).click();
+  const image = page.locator("#vfile.image img");
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate(el => (el as HTMLImageElement).naturalWidth)).toBe(1);
+  await expect(page.locator("#vcode")).toBeHidden();
+  await page.locator("#tree .treerow", { hasText: "CLAUDE.md" }).click();
+  await expect(page.locator("#vfile")).toBeHidden();
+  await expect(page.locator("#vtext")).toBeVisible();
+});
+
 test("the sidebar preserves conversation and terminal when leaving a project file", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
   const project = page.locator("#railbody .group", { hasText: "njord", hasNotText: "+" });
