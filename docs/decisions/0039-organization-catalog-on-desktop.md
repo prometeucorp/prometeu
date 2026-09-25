@@ -32,7 +32,9 @@ not replace installed code, configuration or credentials. Revocation removes the
 availability on the next refresh, preserving installations. An equivalent local
 plugin, MCP or skill satisfies availability; the desktop neither suggests nor
 creates a duplicate installation. Comparison excludes local MCP credential
-values but preserves executable configuration.
+values but preserves executable configuration. Plugin sources on GitHub compare
+owner and repository case-insensitively, as GitHub resolves them; other Git
+hosts compare exactly.
 
 ## Alternatives and consequences
 

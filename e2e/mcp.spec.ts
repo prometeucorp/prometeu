@@ -46,7 +46,7 @@ test("tools: Cloud MCP checks and authenticates locally with recoverable failure
   await openTools(page);
   const row = page.locator(".mcp-server", { has: page.locator("b", { hasText: /^notion$/ }) });
   const catalogBefore = await page.evaluate(() => localStorage.getItem("mock:catalog"));
-  await expect(row).toContainText("in the cloud");
+  await expect(row).toContainText("Personal");
   await expect(row.getByRole("status")).toHaveText("Not checked on this Mac");
   await action(page, row, "Test connection");
   await expect(row.getByRole("status")).toHaveText("Authentication required on this Mac");

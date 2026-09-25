@@ -148,6 +148,8 @@ struct OrganizationItem {
     id: String,
     description: String,
     installed: bool,
+    // The installed local item that satisfies this definition, linked or equivalent.
+    local_id: Option<String>,
 }
 
 fn key(kind: &str, id: &str) -> String {
@@ -196,11 +198,97 @@ pub fn portable(p: &plugins::Plugin) -> Option<Portable> {
     })
 }
 
+/// GitHub owners and repositories are case-insensitive; other Git hosts may not be.
+fn source_key(source: &str) -> String {
+    let url = plugins::git_url(source);
+    let url = url.strip_suffix(".git").unwrap_or(&url);
+    if url.starts_with("https://github.com/") {
+        url.to_lowercase()
+    } else {
+        url.to_string()
+    }
+}
+
 fn same_plugin(item: &Portable, local: &plugins::Plugin) -> bool {
     portable(local).is_some_and(|local| {
         local.id.eq_ignore_ascii_case(&item.id)
-            && plugins::git_url(&local.source) == plugins::git_url(&item.source)
+            && source_key(&local.source) == source_key(&item.source)
     })
+}
+
+/// The linked local copy, or else an unlinked equivalent that already satisfies the item.
+fn installed_plugin<'a>(
+    cache: &Cache,
+    item: &Portable,
+    hub: &'a [plugins::Plugin],
+) -> Option<&'a plugins::Plugin> {
+    let linked = cache.local_id("plugins", &item.id).unwrap_or(&item.id);
+    hub.iter().find(|p| p.id == linked).or_else(|| {
+        hub.iter()
+            .find(|p| cache.cloud_id("plugins", &p.id).is_none() && same_plugin(item, p))
+    })
+}
+
+fn installed_skill<'a>(
+    cache: &Cache,
+    item: &skills::Skill,
+    hub: &'a [skills::Skill],
+) -> Option<&'a skills::Skill> {
+    let linked = cache.local_id("skills", &item.id).unwrap_or(&item.id);
+    hub.iter().find(|s| s.id == linked).or_else(|| {
+        hub.iter()
+            .find(|s| cache.cloud_id("skills", &s.id).is_none() && same_skill(item, s))
+    })
+}
+
+/// Sharing a private item that already exists in the personal catalog links it instead of
+/// publishing a duplicate. MCPs are excluded because the catalog always installs its own copy.
+fn link_equivalent(
+    cache: &mut Cache,
+    kind: &str,
+    id: &str,
+    hub: &[plugins::Plugin],
+    skill_hub: &[skills::Skill],
+) -> bool {
+    let cloud = match kind {
+        "plugins" => hub.iter().find(|p| p.id == id).and_then(|local| {
+            cache
+                .doc
+                .plugins
+                .iter()
+                .find(|item| same_plugin(item, local))
+                .map(|item| item.id.clone())
+        }),
+        "skills" => skill_hub.iter().find(|s| s.id == id).and_then(|local| {
+            cache
+                .doc
+                .skills
+                .iter()
+                .find(|item| same_skill(item, local))
+                .map(|item| item.id.clone())
+        }),
+        _ => None,
+    };
+    let Some(cloud) = cloud else {
+        return false;
+    };
+    let installed = |local: &str| match kind {
+        "plugins" => hub.iter().any(|p| p.id == local),
+        _ => skill_hub.iter().any(|s| s.id == local),
+    };
+    // Never steal the link from a copy that is still installed.
+    if cache
+        .local_id(kind, &cloud)
+        .is_some_and(|local| local != id && installed(local))
+    {
+        return false;
+    }
+    cache
+        .links
+        .as_mut()
+        .unwrap()
+        .insert(key(kind, &cloud), id.into());
+    true
 }
 
 fn same_mcp(item: &mcp::Server, local: &mcp::Server) -> bool {
@@ -658,6 +746,11 @@ pub fn catalog_share(app: AppHandle, kind: String, id: String) -> Result<(), Str
     }
     let _sync = lock(&SYNC);
     let mut cache = load_cache();
+    if link_equivalent(&mut cache, &kind, &id, &plugins::load(), &skills::load()) {
+        save_cache(&cache)?;
+        let _ = app.emit("catalog", ());
+        return Ok(());
+    }
     if cache.doc.keys().iter().any(|(k, i)| *k == kind && i == &id) {
         return Err(conflict());
     }
@@ -988,14 +1081,16 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
             .into_iter()
             .filter(|(kind, _)| *kind != "projects")
         {
-            let local = org.links.get(&key(kind, &id));
-            let (description, installed) = match kind {
+            let linked = org.links.get(&key(kind, &id));
+            let (description, local_id) = match kind {
                 "plugins" => {
                     let item = org.doc.plugins.iter().find(|p| p.id == id).unwrap();
                     (
                         format!("{} · {}", item.source, item.note),
-                        local.is_some_and(|id| hub.iter().any(|p| &p.id == id))
-                            || hub.iter().any(|plugin| same_plugin(item, plugin)),
+                        hub.iter()
+                            .find(|p| Some(&p.id) == linked)
+                            .or_else(|| hub.iter().find(|plugin| same_plugin(item, plugin)))
+                            .map(|p| p.id.clone()),
                     )
                 }
                 "mcp" => {
@@ -1009,16 +1104,22 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
                                 .unwrap_or_default(),
                             item.note
                         ),
-                        local.is_some_and(|id| servers.iter().any(|s| &s.id == id))
-                            || servers.iter().any(|server| same_mcp(item, server)),
+                        servers
+                            .iter()
+                            .find(|s| Some(&s.id) == linked)
+                            .or_else(|| servers.iter().find(|server| same_mcp(item, server)))
+                            .map(|s| s.id.clone()),
                     )
                 }
                 "skills" => {
                     let item = org.doc.skills.iter().find(|s| s.id == id).unwrap();
                     (
                         item.description.clone(),
-                        local.is_some_and(|id| skill_hub.iter().any(|s| &s.id == id))
-                            || skill_hub.iter().any(|skill| same_skill(item, skill)),
+                        skill_hub
+                            .iter()
+                            .find(|s| Some(&s.id) == linked)
+                            .or_else(|| skill_hub.iter().find(|skill| same_skill(item, skill)))
+                            .map(|s| s.id.clone()),
                     )
                 }
                 _ => unreachable!(),
@@ -1030,7 +1131,8 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
                 kind: kind.into(),
                 id,
                 description,
-                installed,
+                installed: local_id.is_some(),
+                local_id,
             });
         }
     }
@@ -1039,17 +1141,22 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
         .plugins
         .iter()
         .map(|item| {
-            let local_id = cache
-                .local_id("plugins", &item.id)
-                .unwrap_or(&item.id)
-                .to_string();
-            let local = hub.iter().find(|p| p.id == local_id);
+            let local = installed_plugin(&cache, item, &hub);
             CatalogPlugin {
                 item: item.clone(),
-                local_id,
+                local_id: local.map_or_else(
+                    || {
+                        cache
+                            .local_id("plugins", &item.id)
+                            .unwrap_or(&item.id)
+                            .into()
+                    },
+                    |p| p.id.clone(),
+                ),
                 installed: local.is_some(),
-                source_changed: local
-                    .is_some_and(|p| portable(p).is_none_or(|p| p.source != item.source)),
+                source_changed: local.is_some_and(|p| {
+                    portable(p).is_none_or(|p| source_key(&p.source) != source_key(&item.source))
+                }),
             }
         })
         .collect();
@@ -1058,15 +1165,19 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
         .skills
         .iter()
         .map(|item| {
-            let local_id = cache
-                .local_id("skills", &item.id)
-                .unwrap_or(&item.id)
-                .to_string();
-            let installed = skill_hub.iter().any(|s| s.id == local_id);
+            let local = installed_skill(&cache, item, &skill_hub);
             CatalogSkill {
                 item: item.clone(),
-                local_id,
-                installed,
+                local_id: local.map_or_else(
+                    || {
+                        cache
+                            .local_id("skills", &item.id)
+                            .unwrap_or(&item.id)
+                            .into()
+                    },
+                    |s| s.id.clone(),
+                ),
+                installed: local.is_some(),
             }
         })
         .collect();
@@ -1323,6 +1434,82 @@ mod tests {
         assert_eq!(servers[0].config["headers"]["Authorization"], "private");
         assert!(Cache::default().doc.keys().is_empty());
         assert!(Cache::default().links.unwrap().is_empty());
+    }
+
+    #[test]
+    fn equivalent_private_items_satisfy_the_personal_catalog_until_linked() {
+        assert_eq!(
+            source_key("https://github.com/JuliusBrussee/caveman.git"),
+            source_key("juliusbrussee/caveman/")
+        );
+        assert_ne!(
+            source_key("https://gitlab.test/Team/tool"),
+            source_key("https://gitlab.test/team/tool")
+        );
+        let local = plugins::Plugin {
+            id: "caveman".into(),
+            source: "~/.prometeu/plugins/caveman".into(),
+            note: "local".into(),
+            made: true,
+            from: "https://github.com/JuliusBrussee/caveman".into(),
+        };
+        let skill = skills::Skill {
+            id: "review".into(),
+            description: "Review".into(),
+            content: "Read changes".into(),
+        };
+        let mut cache: Cache = serde_json::from_value(json!({
+            "revision": 1,
+            "doc": {
+                "plugins": [{"id": "caveman", "source": "https://github.com/juliusbrussee/caveman"}],
+                "skills": [skill],
+                "mcp": [{"id": "notion", "config": {"url": "https://same.test/mcp"}}],
+            },
+            "links": {"plugins:caveman": "cloud-caveman-1", "skills:review": "cloud-review-1", "mcp:notion": "cloud-notion-1"},
+        }))
+        .unwrap();
+        let hub = vec![local.clone()];
+        let skill_hub = vec![skill.clone()];
+        let item = cache.doc.plugins[0].clone();
+        // Equivalence reports availability without publishing future local edits.
+        assert!(installed_plugin(&cache, &item, &hub) == Some(&local));
+        assert!(installed_skill(&cache, &skill, &skill_hub) == Some(&skill));
+        assert!(cache.cloud_id("plugins", "caveman").is_none());
+
+        assert!(!link_equivalent(
+            &mut cache, "mcp", "notion", &hub, &skill_hub
+        ));
+        let installed_copy = plugins::Plugin {
+            id: "cloud-caveman-1".into(),
+            ..local.clone()
+        };
+        assert!(!link_equivalent(
+            &mut cache,
+            "plugins",
+            "caveman",
+            &[local.clone(), installed_copy],
+            &skill_hub
+        ));
+        assert!(link_equivalent(
+            &mut cache, "plugins", "caveman", &hub, &skill_hub
+        ));
+        assert!(link_equivalent(
+            &mut cache, "skills", "review", &hub, &skill_hub
+        ));
+        assert_eq!(cache.local_id("plugins", "caveman"), Some("caveman"));
+        assert_eq!(cache.local_id("skills", "review"), Some("review"));
+        assert!(installed_plugin(&cache, &item, &hub) == Some(&local));
+        let other = plugins::Plugin {
+            from: "https://github.com/someone/else".into(),
+            ..local
+        };
+        assert!(!link_equivalent(
+            &mut cache,
+            "plugins",
+            "caveman",
+            &[other],
+            &skill_hub
+        ));
     }
 
     #[test]

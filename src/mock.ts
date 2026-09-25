@@ -36,8 +36,12 @@ const mockCatalog = (): CatalogState => JSON.parse(localStorage.getItem("mock:ca
 };
 type MockOrganizationCatalog = { id: string; name: string; revision?: number; plugins: Pick<Plugin, "id" | "source" | "note">[]; mcp: McpServer[]; skills: Skill[]; projects?: { id: string; source: string; note: string }[]; links: Record<string, string> };
 const mockOrganizations = (): MockOrganizationCatalog[] => JSON.parse(localStorage.getItem("mock:organizationCatalogs") ?? "[]");
+const sourceKey = (source: string) => {
+  const url = source.replace(/\/$/, "").replace(/\.git$/, "");
+  return url.startsWith("https://github.com/") ? url.toLowerCase() : url;
+};
 const samePlugin = (cloud: Pick<Plugin, "id" | "source">, local: Plugin) => cloud.id.toLowerCase() === local.id.toLowerCase()
-  && cloud.source.replace(/\/$/, "") === (local.from || local.source).replace(/\/$/, "");
+  && sourceKey(cloud.source) === sourceKey(local.from || local.source);
 const sortedJson = (value: unknown) => JSON.stringify(value, (_, item) => item && typeof item === "object" && !Array.isArray(item)
   ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
 const sameMcp = (cloud: McpServer, local: McpServer) => {
@@ -1109,16 +1113,24 @@ const mockCommands: IpcHandlers = {
       state.projects.push(...(org.projects ?? []).map(p => ({ ...p, organization: org.id, organization_name: org.name, revision: org.revision ?? 0, local_path: org.links[`projects:${p.id}`] ?? null })));
     }
     state.projects = state.projects.map(p => ({ ...p, local_path: board.projects.some(local => local.path === p.local_path) ? p.local_path : existingProject(p)?.path ?? null }));
-    state.plugins = state.plugins.map(p => ({ ...p, installed: pluginHub.some(local => local.id === p.local_id) }));
-    state.skills = state.skills.map(s => ({ ...s, installed: skillHub.some(local => local.id === s.local_id) }));
+    // An unlinked equivalent satisfies a personal item without linking it.
+    const linked = (kind: string, id: string) => `${kind}:${id}` in state.shared;
+    state.plugins = state.plugins.map(p => {
+      const local = pluginHub.find(local => local.id === p.local_id) ?? pluginHub.find(local => !linked("plugins", local.id) && samePlugin(p, local));
+      return { ...p, local_id: local?.id ?? p.local_id, installed: !!local };
+    });
+    state.skills = state.skills.map(s => {
+      const local = skillHub.find(local => local.id === s.local_id) ?? skillHub.find(local => !linked("skills", local.id) && sameSkill(s, local));
+      return { ...s, local_id: local?.id ?? s.local_id, installed: !!local };
+    });
     state.organization_items = mockOrganizations().flatMap(org => (["plugins", "mcp", "skills"] as Kind[]).flatMap(kind => org[kind].map(item => ({
       organization: org.id, organization_name: org.name, revision: org.revision ?? 0, kind, id: item.id,
       description: "description" in item ? item.description : "source" in item ? `${item.source} · ${item.note}` : item.note,
-      installed: (kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub).some(local => local.id === org.links[`${kind}:${item.id}`])
-        || kind === "plugins" && pluginHub.some(local => samePlugin(item as Pick<Plugin, "id" | "source">, local))
-        || kind === "mcp" && mcpHub.some(local => sameMcp(item as McpServer, local))
-        || kind === "skills" && skillHub.some(local => sameSkill(item as Skill, local)),
-    }))));
+      local_id: ((kind === "plugins" ? pluginHub : kind === "mcp" ? mcpHub : skillHub) as { id: string }[]).find(local => local.id === org.links[`${kind}:${item.id}`])?.id
+        ?? (kind === "plugins" ? pluginHub.find(local => samePlugin(item as Pick<Plugin, "id" | "source">, local))
+          : kind === "mcp" ? mcpHub.find(local => sameMcp(item as McpServer, local))
+          : skillHub.find(local => sameSkill(item as Skill, local)))?.id ?? null,
+    })))).map(item => ({ ...item, installed: item.local_id !== null }));
     return state;
   },
   catalog_install_project(args) {
@@ -1159,6 +1171,14 @@ const mockCommands: IpcHandlers = {
     cloudWrite();
     const kind = String(args.kind), id = String(args.id), state = mockCatalog();
     if (state.shared[`${kind}:${id}`]) throw 'i18n:{"code":"err.catalog.conflict"}';
+    // Sharing an item the personal catalog already has links it instead of duplicating it.
+    const equivalent = kind === "plugins" ? state.plugins.find(p => { const local = pluginHub.find(l => l.id === id); return local && samePlugin(p, local); })
+      : kind === "skills" ? state.skills.find(s => { const local = skillHub.find(l => l.id === id); return local && sameSkill(s, local); }) : undefined;
+    const hub: { id: string }[] = kind === "plugins" ? pluginHub : skillHub;
+    if (equivalent && !hub.some(l => l.id === equivalent.local_id && l.id !== id)) {
+      for (const key of Object.keys(state.shared)) if (key.startsWith(`${kind}:`) && state.shared[key] === equivalent.id) delete state.shared[key];
+      state.shared[`${kind}:${id}`] = equivalent.id; equivalent.local_id = id; saveMockCatalog(state); return;
+    }
     if (kind === "plugins") {
       const plugin = pluginHub.find(p => p.id === id);
       const source = plugin?.from || plugin?.source || "";

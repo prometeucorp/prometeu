@@ -35,7 +35,7 @@ export function resourceSettings(defaults: () => void) {
       const glyph = h("span", "glyph"); glyph.innerHTML = icon(group.glyph, 18); row.prepend(glyph);
     }
     const type = h("span", "resource-type", t(group.type));
-    const origin = h("span", "resource-origin", row.dataset.resourceOrigin); origin.title = row.dataset.resourceOrigin ?? "";
+    const origin = row.querySelector<HTMLElement>(".resource-origin") ?? h("span", "resource-origin");
     const actions = row.querySelector<HTMLElement>(".act")!;
     row.insertBefore(type, actions); row.insertBefore(origin, actions);
     const search = `${row.dataset.resourceId} ${row.querySelector(".txt")?.textContent} ${row.dataset.resourceOrigin} ${t(group.type)}`;

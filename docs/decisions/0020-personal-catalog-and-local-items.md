@@ -44,6 +44,13 @@ Skills are text definitions, materialized as packages to reuse the existing
 plugin adapters and selectors. Plugin code still comes from a remote source
 through an explicit installation; there is no directory upload.
 
+An unlinked private item equivalent to a personal definition satisfies it
+without a link, so its edits stay private. Sharing such a plugin or skill links
+it to the existing definition instead of publishing a duplicate. The desktop
+lists each resource once, with every catalog that offers it as a source; a
+same-name definition that differs is flagged on the installed row rather than
+listed again.
+
 Receiving definitions does not enable tools in conversations. Remote deletion
 does not delete files or credentials from the Macs. Private names are preserved
 through a link map that separates the account's ID from the ID in the local hub.
