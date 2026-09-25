@@ -133,6 +133,7 @@ export type Commands = {
   reveal_path: { args: { id: string; rel: string }; result: void };
   scripts_prompt: { args: { id: string }; result: string };
   set_awake: { args: { mode: "off" | "system" | "display" }; result: void };
+  set_resource_detail: { args: { open: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };
   set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null }; result: void };
   set_stage: { args: { id: string; stage: string }; result: void };

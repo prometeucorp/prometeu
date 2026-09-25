@@ -280,6 +280,7 @@ fn reset_due(windows: &[Window], now_mono: u64) -> Option<u64> {
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || loop {
         let service = app.state::<Service>();
+        let epoch = service.epoch.load(Ordering::Relaxed);
         let profiles = accounts::profiles().unwrap_or_default();
         let context = app.state::<background::State>().snapshot();
         let now = service.now();
@@ -290,7 +291,6 @@ pub fn watch(app: AppHandle) {
             let delay = schedule.next_delay(now, context);
             (tickets, delay)
         };
-        let epoch = service.epoch.load(Ordering::Relaxed);
         for ticket in tickets {
             let Some(profile) = profiles
                 .iter()

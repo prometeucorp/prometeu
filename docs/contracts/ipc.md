@@ -208,6 +208,18 @@ idempotent for an already-running mode and replaces an assertion when modes
 change. The desktop IPC is shipped atomically with its frontend, so no older
 `{ on: boolean }` caller remains supported.
 
+`set_resource_detail({ open: boolean })` reports whether the native process
+panel is open and wakes the resource sampler to reconsider its deadline. The
+existing `machine` command and event keep `{ rss, cpu, procs, terms, ports }`;
+each process still has a numeric `hist` array. The command returns the cached
+process snapshot with current terminal and port counts. Foreground compact
+sampling uses 15 seconds on AC or 30 on battery/unknown power; an open panel
+uses 3 or 5 seconds. A hidden, minimized or unfocused native window starts no
+`ps` sample and queues one on return. CPU uses actual elapsed time. A gap over
+six seconds resets each sparkline history so it cannot imply continuous
+three-second samples. The frontend updates changed resource text and process
+fields without replacing unrelated status controls.
+
 `chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the rest to the legacy reader; historical
 `prometheusV1Mirror` projections are ignored by the current reader. Prometeu

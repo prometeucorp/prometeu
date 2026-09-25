@@ -3,15 +3,53 @@
 //! separately listed agent and terminal roots. CPU comes from elapsed CPU time between ticks, not
 //! lifetime `%CPU` averages.
 
+use crate::background::{self, Context, Power};
 use crate::lock::lock;
 use crate::AppState;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Sampling interval; faster polling spends extra process launches on tiny chart changes.
-const TICK: Duration = Duration::from_secs(3);
+/// A compact chip needs fewer snapshots than an open process panel.
+fn sample_interval(context: Context, detail: bool) -> Option<Duration> {
+    if !(context.visible && context.focused) {
+        return None;
+    }
+    Some(Duration::from_secs(
+        match (detail, context.power == Power::Ac) {
+            (true, true) => 3,
+            (true, false) => 5,
+            (false, true) => 15,
+            (false, false) => 30,
+        },
+    ))
+}
+
+fn sample_due(
+    last: Option<Duration>,
+    now: Duration,
+    interval: Option<Duration>,
+    returned: bool,
+) -> bool {
+    let Some(interval) = interval else {
+        return false;
+    };
+    returned || last.is_none_or(|last| now.saturating_sub(last) >= interval)
+}
+
+fn cpu_percent(before: f64, after: f64, elapsed: Duration) -> f32 {
+    if elapsed.is_zero() {
+        return 0.0;
+    }
+    (((after - before) / elapsed.as_secs_f64()) * 100.0).max(0.0) as f32
+}
+
+fn history_gap(elapsed: Duration) -> bool {
+    elapsed > Duration::from_secs(6)
+}
 /// Keep roughly two minutes of CPU history.
 const HISTORY: usize = 40;
 
@@ -68,14 +106,77 @@ struct Memo {
     sent: Machine,
 }
 
-/// One sampler thread runs throughout the app lifetime, independent of panel visibility.
+pub struct Service {
+    detail: Mutex<bool>,
+    changed: Condvar,
+    epoch: AtomicU64,
+    cache: Mutex<Machine>,
+}
+
+impl Service {
+    pub fn new() -> Self {
+        Self {
+            detail: Mutex::new(false),
+            changed: Condvar::new(),
+            epoch: AtomicU64::new(0),
+            cache: Mutex::new(Machine::default()),
+        }
+    }
+
+    fn wake(&self) {
+        self.epoch.fetch_add(1, Ordering::Relaxed);
+        self.changed.notify_all();
+    }
+}
+
+#[tauri::command]
+pub fn set_resource_detail(app: AppHandle, open: bool) {
+    let service = app.state::<Service>();
+    *lock(&service.detail) = open;
+    service.wake();
+}
+
+/// The sampler waits while the native window is not foreground, then refreshes on return.
 pub fn watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut memo = Memo::default();
+        let started = Instant::now();
+        let mut sampled: Option<Duration> = None;
+        let mut was_foreground = false;
+        let mut was_detail = false;
         loop {
-            std::thread::sleep(TICK);
-            if let Some(next) = read(&app, &mut memo) {
-                let _ = app.emit("machine", &next);
+            let service = app.state::<Service>();
+            let epoch = service.epoch.load(Ordering::Relaxed);
+            let context = app.state::<background::State>().snapshot();
+            let detail = *lock(&service.detail);
+            let foreground = context.visible && context.focused;
+            let interval = sample_interval(context, detail);
+            let now = started.elapsed();
+            if sample_due(
+                sampled,
+                now,
+                interval,
+                foreground && !was_foreground || detail && !was_detail,
+            ) {
+                sampled = Some(now);
+                if let Some(next) = read(&app, &mut memo) {
+                    *lock(&service.cache) = next.clone();
+                    let _ = app.emit("machine", &next);
+                }
+            }
+            was_foreground = foreground;
+            was_detail = detail;
+            let delay = interval
+                .map(|interval| {
+                    sampled
+                        .map(|last| (last + interval).saturating_sub(started.elapsed()))
+                        .unwrap_or(Duration::ZERO)
+                })
+                .unwrap_or(Duration::from_secs(60))
+                .max(Duration::from_millis(100));
+            let guard = lock(&service.detail);
+            if service.epoch.load(Ordering::Relaxed) == epoch {
+                let _ = service.changed.wait_timeout(guard, delay);
             }
         }
     });
@@ -83,12 +184,11 @@ pub fn watch(app: AppHandle) {
 
 /// The cached snapshot returned when the panel opens before the next sample.
 #[tauri::command]
-pub fn machine(state: tauri::State<AppState>) -> Machine {
-    Machine {
-        terms: alive_terms(&state),
-        ports: ports(&state),
-        ..Machine::default()
-    }
+pub fn machine(state: tauri::State<AppState>, service: tauri::State<Service>) -> Machine {
+    let mut cached = lock(&service.cache).clone();
+    cached.terms = alive_terms(&state);
+    cached.ports = ports(&state);
+    cached
 }
 
 /// Return a changed snapshot, or nothing if `ps` fails or the displayed state is unchanged.
@@ -122,12 +222,14 @@ fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
         }
         // The first sample has no elapsed-time baseline, so CPU starts at zero.
         let cpu = match (memo.time.get(&root.pid), elapsed) {
-            (Some(before), Some(gap)) if gap.as_secs_f64() > 0.0 => {
-                (((secs - before) / gap.as_secs_f64()) * 100.0).max(0.0) as f32
-            }
+            (Some(before), Some(gap)) => cpu_percent(*before, secs, gap),
             _ => 0.0,
         };
-        let mut line = memo.hist.get(&root.pid).cloned().unwrap_or_default();
+        let mut line = if elapsed.is_some_and(history_gap) {
+            Vec::new()
+        } else {
+            memo.hist.get(&root.pid).cloned().unwrap_or_default()
+        };
         line.push(cpu);
         if line.len() > HISTORY {
             line.drain(..line.len() - HISTORY);
@@ -310,6 +412,66 @@ fn cpu_time(text: &str) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::background::{Context, Power};
+
+    fn context(visible: bool, focused: bool, power: Power) -> Context {
+        Context {
+            visible,
+            focused,
+            power,
+            revision: 0,
+        }
+    }
+
+    #[test]
+    fn sampling_budget_counts_ps_launches_by_demand() {
+        let ac = context(true, true, Power::Ac);
+        let battery = context(true, true, Power::Battery);
+        assert_eq!(sample_interval(ac, false), Some(Duration::from_secs(15)));
+        assert_eq!(sample_interval(ac, true), Some(Duration::from_secs(3)));
+        assert_eq!(
+            sample_interval(battery, false),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(sample_interval(battery, true), Some(Duration::from_secs(5)));
+        assert_eq!(sample_interval(context(false, true, Power::Ac), true), None);
+        assert_eq!(
+            sample_interval(context(true, false, Power::Ac), false),
+            None
+        );
+        assert!(sample_due(
+            None,
+            Duration::ZERO,
+            sample_interval(ac, false),
+            false
+        ));
+        assert!(!sample_due(
+            Some(Duration::ZERO),
+            Duration::from_secs(14),
+            sample_interval(ac, false),
+            false
+        ));
+        assert!(sample_due(
+            Some(Duration::ZERO),
+            Duration::from_secs(15),
+            sample_interval(ac, false),
+            false
+        ));
+        assert!(sample_due(
+            Some(Duration::from_secs(14)),
+            Duration::from_secs(15),
+            sample_interval(ac, false),
+            true
+        ));
+    }
+
+    #[test]
+    fn real_elapsed_time_drives_cpu_and_a_long_gap_resets_history() {
+        assert_eq!(cpu_percent(10.0, 10.6, Duration::from_secs(3)), 20.0);
+        assert_eq!(cpu_percent(10.0, 10.6, Duration::from_secs(30)), 2.0);
+        assert!(history_gap(Duration::from_secs(15)));
+        assert!(!history_gap(Duration::from_secs(5)));
+    }
 
     #[test]
     fn cpu_time_is_measured_in_seconds() {

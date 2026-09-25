@@ -107,3 +107,21 @@ newer live event. These deterministic counts are a source-level comparison,
 not a native process-launch trace or an energy measurement. A native provider
 fixture with identical account count remains necessary for before/after launch
 counts.
+
+## Resource sampling verification
+
+The `machine.rs` fake-clock tests count sample eligibility before `/bin/ps`
+launches. A foreground compact display is eligible every 15 seconds on AC
+(240 per hour) or 30 seconds on battery (120 per hour), versus the original
+three-second loop (1,200 per hour). An open panel keeps the previous
+three-second AC cadence or uses five seconds on battery. A hidden or unfocused
+window has no detailed sample deadline and refreshes when it returns. A gap
+over six seconds resets the CPU history; CPU percentage still divides the
+cumulative CPU delta by actual elapsed time. These counts assume the app
+remains in each state for the whole hour and are **not** measured `ps` launches
+or watts. A native process-launch trace was unavailable in the baseline.
+
+`e2e/statusbar.spec.ts` covers a browser-specific menu-anchor and process-row
+preservation risk: replacing footer DOM after a resource event would detach the
+open sleep menu's button and reset panel state. Rust unit tests can prove
+sampling deadlines but cannot prove browser node identity.

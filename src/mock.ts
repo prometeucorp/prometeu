@@ -991,6 +991,7 @@ const mockCommands: IpcHandlers = {
     return snapshot;
   },
   usage_refresh() { return; },
+  set_resource_detail() { return; },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
     if (!["claude", "codex", "antigravity"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
@@ -2413,6 +2414,7 @@ w.__TAURI_INTERNALS__ = {
 w.mock = {
   catalog: (servers: McpServer[]) => { mcpHub = servers; emit("catalog", null); },
   usage: (payload: unknown) => emit("usage", payload),
+  machine: (payload: unknown) => emit("machine", payload),
   accountError: (error: string) => emit("account-error", error),
   /// Mirror the authorized desktop navigation event without running an MCP server in the browser.
   preview: (workspace_id: string, conversation_id: string) => emit("workspace-preview", { workspace_id, conversation_id }),

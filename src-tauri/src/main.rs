@@ -138,6 +138,7 @@ fn main() {
         })
         .manage(background::State::default())
         .manage(usage::Service::new())
+        .manage(machine::Service::new())
         .invoke_handler(tauri::generate_handler![
             background::background_context,
             notifications::notification_permission,
@@ -164,6 +165,7 @@ fn main() {
             telemetry::telemetry_export,
             telemetry::telemetry_clear,
             machine::machine,
+            machine::set_resource_detail,
             awake::set_awake,
             session::load_board,
             session::add_project,
