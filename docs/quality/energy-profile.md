@@ -1,0 +1,86 @@
+# Issue #148 energy profiling
+
+Status: measurement protocol and source-level baseline for commit `b03e768`.
+The native release-build comparison belongs to the implementation review; the
+figures below do not establish a battery-life change.
+
+## Reproduce the comparison
+
+1. Build the before and after revisions with `npm run build:app`; run the native
+   bundle, not Vite or the browser mock. Record the Git SHA, bundle version,
+   macOS/Linux version, power source, display brightness, external displays,
+   selected sleep preference, thermal conditions, account/provider count,
+   workspace/repository count and visible panels. Use an isolated
+   `PROMETEU_ROOT` containing the same fixture state for both builds. Never
+   publish credentials, local paths or raw process samples.
+2. Repeat each scenario at least three times for equal intervals after a warm-up:
+   idle foreground, hidden/minimized idle, one active streaming conversation,
+   several visible desk conversations, Files and Changes visible, and one
+   explicitly enabled PR monitor. Run on AC and battery when the hardware state
+   is available. Change only the app revision between paired runs.
+3. For each run, record main-process, WebKit and provider CPU separately;
+   wakeups; app-started `ps`, provider, `git` and `gh` process launches; disk and
+   network work; and sleep assertions (`pmset -g assertions` on macOS). Use
+   Activity Monitor Energy Impact or controlled battery discharge when available.
+   Record unavailable counters as unavailable, rather than extrapolating them
+   from process CPU or wall time.
+4. Capture time from focus/return/panel opening to refresh dispatch and to a
+   usable result. A network or CLI timeout is separate from the scheduling
+   budget. Confirm transcript, terminal, sharing and opt-in PR work continue
+   while discretionary UI work is reduced.
+
+## Source-level baseline at `b03e768`
+
+| Work | Current trigger | Approximate idle frequency or cost |
+| --- | --- | --- |
+| Detailed process sampling | `machine.rs::watch` | One `ps` per 3 seconds while the app runs, about 1,200 per hour. |
+| Account identity/quota probes | `usage.rs::watch` | Every registered profile is probed sequentially, followed by a 60-second sleep; actual per-profile spacing also includes probe duration. |
+| Antigravity quota child wait | `antigravity.rs::discover` | Completion check every 20 ms, up to 10 seconds per invocation. |
+| General PR discovery | `main.ts` | At startup and every 60 seconds. Explicit monitoring is a separate backend schedule. |
+| Visible Changes and Files | `workspace.ts`, `tree.ts` | Each has a five-second fallback; workspace board redraws can add status requests. |
+| Full status for one repository | `session/git.rs` | Multiple Git subprocesses per request; the issue's throwaway benchmark measured ten read-only commands at 165.1 ms median wall time and 82.5 ms mean child CPU on its repository. |
+
+These frequencies are read from the source, not measured energy. The
+[investigation in issue #148](https://github.com/prometeucorp/prometeu/issues/148)
+observed sleep assertions and a short CPU sample on a different running
+release, with the limitations described there.
+
+## Local baseline attempt, 2026-09-25
+
+The `b03e768` release binary was compiled on macOS 26.5.2 and launched with an
+isolated `PROMETEU_ROOT`. The machine was connected to AC; the battery was
+charging at 68%. Three five-second `top` samples of the isolated main process
+reported 0.0%, 0.0% and 0.1% CPU and about 27 MB resident memory. The system
+load average was about 25, with other Prometeu and unrelated processes active.
+`pmset -g assertions` showed no assertion attributable to this isolated app;
+its saved sleep preference was off. The native UI did not have a controlled
+workload, so these readings are **not** comparable scenario measurements.
+
+`npm run build:app` produced a release binary but exited with an updater
+packaging error because `TAURI_SIGNING_PRIVATE_KEY` is unavailable. This
+Command Line Tools installation also lacks Instruments' `xctrace`. Battery
+runs, WebKit/provider CPU, process-launch counts, wakeups and Energy Impact
+were unavailable for this baseline. The source-level counts above and focused
+launch-count tests are the current comparison points; a controlled native
+before/after energy measurement remains required before claiming a battery
+gain.
+
+## Acceptance record
+
+For each implementation slice, add a dated comparison with its two Git SHAs,
+build and workload description, three run values with median/range, observed
+assertions, refresh latency, and any deferred candidate. Check these outcomes
+independently of Energy Impact:
+
+- Hidden idle performs no detailed process or Git scans.
+- Account and general-PR probes respect their documented background budgets;
+  the explicit PR monitor retains its configured interval.
+- Returning to the app queues stale refreshes immediately and preserves the
+  last valid quota reading during provider failures.
+- A machine reading changes only the resource display, not unrelated footer
+  controls.
+- The selected sleep assertion matches the saved preference and the actual
+  local agent state, including native background children.
+
+Do not report a battery-life gain unless a controlled energy or discharge
+comparison supports it.
