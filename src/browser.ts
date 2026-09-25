@@ -13,6 +13,8 @@ let placed = "";
 let version = 0;
 let poll = 0;
 let frame = 0;
+let sizeObserver: ResizeObserver | null = null;
+let positionObserver: MutationObserver | null = null;
 let resizing = false;
 let inspecting = false;
 let selectionVersion = 0;
@@ -74,6 +76,33 @@ function place() {
   });
 }
 
+function watchPosition() {
+  if (positionObserver) return;
+  sizeObserver = new ResizeObserver(() => {
+    // Opening details resizes the page after capture; only pending selections need invalidation.
+    if (!selected) selectionVersion++;
+    place();
+  });
+  sizeObserver.observe($("webbody"));
+  // Native views cannot participate in DOM stacking, including menus outside the preview.
+  positionObserver = new MutationObserver(place);
+  positionObserver.observe(document.body, {
+    subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "open", "class"],
+  });
+  document.addEventListener("toggle", place, true);
+  place();
+}
+
+function stopPosition() {
+  sizeObserver?.disconnect();
+  sizeObserver = null;
+  positionObserver?.disconnect();
+  positionObserver = null;
+  document.removeEventListener("toggle", place, true);
+  cancelAnimationFrame(frame);
+  frame = 0;
+}
+
 export function init(external: (id: string) => void, notify: (message: string, error?: boolean) => void) {
   say = notify;
   for (const [control, run] of [
@@ -86,17 +115,6 @@ export function init(external: (id: string) => void, notify: (message: string, e
     void run(shown).catch(report);
   });
   $("wext").addEventListener("click", () => shown && external(shown));
-  new ResizeObserver(() => {
-    // Opening details resizes the page after capture; only pending selections need invalidation.
-    if (!selected) selectionVersion++;
-    place();
-  }).observe($("webbody"));
-  // Native views cannot participate in DOM stacking, including menus opened outside the preview.
-  new MutationObserver(place).observe(document.body, {
-    subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "open", "class"],
-  });
-  document.addEventListener("toggle", place, true);
-
   bar().setAttribute("aria-label", t("web.url"));
   bar().addEventListener("keydown", event => {
     if (event.key === "Enter") go();
@@ -156,6 +174,7 @@ export async function show(id: string): Promise<number> {
     const port = await invoke("browser_open", { id });
     visible = id;
     if (epoch !== version || shown !== id) { await conceal(); return port; }
+    watchPosition();
     await position();
     return port;
   });
@@ -168,6 +187,7 @@ export async function show(id: string): Promise<number> {
 export function hide() {
   const id = shown;
   shown = null;
+  stopPosition();
   version++;
   inspecting = false;
   clearTimeout(poll);

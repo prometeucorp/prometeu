@@ -1,4 +1,5 @@
 import * as actions from "./actions";
+import * as background from "./background";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -118,6 +119,8 @@ export class ChatView {
   /// Coalesce per-token updates into one animation frame to avoid excessive rendering.
   private dirty = new Set<number>();
   private raf = 0;
+  private composerDirty = false;
+  private fullRenderPending = false;
   private working = template("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
   /// Hold live events during snapshot loading to remove overlap by sequence number.
   private held: { seq: number; line: string }[] | null = null;
@@ -155,6 +158,14 @@ export class ChatView {
     };
     this.cleanup.push(team.onChange(teamChanged));
     this.cleanup.push(onCatalogChange(() => this.paintComposer()));
+    this.cleanup.push(background.subscribe((context) => {
+      if (this.disposed || !background.foreground(context)) return;
+      if (this.fullRenderPending) this.renderAll();
+      else if (this.dirty.size || this.composerDirty) {
+        cancelAnimationFrame(this.raf);
+        this.flush();
+      }
+    }));
     const selectionChanged = () => this.paintQuoteButton();
     document.addEventListener("selectionchange", selectionChanged);
     this.cleanup.push(() => document.removeEventListener("selectionchange", selectionChanged));
@@ -238,6 +249,8 @@ export class ChatView {
     this.decoder = new TextDecoder("utf-8");
     this.feedback = null;
     this.dirty.clear();
+    this.composerDirty = false;
+    this.fullRenderPending = false;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     this.feed.replaceChildren();
@@ -324,20 +337,30 @@ export class ChatView {
   /* Incoming lines. */
 
   private absorb(line: string) {
+    const working = this.tl.working;
+    const compacting = this.tl.compacting;
     for (const i of this.tl.push(line)) this.dirty.add(i);
+    this.composerDirty ||= working !== this.tl.working || compacting !== this.tl.compacting;
+    if (this.nativeHidden()) return;
     if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
+  }
+
+  private nativeHidden(): boolean {
+    const context = background.current();
+    return background.hasObservation() && !background.foreground(context);
   }
 
   /// Apply accumulated changes once per frame. Follow output only when the user was already at the bottom.
   private flush() {
     this.raf = 0;
+    if (this.nativeHidden()) return;
     const stick = this.stuck();
-    const changed = this.dirty.size > 0;
-    this.sync(this.dirty);
+    const pinsDirty = this.sync(this.dirty);
     this.dirty.clear();
-    if (changed) this.paintCommentPins();
+    if (pinsDirty) this.paintCommentPins();
     this.paintWorking();
-    this.paintComposer();
+    if (this.composerDirty) this.paintComposer();
+    this.composerDirty = false;
     if (stick) this.feed.scrollTop = this.feed.scrollHeight;
   }
 
@@ -380,6 +403,13 @@ export class ChatView {
   }
 
   private renderAll() {
+    if (this.nativeHidden()) {
+      this.fullRenderPending = true;
+      return;
+    }
+    this.fullRenderPending = false;
+    this.dirty.clear();
+    this.composerDirty = false;
     this.shown = [];
     this.drawn = [];
     this.feed.replaceChildren();
@@ -392,15 +422,17 @@ export class ChatView {
   }
 
   /// Update pieces touching changed items, append new pieces, and preserve other nodes, selection, and expansion. Null dirty state requests a full update.
-  private sync(dirty: Set<number> | null) {
+  private sync(dirty: Set<number> | null): boolean {
     const next = pieces(this.tl.items);
     // Find the unchanged prefix; append-only timelines usually retain all existing pieces.
     let same = 0;
     while (same < next.length && same < this.shown.length && next[same].key === this.shown[same].key) same++;
+    let pinsDirty = same !== this.shown.length || next.length !== this.shown.length;
     for (const gone of this.drawn.splice(same)) gone.remove();
-    for (let i = 0; i < same; i++) if (this.touches(next[i], dirty)) this.draw(i, next[i]);
+    for (let i = 0; i < same; i++) if (this.touches(next[i], dirty)) pinsDirty = this.draw(i, next[i]) || pinsDirty;
     for (let i = same; i < next.length; i++) this.draw(i, next[i]);
     this.shown = next;
+    return pinsDirty;
   }
 
   private touches(piece: Piece, dirty: Set<number> | null): boolean {
@@ -408,10 +440,10 @@ export class ChatView {
     return piece.kind === "work" ? piece.refs.some((r) => dirty.has(r.at)) : dirty.has(piece.at);
   }
 
-  private draw(i: number, piece: Piece) {
+  private draw(i: number, piece: Piece): boolean {
     const old = this.drawn[i];
     // Update streaming nodes in place to preserve selection and avoid visual jitter.
-    if (old && this.repaint(old, piece)) return;
+    if (old && this.repaint(old, piece)) return false;
     const node = this.node(piece);
     node.dataset.key = piece.key;
     if (old) {
@@ -426,6 +458,7 @@ export class ChatView {
       this.feed.append(node);
     }
     this.drawn[i] = node;
+    return true;
   }
 
   private node(piece: Piece): HTMLElement {

@@ -100,6 +100,44 @@ test("comments stay beside the session until resolved", { tag: "@webkit" }, asyn
   await expect(page.locator("#chatwrap .note")).toHaveCount(0);
 });
 
+test("stream tokens preserve controls and hidden output catches up on return", { tag: "@webkit" }, async ({ page }) => {
+  await boot(page);
+  await openWorkspace(page, "Hello");
+  await page.evaluate(() => {
+    const mock = (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock;
+    mock.line("t1", { type: "stream_event", event: { type: "message_start", message: { id: "paint-check" } } });
+    mock.line("t1", { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "Initial text" } } });
+  });
+  const output = page.locator('#chatwrap .turn.bot .md[data-kind="text"]').last();
+  await expect(output).toContainText("Initial text");
+  const sendIcon = await page.locator("#chatwrap .composer .send svg").elementHandle();
+  await page.evaluate(() => {
+    (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock.line("t1", {
+      type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " and more" } },
+    });
+  });
+  await expect(output).toContainText("Initial text and more");
+  expect(await sendIcon!.evaluate(node => node.isConnected)).toBe(true);
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(30);
+  await page.evaluate(() => {
+    (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock.line("t1", {
+      type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " while hidden" } },
+    });
+  });
+  await page.waitForTimeout(50);
+  await expect(output).not.toContainText("while hidden");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hidden", { configurable: true, value: false });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(output).toContainText("while hidden");
+});
+
 test("clicking a project opens clone files without a workspace", async ({ page }) => {
   await boot(page);
 

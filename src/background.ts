@@ -10,6 +10,7 @@ export type BackgroundContext = {
 };
 
 let state: BackgroundContext = { visible: false, focused: false, power: "unknown", revision: 0 };
+let observed = false;
 let starting: Promise<void> | null = null;
 const subscribers = new Set<(next: BackgroundContext) => void>();
 
@@ -19,12 +20,14 @@ export const accept = (current: BackgroundContext, next: BackgroundContext): Bac
   next.revision >= current.revision ? next : current;
 
 export const current = (): BackgroundContext => state;
+export const hasObservation = (): boolean => observed;
 export function subscribe(listener: (next: BackgroundContext) => void): () => void {
   subscribers.add(listener);
   return () => subscribers.delete(listener);
 }
 
 function update(next: BackgroundContext) {
+  observed = true;
   const accepted = accept(state, next);
   if (accepted === state) return;
   state = accepted;

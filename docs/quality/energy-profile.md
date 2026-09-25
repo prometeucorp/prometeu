@@ -159,3 +159,34 @@ metadata. The explicit task monitor retains its original cadence and richer
 queries. These are scheduler limits, not measured `gh` launches or watts; a
 controlled fixture with the same clone count and authenticated `gh` state is
 still needed for a native before/after comparison.
+
+## WebKit streaming and preview profile
+
+A production Vite build in Playwright WebKit streamed 60 Markdown deltas after
+an initial roughly 6 KiB block, one frame apart, first in a workspace and then
+to two visible desk conversations. Temporary in-app performance marks counted
+flushes, Markdown parses, piece grouping, composer and comment-pin paints, and
+the preview's body observer callbacks. The marks and profiling-only test were
+removed after measurement. Each row is one run on the same AC machine under
+uncontrolled load; timing is diagnostic rather than a statistically comparable
+energy result. This browser fixture is not the native WKWebView release bundle.
+
+| Scenario and measure | Before Task 7 | After Task 7 |
+| --- | ---: | ---: |
+| Workspace, flushes and summed duration | 61 / 286 ms | 61 / 227 ms |
+| Workspace, Markdown parses and summed duration | 61 / 67 ms | 61 / 70 ms |
+| Workspace, piece-grouping summed duration | 2 ms | below 1 ms |
+| Workspace, composer / pin paints | 61 / 61 | 1 / 1 |
+| Workspace, body observer callbacks with preview closed | 64 | 0 |
+| Two desk conversations, flushes and summed duration | 122 / 541 ms | 122 / 566 ms |
+| Two desk conversations, Markdown parses and summed duration | 122 / 96 ms | 122 / 138 ms |
+| Two desk conversations, composer / pin paints | 122 / 122 | 2 / 2 |
+| Two desk conversations, body observer callbacks | 122 | 0 |
+
+Markdown parsing was 23% of summed workspace flush time in the initial fixture,
+and piece grouping was under 1%; neither justified a riskier incremental parser
+or timeline cache. The post-change desk timing increased despite removing work,
+which reinforces the need for repeated controlled native measurements. A WebKit
+journey verifies that a token update keeps the send icon connected and that
+hidden transcript content catches up on return. The existing preview WebKit
+journeys cover opening, dialogs, resizing and workspace lifecycle.
