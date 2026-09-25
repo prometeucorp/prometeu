@@ -190,3 +190,27 @@ which reinforces the need for repeated controlled native measurements. A WebKit
 journey verifies that a token update keeps the send icon connected and that
 hidden transcript content catches up on return. The existing preview WebKit
 journeys cover opening, dialogs, resizing and workspace lifecycle.
+
+## Final implementation verification, 2026-09-25
+
+The source-level starting point is `b03e768`; the implementation through
+streaming/preview is `c7c888c`, followed by the hidden-Git guard and file-tree
+redraw correction in this change. The final `npm run check` passed: 515 web unit
+tests, 464 Rust unit tests (seven ignored), the two Rust IPC-parity tests, 172
+Chromium/WebKit E2E scenarios, documentation/architecture/format checks, web
+and mobile builds, and the configured Rust Clippy gate. Five additional WebKit
+repetitions passed the file-save/tree-row regression after canceling a redundant
+delayed redraw.
+`npm run build:app -- --no-bundle` produced the optimized native binary;
+signing and updater packaging still require the private updater key.
+
+The deterministic checks cover account removal during a probe, native child
+settlement for sleep assertions, a long resource-sampling gap, external Git
+edits and concurrent status consumers, general-PR scan overlap and timeout,
+and preview/dialog and hidden-transcript journeys. They do not replace a paired
+native process-launch or energy log. The Task 0 baseline had no controlled
+battery run, equal authenticated account fixtures or usable Instruments trace;
+the machine remained on AC under unrelated load. No native before/after watts,
+Energy Impact or discharge comparison is available, so this issue has no
+verified battery-life gain. A release review should repeat the worksheet above
+on an otherwise idle machine with equivalent fixture state on AC and battery.
