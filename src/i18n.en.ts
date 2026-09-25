@@ -618,6 +618,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "launcher.subtitle": "Describe the work. Set up how it runs.",
   "launcher.project": "Project",
   "launcher.base.label": "Base branch",
+  "launcher.branch.label": "Existing branch",
+  "launcher.branch.pick": "Choose a branch…",
+  "launcher.branch.required": "choose an existing branch for this worktree",
   "launcher.agentTools": "Agent & tools",
   "launcher.tools": "Tools",
   "launcher.mcp": "MCP servers",
@@ -653,9 +656,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "launcher.hint.here": "on the branch the repo is already on",
   "launcher.hint.worktree": "new worktree · {branch}{from}",
   "launcher.hint.switch": "the repo switches to {branch}{from}",
-  "launcher.nb.locked": "A worktree always comes with a branch of its own",
+  "launcher.nb.locked": "With multiple repositories, the workspace creates the same new branch in each one",
   "launcher.nb.off": "Off, the session opens on the branch the repository is already on",
-  "launcher.wt.on": "The branch gets a worktree of its own, isolated from your clone",
+  "launcher.wt.on": "The selected branch gets a worktree, isolated from your clone",
   "launcher.wt.off": "The branch is born in the repository itself: your clone switches branch",
   "launcher.wt.locked": "With more than one repository, each one gets a worktree on the same branch",
   "launcher.noGit": "This folder is not a git repository: no worktree, no new branch",
@@ -943,7 +946,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "project.newWorkspace": "New workspace",
 
   "gone.body":
-    "The folder is off the disk and the local branch is gone — the work had already landed. What is left is this card: the name, the stage and the PR.",
+    "The worktree folder is off the disk. An existing branch stays; a branch created for this workspace was removed. The card, stage and PR remain.",
 
   /* ---------- releasing the disk ---------- */
 
@@ -951,9 +954,9 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "clean.offer": "Workspace archived. Remove the worktree from disk?",
   "clean.keep": "Keep worktree",
   "clean.hint":
-    "The folder, local branch, and every ignored file inside go permanently; the card and PR stay.",
+    "The folder and ignored files go permanently. New workspace branches are deleted; existing branches stay. The card and PR stay.",
   "clean.hint.force":
-    "A red one you tick goes anyway: uncommitted changes, work that never landed, and every ignored file inside go permanently.",
+    "A red one you tick goes anyway: uncommitted changes and ignored files go permanently. Unmerged new branches can also be deleted.",
   "clean.count.one": "{n} archived with a worktree",
   "clean.count.other": "{n} archived with worktrees",
   "clean.cancel": "Cancel",
@@ -1397,6 +1400,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.notGit": "{path} is not a git repository",
   "err.session.badPath": "invalid path",
   "err.session.worktreeNeedsBranch": "a worktree needs a branch of its own",
+  "err.session.branchUnavailable": "existing branch '{branch}' is unavailable; refresh branches and choose again",
   "err.session.worktreeElsewhere": "{path} already exists and is on branch '{head}', not on '{branch}'",
   "err.session.worktreeDetached": "{path} already exists and is not a worktree on any branch",
   "err.session.branchBusy":

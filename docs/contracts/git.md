@@ -28,6 +28,13 @@ workspace or the launcher, with a mandatory worktree. A branch taken in a folder
 without a registered workspace shows that location without offering a checkout
 on top of it.
 
+The launcher can create a worktree on a new branch or on an existing local or
+remote branch. For a remote branch without a local counterpart, Git creates a
+local branch from that remote ref. A branch already checked out in another
+folder is refused. Existing branches remain after worktree cleanup; new
+workspace branches follow the usual cleanup rule. The selected comparison base
+remains separate from the remote ref used to open the worktree.
+
 ## IPC commands
 
 Every command receives `id`, the local workspace identifier. Per-repository
@@ -205,8 +212,9 @@ The scoped offer uses the same `cleanup_list` and `cleanup_worktree` commands as
 the archived-workspaces screen. A safe worktree starts selected. A worktree with
 uncommitted changes or an unmerged branch starts unselected, shows the reason,
 and requires the person to select it before the destructive confirmation can
-run with `force`. Cleanup removes both the worktree and local branch but keeps
-the archived card and transcript. Original clones are never eligible.
+run with `force`. Cleanup removes the worktree and any branch created for that
+workspace, but keeps preexisting branches, the archived card and transcript.
+Original clones are never eligible.
 
 ## Compatibility and evidence
 

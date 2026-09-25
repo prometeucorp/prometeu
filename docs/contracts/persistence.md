@@ -185,6 +185,11 @@ The absence of those fields keeps previous sessions working. The catalog
 receives Code review exactly once, recorded in `actions.defaults_initialized`;
 see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
 agent configuration, the MCP/plugins/skills selection, sharing and tabs.
+`preserve_branch` is true when a worktree uses an existing branch, including a
+branch already present in the clone. Cleanup then removes the worktree without
+deleting that branch. Older boards omit the field and retain their previous
+cleanup behavior.
+
 `Tab.tokens` stores an incremental estimate of the tokens used in the
 conversation; `Tab.context_tokens` stores the last observed context so only the
 growth is added. When the context drops after compaction, the new value starts

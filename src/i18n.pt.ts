@@ -632,6 +632,9 @@ export const PT = {
   "launcher.subtitle": "Descreva o trabalho. Escolha como executar.",
   "launcher.project": "Projeto",
   "launcher.base.label": "Branch base",
+  "launcher.branch.label": "Branch existente",
+  "launcher.branch.pick": "Escolher branch…",
+  "launcher.branch.required": "escolha uma branch existente para este worktree",
   "launcher.agentTools": "Agente e ferramentas",
   "launcher.tools": "Ferramentas",
   "launcher.mcp": "Servidores MCP",
@@ -667,9 +670,9 @@ export const PT = {
   "launcher.hint.here": "na branch em que o repo está",
   "launcher.hint.worktree": "worktree novo · {branch}{from}",
   "launcher.hint.switch": "o repo troca para {branch}{from}",
-  "launcher.nb.locked": "Worktree sempre nasce com uma branch só dele",
+  "launcher.nb.locked": "Com vários repositórios, o workspace cria a mesma branch nova em cada um",
   "launcher.nb.off": "Desligado, a sessão abre na branch em que o repositório já está",
-  "launcher.wt.on": "A branch ganha um worktree só dela, isolado do seu clone",
+  "launcher.wt.on": "A branch escolhida ganha um worktree, isolado do seu clone",
   "launcher.wt.off": "A branch nasce no próprio repositório: o seu clone troca de branch",
   "launcher.wt.locked": "Com mais de um repositório, cada um ganha um worktree na mesma branch",
   "launcher.noGit": "Esta pasta não é um repositório git: sem worktree e sem branch nova",
@@ -971,7 +974,7 @@ export const PT = {
   "project.newWorkspace": "Workspace novo",
 
   "gone.body":
-    "A pasta saiu do disco e a branch local foi apagada — o trabalho já estava no alvo. O que ficou é este card: o nome, a etapa e o PR.",
+    "A pasta do worktree saiu do disco. Uma branch existente fica; uma branch criada para este workspace foi apagada. O card, a etapa e o PR ficam.",
 
   /* Disk cleanup. */
 
@@ -979,9 +982,9 @@ export const PT = {
   "clean.offer": "Workspace arquivado. Tirar o worktree do disco?",
   "clean.keep": "Manter worktree",
   "clean.hint":
-    "A pasta, a branch local e todos os arquivos ignorados dentro dela saem para sempre; o card e o PR ficam.",
+    "A pasta e os arquivos ignorados saem para sempre. Branches novas do workspace são apagadas; branches existentes ficam. O card e o PR ficam.",
   "clean.hint.force":
-    "Vermelho marcado sai do mesmo jeito: mudanças fora de commit, trabalho que não entrou no alvo e arquivos ignorados vão junto para sempre.",
+    "Vermelho marcado sai do mesmo jeito: mudanças fora de commit e arquivos ignorados vão para sempre. Branches novas não incorporadas também podem ser apagadas.",
   "clean.count.one": "{n} arquivado com worktree",
   "clean.count.other": "{n} arquivados com worktree",
   "clean.cancel": "Cancelar",
@@ -1442,6 +1445,7 @@ export const PT = {
   "err.session.notGit": "{path} não é um repositório git",
   "err.session.badPath": "caminho inválido",
   "err.session.worktreeNeedsBranch": "um worktree precisa de uma branch própria",
+  "err.session.branchUnavailable": "a branch existente '{branch}' não está disponível; atualize as branches e escolha novamente",
   "err.session.worktreeElsewhere": "{path} já existe e está na branch '{head}', não em '{branch}'",
   "err.session.worktreeDetached": "{path} já existe e não é um worktree em branch nenhuma",
   "err.session.branchBusy":

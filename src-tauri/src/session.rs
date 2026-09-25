@@ -769,7 +769,7 @@ pub fn cleanup_worktree(
         // Use -D after checking merge safety, or when force explicitly permits loss. A branch
         // deletion failure can leave a harmless ref after successful worktree cleanup, so it must
         // not turn that cleanup into an error.
-        if !ws.branch.is_empty() {
+        if !ws.branch.is_empty() && !ws.preserve_branch {
             let _ = git(&repo, &["branch", "-D", &ws.branch]);
         }
         let _ = git(&repo, &["worktree", "prune"]);
@@ -809,7 +809,7 @@ fn check(ws: &Workspace) -> Result<(), String> {
         if dirty > 0 {
             return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
         }
-        if !merged(r.pr.as_ref(), &wt) {
+        if !ws.preserve_branch && !merged(r.pr.as_ref(), &wt) {
             return Err(i18n::ta(
                 "err.cleanup.unmerged",
                 &[("branch", ws.branch.clone())],
@@ -908,6 +908,12 @@ pub struct Draft {
     branch: String,
     /// The starting ref for a new branch.
     base: String,
+    /// None keeps older callers' branch-creation behavior.
+    #[serde(default)]
+    new_branch: Option<bool>,
+    /// Selected local or remote ref when reusing a branch.
+    #[serde(default)]
+    source: Option<String>,
     /// Create the branch in a separate worktree when enabled; otherwise switch the original clone.
     worktree: bool,
     title: String,
@@ -1524,6 +1530,9 @@ pub(crate) fn create_workspace_owned(
     if draft.worktree {
         for r in &repos {
             branch_free(Path::new(&r.path), &branch, Path::new(&r.worktree))?;
+            if draft.new_branch == Some(false) {
+                existing_branch_source(Path::new(&r.path), &branch, draft.source.as_deref())?;
+            }
         }
     }
 
@@ -1535,6 +1544,11 @@ pub(crate) fn create_workspace_owned(
         .filter_map(|w| w.port)
         .collect();
     let port = scripts::alloc_port(&root, &taken);
+    let preserve_branch = draft.worktree
+        && (draft.new_branch == Some(false)
+            || repos
+                .iter()
+                .any(|r| has_commit(Path::new(&r.path), &format!("refs/heads/{branch}"))));
 
     let mut ws = Workspace {
         id: uuid::Uuid::new_v4().to_string(),
@@ -1556,6 +1570,7 @@ pub(crate) fn create_workspace_owned(
         unread: false,
         pr: None,
         cleaned: false,
+        preserve_branch,
         shared: false,
         share_team: None,
         audience: None,
@@ -1675,12 +1690,22 @@ fn build(
     // Create one worktree per repository on the shared branch, using each repository's saved base.
     // Existing branches retain their own history.
     if draft.worktree {
+        if draft.new_branch == Some(false) {
+            for r in &repos {
+                existing_branch_source(Path::new(&r.path), &branch, draft.source.as_deref())?;
+            }
+        }
         // If any repository fails, roll back only the worktrees created by this preparation. A
         // partially assembled workspace is not usable.
         let mut feitos: Vec<(PathBuf, PathBuf)> = Vec::new();
         for r in &repos {
             let (clone, dest) = (PathBuf::from(&r.path), PathBuf::from(&r.worktree));
-            match add_worktree(&clone, &branch, &r.base, &dest) {
+            let base = if draft.new_branch == Some(false) {
+                draft.source.as_deref().unwrap_or("")
+            } else {
+                &r.base
+            };
+            match add_worktree(&clone, &branch, base, &dest) {
                 Ok(true) => feitos.push((clone, dest)),
                 Ok(false) => {}
                 Err(e) => {
@@ -2233,6 +2258,25 @@ fn branch_free(repo: &Path, branch: &str, dest: &Path) -> Result<(), String> {
     }
 }
 
+/// Reusing a branch must not silently create a different branch from the default base.
+fn existing_branch_source(repo: &Path, branch: &str, source: Option<&str>) -> Result<(), String> {
+    let source = source.unwrap_or("");
+    let local = has_commit(repo, &format!("refs/heads/{branch}"));
+    if source == branch && local {
+        return Ok(());
+    }
+    if source.ends_with(&format!("/{branch}"))
+        && has_commit(repo, &format!("refs/remotes/{source}"))
+        && !local
+    {
+        return Ok(());
+    }
+    Err(i18n::ta(
+        "err.session.branchUnavailable",
+        &[("branch", source.to_string())],
+    ))
+}
+
 /// Canonicalize paths because Git resolves worktree paths, while HOME may contain aliases such as
 /// /var and /private/var.
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -2437,6 +2481,7 @@ fn default_base(repo: &Path) -> String {
 #[derive(serde::Serialize)]
 pub struct Branches {
     pub all: Vec<String>,
+    pub local: Vec<String>,
     pub default: String,
     /// Distinguish a non-Git folder from a newly initialized repository with no refs, so the
     /// launcher can enable valid controls.
@@ -2487,13 +2532,18 @@ pub fn list_branches(project: String) -> Branches {
 
     // Put the selected base first, followed by local and remote branches.
     let mut all: Vec<String> = Vec::new();
-    for name in [default.clone()].into_iter().chain(locals).chain(remotes) {
+    for name in [default.clone()]
+        .into_iter()
+        .chain(locals.iter().cloned())
+        .chain(remotes)
+    {
         if !name.is_empty() && !all.contains(&name) {
             all.push(name);
         }
     }
     Branches {
         all,
+        local: locals,
         default,
         git: git_repo,
     }
@@ -2634,6 +2684,7 @@ mod tests {
             unread: false,
             pr: None,
             cleaned: false,
+            preserve_branch: false,
             shared: false,
             share_team: None,
             audience: None,
@@ -2661,6 +2712,9 @@ mod tests {
         run(&dest, &["add", "-A"]);
         run(&dest, &["commit", "-qm", "b"]);
         assert!(super::check(&ws).unwrap_err().contains("unmerged"));
+        ws.preserve_branch = true;
+        super::check(&ws).unwrap();
+        ws.preserve_branch = false;
 
         // GitHub's merged PR status also permits cleanup after a squash merge, which does not
         // preserve branch ancestry.
@@ -2838,6 +2892,7 @@ mod tests {
             unread: false,
             pr: None,
             cleaned: false,
+            preserve_branch: false,
             shared: false,
             share_team: None,
             audience: None,
@@ -2855,6 +2910,14 @@ mod tests {
             tabs: Vec::new(),
             active: None,
         }
+    }
+
+    #[test]
+    fn legacy_workspace_defaults_to_removing_its_branch() {
+        let mut value = serde_json::to_value(bare()).unwrap();
+        value.as_object_mut().unwrap().remove("preserve_branch");
+        let restored: Workspace = serde_json::from_value(value).unwrap();
+        assert!(!restored.preserve_branch);
     }
 
     /// A minimal tab with an optional provider and model choice.
@@ -3770,6 +3833,8 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
         let branches = super::list_branches(local.display().to_string());
         assert_eq!(branches.default, "origin/main");
         assert_eq!(branches.all.first().unwrap(), "origin/main");
+        assert!(branches.local.contains(&"main".to_string()));
+        assert!(!branches.local.contains(&"origin/old".to_string()));
         assert!(
             branches.all.contains(&"origin/old".to_string()),
             "{:?}",
@@ -3777,6 +3842,10 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
         );
 
         let dest = root.join("wt");
+        super::existing_branch_source(&local, "old", Some("origin/old")).unwrap();
+        assert!(super::existing_branch_source(&local, "missing", Some("origin/missing")).is_err());
+        assert!(super::existing_branch_source(&local, "new", Some("origin/old")).is_err());
+        assert!(super::existing_branch_source(&local, "main", Some("origin/main")).is_err());
         super::add_worktree(&local, "new", "origin/old", &dest).unwrap();
         assert_eq!(run(&dest, &["rev-parse", "HEAD"]), old);
         assert_eq!(run(&dest, &["rev-parse", "--abbrev-ref", "HEAD"]), "new");
@@ -3913,6 +3982,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             unread: false,
             pr: None,
             cleaned: false,
+            preserve_branch: false,
             shared: false,
             share_team: None,
             audience: None,

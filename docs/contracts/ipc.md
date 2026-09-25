@@ -319,6 +319,15 @@ fields, and the workspace layer already was. `Selection` is a typed shape in
 them in its interface phase; the parity test in `src-tauri/tests/mock.rs` is what
 makes each one real.
 
+## Workspace branch selection
+
+`list_branches` returns `local` alongside its existing `all`, `default` and
+`git` fields. Older clients can ignore `local`. `create_workspace` accepts
+optional `draft.newBranch` and `draft.source`; omitted `newBranch` keeps branch
+creation behavior for older callers. With a worktree and `newBranch: false`,
+`source` must identify an existing local branch or remote ref. The backend
+refuses missing refs before publishing a workspace card.
+
 ## Starting from a skill
 
 - `plugin_skills`: no arguments; returns `{ plugin, name, description }[]` for

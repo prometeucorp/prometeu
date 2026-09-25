@@ -4,7 +4,7 @@ import type { Cleanable } from "./types";
 import { checkbox, formDialog } from "./ui";
 import { h, template } from "./util";
 
-// Cleanup removes worktrees and local branches, but keeps their workspace cards.
+// Cleanup removes worktrees and workspace-owned branches, but keeps selected existing branches and workspace cards.
 // Risky rows require an explicit selection before the backend receives force.
 function size(kb: number): string {
   const mb = kb / 1024;

@@ -215,6 +215,8 @@ export type Workspace = {
   issue: IssueRef | null;
   /// A cleaned worktree retains transcript history but has no terminal, dock, or files.
   cleaned: boolean;
+  /// Existing branch survives worktree cleanup; absent on older boards.
+  preserve_branch?: boolean;
   /// team.ts announces shared workspaces and forwards their output.
   shared: boolean;
   /** Sharing consent belongs to this organization and member; absent on legacy boards. */
