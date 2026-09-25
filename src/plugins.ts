@@ -181,9 +181,8 @@ export function init(context: Ctx) {
 
 /// Start the Plugins page with its explanation and actions, then list entries.
 export function settingsRows(): HTMLElement[] {
-  // Cloud entries missing locally offer installation.
-  const missing = catalog.current().plugins.filter((p) => !p.installed);
-  const rows = [...hub.filter(p => !skills.packageIds().has(p.id)).map(pluginRow), ...missing.map(cloudRow), ...catalog.organizationRows("plugins", ctx.say)];
+  const local = hub.filter(p => !skills.packageIds().has(p.id));
+  const rows = [...local.map(pluginRow), ...catalog.pendingRows("plugins", local.map(p => p.id), ctx.say)];
   return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 
@@ -193,30 +192,6 @@ export function settingsActions(): menu.Item[] {
     { label: t("plugin.make"), run: () => maker() },
     { label: t("plugin.add"), run: () => editor(null) },
   ];
-}
-
-function cloudRow(p: catalog.CatalogPlugin): HTMLElement {
-  const row = template(
-    "div",
-    "setrow",
-    `<span class="glyph"></span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".glyph")!.innerHTML = icon("globe", 18);
-  row.querySelector(".txt b")!.textContent = p.id;
-  row.dataset.resourceId = p.id;
-  row.dataset.resourceOrigin = t("catalog.cloud");
-  const where = p.note.trim() ? `${p.source} · ${p.note.trim()}` : p.source;
-  row.querySelector(".txt span")!.textContent = `${where} · ${t("catalog.notInstalled")}`;
-  const get = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
-  get.children[0].textContent = t("catalog.install");
-  get.addEventListener("click", () => {
-    const dialog = ui.formDialog({ title: t("catalog.install"), save: t("catalog.install"), cancel: t("plugin.cancel"), error: fromBack,
-      submit: async () => { await invoke("catalog_install_plugin", { id: p.id }); await catalog.refresh(); } });
-    dialog.body.append(h("p", "ui-hint", p.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
-  });
-  row.querySelector(".act")!.append(get);
-  actionMenu(row, p.id);
-  return row;
 }
 
 function aboutRow(): HTMLElement {
@@ -258,13 +233,12 @@ function pluginRow(plugin: Plugin): HTMLElement {
   );
   row.querySelector(".glyph")!.innerHTML = icon(remote(plugin.source) ? "globe" : "puzzle", 18);
   row.querySelector(".txt b")!.textContent = plugin.id;
-  const mark = catalog.tag("plugins", plugin.id);
   row.dataset.resourceId = plugin.id;
-  row.dataset.resourceOrigin = mark;
   row.querySelector(".txt span")!.textContent = subtitle(plugin);
 
   const act = row.querySelector(".act")!;
-  act.append(...catalog.controls("plugins", plugin.id));
+  act.before(catalog.originCell(row, catalog.installedOrigins("plugins", plugin.id)));
+  act.append(...catalog.controls("plugins", plugin.id, ctx.say));
   const cloud = catalog.current().plugins.find(p => p.local_id === plugin.id);
   if (cloud?.source_changed) act.append(ui.button(t("catalog.replaceSource"), () => {
     const dialog = ui.formDialog({ title: t("catalog.replaceSource"), save: t("catalog.install"), cancel: t("plugin.cancel"), error: fromBack,

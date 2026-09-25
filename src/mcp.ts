@@ -209,7 +209,7 @@ export function init(context: Ctx) {
 
 /// Start the Tools page with its explanation and registration/import actions, then list servers.
 export function settingsRows(): HTMLElement[] {
-  const rows = [...hub.map(serverRow), ...catalog.organizationRows("mcp", ctx.say)];
+  const rows = [...hub.map(serverRow), ...catalog.pendingRows("mcp", hub.map(s => s.id), ctx.say)];
   return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
 }
 
@@ -256,7 +256,8 @@ function serverRow(server: McpServer): HTMLElement {
   row.querySelector(".glyph")!.innerHTML = icon(kind(server) === "stdio" ? "terminal" : "globe", 18);
   row.querySelector(".txt b")!.textContent = server.id;
   row.dataset.resourceId = server.id;
-  row.dataset.resourceOrigin = server.config.builtin === true ? t("settings.builtin") : catalog.tag("mcp", server.id);
+  row.querySelector(".act")!.before(catalog.originCell(row, server.config.builtin === true
+    ? [{ label: t("settings.builtin") }] : catalog.installedOrigins("mcp", server.id)));
   row.querySelector(".txt span")!.textContent = subtitle(server);
 
   if (server.config.builtin === true) return row;
@@ -297,7 +298,7 @@ function serverRow(server: McpServer): HTMLElement {
   drop.children[0].textContent = t(catalog.shared("mcp", server.id) ? "catalog.delete" : "mcp.remove");
   drop.addEventListener("click", () => void remove(server));
 
-  row.querySelector(".act")!.append(edit, ...catalog.controls("mcp", server.id), drop);
+  row.querySelector(".act")!.append(edit, ...catalog.controls("mcp", server.id, ctx.say), drop);
   row.querySelectorAll("button").forEach((button) => { button.disabled = !!connection.pending; });
   const act = row.querySelector(".act")!;
   const buttons = [...act.querySelectorAll("button")];
