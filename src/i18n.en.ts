@@ -37,6 +37,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "review.details": "Review details",
   "review.limit": "Review exceeds its limits. Select up to 100 notes per batch, 256 KiB total, and 8 KiB per note. Keep at most 200 notes per workspace.",
   "review.storage.read": "Saved review notes could not be read. They were preserved; editing is disabled.",
+  "review.editorChanged": "The diff changed. This draft keeps its original selection, shown below.",
+  "review.storage.conflict": "This note changed in another window. Reopen it to review the latest version; keep a copy of your unsaved text.",
   "review.storage.write": "Notes remain in memory, but could not be saved. Keep this window open and retry an edit.",
   "review.selection": "Select code within one visible hunk.",
   "review.keyboard": "Review {path}. Use arrows to move, Shift to select and C to add a note.",

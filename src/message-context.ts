@@ -5,28 +5,36 @@ export type MessageContext = string | { kind: "browser"; value: BrowserContext }
 export function splitMessageContexts(text: string): MessageContext[] {
   const result: MessageContext[] = [];
   const markers = /^<(\/?)prometeu-(browser-element|review)(?=[\s>]).*$/gm;
-  let preserved = 0, start = 0;
-  const stack: string[] = [];
-  let invalid = false;
+  type Block = { start: number; end?: number; kind: string; invalid: boolean; children: Block[] };
+  const roots: Block[] = [], stack: Block[] = [];
   for (const match of text.matchAll(markers)) {
     if (!match[1]) {
-      if (!stack.length) { start = match.index; invalid = false; } else invalid = true;
-      stack.push(match[2]); continue;
+      const block: Block = { start: match.index, kind: match[2], invalid: false, children: [] };
+      (stack[stack.length - 1]?.children ?? roots).push(block); stack.push(block);
+    } else {
+      const block = stack.pop();
+      if (block) { block.end = match.index + match[0].length; block.invalid = block.kind !== match[2]; }
     }
-    if (!stack.length) continue;
-    if (stack.pop() !== match[2]) invalid = true;
-    if (stack.length) continue;
-    const end = match.index + match[0].length, block = text.slice(start, end);
+  }
+  let preserved = 0;
+  // Closed nesting stays literal. Only unfinished ancestors allow resynchronizing
+  // at complete children, so a truncated prefix cannot swallow subsequent tags.
+  const pending = [...roots].reverse();
+  while (pending.length) {
+    const block = pending.pop()!;
+    if (block.end === undefined) { pending.push(...[...block.children].reverse()); continue; }
+    if (block.invalid || block.children.length) continue;
+    const raw = text.slice(block.start, block.end);
     let part: MessageContext | null = null;
-    if (!invalid && match[2] === "review") {
-      const value = decodeReviewContext(block); if (value) part = { kind: "review", value };
-    } else if (!invalid) {
-      const browser = splitBrowserContexts(block);
+    if (block.kind === "review") {
+      const value = decodeReviewContext(raw); if (value) part = { kind: "review", value };
+    } else {
+      const browser = splitBrowserContexts(raw);
       if (browser.length === 1 && typeof browser[0] !== "string") part = { kind: "browser", value: browser[0] };
     }
     if (!part) continue;
-    if (start > preserved) result.push(text.slice(preserved, start));
-    result.push(part); preserved = end;
+    if (block.start > preserved) result.push(text.slice(preserved, block.start));
+    result.push(part); preserved = block.end;
   }
   if (preserved < text.length || !result.length) result.push(text.slice(preserved));
   return result;

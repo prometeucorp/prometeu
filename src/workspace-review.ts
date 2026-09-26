@@ -34,9 +34,9 @@ export function workspaceReview(context: {
     const current = context.workspace();
     return current?.id === ws.id && !current.remote && !current.cleaned && !current.preparing && !current.failed;
   };
-  function mutate(ws: Workspace, run: () => void) {
+  async function mutate(ws: Workspace, run: () => Promise<void>) {
     if (!writable(ws)) return;
-    try { run(); } catch (e) {
+    try { await run(); } catch (e) {
       context.say(reviewError(e), true);
       // A failed disk write already kept this edit in memory. Closing avoids creating it twice.
       if (!(e instanceof Error) || e.message !== "review.storage.write") throw e;
@@ -56,13 +56,13 @@ export function workspaceReview(context: {
     const dialog = formDialog({ title: t("review.edit"), save: t("review.save"), cancel: t("review.cancel"), submit: async () => {}, error: reviewError });
     editorDialog = dialog;
     dialog.save.remove();
-    const editor = reviewEditor(note.anchor, note.body, body => { mutate(ws, () => reviews.edit(ws.id, note.id, body)); dialog.close(); }, dialog.close);
+    const editor = reviewEditor(note.anchor, note.body, async body => { await mutate(ws, () => reviews.edit(ws.id, note.id, body, note.revision)); dialog.close(); }, dialog.close);
     dialog.body.append(editor.root); dialog.open(); editor.focus();
   }
   const actions = (ws: Workspace) => ({
     edit: (note: ReviewNote) => edit(ws, note),
-    remove: (note: ReviewNote) => mutate(ws, () => reviews.remove(ws.id, note.id)),
-    state: (note: ReviewNote, state: "draft" | "resolved") => mutate(ws, () => reviews.state(ws.id, note.id, state)),
+    remove: (note: ReviewNote) => void mutate(ws, () => reviews.remove(ws.id, note.id, note.revision)).catch(() => {}),
+    state: (note: ReviewNote, state: "draft" | "resolved") => void mutate(ws, () => reviews.state(ws.id, note.id, state, note.revision)).catch(() => {}),
   });
   function batch(ws: Workspace, notes: ReviewNote[]) {
     const draft = reviewBatch(ws.id, crypto.randomUUID(), notes, a => {
@@ -116,15 +116,15 @@ export function workspaceReview(context: {
           const dialog = formDialog({ title: t("review.note"), save: t("review.save"), cancel: t("review.close"), submit: async () => {}, error: reviewError, closed: context.changed });
           editorDialog = dialog;
           dialog.save.remove();
-          const editor = reviewEditor(draft.anchor, draft.body, body => {
-            mutate(ws, () => reviews.add(ws.id, draft.anchor, body));
+          const editor = reviewEditor(draft.anchor, draft.body, async body => {
+            await mutate(ws, () => reviews.add(ws.id, draft.anchor, body));
             draftChanged(ws.id, draft.anchor, null); dialog.close();
           }, () => { draftChanged(ws.id, draft.anchor, null); dialog.close(); }, body => draftChanged(ws.id, draft.anchor, body));
           dialog.body.append(editor.root); dialog.open(); editor.focus();
         },
         validate: notes => { if (!notes.length) return null; try { batch(ws, notes); return null; } catch (e) { return reviewError(e); } },
         send: (at, notes, close) => { if (writable(ws)) context.send(at, batch(ws, notes), close); },
-        resolveChanged: notes => mutate(ws, () => { for (const note of notes) reviews.state(ws.id, note.id, "resolved"); }),
+        resolveChanged: notes => void mutate(ws, async () => { for (const note of notes) await reviews.state(ws.id, note.id, "resolved", note.revision); }).catch(() => {}),
         jump: entry => { summary?.close(); context.jump(entry.placement.kind === "attached" ? entry.placement.anchor : entry.note.anchor, entry.note.id); },
         closed: () => { summary = undefined; summaryWorkspace = undefined; },
       });
@@ -133,7 +133,7 @@ export function workspaceReview(context: {
     forget(alive: Set<string>) {
       snapshots = snapshots.filter(s => alive.has(s.workspace));
       for (const [key, value] of drafts) if (!alive.has(value.workspace)) drafts.delete(key);
-      try { reviews.prune(alive); } catch { context.say(t("review.storage.write"), true); }
+      void reviews.prune(alive).catch(() => context.say(t("review.storage.write"), true));
     },
   };
 }

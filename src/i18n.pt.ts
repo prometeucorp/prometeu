@@ -35,6 +35,8 @@ export const PT = {
   "review.details": "Detalhes da revisão",
   "review.limit": "A revisão excede os limites. Selecione até 100 notas por lote, 256 KiB no total e 8 KiB por nota. Mantenha até 200 notas por workspace.",
   "review.storage.read": "Não foi possível ler as notas salvas. Elas foram preservadas; a edição está desativada.",
+  "review.editorChanged": "O diff mudou. Este rascunho mantém a seleção original, exibida abaixo.",
+  "review.storage.conflict": "Esta nota mudou em outra janela. Reabra para conferir a versão atual; guarde uma cópia do texto não salvo.",
   "review.storage.write": "As notas continuam na memória, mas não foram salvas. Mantenha esta janela aberta e tente editar novamente.",
   "review.selection": "Selecione código dentro de um único trecho visível.",
   "review.keyboard": "Revisar {path}. Use as setas para navegar, Shift para selecionar e C para anotar.",

@@ -1,4 +1,5 @@
 import { button } from "../primitives";
+import { h } from "../../util";
 import { t } from "../../i18n";
 import { rows } from "./patch";
 import type { Change } from "../../types";
@@ -7,7 +8,7 @@ import { reviewEditor, reviewNote, type ReviewActions, type ReviewEntry } from "
 
 export type DiffReview = ReviewActions & {
   scope: ReviewScope; reference: string; entries: ReviewEntry[];
-  add: (anchor: ReviewAnchor, body: string) => void;
+  add: (anchor: ReviewAnchor, body: string) => void | Promise<void>;
   closed: () => void;
   drafts: ReviewEditorDraft[];
   draftChanged: (anchor: ReviewAnchor, body: string | null) => void;
@@ -47,7 +48,10 @@ export function diffReview(body: HTMLElement, head: HTMLElement, repo: string, c
     editingAnchor = anchor;
     review.draftChanged(anchor, value);
     editor?.root.remove();
-    editor = reviewEditor(anchor, value, text => { review.add(anchor, text); close(); }, close, body => review.draftChanged(anchor, body));
+    editor = reviewEditor(anchor, value, async text => { await review.add(anchor, text); close(); }, close, body => review.draftChanged(anchor, body));
+    if (anchor.stamp !== anchorSelection(repo, change.path, review.scope, change.patch).stamp) {
+      editor.root.prepend(h("p", "ui-hint", t("review.editorChanged")), h("pre", "", anchor.excerpt.join("\n")));
+    }
     const line = !file && at(Math.max(origin, cursor));
     if (line) line.after(editor.root); else body.prepend(editor.root);
     if (focus) editor.focus();

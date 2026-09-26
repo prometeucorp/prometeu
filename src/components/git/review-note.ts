@@ -21,14 +21,21 @@ export function reviewNote(entry: ReviewEntry, actions: ReviewActions): HTMLElem
   if (note.state === "sent") tools.append(button(t("review.reopen"), () => actions.state(note, "draft"), "ghost"));
   box.append(tools); return box;
 }
-export function reviewEditor(anchor: ReviewAnchor, value: string, save: (body: string) => void, cancel: () => void, changed: (body: string) => void = () => {}) {
+export function reviewEditor(anchor: ReviewAnchor, value: string, save: (body: string) => void | Promise<void>, cancel: () => void, changed: (body: string) => void = () => {}) {
   const root = h("div", "review-editor"), text = input(value, true);
   text.required = true;
   text.oninput = () => changed(text.value);
   const error = h("p", "review-error"); error.setAttribute("role", "alert");
-  const submit = () => {
+  let saving = false;
+  const submit = async () => {
+    if (saving) return;
     if (!bodyValid(text.value)) { error.textContent = t("review.limit"); text.focus(); return; }
-    try { save(text.value); } catch (e) { error.textContent = reviewError(e); }
+    saving = true; text.disabled = true;
+    for (const control of tools.querySelectorAll("button")) control.disabled = true;
+    try { await save(text.value); } catch (e) { error.textContent = reviewError(e); } finally {
+      saving = false; text.disabled = false;
+      for (const control of tools.querySelectorAll("button")) control.disabled = false;
+    }
   };
   const tools = h("div", "review-note-tools");
   tools.append(button(t("review.save"), submit, "pri"), button(t("review.cancel"), cancel, "ghost"));

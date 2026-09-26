@@ -75,3 +75,12 @@ No commits or external publication are needed to deliver the reviewable change.
   Waiting for the simulated response before inspecting replay passed three
   repetitions in each browser (6/6). Clippy passed separately. Every check stage
   passed, although the aggregate command required these targeted follow-ups.
+
+- Greptile follow-up: changed patches now rebuild with retained editor text and
+  an explicit original-selection notice. Storage mutations/pruning use Web Locks,
+  refresh disk state, and reject stale revisions; incomplete envelopes no longer
+  hide later complete contexts. Regressions first reproduced all three findings.
+- Final follow-up verification: `npm run check` passed end to end: 552 web tests,
+  477 Rust tests (7 ignored), 179 browser scenarios, builds, documentation,
+  architecture, formatting and Clippy. A native WKWebView probe at
+  `tauri://localhost` also acquired the Web Lock successfully.

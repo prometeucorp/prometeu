@@ -860,7 +860,7 @@ export class ChatView {
     const key = this.key;
     if (review) {
       // Submission is a local user action; backend failures may still leave a persisted queue.
-      try { reviews.submit(review, key); } catch (e) { this.ctx.say(reviewError(e), true); }
+      void reviews.submit(review, key).catch(e => this.ctx.say(reviewError(e), true));
       drafts.reviews.delete(key);
     }
     if (this.remote) team.write(said);
@@ -923,7 +923,7 @@ export class ChatView {
     // Preserve the draft if the backend rejects execution.
     void actions.start(workspace, action, context).then(tab => {
       if (review) {
-        try { reviews.submit(review, tab.id); } catch (e) { this.ctx.say(reviewError(e), true); }
+        void reviews.submit(review, tab.id).catch(e => this.ctx.say(reviewError(e), true));
         if (key && drafts.reviews.get(key) === review) drafts.reviews.delete(key);
       }
       if (key && drafts.says.get(key) === draft) drafts.says.delete(key);

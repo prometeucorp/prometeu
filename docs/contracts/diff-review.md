@@ -26,6 +26,9 @@ notes and their quotes, including when the current diff is empty. Unfinished
 inline writing is kept in window memory independently of diff nodes. Refresh,
 filtering or layout changes cannot discard it: the summary offers **Continue
 editing** even when its file is absent. Save persists it; Cancel discards it.
+A refreshed patch is always rendered, including while an editor is open. If its
+patch changed, the restored editor shows a notice and the original quote; saving
+keeps that original anchor and computes placement against the current patch.
 Unlike saved notes, unfinished editor text does not survive an app restart.
 
 ## Anchors and placement
@@ -62,6 +65,15 @@ writes. Failed writes report an error and retain the edit in memory; keeping the
 window open and editing again retries persistence. This is browser-origin local
 storage, not a backend backup. Removing a workspace from the board prunes its
 notes; closing a conversation does not.
+
+Writes and pruning acquire the origin-wide `prometeu:review` Web Lock. Each
+mutation rereads storage under the lock; independent additions survive concurrent
+windows. Edit, resolve and delete check the revision captured by the control or
+editor and report a conflict instead of overwriting a newer or deleted note.
+Storage events refresh other windows. A pending failed write remains in memory;
+if disk changed meanwhile, retry reports a conflict and leaves both copies intact.
+Copy unsaved writing before reopening/reloading after such a conflict. Environments
+without Web Locks refuse writes rather than falling back to unsafe persistence.
 
 This is an explicit exception to backend-owned application persistence, like
 Reviewed marks but with protected reads and visible write failures. No pending
@@ -112,7 +124,9 @@ of encoded UTF-8, including escaping and envelope. Oversized batches are refused
 never silently truncated.
 
 `message-context.ts` preserves browser/review block order and every surrounding
-text byte. Unknown, malformed, incomplete or nested envelopes stay literal.
+text byte. Unknown, malformed and nested closed envelopes stay literal. An incomplete
+prefix stays literal while subsequent complete, non-nested blocks still render
+as tags; incomplete ancestors cannot consume the rest of the message.
 `components/chat/review-context.ts` shows details only as text. It does not open
 files or execute markup from a transcript. Desktop, desk, mobile and shared
 viewers use the same renderer. Older clients display the raw block. V1, provider

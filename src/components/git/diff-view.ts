@@ -182,7 +182,7 @@ export function diffView(review: {
       const k = key(r.name, c.path);
       const mark = stamp(c);
       const old = drawn.get(k);
-      if (old && (old.stamp === mark || old.el.querySelector(".review-editor"))) {
+      if (old?.stamp === mark) {
         old.sync(view);
         return old.el;
       }

@@ -214,6 +214,10 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("c");
   await page.getByRole("textbox", { name: "Review note", exact: true }).fill("Use the shared spacing tokens.");
+  await page.evaluate(() => { (window as any).changedPatch = false; });
+  await refresh.click();
+  await expect(file.locator(".dbody")).not.toContainText("change after review");
+  await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("Use the shared spacing tokens.");
   // Removing a file from the rendered snapshot must not discard unfinished writing.
   await page.locator("#git-filter").fill("logo");
   await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveCount(0);
@@ -222,6 +226,7 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("Use the shared spacing tokens.");
   await page.getByRole("textbox", { name: "Review note", exact: true }).focus();
   await page.keyboard.press("Control+Enter");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.locator("#git-filter").fill("");
   await expect(file.locator(".review-note")).toContainText("Use the shared spacing tokens.");
   await open(page);

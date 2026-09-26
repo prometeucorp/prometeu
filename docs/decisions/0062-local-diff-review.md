@@ -22,7 +22,11 @@ not the shared human comments governed by ADR 0007.
 
 Use bounded, versioned localStorage for pending notes, an explicit exception to
 backend-owned persistence. Invalid/unknown records block writes; failed saves
-retain memory and show an error. Keep storage outside isolated components.
+retain memory and show an error. Serialize mutations and pruning across windows
+with an origin-wide Web Lock, reread under the lock, and reject stale note revisions.
+This preserves the v1 record without adding a backend or an operation log; runtimes
+without Web Locks refuse writes. Failed in-memory writes cannot overwrite disk
+changes from another window. Keep storage outside isolated components.
 
 Use immutable original anchors and derived per-scope placement, with bounded
 full-selection evidence separate from abbreviated quotes. Exact matching is

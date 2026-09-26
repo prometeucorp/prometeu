@@ -48,3 +48,13 @@ it("submits CRLF selections while preserving exact matching evidence", () => {
   expect(() => encodeReviewContext(context)).not.toThrow();
   expect(decodeReviewContext(encodeReviewContext(context))?.comments[0].excerpt).toEqual(["+new"]);
 });
+
+it("recovers complete contexts after an unclosed envelope without parsing closed nesting", () => {
+  const review = encodeReviewContext(sample());
+  const prefix = '<prometeu-review v="1">\nunfinished\n';
+  expect(splitMessageContexts(prefix + review)).toEqual([prefix, { kind: "review", value: sample() }]);
+  const browser = { selection: { url: "http://localhost", selector: "button", tag: "button", text: "Send", html: "<button>Send</button>", styles: {}, rect: { x: 0, y: 0, width: 1, height: 1 }, viewport: { width: 100, height: 100 } } };
+  expect(splitMessageContexts(prefix + encodeBrowserContext(browser))).toEqual([prefix, { kind: "browser", value: browser }]);
+  const nested = prefix + review + '\n</prometeu-review>';
+  expect(splitMessageContexts(nested)).toEqual([nested]);
+});
