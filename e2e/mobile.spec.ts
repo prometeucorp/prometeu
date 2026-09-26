@@ -95,7 +95,7 @@ test("mobile preserves drafts when sending fails or the Mac disconnects", { tag:
 
 test("mobile shows browser context as a tag and preserves the conversation when closing details", { tag: "@webkit" }, async ({ page }) => {
   const message = page.locator(".m-user").filter({ hasText: "Adjust this element on mobile." });
-  await expect(message).toHaveText("Adjust this element on mobile. Selected element Keep the button text.");
+  await expect(message).toHaveText("Adjust this element on mobile. Selected element Keep the button text. Review · 1 note · 1 file");
   await expect(message).not.toContainText(/prometeu-browser-element|"selector"|<button|mobile-browser-context\.png/);
   await expect(message.locator(".browser-context-remove")).toHaveCount(0);
   const box = page.getByRole("textbox", { name: "Write to the agent…", exact: true });
@@ -112,6 +112,12 @@ test("mobile shows browser context as a tag and preserves the conversation when 
   await dialog.getByRole("button", { name: "Close", exact: true }).tap();
   await expect(dialog).toHaveCount(0);
   await expect(chip).toBeVisible();
+  await expect(box).toHaveValue("Preserve my draft");
+  await message.locator(".review-context button").tap();
+  const review = page.getByRole("dialog", { name: "Review details", exact: true });
+  await expect(review).toContainText("src/button.ts");
+  await expect(review).toContainText("Preserve keyboard access.");
+  await review.getByRole("button", { name: "Close", exact: true }).tap();
   await expect(box).toHaveValue("Preserve my draft");
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeEnabled();
   expect(await page.evaluate(() => {

@@ -20,11 +20,12 @@ test("Git: partial staging shows two diffs and commits exclude later changes", {
   await staged.locator(".git-file-name").first().click();
   await expect(page.locator(".git-review-scope")).toContainText("Staged changes");
   await expect(page.locator('#dlist .dfile[data-key$="src/style.css"] .drow').first()).toBeVisible();
-  const stagedPatch = await page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody').innerText();
+  const patchCells = () => page.locator('#dlist .dfile[data-key$="src/style.css"] .drow > :is(.dhunk, .dno, .dsign, code)');
+  const stagedPatch = await patchCells().allTextContents();
   await mode(page, "changes").click();
   await changes.locator('.git-file[data-path="src/style.css"] .git-file-name').click();
   await expect(page.locator(".git-review-scope")).toContainText("Working tree changes");
-  expect(await page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody').innerText()).not.toBe(stagedPatch);
+  expect(await patchCells().allTextContents()).not.toEqual(stagedPatch);
   // One click opens the entire group as a stacked diff; remaining files are reached by scrolling.
   await expect(page.locator("#dlist .dfile")).toHaveCount(2);
   await expect(page.locator('#dlist .dfile[data-key$="public/logo.png"]')).toBeVisible();
@@ -44,7 +45,7 @@ test("Git: partial staging shows two diffs and commits exclude later changes", {
   await mode(page, "history").click();
   await expect(page.locator(".git-history-row").first()).toContainText("reviewed snapshot");
   await expect(page.locator("#dlist .dfile")).toHaveCount(1);
-  await expect(page.locator('#dlist .dfile[data-key$="src/style.css"] .dbody')).toHaveText(stagedPatch, { useInnerText: true });
+  await expect(patchCells()).toHaveText(stagedPatch);
   const previous = page.locator(".git-history-row").nth(1);
   await previous.focus();
   await page.keyboard.press("Enter");
@@ -207,6 +208,61 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   await expect(page.locator("#dprogress")).toContainText(/1.*2/);
   await expect(page.locator("#dnext button")).toBeEnabled();
   expect(await page.evaluate(() => (window as any).gitActions)).toEqual([]);
+
+  await file.locator(".dbody").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+ArrowDown");
+  await page.keyboard.press("c");
+  await page.getByRole("textbox", { name: "Review note", exact: true }).fill("Use the shared spacing tokens.");
+  // Removing a file from the rendered snapshot must not discard unfinished writing.
+  await page.locator("#git-filter").fill("logo");
+  await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Review notes (1)", exact: true }).click();
+  await page.getByRole("button", { name: "Continue editing", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("Use the shared spacing tokens.");
+  await page.getByRole("textbox", { name: "Review note", exact: true }).focus();
+  await page.keyboard.press("Control+Enter");
+  await page.locator("#git-filter").fill("");
+  await expect(file.locator(".review-note")).toContainText("Use the shared spacing tokens.");
+  await open(page);
+  await group(page, "changes").locator('.git-file[data-path="src/style.css"] .git-file-name').click();
+  await expect(file.locator(".review-note")).toContainText("Use the shared spacing tokens.");
+  await page.getByRole("button", { name: "Review notes (1)", exact: true }).click();
+  const summary = page.getByRole("dialog");
+  await summary.getByRole("button", { name: "Send to agent (1)", exact: true }).click();
+  await page.getByRole("menuitem").first().click();
+  await expect(page.locator(".composer .review-context")).toHaveCount(1);
+  await expect(page.locator("#chatwrap .composer textarea")).toHaveValue("");
+  await page.evaluate(() => {
+    const w = window as any, original = w.__TAURI_INTERNALS__.invoke;
+    w.reviewSends = [];
+    w.__TAURI_INTERNALS__.invoke = (command: string, args: any, options: any) => {
+      if (command === "chat_send") w.reviewSends.push(args.text);
+      return original(command, args, options);
+    };
+  });
+  await page.getByRole("button", { name: "Remove review from draft", exact: true }).click();
+  await expect(page.locator("#chatwrap .composer .review-context")).toHaveCount(0);
+  for (let round = 0; round < 2; round++) {
+    await page.locator("#tab-diff").click();
+    await page.getByRole("button", { name: "Review notes (1)", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Send to agent (1)", exact: true }).click();
+    await page.getByRole("menuitem").first().click();
+    await expect(page.locator("#chatwrap .composer .review-context")).toHaveCount(1);
+  }
+  expect(await page.evaluate(() => (window as any).reviewSends)).toEqual([]);
+  await page.locator("#chatwrap .composer textarea").fill("Address these notes.");
+  await page.locator("#chatwrap .composer .send").click();
+  const sent = await page.evaluate(() => (window as any).reviewSends as string[]);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatch(/^<prometeu-review v="1">/);
+  expect(sent[0]).toContain("Use the shared spacing tokens.");
+  expect(sent[0]).toMatch(/Address these notes\.$/);
+  await expect(page.locator("#chatwrap .turn.user .review-context").last()).toBeVisible();
+  // Inspect replay after streaming finishes moving the transcript.
+  await expect(page.locator("#chatwrap .composer .stop")).toBeHidden();
+  await page.locator("#chatwrap .turn.user .review-context").last().getByRole("button").click();
+  await expect(page.getByRole("dialog")).toContainText("Use the shared spacing tokens.");
 });
 
 test("Git: unified and side-by-side diffs preserve line numbers, review and keyboard collapse", { tag: "@webkit" }, async ({ page }) => {
@@ -238,6 +294,30 @@ test("Git: unified and side-by-side diffs preserve line numbers, review and keyb
   await expect(file.locator(".dbody")).toHaveClass(/\bdlayout-unified\b/);
   await expect(file.locator(".dseen")).toBeChecked();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  await page.locator('#dlayout [data-layout="split"]').click();
+  const oldLine = file.locator('.dno.before[data-review-index]').first();
+  await oldLine.hover();
+  await oldLine.getByRole("button", { name: "Add review note", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toBeFocused();
+  await page.getByRole("textbox", { name: "Review note", exact: true }).fill("Keep the original behavior.");
+  await page.getByRole("button", { name: "Save note", exact: true }).click();
+  await expect(file.locator(".review-note")).toContainText("Keep the original behavior.");
+  const saved = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(key => key.startsWith("prometeu:review:"))!;
+    return JSON.parse(localStorage.getItem(key)!).comments[0];
+  });
+  expect(saved.anchor.side).toBe("before");
+  expect(saved.anchor.old).not.toBeNull();
+  expect(saved.anchor.new).toBeNull();
+  await file.getByRole("button", { name: "Note on file", exact: true }).click();
+  await page.getByRole("textbox", { name: "Review note", exact: true }).fill("Document the change.");
+  await page.keyboard.press("Escape");
+  await expect(file.locator(".review-note")).toHaveCount(1);
+  await file.getByRole("button", { name: "Resolve", exact: true }).click();
+  await expect(file.locator(".review-state")).toHaveText("Resolved");
+  await file.getByRole("button", { name: "Reopen", exact: true }).click();
+  await expect(file.locator(".review-state")).toHaveText("Draft");
 });
 
 test("Git: filtering preserves focus, staging preserves scope and drafts stay in the selected repository", async ({ page }) => {

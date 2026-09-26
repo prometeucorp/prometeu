@@ -150,3 +150,9 @@ test("dotted source basenames remain part of transitive dependency checks", () =
     "src/ipc.ts": '',
   }).join("\n"), /src\/team-member.ts -> src\/labels.en.ts:1: forbidden dependency .\/ipc/);
 });
+
+test("review rules and context codecs reject indirect effects", () => {
+  for (const root of ["src/review-comments.ts", "src/review-context.ts", "src/message-context.ts"]) {
+    assert.match(check({ [root]: 'export * from "./helper";', "src/helper.ts": 'localStorage.getItem("review")' }).join("\n"), /ambient effect/);
+  }
+});

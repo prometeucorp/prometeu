@@ -54,6 +54,8 @@ optional for local work; model access comes from your own provider account.
   creating the workspace. See [context evaluation](docs/contracts/context-evaluation.md).
 - **Git review.** Read unified or side-by-side diffs, stage selected files,
   commit only the index, inspect history, compare branches, and resolve conflicts.
+  Add persistent notes to lines or files and send a selected review batch through
+  a conversation draft. See [review notes](docs/contracts/diff-review.md).
 - **Files, terminals, and browser preview.** Edit code, read Markdown, view PDFs, CSVs and images,
   find text in the open file (⌘F), open any file by name (⌘P),
   create, rename and trash files from the side tree, restore deleted ones,

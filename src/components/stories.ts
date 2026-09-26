@@ -1,3 +1,7 @@
+import { reviewContextChip } from "./chat/review-context";
+import { reviewNote, reviewEditor } from "./git/review-note";
+import { reviewSummary } from "./git/review-summary";
+import { anchorSelection, type ReviewNote } from "../review-comments";
 import * as ui from "./primitives";
 import { icon, iconNames, fileIcon, stageIcon, brand, avatar, avatars } from "./icons";
 import { iconButton } from "./icon-button";
@@ -29,7 +33,34 @@ const tool = (state: string): ToolBlock => ({
   error: state === "error", done: state !== "running", background: state === "background",
 });
 
+const reviewSample = (): ReviewNote => ({ id: "example-note", revision: 1,
+  anchor: anchorSelection("example", "src/example.ts", "changes", "@@ -1 +1 @@\n-before\n+after", 2, 2),
+  body: "Use the configured value and preserve the current behavior.", state: "draft", sent: null, created: 1, updated: 1 });
+
 export const stories: Record<string, Factory> = {
+  "review-note"(state, report) {
+    const note = reviewSample();
+    if (state === "editor") return wrap(reviewEditor(note.anchor, note.body, report, () => report("cancel")).root);
+    if (state === "resolved") note.state = "resolved";
+    return wrap(reviewNote({ note, placement: { kind: state === "detached" ? "detached" : "attached", anchor: note.anchor }, changedSinceSent: state === "changed" }, {
+      edit: () => report("edit"), remove: () => report("remove"), state: (_note, value) => report(value),
+    }));
+  },
+  "review-context"() {
+    return wrap(reviewContextChip({ batch: "example-batch", comments: [{ n: 1, repo: "example", file: "src/example.ts", in: "worktree", old: null, new: [1, 1], hunk: "@@ -1 +1 @@", excerpt: ["+after"], body: reviewSample().body }] }));
+  },
+  "review-summary"(state, report) {
+    let summary: ReturnType<typeof reviewSummary> | undefined;
+    const root = h("div", "");
+    root.append(ui.button(t("review.title", { n: state === "empty" ? 0 : 1 }), () => {
+      const note = reviewSample();
+      summary = reviewSummary({ entries: state === "empty" ? [] : [{ note, placement: { kind: "attached", anchor: note.anchor }, changedSinceSent: false }], blocked: false,
+        drafts: [], resume: () => report("resume"), validate: () => null, send: (_at, notes, close) => { report(String(notes.length)); close(); }, resolveChanged: () => report("resolve"),
+        edit: () => report("edit"), remove: () => report("remove"), state: (_note, value) => report(value), closed: () => { summary = undefined; },
+      });
+    }, "ghost"));
+    return { root, destroy: () => summary?.close() };
+  },
   button(state, report) {
     return wrap(...(["pri", "outline", "ghost", "danger"] as const).map(variant => {
       const control = ui.button(variant, () => report(variant), variant); control.disabled = state === "disabled"; return control;
@@ -173,8 +204,15 @@ export const stories: Record<string, Factory> = {
         path: "src/example.ts", added: 1, removed: 1, new_file: false, deleted: false, dirty: true,
         patch: state === "binary" ? "" : "@@ -1,2 +1,2 @@\n-const value = 1;\n+const value = 2;\n export { value };",
       }] }];
-      reader.render(host, { id: `story-${i}`, repos: state === "empty" ? [] : repos, layout: state === "split" ? "split" : "unified",
-        empty: t("diff.clean"), onSeen: () => report("review"), onOpen: (_repo, path) => report(path) });
+      const notes: ReviewNote[] = [];
+      const paint = () => { reader.invalidate(); reader.render(host, { id: `story-${i}`, repos: state === "empty" ? [] : repos, layout: state === "split" ? "split" : "unified",
+        empty: t("diff.clean"), onSeen: () => report("review"), onOpen: (_repo, path) => report(path),
+        review: state === "review" ? { scope: "changes", reference: "", drafts: [], draftChanged: () => {}, entries: notes.map(note => ({ note, placement: { kind: "attached", anchor: note.anchor }, changedSinceSent: false })),
+          add: (anchor, body) => { notes.push({ ...reviewSample(), id: String(notes.length), anchor, body }); paint(); }, closed: paint,
+          edit: () => report("edit"), remove: note => { notes.splice(notes.indexOf(note), 1); paint(); },
+          state: (note, value) => { note.state = value; paint(); },
+        } : undefined,
+      }); }; paint();
     }
     return { root, destroy: () => readers.forEach(reader => reader.destroy()) };
   },

@@ -1,3 +1,7 @@
+import { attachReview } from "./chat";
+import type { ReviewDraft } from "./review-comments";
+import { reviewError } from "./components/git/review-note";
+import { descriptor } from "./agents";
 import * as actions from "./actions";
 import * as background from "./background";
 import { GitRefreshPolicy, TurnSettlePolicy, changesInterval } from "./git-refresh";
@@ -77,6 +81,7 @@ export function init(context: Ctx) {
     launchBranch: ctx.launchBranch,
     openWorkspace: ctx.openGitWorkspace,
     fileHost: changesHost,
+    sendReview,
   });
 
   tree.init({
@@ -232,6 +237,7 @@ function catchUp(ws: Workspace) {
 }
 
 export function leave() {
+  changesUi.leave();
   navigation++;
   gitRefresh.clear();
   turns.clear();
@@ -884,7 +890,10 @@ function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
   return items;
 }
 
+const tabVisits = new Map<string, number>();
+
 async function selectTab(workspace: string, tab: string) {
+  tabVisits.set(tab, Date.now());
   const fs = files(workspace);
   // Selecting the already-active tab preserves its node so double-click rename remains possible.
   if (tab === session.currentSession() && !fs.diff && !fs.active && !dockbar.front()) return;
@@ -895,6 +904,28 @@ async function selectTab(workspace: string, tab: string) {
   if (!(await session.attach(tab, remote ? workspace : undefined))) return;
   if (!stillHere(epoch, workspace)) return;
   ctx.redraw();
+}
+
+function sendReview(at: HTMLElement, draft: ReviewDraft, close: () => void) {
+  const ws = current(); if (!ws || ws.id !== draft.workspace || ws.remote || ws.cleaned || pending(ws)) return;
+  const epoch = navigation;
+  const put = async (tab?: string) => {
+    if (!stillHere(epoch, ws.id)) return;
+    try {
+      const target = tab ?? (await invoke("new_tab", { workspace: ws.id, prompt: "", choice: null })).id;
+      // A new tab may finish after navigation. Its draft still belongs to the original workspace.
+      const live = ctx.board().workspaces.find(w => w.id === ws.id);
+      if (!live || live.remote || live.cleaned || !live.tabs.some(t => t.id === target)) return;
+      attachReview(target, draft); close();
+      if (stillHere(epoch, ws.id)) { await selectTab(ws.id, target); session.focus(); }
+    } catch (error) { ctx.say(error instanceof Error && error.message.startsWith("review.") ? reviewError(error) : fromBack(error), true); }
+  };
+  const rect = at.getBoundingClientRect();
+  const tabs = [...ws.tabs].sort((a, b) => (tabVisits.get(b.id) ?? Number(b.id === ws.active)) - (tabVisits.get(a.id) ?? Number(a.id === ws.active)));
+  menu.openAt({ x: rect.left, y: rect.bottom + 4 }, tabs.length ? tabs.map(tab => ({
+    label: tabLabel(ws, tab), hint: `${descriptor(tab.choice?.agent ?? ws.agent).label} · ${label(tab.status)}`,
+    run: () => void put(tab.id),
+  })) : [{ label: t("review.newConversation"), run: () => void put() }]);
 }
 
 /// Explicit choice comes from the plus menu; other new-tab paths inherit workspace defaults.

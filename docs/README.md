@@ -45,6 +45,7 @@ as a short index for agents and `README.md` presents the product.
 - [`contracts/plugin-marketplace.md`](contracts/plugin-marketplace.md): hub,
   portable package and per-provider adaptation.
 - [`contracts/ipc.md`](contracts/ipc.md): the TypeScript/Rust boundary.
+- [Local diff review](contracts/diff-review.md): annotations, placement, persistence and explicit batch submission.
 - [`contracts/git.md`](contracts/git.md): index, worktree, review and Git operations.
 - [`contracts/persistence.md`](contracts/persistence.md): board and transcripts.
 - [`contracts/releases.md`](contracts/releases.md): desktop packages, updater manifest and installation ownership.
@@ -110,6 +111,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0059](decisions/0059-local-telemetry-foundation.md): local telemetry with common columns and typed JSON payloads in SQLite.
 - [ADR 0060](decisions/0060-isolated-desktop-presentation.md): isolated Desktop presentation with a shared production/gallery view.
 - [ADR 0061](decisions/0061-background-energy-policy.md): explicit system-only inhibition while a macOS agent works.
+- [ADR 0062](decisions/0062-local-diff-review.md): local review notes and explicit batch submission.
 
 ## Local telemetry
 
@@ -155,3 +157,8 @@ current system until the corresponding implementation is accepted.
   architectural map.
 - [AWS — Architecture Decision Records](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html):
   context, decision, consequences and ADR lifecycle.
+
+## Implementation records
+
+- [Diff review design](superpowers/specs/2026-09-26-diff-review-design.md).
+- [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).

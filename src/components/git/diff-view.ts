@@ -1,3 +1,4 @@
+import { diffReview, type DiffReview } from "./diff-review";
 import { avatar, fileIcon, icon } from "../icons";
 import { t, tn } from "../../i18n";
 import type { Change, RepoDiff } from "../../types";
@@ -11,6 +12,8 @@ export type DiffSnapshot = {
   layout?: "unified" | "split";
   /// Sidebar navigation scrolls to the file without changing or redrawing the diff.
   focus?: string;
+  review?: DiffReview;
+  focusNote?: string;
   /// Choose the empty-state message.
   empty: string;
   /// Notify the caller when seen state changes so it can update the sidebar and tab.
@@ -44,7 +47,7 @@ export function diffView(review: {
   /// Rebuild only when patch signatures change; avoid repeatedly comparing large concatenated patches.
   function render(host: HTMLElement, view: DiffSnapshot) {
     const { id, repos } = view;
-    const identity = `${id}\0${view.layout ?? "unified"}`;
+    const identity = `${id}\0${view.layout ?? "unified"}\0${view.review?.scope ?? "read"}\0${view.review?.reference ?? ""}`;
     if (drawnId !== identity) {
       watcher?.disconnect();
       drawn.clear();
@@ -75,7 +78,13 @@ export function diffView(review: {
       if (focused?.isConnected) focused.focus({ preventScroll: true });
       else if (focusedFile) host.querySelector<HTMLElement>(`[data-key="${CSS.escape(focusedFile)}"] ${focusedControl}`)?.focus({ preventScroll: true });
     }
+    // Notes can change while every patch signature remains identical.
+    for (const file of drawn.values()) file.sync(view);
     if (view.focus) scrollTo(host, view.focus);
+    if (view.focusNote) {
+      const note = host.querySelector<HTMLElement>(`[data-note="${CSS.escape(view.focusNote)}"]`);
+      if (note) { host.scrollTop += note.getBoundingClientRect().top - host.getBoundingClientRect().top - 60; note.querySelector<HTMLElement>("button")?.focus({ preventScroll: true }); }
+    }
   }
 
   /* DiffSnapshotport rendering. */
@@ -173,7 +182,7 @@ export function diffView(review: {
       const k = key(r.name, c.path);
       const mark = stamp(c);
       const old = drawn.get(k);
-      if (old?.stamp === mark) {
+      if (old && (old.stamp === mark || old.el.querySelector(".review-editor"))) {
         old.sync(view);
         return old.el;
       }
@@ -251,6 +260,7 @@ export function diffView(review: {
       full = true;
       body.style.minHeight = "";
       body.append(...lines(change, layout));
+      annotations.mount();
       watcher?.unobserve(box);
     };
     body.style.minHeight = rowCount(change.patch, layout) * ROW_H + "px";
@@ -264,16 +274,18 @@ export function diffView(review: {
     };
     // Preserve double-click navigation without triggering a second action on review or open controls.
     head.addEventListener("dblclick", event => {
-      if (!change.deleted && !(event.target as Element).closest(".dopen, .ui-check")) currentDiffSnapshot.onOpen(repo, change.path);
+      if (!change.deleted && !(event.target as Element).closest(".dopen, .ui-check, .review-file")) currentDiffSnapshot.onOpen(repo, change.path);
     });
     head.append(fold, stats, open, seen.label);
+    const annotations = diffReview(body, head, repo, change, () => currentDiffSnapshot.review);
     box.append(head, body);
+    annotations.sync();
     paintSeen();
     glyph();
     return {
       el: box,
       sync: next => {
-        currentDiffSnapshot = next; paintSeen(); glyph();
+        currentDiffSnapshot = next; paintSeen(); glyph(); annotations.sync();
         // A new host replaces the observer. Observe again to mount reopened visible files while retaining lazy rendering offscreen.
         if (!full) { watcher?.unobserve(box); watcher?.observe(box); }
       },
@@ -296,9 +308,28 @@ export function diffView(review: {
       return [el];
     }
     const all = rows(change.patch), visible = all.slice(0, MAX_ROWS);
+    const indexes = new Map(visible.map((r, i) => [r, i]));
     const out = layout === "split"
-      ? splitRows(visible).map(r => splitRow(r, change.path))
-      : visible.map(r => row(r, change.path));
+      ? splitRows(visible).map(r => {
+        const el = splitRow(r, change.path);
+        if (r.kind === "line") for (const side of ["before", "after"] as const) {
+          const value = r[side]; if (!value) continue;
+          const index = indexes.get(value)!;
+          el.dataset[side === "before" ? "reviewBefore" : "reviewAfter"] = String(index);
+          const cell = el.querySelector<HTMLElement>(`.dno.${side}`)!;
+          cell.dataset.reviewIndex = String(index); cell.dataset.reviewSide = side;
+        }
+        return el;
+      })
+      : visible.map((r, index) => {
+        const el = row(r, change.path);
+        if (r.kind !== "hunk") {
+          el.dataset.reviewBoth = String(index);
+          const cell = el.querySelector<HTMLElement>(r.after === null ? ".dno.before" : ".dno.after")!;
+          cell.dataset.reviewIndex = String(index); cell.dataset.reviewSide = "both";
+        }
+        return el;
+      });
     if (all.length > MAX_ROWS) {
       const el = document.createElement("div");
       el.className = "dnote";

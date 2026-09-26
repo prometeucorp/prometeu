@@ -170,3 +170,6 @@ tests do not prove the native PNG, the AppKit gesture or the consumption of the
 image by the CLI. Verifying the native gesture in this environment remains
 blocked by the Accessibility permission; that is not evidence that the gesture
 was approved.
+
+Review notes use a second versioned text envelope through the shared message
+splitter. See [Local diff review](diff-review.md#text-envelope-and-compatibility).

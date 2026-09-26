@@ -389,7 +389,58 @@
       "split",
       "empty",
       "binary",
-      "two-instances"
+      "two-instances",
+      "review"
+    ]
+  },
+  {
+    "id": "review-note",
+    "name": "reviewNote · reviewEditor",
+    "source": "src/components/git/review-note.ts",
+    "exports": [
+      "reviewNote",
+      "reviewEditor"
+    ],
+    "consumers": [
+      "src/workspace-review.ts",
+      "src/components/git/diff-review.ts"
+    ],
+    "states": [
+      "draft",
+      "editor",
+      "changed",
+      "detached",
+      "resolved"
+    ]
+  },
+  {
+    "id": "review-context",
+    "name": "reviewContextChip",
+    "source": "src/components/chat/review-context.ts",
+    "exports": [
+      "reviewContextChip"
+    ],
+    "consumers": [
+      "src/chat.ts",
+      "src/mobile/view.ts"
+    ],
+    "states": [
+      "default"
+    ]
+  },
+  {
+    "id": "review-summary",
+    "name": "reviewSummary",
+    "source": "src/components/git/review-summary.ts",
+    "exports": [
+      "reviewSummary"
+    ],
+    "consumers": [
+      "src/workspace-review.ts"
+    ],
+    "states": [
+      "default",
+      "empty"
     ]
   }
 ]

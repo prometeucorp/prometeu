@@ -172,6 +172,13 @@ mark. Progress counts every file of the scope; **Next unreviewed** clears the
 filter and opens the next pending file. Layout and filter are ephemeral window
 state.
 
+### Review notes
+
+Local files, Stage and Compare also support persistent notes on a line, same-hunk
+range or file. Notes stay independent of Reviewed and are explicitly added as
+one tag to a chosen conversation draft. See the [review contract](diff-review.md)
+for placement, storage, submission semantics, limits and compatibility.
+
 ### Mutations
 
 `operation` accepts `stage`, `unstage`, `discard`, `commit`, `fetch`, `pull`,

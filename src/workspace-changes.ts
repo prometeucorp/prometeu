@@ -1,3 +1,5 @@
+import { workspaceReview } from "./workspace-review";
+import type { ReviewDraft } from "./review-comments";
 import { gitGroup } from "./components/git/group";
 import { iconButton as componentIconButton } from "./components/icon-button";
 import { gitFileRow } from "./components/git/file-row";
@@ -27,6 +29,7 @@ type Context = {
   /// What a file of this repository offers beyond the panel: the conversation and its path, the
   /// same way the Files tree resolves them.
   fileHost: (repo: string) => fileMenu.Context;
+  sendReview: (at: HTMLElement, draft: ReviewDraft, close: () => void) => void;
 };
 let context: Context;
 const views = new Map<string, View>();
@@ -35,9 +38,22 @@ let busy = false, ticket = 0, sidebarSignature = "", editorSignature = "";
 /// Remember a requested file scroll only for explicit navigation. Board redraws must preserve the reader's current position.
 let pendingFocus = "";
 let review: RepoDiff[] = [];
+let reviewNotes: ReturnType<typeof workspaceReview>;
+let pendingNote = "";
 
 export function init(ctx: Context) {
   context = ctx;
+  reviewNotes = workspaceReview({ workspace: ctx.workspace, say: ctx.say, send: ctx.sendReview,
+    changed: () => { sidebarSignature = ""; diff.invalidate(); drawSidebar(); if (!$("diffview").hidden) void drawEditor(); },
+    jump: (anchor, note) => {
+      const ws = context.workspace(); if (!ws) return;
+      const repo = ws.repos.findIndex(r => r.name === anchor.repo); if (repo < 0) return;
+      state().repo = repo; show(anchor.scope); state().reference = anchor.reference;
+      pendingFocus = anchor.path; pendingNote = note; void drawEditor();
+    },
+  });
+  const notes = uiButton(t("review.title", { n: 0 }), () => void reviewNotes.open(), "ghost");
+  notes.id = "dreview"; $("dnext").after(notes);
   $("dlayout").setAttribute("aria-label", t("diff.layout"));
   for (const layout of ["unified", "split"] as const) {
     const control = uiButton(t(`diff.${layout}`), () => { state().layout = layout; void drawEditor(); }, "ghost");
@@ -77,13 +93,17 @@ function clearEditor() {
   $("dlist").replaceChildren(h("div", "none", t("git.loading")));
 }
 
+export function leave() { reviewNotes?.leave(); }
+
 export function enter() {
+  reviewNotes?.leave();
   sidebarSignature = ""; clearEditor();
   $("difflist").replaceChildren();
   if (context.workspace() && !context.workspace()!.remote) drawSidebar();
 }
 
 export function forget(alive: Set<string>) {
+  reviewNotes?.forget(alive);
   for (const map of [views, data]) for (const id of map.keys()) if (!alive.has(id)) map.delete(id);
 }
 
@@ -159,6 +179,8 @@ function selectFile(file: GitFile, scope: Selection["scope"]) {
 function drawSidebar() {
   const ws = context.workspace(); if (!ws || ws.remote) return;
   const view = state(), repo = current();
+  $("dreview").textContent = t("review.title", { n: reviewNotes.count(ws.id) });
+  $("dreview").hidden = !!ws.cleaned || !!ws.remote;
   for (const row of $("difflist").querySelectorAll<HTMLElement>(".git-file")) {
     const selected = row.dataset.path === view.selection?.path && row.closest<HTMLElement>(".git-group")?.dataset.scope === view.selection?.scope;
     row.classList.toggle("selected", selected);
@@ -310,6 +332,8 @@ function drawSidebar() {
           run: () => void act(scope === "staged" ? "unstage" : "stage", [file.path]),
         } : undefined,
       });
+      const notes = reviewNotes.count(ws.id, repo.name, file.path);
+      if (notes && scope !== "conflict") row.append(h("span", "review-count", String(notes)));
       body.append(row);
     }
     if (!visible.length) body.append(h("div", "git-hint", t(group.length ? "git.filter.empty" : "git.empty")));
@@ -403,10 +427,13 @@ function renderReview(ws: Workspace, repo: GitStatus, result: GitDiff, caption: 
   review = [{ name: repo.name, base: view.reference, ahead: 0, unpushed: repo.ahead, dirty: 0, files: result.files }];
   const filtered = review.map(repo => ({ ...repo, files: repo.files.filter(file => file.path.toLowerCase().includes(view.filter.toLowerCase())) }));
   const focus = pendingFocus; pendingFocus = "";
+  const focusNote = pendingNote; pendingNote = "";
+  const scope = view.mode === "changes" || view.mode === "staged" || view.mode === "compare" ? view.mode : null;
+  const notes = scope ? reviewNotes.snapshot(ws, repo.name, scope, scope === "compare" ? view.reference || repo.base : "", result.files) : undefined;
   diff.render(target, {
     id: ws.id, repos: filtered, layout: view.layout, focus: focus ? diff.key(repo.name, focus) : undefined,
     empty: result.files.length && view.filter ? t("git.filter.empty") : empty,
-    onSeen: syncReview, onOpen: context.openFile,
+    onSeen: syncReview, onOpen: context.openFile, review: notes, focusNote,
   });
   if (view.mode === "compare") {
     const files = $("difflist").querySelector<HTMLElement>(".git-comparison-files");
@@ -416,7 +443,10 @@ function renderReview(ws: Workspace, repo: GitStatus, result: GitDiff, caption: 
         const pick = button(file.path, () => {
           pendingFocus = file.path; void drawEditor();
         }, false, "git-file-name");
-        pick.dataset.path = file.path; pick.title = file.path; return pick;
+        pick.dataset.path = file.path; pick.title = file.path;
+        const notes = reviewNotes.count(ws.id, repo.name, file.path);
+        if (notes) pick.append(h("span", "review-count", String(notes)));
+        return pick;
       }));
       if (previous) files.querySelector<HTMLElement>(`[data-path="${CSS.escape(previous)}"]`)?.focus({ preventScroll: true });
       if (!files.children.length) files.append(h("p", "git-hint", t(result.files.length ? "git.filter.empty" : "git.empty")));

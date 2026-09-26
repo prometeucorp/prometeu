@@ -231,3 +231,16 @@ account/approval scope is not concluded by this replacement. External login and
 account switching remain owned by agy; no isolated-profile guarantee is made.
 Former Gemini accounts and transcripts are preserved and cannot launch another
 runtime accidentally. See [ADR 0052](../decisions/0052-antigravity-runtime.md).
+
+## Local diff review notes
+
+| Behavior | Claude | Codex | Antigravity |
+| --- | --- | --- | --- |
+| Line/range/file notes, local persistence, draft batch and portable history | Shared application behavior | Shared application behavior | Shared application behavior |
+
+The [review contract](../contracts/diff-review.md) uses ordinary text with no new
+provider capability, IPC or V1 event. `review-comments.test.ts`,
+`review-context.test.ts` and `review-store.test.ts` cover rules and compatibility;
+`e2e/git.spec.ts` and `e2e/mobile.spec.ts` cover representative keyboard/reload
+and portable history behavior. These tests do not assert that a provider follows
+every note or that a queued batch has been received by the model.
