@@ -45,9 +45,9 @@ import * as ws from "./workspace";
 // Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
 await background.start().catch(() => {});
+// The resource sampler wakes natively on context changes; quota refresh on return stays explicit.
 background.subscribe((context) => {
   if (background.foreground(context)) void invoke("usage_refresh", {}).catch(() => {});
-  void invoke("set_resource_detail", { open: statusbar.resourceOpen() }).catch(() => {});
 });
 
 let state: Board = { stages: [], projects: [], workspaces: [] };

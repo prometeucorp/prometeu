@@ -270,6 +270,7 @@ pub fn spawn(
             on_exit(code);
         }
         let _ = app.emit("pty-closed", (id, code));
+        crate::machine::publish_counts(&app);
     });
 
     Ok(pty)

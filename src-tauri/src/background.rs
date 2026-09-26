@@ -3,7 +3,7 @@
 
 use crate::lock::lock;
 use serde::Serialize;
-use std::sync::{Condvar, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, Window};
 
@@ -35,12 +35,22 @@ impl Context {
         self.revision += 1;
         true
     }
+
+    fn observe_window(&mut self, visible: bool, focused: bool) -> bool {
+        self.observe(visible, focused, self.power)
+    }
+
+    fn observe_power(&mut self, power: Power) -> bool {
+        self.observe(self.visible, self.focused, power)
+    }
 }
+
+type Waker = Box<dyn Fn() + Send + Sync>;
 
 #[derive(Default)]
 pub struct State {
     context: Mutex<Context>,
-    pub changed: Condvar,
+    wakers: Mutex<Vec<Waker>>,
 }
 
 impl State {
@@ -48,13 +58,23 @@ impl State {
         *lock(&self.context)
     }
 
-    fn update(&self, app: &AppHandle, visible: bool, focused: bool, power: Power) {
+    /// Native consumers that sleep until their own deadline are woken on every observed change,
+    /// so a return to the foreground never depends on a webview round trip.
+    pub fn on_change(&self, wake: impl Fn() + Send + Sync + 'static) {
+        lock(&self.wakers).push(Box::new(wake));
+    }
+
+    /// Each writer changes only the fields it observed while holding the lock, so a window event
+    /// and a power poll cannot overwrite each other with an older snapshot.
+    fn update(&self, app: &AppHandle, change: impl FnOnce(&mut Context) -> bool) {
         let next = {
             let mut current = lock(&self.context);
-            current.observe(visible, focused, power).then_some(*current)
+            change(&mut current).then_some(*current)
         };
         if let Some(next) = next {
-            self.changed.notify_all();
+            for wake in lock(&self.wakers).iter() {
+                wake();
+            }
             let _ = app.emit("background-context", next);
         }
     }
@@ -70,11 +90,10 @@ pub fn refresh_window(window: &Window) {
         return;
     }
     let app = window.app_handle();
-    let state = app.state::<State>();
-    let previous = state.snapshot();
     let visible = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
     let focused = visible && window.is_focused().unwrap_or(false);
-    state.update(app, visible, focused, previous.power);
+    app.state::<State>()
+        .update(app, |context| context.observe_window(visible, focused));
 }
 
 /// Window callbacks provide prompt changes. The slow fallback covers hide/minimize paths without
@@ -83,13 +102,17 @@ pub fn watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut ticks = 0u8;
         loop {
-            if let Some(window) = app.get_window("main") {
-                refresh_window(&window);
-            }
+            // Read the window on the event-loop thread, in order with its window events.
+            let poll = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Some(window) = poll.get_window("main") {
+                    refresh_window(&window);
+                }
+            });
             if ticks == 0 {
-                let state = app.state::<State>();
-                let old = state.snapshot();
-                state.update(&app, old.visible, old.focused, power_source());
+                let power = power_source();
+                app.state::<State>()
+                    .update(&app, |context| context.observe_power(power));
             }
             ticks = (ticks + 1) % 12;
             std::thread::sleep(Duration::from_secs(5));
@@ -201,6 +224,17 @@ mod tests {
     #[test]
     fn unknown_power_uses_conservative_budget() {
         assert_eq!(serde_json::to_value(Power::Unknown).unwrap(), "unknown");
+    }
+
+    #[test]
+    fn a_writer_keeps_the_fields_it_did_not_observe() {
+        let mut state = Context::default();
+        state.observe(true, true, Power::Ac);
+        assert!(state.observe_power(Power::Battery));
+        assert_eq!((state.visible, state.focused), (true, true));
+        assert!(state.observe_window(true, false));
+        assert_eq!(state.power, Power::Battery);
+        assert!(!state.observe_power(Power::Battery));
     }
 
     /// A supply directory name and its sysfs attributes.

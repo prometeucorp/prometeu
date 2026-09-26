@@ -47,10 +47,12 @@ fn cpu_percent(before: f64, after: f64, elapsed: Duration) -> f32 {
     (((after - before) / elapsed.as_secs_f64()) * 100.0).max(0.0) as f32
 }
 
-fn history_gap(elapsed: Duration) -> bool {
-    elapsed > Duration::from_secs(6)
+/// A gap longer than twice the cadence that produced the samples, such as a hidden window or a
+/// sleeping Mac, cannot be drawn as a continuous history.
+fn history_gap(elapsed: Duration, cadence: Duration) -> bool {
+    elapsed > cadence * 2
 }
-/// Keep roughly two minutes of CPU history.
+/// Keep 40 CPU samples: about two minutes at the detailed cadence.
 const HISTORY: usize = 40;
 
 /// One resource row for the app, a conversation or a terminal and its process subtree.
@@ -123,7 +125,10 @@ impl Service {
         }
     }
 
+    /// Change the epoch under the mutex the sampler waits on, so a wake between its epoch check
+    /// and its wait cannot be lost.
     fn wake(&self) {
+        let _detail = lock(&self.detail);
         self.epoch.fetch_add(1, Ordering::Relaxed);
         self.changed.notify_all();
     }
@@ -132,16 +137,38 @@ impl Service {
 #[tauri::command]
 pub fn set_resource_detail(app: AppHandle, open: bool) {
     let service = app.state::<Service>();
-    *lock(&service.detail) = open;
-    service.wake();
+    let mut detail = lock(&service.detail);
+    *detail = open;
+    service.epoch.fetch_add(1, Ordering::Relaxed);
+    service.changed.notify_all();
+}
+
+/// Terminal and port chips follow PTY starts and exits without waiting for the next `ps` sample.
+pub fn publish_counts(app: &AppHandle) {
+    let (Some(service), Some(state)) = (app.try_state::<Service>(), app.try_state::<AppState>())
+    else {
+        return;
+    };
+    let (terms, ports) = (alive_terms(&state), ports(&state));
+    let mut cache = lock(&service.cache);
+    if cache.terms == terms && cache.ports == ports {
+        return;
+    }
+    cache.terms = terms;
+    cache.ports = ports;
+    let _ = app.emit("machine", &*cache);
 }
 
 /// The sampler waits while the native window is not foreground, then refreshes on return.
 pub fn watch(app: AppHandle) {
+    let waker = app.clone();
+    app.state::<background::State>()
+        .on_change(move || waker.state::<Service>().wake());
     std::thread::spawn(move || {
         let mut memo = Memo::default();
         let started = Instant::now();
         let mut sampled: Option<Duration> = None;
+        let mut cadence: Option<Duration> = None;
         let mut was_foreground = false;
         let mut was_detail = false;
         loop {
@@ -159,7 +186,12 @@ pub fn watch(app: AppHandle) {
                 foreground && !was_foreground || detail && !was_detail,
             ) {
                 sampled = Some(now);
-                if let Some(next) = read(&app, &mut memo) {
+                // History continues across a cadence change, such as opening the panel after
+                // compact samples, but not across a gap longer than either cadence allows.
+                let current = interval.unwrap_or_default();
+                let limit = cadence.map_or(current, |previous| previous.max(current));
+                cadence = Some(current);
+                if let Some(next) = read(&app, &mut memo, limit) {
                     *lock(&service.cache) = next.clone();
                     let _ = app.emit("machine", &next);
                 }
@@ -192,7 +224,7 @@ pub fn machine(state: tauri::State<AppState>, service: tauri::State<Service>) ->
 }
 
 /// Return a changed snapshot, or nothing if `ps` fails or the displayed state is unchanged.
-fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
+fn read(app: &AppHandle, memo: &mut Memo, cadence: Duration) -> Option<Machine> {
     let state = app.state::<AppState>();
     let table = snapshot()?;
     let now = Instant::now();
@@ -225,7 +257,7 @@ fn read(app: &AppHandle, memo: &mut Memo) -> Option<Machine> {
             (Some(before), Some(gap)) => cpu_percent(*before, secs, gap),
             _ => 0.0,
         };
-        let mut line = if elapsed.is_some_and(history_gap) {
+        let mut line = if elapsed.is_some_and(|gap| history_gap(gap, cadence)) {
             Vec::new()
         } else {
             memo.hist.get(&root.pid).cloned().unwrap_or_default()
@@ -469,8 +501,12 @@ mod tests {
     fn real_elapsed_time_drives_cpu_and_a_long_gap_resets_history() {
         assert_eq!(cpu_percent(10.0, 10.6, Duration::from_secs(3)), 20.0);
         assert_eq!(cpu_percent(10.0, 10.6, Duration::from_secs(30)), 2.0);
-        assert!(history_gap(Duration::from_secs(15)));
-        assert!(!history_gap(Duration::from_secs(5)));
+        let (detailed, compact) = (Duration::from_secs(3), Duration::from_secs(15));
+        assert!(history_gap(Duration::from_secs(15), detailed));
+        assert!(!history_gap(Duration::from_secs(5), detailed));
+        // Compact samples keep their history, so the panel does not open empty.
+        assert!(!history_gap(Duration::from_secs(15), compact));
+        assert!(history_gap(Duration::from_secs(31), compact));
     }
 
     #[test]

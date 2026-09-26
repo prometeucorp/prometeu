@@ -240,7 +240,6 @@ type Which = "usage" | "res" | "term" | "port" | "awake";
 
 let panel: HTMLElement | null = null;
 let open: Which | null = null;
-export const resourceOpen = () => open === "res";
 
 export function close() {
   if (open === "res") void invoke("set_resource_detail", { open: false }).catch(() => {});

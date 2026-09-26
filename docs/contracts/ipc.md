@@ -194,10 +194,13 @@ minimized main window; `focused` is true only when that native window is both
 visible and focused. macOS reads the IOKit power-source snapshot; Linux reads
 `/sys/class/power_supply`, ignores peripheral batteries (`scope` `Device`) and
 treats any online Mains, USB or wireless supply as AC; unsupported or failed
-readings are `unknown` and use the battery budget for discretionary work. Window events refresh promptly,
-with a five-second visibility fallback and a 60-second power fallback. This
-context is advisory for UI refresh only: agent processes, transcript capture,
-terminals, sharing and explicit task monitoring continue independently.
+readings are `unknown` and use the battery budget for discretionary work.
+Window events refresh promptly, with a five-second visibility fallback read on
+the event-loop thread and a 60-second power fallback; each writer changes only
+the fields it observed. Native samplers are woken directly on every change, so
+their return to the foreground does not depend on the webview. This context is
+advisory for UI refresh only: agent processes, transcript capture, terminals,
+sharing and explicit task monitoring continue independently.
 If the native context never starts, Git presentation uses the document's
 visibility and focus as a fallback; transcript painting remains enabled.
 
@@ -212,16 +215,20 @@ change. The desktop IPC is shipped atomically with its frontend, so no older
 `{ on: boolean }` caller remains supported.
 
 `set_resource_detail({ open: boolean })` reports whether the native process
-panel is open and wakes the resource sampler to reconsider its deadline. The
-existing `machine` command and event keep `{ rss, cpu, procs, terms, ports }`;
-each process still has a numeric `hist` array. The command returns the cached
-process snapshot with current terminal and port counts. Foreground compact
+panel is open and wakes the resource sampler to reconsider its deadline; the
+status bar sends it when the panel opens and closes. The existing `machine`
+command and event keep `{ rss, cpu, procs, terms, ports }`; each process still
+has a numeric `hist` array. The command returns the cached process snapshot
+with current terminal and port counts, and starting or ending a dock PTY emits
+that snapshot with the new counts without a `ps` sample. Foreground compact
 sampling uses 15 seconds on AC or 30 on battery/unknown power; an open panel
 uses 3 or 5 seconds. A hidden, minimized or unfocused native window starts no
-`ps` sample and queues one on return. CPU uses actual elapsed time. A gap over
-six seconds resets each sparkline history so it cannot imply continuous
-three-second samples. The frontend updates changed resource text and process
-fields without replacing unrelated status controls.
+`ps` sample and takes one on return. CPU uses actual elapsed time. A gap longer
+than twice the cadence that produced the samples, such as a hidden window or a
+sleeping Mac, resets each sparkline history; compact samples keep their history,
+so the panel opens with the recent compact points before the detailed ones. The
+frontend updates changed resource text and process fields without replacing
+unrelated status controls.
 
 `chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the rest to the legacy reader; historical

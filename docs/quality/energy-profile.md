@@ -115,9 +115,13 @@ launches. A foreground compact display is eligible every 15 seconds on AC
 (240 per hour) or 30 seconds on battery (120 per hour), versus the original
 three-second loop (1,200 per hour). An open panel keeps the previous
 three-second AC cadence or uses five seconds on battery. A hidden or unfocused
-window has no detailed sample deadline and refreshes when it returns. A gap
-over six seconds resets the CPU history; CPU percentage still divides the
-cumulative CPU delta by actual elapsed time. These counts assume the app
+window has no detailed sample deadline and refreshes when it returns; the native
+context wakes the sampler directly, without a webview round trip. A gap longer
+than twice the cadence that produced the samples resets the CPU history, so
+compact samples keep theirs and the panel does not open empty; CPU percentage
+still divides the cumulative CPU delta by actual elapsed time. Terminal and
+port counts are published when a dock PTY starts or exits, without a `ps`
+sample. These counts assume the app
 remains in each state for the whole hour and are **not** measured `ps` launches
 or watts. A native process-launch trace was unavailable in the baseline.
 

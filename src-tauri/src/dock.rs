@@ -53,6 +53,7 @@ pub fn open_dock(
         }
         let handle = pty::spawn(&app, &key, cmd, cols, rows, pty::Dock::default())?;
         lock(&state.ptys).insert(key.clone(), handle);
+        crate::machine::publish_counts(&app);
         return Ok(key);
     }
 
@@ -257,6 +258,8 @@ fn start_script(
         },
     )?;
     ptys.insert(key, handle);
+    drop(ptys);
+    crate::machine::publish_counts(app);
     Ok(())
 }
 
