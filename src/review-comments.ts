@@ -107,3 +107,15 @@ export function mergeReviewDraft(previous: ReviewDraft | undefined, next: Review
   for (const item of next.items) items.set(item.id, item);
   return structuredClone({ ...previous, items: [...items.values()] });
 }
+
+/** Last canonical row of an already placed anchor, for inline editors and cards. */
+export function anchorEndRow(anchor: ReviewAnchor, all: Row[]): number {
+  if (!anchor.hunk) return -1;
+  let hunk: string | null = null, end = -1;
+  for (let index = 0; index < all.length; index++) {
+    const row = all[index];
+    if (row.kind === "hunk") { hunk = row.text; continue; }
+    if (hunk === anchor.hunk && ((anchor.new && row.after === anchor.new[1]) || (anchor.old && row.before === anchor.old[1]))) end = index;
+  }
+  return end;
+}

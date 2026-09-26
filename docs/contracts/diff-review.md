@@ -29,7 +29,8 @@ editing** even when its file is absent. Save persists it; Cancel discards it.
 A refreshed patch is always rendered, including while an editor is open. If its
 patch changed, the restored editor shows a notice and the original quote; saving
 keeps that original anchor and computes placement against the current patch.
-Retained line editors follow exact derived placement in either layout. Rebuilding
+Retained line editors follow exact derived placement in either layout. Inline
+editors and saved cards restrict endpoint lookup to the derived anchor hunk. Rebuilding
 an actively focused editor restores focus and its text selection without scrolling
 the application shell. If the anchor no longer matches, the editor stays at the
 file start with its original quote. A save attempted after the workspace becomes

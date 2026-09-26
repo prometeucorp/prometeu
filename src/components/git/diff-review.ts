@@ -3,7 +3,7 @@ import { h } from "../../util";
 import { t } from "../../i18n";
 import { rows } from "./patch";
 import type { Change } from "../../types";
-import { anchorSelection, place, REVIEW_ROWS, type ReviewAnchor, type ReviewScope, type ReviewSide, type ReviewEditorDraft } from "../../review-comments";
+import { anchorEndRow, anchorSelection, place, REVIEW_ROWS, type ReviewAnchor, type ReviewScope, type ReviewSide, type ReviewEditorDraft } from "../../review-comments";
 import { reviewEditor, reviewNote, type ReviewActions, type ReviewEntry } from "./review-note";
 
 export type DiffReview = ReviewActions & {
@@ -30,8 +30,8 @@ export function diffReview(body: HTMLElement, head: HTMLElement, repo: string, c
     return targets().find(row => [row.dataset.reviewBoth, row.dataset.reviewBefore, row.dataset.reviewAfter].includes(String(index)));
   }
   function anchorRow(anchor: ReviewAnchor): HTMLElement | undefined {
-    const index = all.map((row, index) => ({ row, index })).reverse().find(({ row }) => row.kind !== "hunk" && ((anchor.new && row.after === anchor.new[1]) || (anchor.old && row.before === anchor.old[1])))?.index;
-    return index === undefined ? undefined : at(index);
+    const index = anchorEndRow(anchor, all);
+    return index < 0 ? undefined : at(index);
   }
   function paint() {
     for (const row of targets()) {
@@ -169,8 +169,7 @@ export function diffReview(body: HTMLElement, head: HTMLElement, repo: string, c
       for (const entry of entries) {
         const card = reviewNote(entry, review);
         const a = entry.placement.kind === "attached" ? entry.placement.anchor : null;
-        const index = a ? all.map((row, index) => ({ row, index })).reverse().find(({ row }) => row.kind !== "hunk" && ((a.new && row.after === a.new[1]) || (a.old && row.before === a.old[1])))?.index ?? -1 : -1;
-        const row = index >= 0 ? at(index) : null;
+        const row = a ? anchorRow(a) : null;
         if (row) row.after(card); else body.prepend(card);
       }
       if (focusedNote) [...body.querySelectorAll<HTMLButtonElement>(`.review-note[data-note="${CSS.escape(focusedNote)}"] button`)].find(b => b.textContent === focusedLabel)?.focus({ preventScroll: true });

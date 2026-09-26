@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { anchorSelection, place, mergeReviewDraft, reviewBatch, type ReviewNote } from "./review-comments";
+import { rows } from "./components/git/patch";
+import { anchorEndRow, anchorSelection, place, mergeReviewDraft, reviewBatch, type ReviewNote } from "./review-comments";
 
 const patch = "@@ -10,3 +10,4 @@\n a\n-b\n+c\n+d\n e";
 const anchor = () => anchorSelection("api", "src/cart.ts", "changes", patch, 3, 4);
@@ -69,4 +70,12 @@ it("updates file evidence on a new patch while retaining a file-level anchor", (
   const placement = place(a, patch.replace("+c", "+changed"));
   expect(placement.kind).toBe("attached");
   if (placement.kind === "attached") expect(placement.anchor.stamp).not.toBe(a.stamp);
+});
+
+it("places inline content within its anchor hunk when endpoints repeat", () => {
+  const patch = "@@ -10,1 +10,1 @@ first\n keep\n@@ -10,1 +10,1 @@ second\n other";
+  const anchor = anchorSelection("api", "a.ts", "changes", patch, 1, 1);
+  expect(anchorEndRow(anchor, rows(patch))).toBe(1);
+  expect(anchorEndRow({ ...anchor, hunk: "missing" }, rows(patch))).toBe(-1);
+  expect(anchorEndRow(anchorSelection("api", "a.ts", "changes", patch), rows(patch))).toBe(-1);
 });

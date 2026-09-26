@@ -90,3 +90,8 @@ No commits or external publication are needed to deliver the reviewable change.
   keyboard focus and caret selection. Coordinator and browser regressions cover
   refusal/retry, patch refresh and layout changes. `npm run check` passed with
   553 web tests, 477 Rust tests (7 ignored) and all 179 browser scenarios.
+
+- Third Greptile follow-up: inline endpoint lookup now uses the derived hunk as
+  well as line numbers, shared by editors and saved cards. A repeated-endpoint
+  regression passed after failing on the prior lookup. `npm run check` passed:
+  554 web tests, 477 Rust tests (7 ignored), all 179 browser scenarios and Clippy.
