@@ -134,9 +134,6 @@ installation callbacks, preserving the catalog grouping and linking rules.
 
 - `src/components/catalog.test.ts` checks manifest/story coverage and production
   import reachability. It does not infer visual correctness from imports.
-- `e2e/components.spec.ts` exercises independent diff observers, review state,
-  request focus and composer callbacks without app bootstrap, in Chromium and
-  WebKit. Parser tests cannot prove simultaneous DOM/observer behavior.
 - Existing Git, conversation, Markdown and file-drop journeys protect production
   integration, streaming, drafts, safety guards and copy behavior.
 - `src/resources/adapters.test.ts` constructs real hub snapshots without DOM,
@@ -151,5 +148,8 @@ installation callbacks, preserving the catalog grouping and linking rules.
 - `e2e/design-system.spec.ts` compares compact button styles between hosts.
 - `scripts/architecture-dependencies.test.mjs` protects the transitive import
   boundary. It is an import check, not proof against every ambient browser API.
+
+The isolated chat and Git stories are available for visual inspection; they have
+no dedicated E2E scenario. Existing product journeys cover their integration.
 
 See the [agent composition recipe](../architecture/desktop-composition.md).

@@ -127,15 +127,13 @@ por essa separação incremental com o DOM e as dependências existentes.
 ## Validação
 
 `npm run check` passou: documentação, dependências, formatação Rust, builds
-Desktop e mobile, typechecks, testes de release, 511 testes web, 452 testes
-Rust executados, 178 testes de navegador e Clippy. A suíte Rust mantém 7 testes
+Desktop e mobile, typechecks, testes de release, suítes web, Rust e navegador,
+e Clippy. A suíte Rust mantém 7 testes
 ignorados já declarados no projeto.
 
 A evidência específica inclui:
 
 - `src/components/catalog.test.ts`: manifesto, stories e consumidores reais.
-- `e2e/components.spec.ts`: dois leitores de diff, foco de perguntas/planos e
-  callbacks do composer sem inicialização do aplicativo.
 - `src/resources/adapters.test.ts`: projeções dos hubs sem DOM, identidade por
   origem, ações permitidas e bloqueio durante autenticação MCP.
 - `src/settings-navigation.test.ts`: destinos anteriores e correspondência de busca.
@@ -152,6 +150,9 @@ substituição do DOM e cascata CSS. Não repetem a matriz de interação das
 primitivas em cada tela. As operações e o catálogo têm provas de nível inferior.
 
 ## Limites e continuidade
+
+As stories isoladas de chat e Git não têm E2E dedicado. A galeria permite
+inspeção visual; os testes existentes do produto cobrem sua integração.
 
 A implementação cobre o catálogo, Recursos, Ações e as extrações de chat e Git
 descritas acima. TypeSafe, telemetria e o restante de Configurações mantêm

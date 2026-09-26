@@ -125,8 +125,8 @@ Stories import those production implementations with deterministic sample data.
 They do not bootstrap the app, initialize the mock or invoke real operations.
 The catalog test checks source existence, story coverage and import reachability
 from every declared production consumer. Boundary checks reject integration
-imports and direct network/storage effects in component code. Browser checks
-prove focus and independence of two diff readers in the same document.
+imports and direct network/storage effects in component code. The gallery offers
+two independent diff readers for visual inspection.
 
 ## Reusable Desktop compositions
 

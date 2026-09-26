@@ -43,7 +43,7 @@ A JSON catalog names source, exports, states and real consumers. The existing
 Vite gallery supplies searchable navigation, direct story URLs and standalone
 canvases for browser agents. This provides component exploration without adding
 Storybook, a framework adapter or a second renderer. Catalog tests verify
-production reachability; isolated browser checks verify independent readers.
+production reachability; the gallery demonstrates independent readers.
 This is incremental adoption of a discoverable component surface. ADR 0017 remains in force for the
 shared component package.
 
