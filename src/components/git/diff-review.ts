@@ -3,7 +3,7 @@ import { h } from "../../util";
 import { t } from "../../i18n";
 import { rows } from "./patch";
 import type { Change } from "../../types";
-import { anchorSelection, REVIEW_ROWS, type ReviewAnchor, type ReviewScope, type ReviewSide, type ReviewEditorDraft } from "../../review-comments";
+import { anchorSelection, place, REVIEW_ROWS, type ReviewAnchor, type ReviewScope, type ReviewSide, type ReviewEditorDraft } from "../../review-comments";
 import { reviewEditor, reviewNote, type ReviewActions, type ReviewEntry } from "./review-note";
 
 export type DiffReview = ReviewActions & {
@@ -29,6 +29,10 @@ export function diffReview(body: HTMLElement, head: HTMLElement, repo: string, c
   function at(index: number) {
     return targets().find(row => [row.dataset.reviewBoth, row.dataset.reviewBefore, row.dataset.reviewAfter].includes(String(index)));
   }
+  function anchorRow(anchor: ReviewAnchor): HTMLElement | undefined {
+    const index = all.map((row, index) => ({ row, index })).reverse().find(({ row }) => row.kind !== "hunk" && ((anchor.new && row.after === anchor.new[1]) || (anchor.old && row.before === anchor.old[1])))?.index;
+    return index === undefined ? undefined : at(index);
+  }
   function paint() {
     for (const row of targets()) {
       const indexes = [row.dataset.reviewBoth, row.dataset.reviewBefore, row.dataset.reviewAfter].filter(v => v !== undefined).map(Number);
@@ -52,7 +56,8 @@ export function diffReview(body: HTMLElement, head: HTMLElement, repo: string, c
     if (anchor.stamp !== anchorSelection(repo, change.path, review.scope, change.patch).stamp) {
       editor.root.prepend(h("p", "ui-hint", t("review.editorChanged")), h("pre", "", anchor.excerpt.join("\n")));
     }
-    const line = !file && at(Math.max(origin, cursor));
+    const placement = retained ? place(anchor, change.patch) : null;
+    const line = retained ? (placement?.kind === "attached" ? anchorRow(placement.anchor) : null) : !file && at(Math.max(origin, cursor));
     if (line) line.after(editor.root); else body.prepend(editor.root);
     if (focus) editor.focus();
   }

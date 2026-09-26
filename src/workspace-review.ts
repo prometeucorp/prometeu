@@ -35,8 +35,10 @@ export function workspaceReview(context: {
     return current?.id === ws.id && !current.remote && !current.cleaned && !current.preparing && !current.failed;
   };
   async function mutate(ws: Workspace, run: () => Promise<void>) {
-    if (!writable(ws)) return;
-    try { await run(); } catch (e) {
+    try {
+      if (!writable(ws)) throw new Error("review.readonly");
+      await run();
+    } catch (e) {
       context.say(reviewError(e), true);
       // A failed disk write already kept this edit in memory. Closing avoids creating it twice.
       if (!(e instanceof Error) || e.message !== "review.storage.write") throw e;

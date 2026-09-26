@@ -84,3 +84,9 @@ No commits or external publication are needed to deliver the reviewable change.
   477 Rust tests (7 ignored), 179 browser scenarios, builds, documentation,
   architecture, formatting and Clippy. A native WKWebView probe at
   `tauri://localhost` also acquired the Web Lock successfully.
+
+- Second Greptile follow-up: refused saves now report an error without closing or
+  deleting resumed drafts. Rebuilt active editors retain derived line placement,
+  keyboard focus and caret selection. Coordinator and browser regressions cover
+  refusal/retry, patch refresh and layout changes. `npm run check` passed with
+  553 web tests, 477 Rust tests (7 ignored) and all 179 browser scenarios.

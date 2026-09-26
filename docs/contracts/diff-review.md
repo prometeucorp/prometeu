@@ -29,6 +29,11 @@ editing** even when its file is absent. Save persists it; Cancel discards it.
 A refreshed patch is always rendered, including while an editor is open. If its
 patch changed, the restored editor shows a notice and the original quote; saving
 keeps that original anchor and computes placement against the current patch.
+Retained line editors follow exact derived placement in either layout. Rebuilding
+an actively focused editor restores focus and its text selection without scrolling
+the application shell. If the anchor no longer matches, the editor stays at the
+file start with its original quote. A save attempted after the workspace becomes
+non-writable reports an error and keeps the draft and editor open for retry.
 Unlike saved notes, unfinished editor text does not survive an app restart.
 
 ## Anchors and placement
@@ -140,6 +145,7 @@ sharing and E2EE.
   changed, repeated and long selections; immutable merged draft snapshots.
 - `src/review-context.test.ts`: strict format, paths, bounds, mixed envelopes and
   literal fallback; `src/browser-context.test.ts` retains browser compatibility.
+- `src/workspace-review.test.ts`: a refused save keeps a resumed draft for retry.
 - `src/review-store.test.ts`: reload, bounds, unknown/corrupt data, write failure,
   workspace pruning and revision-aware submission.
 - `e2e/git.spec.ts`: keyboard annotation, reload, draft and sent history in the

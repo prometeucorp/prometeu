@@ -214,10 +214,24 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   await page.keyboard.press("Shift+ArrowDown");
   await page.keyboard.press("c");
   await page.getByRole("textbox", { name: "Review note", exact: true }).fill("Use the shared spacing tokens.");
+  await page.getByRole("textbox", { name: "Review note", exact: true }).evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(4, 10));
   await page.evaluate(() => { (window as any).changedPatch = false; });
-  await refresh.click();
+  await refresh.evaluate((node: HTMLButtonElement) => {
+    const editor = document.activeElement as HTMLElement;
+    node.click(); editor.focus(); // The request completes while the person continues writing.
+  });
   await expect(file.locator(".dbody")).not.toContainText("change after review");
   await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveValue("Use the shared spacing tokens.");
+  const editor = page.getByRole("textbox", { name: "Review note", exact: true });
+  await expect(editor).toBeFocused();
+  expect(await editor.evaluate((node: HTMLTextAreaElement) => [node.selectionStart, node.selectionEnd])).toEqual([4, 10]);
+  await expect(file.locator(".drow + .review-editor")).toHaveCount(1);
+  await page.locator('#dlayout [data-layout="split"]').evaluate((node: HTMLButtonElement) => {
+    const editor = document.activeElement as HTMLElement;
+    node.click(); editor.focus();
+  });
+  await expect(editor).toBeFocused();
+  await expect(file.locator(".drow + .review-editor")).toHaveCount(1);
   // Removing a file from the rendered snapshot must not discard unfinished writing.
   await page.locator("#git-filter").fill("logo");
   await expect(page.getByRole("textbox", { name: "Review note", exact: true })).toHaveCount(0);

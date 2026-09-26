@@ -34,6 +34,7 @@ export const PT = {
   "review.remove": "Remover revisão do rascunho",
   "review.details": "Detalhes da revisão",
   "review.limit": "A revisão excede os limites. Selecione até 100 notas por lote, 256 KiB no total e 8 KiB por nota. Mantenha até 200 notas por workspace.",
+  "review.readonly": "Este workspace não permite mais alterações. Seu rascunho foi mantido; tente novamente quando estiver disponível.",
   "review.storage.read": "Não foi possível ler as notas salvas. Elas foram preservadas; a edição está desativada.",
   "review.editorChanged": "O diff mudou. Este rascunho mantém a seleção original, exibida abaixo.",
   "review.storage.conflict": "Esta nota mudou em outra janela. Reabra para conferir a versão atual; guarde uma cópia do texto não salvo.",

@@ -58,6 +58,8 @@ export function diffView(review: {
     if (sig !== signature || watched !== host) {
       const active = document.activeElement as HTMLElement | null;
       const focused = active && host.contains(active) ? active : null;
+      const editorSelection = focused instanceof HTMLTextAreaElement && focused.closest(".review-editor")
+        ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null;
       const focusedFile = focused?.closest<HTMLElement>(".dfile")?.dataset.key;
       const focusedControl = focused?.matches(".dseen") ? ".dseen" : focused?.matches(".dopen") ? ".dopen" : ".dtoggle";
       const top = host.scrollTop;
@@ -76,7 +78,16 @@ export function diffView(review: {
       }
       host.scrollTop = top;
       if (focused?.isConnected) focused.focus({ preventScroll: true });
-      else if (focusedFile) host.querySelector<HTMLElement>(`[data-key="${CSS.escape(focusedFile)}"] ${focusedControl}`)?.focus({ preventScroll: true });
+      else if (focusedFile) {
+        const target = host.querySelector<HTMLElement>(`[data-key="${CSS.escape(focusedFile)}"]`);
+        // Mount a rebuilt active editor before restoring its caret; other files stay lazy.
+        if (target && editorSelection) filler.get(target)?.();
+        const editor = editorSelection ? target?.querySelector<HTMLTextAreaElement>(".review-editor textarea") : null;
+        if (editor && editorSelection) {
+          editor.focus({ preventScroll: true });
+          editor.setSelectionRange(editorSelection.start, editorSelection.end, editorSelection.direction);
+        } else target?.querySelector<HTMLElement>(focusedControl)?.focus({ preventScroll: true });
+      }
     }
     // Notes can change while every patch signature remains identical.
     for (const file of drawn.values()) file.sync(view);

@@ -36,6 +36,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "review.remove": "Remove review from draft",
   "review.details": "Review details",
   "review.limit": "Review exceeds its limits. Select up to 100 notes per batch, 256 KiB total, and 8 KiB per note. Keep at most 200 notes per workspace.",
+  "review.readonly": "This workspace is no longer writable. Your draft was kept; retry when it becomes available.",
   "review.storage.read": "Saved review notes could not be read. They were preserved; editing is disabled.",
   "review.editorChanged": "The diff changed. This draft keeps its original selection, shown below.",
   "review.storage.conflict": "This note changed in another window. Reopen it to review the latest version; keep a copy of your unsaved text.",
