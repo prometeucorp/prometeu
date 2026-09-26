@@ -128,8 +128,8 @@ watch_run() {
   done
 }
 
-# Upload packages only after the workflow verifies both platforms. A rerun must never
-# replace assets already exposed to installed clients by a published release.
+# Upload new releases only. Existing drafts are downloaded and verified by the workflow;
+# never replace assets, even if someone publishes between the state check and upload.
 draft() {
   VERSION=$1
   DIRECTORY=$2
@@ -140,16 +140,16 @@ draft() {
     [ -f "$DIRECTORY/$want" ] || die "Missing $want"
   done
   [ -n "${RELEASE_NOTES:-}" ] || die "Missing release notes"
+  if DRAFT=$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft 2>/dev/null); then
+    [ "$DRAFT" = true ] || die "$TAG is already published; refusing to replace assets"
+    echo "$TAG draft already exists; verify its downloaded assets without modifying it"
+    return 0
+  fi
   NOTES_FILE=$(mktemp "${TMPDIR:-/tmp}/prometeu-notes.XXXXXX")
   printf '%s\n' "$RELEASE_NOTES" > "$NOTES_FILE"
   trap 'rm -f "$NOTES_FILE"' EXIT
-  if DRAFT=$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft 2>/dev/null); then
-    [ "$DRAFT" = true ] || die "$TAG is already published; refusing to replace assets"
-    gh release edit "$TAG" -R "$REPO" --title "$VERSION" --notes-file "$NOTES_FILE"
-  else
-    gh release create "$TAG" -R "$REPO" --verify-tag --draft --title "$VERSION" --notes-file "$NOTES_FILE"
-  fi
-  gh release upload "$TAG" -R "$REPO" --clobber \
+  gh release create "$TAG" -R "$REPO" --verify-tag --draft --title "$VERSION" --notes-file "$NOTES_FILE"
+  gh release upload "$TAG" -R "$REPO" \
     "$DIRECTORY/Prometeu_aarch64.dmg" \
     "$DIRECTORY/Prometeu_aarch64.app.tar.gz" \
     "$DIRECTORY/Prometeu_aarch64.app.tar.gz.sig" \

@@ -66,8 +66,10 @@ from pathlib import Path
 args = sys.argv[1:]
 if args[:2] == ["release", "view"]:
     if os.environ["TEST_DRAFT"] == "missing": sys.exit(1)
-    print(os.environ["TEST_DRAFT"])
+    # Publication can occur immediately after returning the draft state.
+    print("true" if os.environ["TEST_DRAFT"] == "publish-after-check" else os.environ["TEST_DRAFT"])
 else:
+    assert os.environ["TEST_DRAFT"] != "publish-after-check", "Published release was modified"
     with Path(os.environ["TEST_CALLS"]).open("a") as output:
         output.write(json.dumps(args) + "\\n")
     if "--notes-file" in args:
@@ -75,7 +77,8 @@ else:
 ''')
             gh.chmod(0o755)
             cases = [(set(ASSETS) - {name}, "missing", False) for name in ASSETS]
-            cases += [(set(ASSETS), "false", False), (set(ASSETS), "missing", True), (set(ASSETS), "true", True)]
+            cases += [(set(ASSETS), "false", False), (set(ASSETS), "missing", True),
+                      (set(ASSETS), "true", True), (set(ASSETS), "publish-after-check", True)]
             for assets, draft, allowed in cases:
                 with self.subTest(assets=assets, draft=draft):
                     calls.unlink(missing_ok=True)
@@ -91,14 +94,15 @@ else:
                         capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode == 0, allowed, result.stderr)
-                    self.assertEqual(calls.exists(), allowed)
-                    if allowed:
+                    uploads = allowed and draft == "missing"
+                    self.assertEqual(calls.exists(), uploads)
+                    if uploads:
                         commands = [json.loads(line) for line in calls.read_text().splitlines()]
-                        self.assertEqual(commands[0][:2], ["release", "create" if draft == "missing" else "edit"])
-                        if draft == "missing":
-                            self.assertIn("--draft", commands[0])
-                            self.assertIn("--verify-tag", commands[0])
+                        self.assertEqual(commands[0][:2], ["release", "create"])
+                        self.assertIn("--draft", commands[0])
+                        self.assertIn("--verify-tag", commands[0])
                         self.assertEqual(commands[1][:2], ["release", "upload"])
+                        self.assertNotIn("--clobber", commands[1])
                         self.assertEqual({Path(arg).name for arg in commands[1][-6:]}, set(ASSETS))
 
     def test_manifest_preserves_macos_and_checks_linux_signatures(self):

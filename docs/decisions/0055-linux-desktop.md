@@ -43,7 +43,9 @@ Ubuntu 22.04 as the glibc baseline. Platform jobs build and sign in parallel,
 passing final files through workflow artifacts to one assembly job. That job
 creates `latest.json` from the final signatures and is the only draft writer,
 preventing concurrent manifest updates. It verifies files before upload and
-again after downloading the draft. Reruns cannot replace published assets.
+again after downloading the draft. Reruns verify existing drafts without
+modifying them; uploads never replace assets, including during concurrent manual
+publication. Incomplete drafts require manual removal before rebuilding.
 Publication requires both platforms and verified updater signatures.
 
 The frontend uses Tauri's native `getBundleType()` to enable the Linux updater
