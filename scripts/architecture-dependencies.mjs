@@ -2,6 +2,21 @@ import path from "node:path/posix";
 import ts from "typescript";
 
 const componentRoot = "packages/design-system/src/";
+const desktopComponentRoot = "src/components/";
+const viewDependencies = new Set([
+  "src/resources/model.ts", "src/settings-navigation.ts", "src/ui.ts", "src/menu.ts", "src/icons.ts", "src/util.ts",
+  "src/feedback-i18n.ts", "src/i18n.ts", "src/i18n.en.ts", "src/i18n.pt.ts", "src/platform.ts", "src/markdown.ts",
+  "src/highlight.ts", "src/timeline.ts", "src/conversation.ts", "src/conversation-legacy.ts", "src/context.ts",
+  "src/browser-context.ts", "src/browser-types.ts", "src/mentions.ts", "src/types.ts",
+]);
+const isolatedViews = new Set(["src/components/resource-view.ts", "src/components/compositions.ts"]);
+const compositionDependencies = new Set(["src/components/compositions.css", "src/components/primitives.ts", "src/components/menu.ts"]);
+const resourceDependencies = new Set([
+  "src/resources/model.ts", "src/settings-navigation.ts", "src/util.ts", "src/ui.ts", "src/menu.ts",
+  "src/components/resource-view.css", "src/components/compositions.ts", "src/components/compositions.css",
+  "src/components/primitives.ts", "src/components/menu.ts",
+]);
+const componentEffects = new Set(["fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage", "indexedDB"]);
 const pureRoots = new Set(["src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts"]);
 const desktop = /^src\/(?:ipc|mock|team)\.ts$/;
 const mobileDesktop = /^src\/(?:ipc|mock|team|chat|session|main)\.ts$/;
@@ -65,7 +80,7 @@ function resolve(file, specifier, sources) {
     ".mjs": [".mts", ".mjs"], ".cjs": [".cts", ".cjs"] };
   const extensions = [".ts", ".tsx", ".js", ".jsx"];
   const candidates = replacements[extension]?.map((ext) => target.slice(0, -extension.length) + ext)
-    ?? (extension ? [target] : [...extensions.map((ext) => target + ext),
+    ?? (extension && !sources.has(target + ".ts") ? [target] : [...extensions.map((ext) => target + ext),
       ...extensions.map((ext) => `${target}/index${ext}`)]);
   const found = candidates.find((candidate) => sources.has(candidate));
   return { target: found ?? target, local: true, runtime: Boolean(found) };
@@ -115,12 +130,20 @@ export function checkDependencies(sources) {
     const core = /^src\/team-[^/]+\.ts$/.test(root);
     const mobile = root.startsWith("src/mobile/");
     const pure = pureRoots.has(root);
-    if (!components && !core && !mobile && !pure) continue;
+    const desktopComponent = root.startsWith(desktopComponentRoot) && !/\/(?:stories|gallery)\.ts$/.test(root);
+    const isolatedView = isolatedViews.has(root);
+    const allowedViewDependencies = root === "src/components/compositions.ts" ? compositionDependencies : resourceDependencies;
+    if (!components && !core && !mobile && !pure && !isolatedView && !desktopComponent) continue;
     const seen = new Set();
     const walk = (file, chain) => {
       if (seen.has(file)) return;
       seen.add(file);
       const module = modules.get(file);
+      if (desktopComponent && file.startsWith(desktopComponentRoot)) {
+        for (const effect of module.effects) {
+          if (componentEffects.has(effect.split(" ")[0])) failures.add(`${chain.join(" -> ")}: component effect ${effect}`);
+        }
+      }
       if (pure) {
         for (const effect of module.effects) failures.add(`${chain.join(" -> ")}: ambient effect ${effect}`);
       }
@@ -128,7 +151,10 @@ export function checkDependencies(sources) {
         if (dependency.specifier === null) continue;
         const { target, local, runtime, typeOnly, line } = dependency;
         const tauri = target.startsWith("@tauri-apps/");
-        const forbidden = (components && (!local || !target.startsWith(componentRoot)))
+        const permittedComponent = target.startsWith(desktopComponentRoot) && !/\/(?:stories|gallery)\.ts$/.test(target);
+        const forbidden = (isolatedView && (!local || (!allowedViewDependencies.has(target) && !target.startsWith(componentRoot))))
+          || (desktopComponent && !(local && (permittedComponent || target.startsWith(componentRoot) || viewDependencies.has(target))) && target !== "marked")
+          || (components && (!local || !target.startsWith(componentRoot)))
           || (core && (tauri || desktop.test(target)))
           || (mobile && (tauri || mobileDesktop.test(target)))
           || (pure && !typeOnly && !runtime);

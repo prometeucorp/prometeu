@@ -118,6 +118,7 @@ const PATHS = {
 };
 
 export type IconName = keyof typeof PATHS;
+export const iconNames: readonly IconName[] = Object.keys(PATHS) as IconName[];
 
 /// An animated wave distinguishes live activity from a stopped process. Inherit tab color; motion
 /// carries the status signal.

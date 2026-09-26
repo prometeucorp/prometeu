@@ -34,6 +34,18 @@ asset names, endpoint, public key and platform entry remain compatible with
 installed versions. Drafts are not exposed through the latest release endpoint.
 Recovery from a published defect requires a newer version.
 
+## Assembly ownership
+
+Platform jobs upload final signed packages as separate workflow artifacts. One
+job assembles the manifest only after both succeed, using the signatures beside
+the final files, including the repacked AppImage. It writes both generic and
+installer-specific entries. It verifies local artifacts before upload and the
+downloaded draft afterward. Reruns fail if the release already exists: signatures,
+version and notes cannot prove which commit built an older draft after a tag
+moves. Rebuilding requires manual draft removal. Uploads never replace existing
+assets, including when manual publication races with the initial draft check. The public format, asset names, URLs and updater key remain
+unchanged.
+
 ## Installation ownership
 
 macOS and Linux AppImage installations check at startup and hourly. Download
@@ -48,11 +60,13 @@ and no available update, so UI tests never download packages.
 
 ## Verification
 
-`scripts/verify-release.py` checks changelog notes, both platforms, exact
+`scripts/verify-release.py --assemble` creates the manifest from both final
+packages. The verifier checks changelog notes, both platforms, exact
 versioned URLs, assets, signature-file consistency and minisign signatures
 against the embedded key.
 `scripts/test_release.py` covers missing platforms/assets, wrong versions/URLs,
-signature failures and refusal to publish incomplete or failed builds.
+signature failures, draft assembly, refusal to overwrite published assets and
+refusal to publish incomplete or failed builds.
 `src/update-init.test.ts` preserves package-manager ownership and macOS behavior;
 `src/update.test.ts` covers download and restart. CI cannot prove native desktop
 integration or real replacement/relaunch; those require the release smoke test.

@@ -25,6 +25,88 @@ ASSETS = ["Prometeu_aarch64.dmg", "latest.json"] + [
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_assembly_uses_final_signatures_and_preserves_updater_targets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "Prometeu_aarch64.dmg").write_text("notarized dmg")
+            for platform, name in release.PACKAGES.items():
+                (directory / name).write_text(f"final {platform} package")
+                (directory / f"{name}.sig").write_text(base64.b64encode(platform.encode()).decode())
+            notes = "\n### Fixes\n\n- Keep plugin installation busy\n"
+            release.assemble("0.18.1", "prometeucorp/prometeu", directory, notes)
+            manifest = json.loads((directory / "latest.json").read_text())
+            self.assertEqual(set(manifest["platforms"]), {
+                "darwin-aarch64", "darwin-aarch64-app", "linux-x86_64", "linux-x86_64-appimage",
+            })
+            with patch.object(release.subprocess, "run") as minisign:
+                release.verify("0.18.1", "prometeucorp/prometeu", directory, base64.b64encode(b"key").decode(), notes)
+                self.assertEqual(minisign.call_count, 4)
+                # A replaced AppImage requires a rebuilt manifest, including its installer alias.
+                signature = base64.b64encode(b"repacked AppImage signature").decode()
+                (directory / "Prometeu_x86_64.AppImage.sig").write_text(signature)
+                with self.assertRaisesRegex(ValueError, "Signature does not match"):
+                    release.verify("0.18.1", "prometeucorp/prometeu", directory, base64.b64encode(b"key").decode(), notes)
+                release.assemble("0.18.1", "prometeucorp/prometeu", directory, notes)
+                release.verify("0.18.1", "prometeucorp/prometeu", directory, base64.b64encode(b"key").decode(), notes)
+                manifest = json.loads((directory / "latest.json").read_text())
+                for platform in ("linux-x86_64", "linux-x86_64-appimage"):
+                    self.assertEqual(manifest["platforms"][platform]["signature"], signature)
+
+    def test_draft_upload_requires_all_assets_and_never_overwrites_a_published_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "scripts").mkdir()
+            shutil.copy(SCRIPTS / "release.sh", directory / "scripts/release.sh")
+            packages = directory / "pkg"
+            packages.mkdir()
+            calls = directory / "calls"
+            gh = directory / "gh"
+            gh.write_text(f"#!{sys.executable}\n" + '''import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+if args[:2] == ["release", "view"]:
+    if os.environ["TEST_DRAFT"] == "missing": sys.exit(1)
+    # Publication can occur immediately after returning the draft state.
+    print("true" if os.environ["TEST_DRAFT"] == "publish-after-check" else os.environ["TEST_DRAFT"])
+else:
+    assert os.environ["TEST_DRAFT"] != "publish-after-check", "Published release was modified"
+    with Path(os.environ["TEST_CALLS"]).open("a") as output:
+        output.write(json.dumps(args) + "\\n")
+    if "--notes-file" in args:
+        assert Path(args[args.index("--notes-file") + 1]).read_text() == os.environ["RELEASE_NOTES"] + "\\n"
+''')
+            gh.chmod(0o755)
+            cases = [(set(ASSETS) - {name}, "missing", False) for name in ASSETS]
+            cases += [(set(ASSETS), "false", False), (set(ASSETS), "missing", True),
+                      (set(ASSETS), "true", False), (set(ASSETS), "publish-after-check", False)]
+            for assets, draft, allowed in cases:
+                with self.subTest(assets=assets, draft=draft):
+                    calls.unlink(missing_ok=True)
+                    for name in ASSETS:
+                        (packages / name).unlink(missing_ok=True)
+                    for name in assets:
+                        (packages / name).write_text("package")
+                    result = subprocess.run(
+                        ["sh", str(directory / "scripts/release.sh"), "draft", "0.18.1", str(packages)],
+                        env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                             "TEST_DRAFT": draft, "TEST_CALLS": str(calls),
+                             "RELEASE_NOTES": "### Fixes\n\n- Keep plugin installation busy"},
+                        capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    if draft in ("true", "publish-after-check"):
+                        self.assertIn("draft already exists", result.stderr)
+                    uploads = allowed and draft == "missing"
+                    self.assertEqual(calls.exists(), uploads)
+                    if uploads:
+                        commands = [json.loads(line) for line in calls.read_text().splitlines()]
+                        self.assertEqual(commands[0][:2], ["release", "create"])
+                        self.assertIn("--draft", commands[0])
+                        self.assertIn("--verify-tag", commands[0])
+                        self.assertEqual(commands[1][:2], ["release", "upload"])
+                        self.assertNotIn("--clobber", commands[1])
+                        self.assertEqual({Path(arg).name for arg in commands[1][-6:]}, set(ASSETS))
+
     def test_manifest_preserves_macos_and_checks_linux_signatures(self):
         signature = base64.b64encode(b"test signature").decode()
         notes = "\n### New\n\n- Offer Linux downloads\n"

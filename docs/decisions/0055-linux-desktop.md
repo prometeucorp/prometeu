@@ -29,7 +29,7 @@ Keep platform programs behind the app's command boundaries: `xdg-open`,
 Wayland. `src-tauri/src/platform.rs` holds the shared choices; features keep
 their own validation and errors. Missing programs report the existing
 unavailable or failure errors, so the frontend needs no new states. The later
-[sleep policy](0060-background-energy-policy.md) adds a macOS-only system
+[sleep policy](0061-background-energy-policy.md) adds a macOS-only system
 assertion choice; Linux retains its original choices.
 
 The frontend detects macOS from the user agent only for presentation. macOS
@@ -41,9 +41,15 @@ Settings. Shortcut handlers already accepted Ctrl.
 
 One GitHub release contains the macOS Apple Silicon DMG and Linux x86_64
 AppImage, using the same version and updater signing key. Linux builds use
-Ubuntu 22.04 as the glibc baseline. The Linux release job runs after macOS and
-reuses its draft ID so the action can merge `latest.json` without concurrent
-writes. Publication requires both platforms and verified updater signatures.
+Ubuntu 22.04 as the glibc baseline. Platform jobs build and sign in parallel,
+passing final files through workflow artifacts to one assembly job. That job
+creates `latest.json` from the final signatures and is the only draft writer,
+preventing concurrent manifest updates. It verifies files before upload and
+again after downloading the draft. Reruns reject existing releases instead of
+trusting assets from a potentially older commit of a moved tag. Drafts require
+manual removal before rebuilding; published releases require a new version.
+Uploads never replace assets, including during concurrent manual publication.
+Publication requires both platforms and verified updater signatures.
 
 The frontend uses Tauri's native `getBundleType()` to enable the Linux updater
 only for AppImage. Arch `PKGBUILD`, Debian, RPM and source installations keep
@@ -58,9 +64,12 @@ Behavior depends on the desktop: notification daemons may ignore actions,
 compositors decide where the notch window goes, and display wake depends on
 logind support. X11 has no feedback capture. Finder file promises and
 dictation stay macOS only. CI proves compilation, Clippy and Rust tests on
-Linux, not desktop integration. Release builds run sequentially to keep draft
-assembly simple; this increases release time. AppImage distribution starts
-with x86_64 only, and its Ubuntu baseline does not prove compatibility with
+Linux, not desktop integration. Parallel release builds shorten the critical
+path at the cost of workflow artifact transfer and an explicit manifest
+assembly step. CI and release use the same Ubuntu baseline and compatible
+cache keys; a newer Linux baseline needs separate validation and caches.
+AppImage distribution starts with x86_64 only, and its Ubuntu baseline does not
+prove compatibility with
 every distribution. Native installation and update checks remain manual.
 
 ## Evidence

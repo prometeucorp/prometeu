@@ -1,0 +1,313 @@
+/* Conversation. */
+
+/* Timeline and composer share the same reading width. */
+.chatwrap { flex: 1; position: relative; min-height: 0; display: flex; flex-direction: column; }
+.feed {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 24px 24px 8px;
+  display: flex; flex-direction: column; gap: 24px; user-select: text; cursor: auto;
+}
+.feed > * { width: 100%; max-width: 860px; margin: 0 auto; flex: none; }
+.feed .nohint { margin-top: 20vh; }
+
+/* Give prompts more space above them to mark a new topic. */
+.turn.user { display: flex; justify-content: flex-end; margin-top: 12px; }
+.feed > .turn.user:first-child { margin-top: 0; }
+.turn.user .bubble {
+  max-width: 82%; padding: 11px 16px; border-radius: 12px; background: var(--bubble);
+  font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
+}
+.turn.bot { display: flex; flex-direction: column; gap: 8px; }
+
+/* Live caret: pulse while thinking; dots fill the intervals between events. */
+.md.typing > :last-child::after {
+  content: ""; display: inline-block; width: 7px; height: 13px; margin-left: 2px;
+  vertical-align: -2px; background: var(--fg-2); border-radius: 1px;
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink { to { visibility: hidden; } }
+.think.live summary { color: var(--fg-2); animation: pulse 1.4s ease-in-out infinite; }
+.think.bare summary { pointer-events: none; }
+.think.bare summary::before { content: "·"; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.working { display: flex; align-items: center; gap: 5px; padding: 4px 2px; }
+.working .wlabel { font-size: 12px; color: var(--fg-3); margin-left: 6px; }
+.working .wlabel:empty { display: none; }
+/* Dim the pending setup prompt and show its notice. */
+.turn.user.wait { flex-direction: column; align-items: flex-end; gap: 2px; }
+.turn.user.wait .bubble { opacity: 0.55; }
+.working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
+.working i:nth-child(2) { animation-delay: 0.15s; }
+.working i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
+
+/* Agent Markdown uses the file viewer's syntax highlighting. */
+.md { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 8px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 14px 0 6px; font-size: 14px; font-weight: 600; }
+.md h1 { font-size: 16px; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md li > p { margin: 0; }
+.md code { font-family: var(--mono); font-size: 12px; background: var(--bg-raised-2); padding: 1px 5px; border-radius: 4px; }
+.md pre.code {
+  margin: 6px 0 10px; padding: 10px 12px; overflow-x: auto;
+  background: var(--bg-side); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.md pre.code code { background: none; padding: 0; font-size: 12px; line-height: 1.55; }
+.md blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 2px solid var(--line-ghost); color: var(--fg-2); }
+.md table { border-collapse: collapse; margin: 6px 0 10px; font-size: 12.5px; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--line-raised); padding: 4px 8px; text-align: left; }
+.md th { background: var(--bg-raised); font-weight: 500; }
+.md a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+.md .img { color: var(--fg-3); font-style: italic; }
+.md strong { font-weight: 600; }
+
+/* Keep thought context folded by default. */
+.think { font-size: 13px; color: var(--fg-2); }
+.think summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: default; }
+.think summary::-webkit-details-marker { display: none; }
+.think .tic { display: flex; flex: none; color: var(--fg-3); }
+.think summary b { font-weight: 400; flex: none; }
+/* Show a clipped first-line preview for folded thoughts. */
+.think .prev {
+  flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 8px; border-radius: var(--r); background: var(--bg-raised);
+  font-family: var(--mono); font-size: 11.5px; color: var(--fg-3);
+}
+.think[open] .prev { display: none; }
+.think.bare .prev { display: none; }
+.think > div {
+  margin-top: 6px; padding-left: 22px; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: 12.5px; color: var(--fg-2); max-height: 320px; overflow-y: auto;
+}
+
+/* Keep duration and copy actions quiet in the turn footer. */
+.meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 12px; color: var(--fg-3); }
+.meta .cp { width: 22px; height: 22px; color: var(--fg-3); }
+.meta .cp:hover { color: var(--fg); background: var(--bg-raised); }
+.meta .cm { height: 22px; padding: 0 7px; color: var(--fg-3); font-size: 11px; }
+
+/* The collapsed work card shows the current step and count; expansion reveals all steps. */
+.work { border: none; background: none; }
+.work .whead {
+  width: 100%; height: 26px; padding: 0 6px 0 0; gap: 8px; border: none; border-radius: var(--r);
+  display: flex; align-items: center; justify-content: flex-start;
+  background: none; color: var(--fg-2); font-size: 12.5px; font-weight: 400;
+}
+.work .whead:hover .sum, .work .whead:hover b { color: var(--fg); }
+.work .whead .wic { display: flex; flex: none; color: var(--fg-3); }
+.work .whead b { font-weight: 500; color: var(--fg); flex: none; }
+.work .whead .sum {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 11.5px; text-align: left; color: var(--fg-3);
+}
+.work .whead .st { flex: none; display: flex; }
+.work.going .st { color: var(--run); }
+.work.ok .st { color: var(--done); }
+.work.bad .st { color: var(--err); }
+.work .wbody {
+  display: none; flex-direction: column; gap: 8px;
+  margin: 6px 0 0 7px; padding: 2px 0 2px 15px; border-left: 1px solid var(--line);
+}
+.work.open .wbody { display: flex; }
+.work .tool { background: var(--bg-raised); }
+
+/* Expand tool rows for input and output; color indicates status. */
+.tool { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); overflow: hidden; }
+.tool .thead {
+  width: 100%; height: 30px; padding: 0 10px; gap: 8px; border: none; border-radius: 0;
+  display: flex; align-items: center; justify-content: flex-start;
+  background: none; color: var(--fg-2); font-size: 12.5px; font-weight: 400;
+}
+.tool .thead:hover { background: var(--bg-raised); }
+.tool .thead .tic { display: flex; flex: none; color: var(--fg-3); }
+.tool .thead b { font-weight: 500; color: var(--fg); flex: none; }
+.tool .thead .sum {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 11.5px; text-align: left;
+}
+.tool .thead .bgtag { flex: none; font-size: 11px; color: var(--run); }
+.tool .thead .bgtag:empty { display: none; }
+.tool .thead .st { flex: none; display: flex; }
+.tool.run .st { color: var(--run); }
+.tool.ok .st { color: var(--done); }
+.tool.bad .st { color: var(--err); }
+.tool .tbody { display: none; flex-direction: column; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); }
+.tool.open .tbody { display: flex; }
+.tool.plan .thead { pointer-events: none; }
+.tin { display: flex; flex-direction: column; gap: 6px; }
+.trow { display: flex; flex-direction: column; gap: 2px; }
+.tk { font-family: var(--mono); font-size: 11px; color: var(--fg-3); }
+.tin pre, .tout, .tdiff {
+  margin: 0; font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow-y: auto; color: var(--fg-2);
+}
+.tout { padding-top: 8px; border-top: 1px dashed var(--line-raised); color: var(--fg); }
+.tfail { display: flex; align-items: center; gap: 7px; color: var(--fg-2); font-size: 12px; }
+.tfail .tic { display: flex; flex: none; color: var(--err); }
+.ttechnical { color: var(--fg-3); font-size: 11.5px; }
+.ttechnical > summary { list-style: none; cursor: default; width: fit-content; }
+.ttechnical > summary::-webkit-details-marker { display: none; }
+.ttechnical > summary::before { content: "›"; display: inline-block; width: 12px; }
+.ttechnical[open] > summary::before { transform: rotate(90deg); }
+.ttech { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.ttech .tout { color: var(--fg-2); }
+.tdiff .del { display: block; color: var(--err); background: var(--del-bg); }
+.tdiff .add { display: block; color: var(--done); background: var(--add-bg); }
+.tdiff .hunk { display: block; color: var(--accent, var(--fg-2)); }
+.tdiff .meta { display: block; color: var(--fg-3); }
+.md pre.tdiff { white-space: pre; }
+/* The /context view groups categories into folded sections. */
+.ctxpanel { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-side); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
+.ctxhead { display: flex; align-items: baseline; gap: 10px; }
+.ctxhead b { font-weight: 500; color: var(--fg); }
+.ctxhead .model { font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); }
+.ctxhead .use { margin-left: auto; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.ctxbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); }
+.ctxbar i { display: block; height: 100%; min-width: 2px; }
+.ctxrows { display: grid; grid-template-columns: auto 1fr auto auto; column-gap: 10px; row-gap: 3px; align-items: center; }
+.ctxrow { display: contents; color: var(--fg-2); }
+.ctxrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-raised); }
+.ctxrow .n, .ctxrow .pct { font-variant-numeric: tabular-nums; text-align: right; color: var(--fg-3); }
+.ctxrow .n { color: var(--fg-2); }
+.ctxrow.free { color: var(--fg-3); }
+.ctxsec, .ctxgrp { color: var(--fg-2); }
+.ctxsec > summary, .ctxgrp > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: default; padding: 3px 0; }
+.ctxsec > summary::-webkit-details-marker, .ctxgrp > summary::-webkit-details-marker { display: none; }
+.ctxsec > summary::before, .ctxgrp > summary::before { content: "›"; width: 8px; color: var(--fg-3); }
+.ctxsec[open] > summary::before, .ctxgrp[open] > summary::before { content: "⌄"; }
+.ctxsec > summary .title { color: var(--fg); }
+.ctxgrp { margin-left: 16px; }
+.ctxgrp > summary .title { font-family: var(--mono); font-size: 11.5px; }
+.ctxsec summary .count { color: var(--fg-3); font-size: 11.5px; }
+.ctxsec summary .n { margin-left: auto; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.ctxtable { margin-left: 16px; display: flex; flex-direction: column; gap: 1px; max-height: 320px; overflow-y: auto; }
+.ctxline { display: flex; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); }
+.ctxline .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctxline .src { color: var(--fg-3); }
+.ctxline .n { color: var(--fg-3); font-variant-numeric: tabular-nums; }
+/* Fold the Markdown summary after compaction. */
+.think.summary > .md { font-size: 12.5px; max-height: 420px; }
+.spin {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 1.5px solid currentColor; border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Attention cards: permissions, questions, and plans. */
+.ask {
+  padding: 12px 14px; border: 1px solid var(--wait); background: var(--wait-bg); border-radius: var(--r-xl);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ask h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.ask .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ask .row .spacer { flex: 1; }
+.ask .fb { display: flex; flex-direction: column; gap: 6px; }
+.ask .fb textarea { width: 100%; resize: vertical; }
+.ask .qtabs { display: flex; gap: 2px; border-bottom: 1px solid rgb(224 160 48 / 0.35); }
+.ask .qtab {
+  height: 28px; padding: 0 10px; gap: 6px; border: none; border-radius: 0; background: none;
+  color: var(--fg-3); font-size: 12.5px; display: flex; align-items: center;
+}
+.ask .qtab .ic { display: none; color: var(--done); }
+.ask .qtab.done .ic { display: block; }
+.ask .qtab.done { color: var(--fg-2); }
+.ask .qtab.on { color: var(--fg); box-shadow: inset 0 -2px var(--wait); }
+.ask .qbody { display: flex; flex-direction: column; gap: 6px; }
+.ask .qbody p { margin: 0; font-weight: 500; }
+.ask .opts { display: flex; flex-direction: column; gap: 4px; }
+/* Wrap option labels to prevent horizontal overflow. */
+.ask .opt {
+  height: auto; padding: 6px 10px; gap: 1px; text-align: left;
+  display: flex; flex-direction: column; align-items: flex-start;
+  white-space: normal; overflow-wrap: anywhere;
+  background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r); color: var(--fg);
+}
+.ask .opt > * { max-width: 100%; }
+.ask .opt:hover { background: var(--bg-raised-2); }
+.ask .opt.on { border-color: var(--accent); }
+.ask .opt b { font-weight: 500; }
+.ask .opt span { font-size: 12px; color: var(--fg-2); }
+.ask input.field { width: 100%; }
+
+/* System lines. */
+.sys { font-size: 12px; color: var(--fg-3); text-align: center; }
+.sys.err { color: var(--err); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sys.done { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.syserr { font-size: 12px; color: var(--fg-2); }
+.syserr > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
+.syserr > summary::-webkit-details-marker { display: none; }
+.syserr .eic { display: flex; flex: none; color: var(--err); }
+.syserr b { flex: none; color: var(--fg); font-weight: 500; }
+.syserr .prev { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.syserr > pre {
+  margin: 8px 0 0 19px; padding: 8px 10px; max-height: 240px; overflow: auto;
+  border-left: 1px solid var(--line); color: var(--fg-2); font: 11.5px/1.5 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* The composer uses a raised background. */
+.composer {
+  flex: none; align-self: center; width: calc(100% - 48px); max-width: 860px; margin: 4px 0 14px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl);
+  container-type: inline-size;
+}
+.composer:focus-within { border-color: var(--line-ghost); }
+.composer textarea {
+  background: none; border: none; resize: none; padding: 4px;
+  font: inherit; font-size: 14px; line-height: 1.5; color: var(--fg); min-height: 60px; max-height: 40vh;
+}
+.composer textarea:focus-visible { outline: none; }
+.composer textarea::placeholder { color: var(--fg-3); }
+.composer textarea:disabled { color: var(--fg-3); }
+.composer .crow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.composer .hint { margin-left: auto; font-size: var(--hint-size); color: var(--fg-3); }
+.composer .hint:empty { display: none; }
+/* Keep agent settings separate from tools and submission controls. */
+.composer .with { display: flex; align-items: center; gap: 2px; min-width: 0; max-width: 100%; font-size: 12px; color: var(--fg-2); }
+.composer .with button { height: 22px; min-height: 22px; padding: 0 8px; gap: 6px; font-size: 12px; }
+.composer .mdl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--fg-2); }
+.composer .mdl span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer .mdl .ic { color: var(--fg-3); }
+.composer .with .effort { display: inline-flex; align-items: center; gap: 7px; flex: none; color: var(--fg-3); }
+/* Busy and remote controls remain readable but cannot be clicked. */
+.composer .with button:disabled { pointer-events: none; }
+.composer .with.ro button { background: none; }
+.composer .composer-toolbar { padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.composer .composer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); min-width: 0; }
+.composer .composer-controls { display: flex; align-items: center; gap: var(--space-2); flex: none; margin-left: auto; }
+.composer .composer-tools button, .composer .remotebtn {
+  height: var(--button-height); padding: 0 var(--space-2); gap: 6px; font-size: var(--text-sm); color: var(--fg-2); white-space: nowrap;
+}
+.composer .addfile, .composer .mic { width: var(--button-height); padding: 0; }
+.composer .mic.on { color: var(--err); }
+.composer .mic.on .ic { animation: beat 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .composer .mic.on .ic { animation: none; } }
+.composer .mcpbtn span, .composer .plugbtn span, .composer .skillbtn span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.composer .mcpbtn.on, .composer .plugbtn.on, .composer .skillbtn.on { color: var(--fg); }
+.composer .remotebtn { border-radius: var(--r); }
+.composer .remotebtn.on {
+  color: var(--tab-line); background: color-mix(in srgb, var(--tab-line) 12%, transparent);
+  border-color: color-mix(in srgb, var(--tab-line) 40%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tab-line) 14%, transparent);
+}
+.composer .quotesel { align-self: flex-start; max-width: 100%; }
+.composer .stop { width: var(--button-height); padding: 0; }
+/* Use a round submit arrow without a text label. */
+.composer .send.round {
+  width: var(--button-height); height: var(--button-height); flex: none; padding: 0; border-radius: 50%;
+  background: var(--pri); color: var(--pri-fg);
+}
+.composer .send.round:hover { background: #fff; }
+/* Compact labels by available conversation width, including resized desk tiles. */
+@container (max-width: 520px) {
+  .composer .composer-tools button > span, .composer .remotebtn > span { display: none; }
+  .composer .composer-tools button, .composer .remotebtn { width: var(--button-height); padding: 0; }
+}
+/* Allow attachment chips to wrap. */
+.composer .cfiles { display: flex; flex-wrap: wrap; gap: 6px; }

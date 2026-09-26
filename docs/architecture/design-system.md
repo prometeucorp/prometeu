@@ -13,9 +13,10 @@ rendering, behavior, styles and Rails adaptation.
   lifecycle and accessibility contracts.
 - [`src/ui-tokens.css`](../../src/ui-tokens.css): imports the tokens and keeps
   only the geometry and states exclusive to the desktop.
-- [`src/ui.css`](../../src/ui.css): imports the shared components and adapts
-  only legacy controls to the desktop. `style.css` imports that base; the
-  screens' composition styles stay in the screens.
+- [`src/ui.css`](../../src/ui.css): imports the shared components and retains
+  legacy control rules. Legacy button selectors exclude `.ui-button` so shared
+  buttons retain the package contract. `style.css` imports that base and still holds some screen composition
+  styles alongside feature stylesheets.
 - [`src/ui.ts`](../../src/ui.ts): re-exports the package's components, with no
   local implementation of `button`, `input`, `field`, `checkbox`, `select`,
   `dropdown`, `disclosure` or `formDialog`.
@@ -101,16 +102,53 @@ Browser mock screenshots: [workspace](../images/ui/workspace.png),
 New controls and changes to existing controls must reuse this base. If behavior
 is missing, add it to the corresponding primitive and show the state in the
 gallery. Do not copy CSS from one screen to another, and do not introduce a
-component for a composition that exists on a single screen.
+generic abstraction without real reuse. Cohesive chat or Git components may
+stay specific to that domain while providing isolated examples and typed APIs.
+
+## Desktop catalog and production adoption
+
+[`src/components/`](../../src/components/README.md) is the discoverable Desktop
+component entry point. Its `catalog.json` maps component ids to source files,
+exports, states and real consumers. The gallery supports search, direct URLs
+(`/design-system.html?component=diff&state=split`) and isolated canvases
+(`&embed=1`). Its JSON link remains available in the production build.
+
+ChatView now calls the catalog's block, work, request, composer and attachment
+components. It retains transport, timeline coordination, drafts and permission
+mode changes. Workspace Changes calls Git file rows, groups and the commit form;
+operations and stale-state guards remain in the adapter. The diff reader owns
+its observer and caches per instance; the existing Desktop adapter supplies
+persisted review state. Icons and Markdown also have their canonical Desktop
+source under `components/`, with compatibility exports for existing consumers.
+
+Stories import those production implementations with deterministic sample data.
+They do not bootstrap the app, initialize the mock or invoke real operations.
+The catalog test checks source existence, story coverage and import reachability
+from every declared production consumer. Boundary checks reject integration
+imports and direct network/storage effects in component code. The gallery offers
+two independent diff readers for visual inspection.
+
+## Reusable Desktop compositions
+
+`src/components/compositions.ts` provides typed section headers, toolbars, item rows,
+overflow actions and list states above the package primitives. Resources and
+Actions both use them. `src/components/compositions.css` owns common layout; screen
+styles retain only their variants. These Desktop components have no feature
+imports or application effects and do not change the distributed Cloud API.
+The [composition recipe](desktop-composition.md) lists each API and real use.
+`/design-system.html#components-preview` demonstrates an independent screen
+assembled from these parts with local callbacks and selectable states.
 
 ## Settings composition
 
 `src/settings.ts` groups preferences into General, Agents, Resources, Actions,
 and Work and team. Navigation keeps the compact, neutral sidebar; settings
-search sits in the content header. `src/settings.css` owns only this screen's layout; buttons,
-inputs, selectors, disclosures and menus reuse the shared primitives. The
-resource library composes the existing MCP, plugin, skill and organization
-catalog rows, preserving their callbacks, validation and busy state. Item
+search sits in the content header. `src/settings.css` defines composition and
+overrides some control dimensions; base Settings styles also remain in
+`src/style.css`. Shared primitives coexist with legacy controls; Actions keeps
+shared button classes when adding local styles. The resource library uses
+`src/components/resource-view.ts` and `resource-view.css`, independent of legacy row selectors.
+Hubs project typed data and callbacks, preserving validation and busy state. Item
 operations live in an overflow menu; the Add resource menu retains all existing
 creation and import paths. A registered resource is not automatically enabled.
 
@@ -129,6 +167,12 @@ scroll before a disclosure reopens, which pure matching tests cannot prove.
 Existing accounts, Cloud catalog, MCP, notifications, projects and organization
 scenarios continue to cover their production paths through the grouped UI.
 
+The [Desktop audit](../quality/desktop-design-system-audit.md) records the
+baseline and pilot outcome. The [composition recipe](desktop-composition.md)
+shows how agents can use the same presentation with synthetic data; the
+[presentation contract](../contracts/desktop-presentation.md) defines its
+inputs and lifecycle. Other Settings pages retain their existing integration.
+
 ## Gallery and verification
 
 `/packages/design-system/index.html` is the company's standalone gallery: it
@@ -140,14 +184,19 @@ styles and Ruby adapter in `vendor/design-system`, imported by
 `form.field`, `form.button` and the package's helpers, which keep the markup out
 of the screens.
 The desktop and the Cloud's application screens use the default compact
-density; `ui-comfortable` (44px) is reserved for the Cloud's touch flows, such
-as login and Mac authorization. Changes start in the package and reach the Cloud
-through a new import, never by editing the vendored files.
+density. `ui-comfortable` (44px) serves the Cloud's touch flows, such
+as login and Mac authorization, and is also applied to the standalone gallery.
+The desktop gallery uses compact density with the app's CSS. Changes start in
+the package and reach the Cloud through a new import, never by editing the
+vendored files.
 
 Run `npm run dev` and open `/design-system.html` on the same port. The gallery
 is also an entry point of the web build and does not start the backend or
 agents. It shows tokens, buttons, fields, selection, error, disabled, checkbox,
 menu with tag, disclosure and a form with a simulated success or failure.
+`#resources-preview` renders the production Resources view with populated,
+empty, loading, recoverable-error, pending, unavailable and long-text examples.
+Search and filter work locally; example callbacks never invoke the hubs.
 
 [`e2e/design-system.spec.ts`](../../e2e/design-system.spec.ts) covers keyboard,
 focus, validation, recoverable failure and a narrow viewport in the standalone

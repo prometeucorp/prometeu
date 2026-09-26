@@ -19,6 +19,21 @@ files; removing either of those definitions does not delete the shared clone. To
 modify the files independently, register another directory. Copied skills have
 their own package and content.
 
+When the personal catalog already has an equivalent plugin or skill, the action
+becomes `Link to personal catalog`: it links the private item to that
+definition instead of publishing a duplicate. It is refused when another
+installed copy still holds the link. MCPs are excluded because personal MCPs
+always install their own copy.
+
+The Resources list shows one row per resource. Its source column lists badges:
+`This Mac` when a local item exists, `Personal` (with `⇄` when linked) and each
+organization that offers the same or an equivalent definition. A definition with
+the name of an installed item but a different definition does not get its own
+row; the installed row shows `<source> ≠` and offers `Install from <source>`,
+which installs it under a distinct local ID. Definitions missing from this Mac
+are grouped by name, case-insensitively, into one row whose menu offers
+`Install here`, or `Install from <source>` when several catalogs offer it.
+
 Received MCPs enter the hub, without automatic connection or activation.
 Installed MCP rows offer **Test connection** and, for remote servers,
 **Authenticate** or **Sign out** on this Mac. These actions use the existing
@@ -32,7 +47,9 @@ discarded when the configuration changes, but pending operations keep actions
 blocked until they settle even if a catalog refresh replaces the definition.
 Existing definitions also authenticate from the
 editor without saving; connection edits must be explicitly saved first.
-Received plugins and skills appear as available, with `Install here`. The
+Received plugins and skills appear as available, with `Install here`. An
+unlinked equivalent private item satisfies a personal definition: it counts as
+installed without creating a link, so its later edits stay private. The
 per-workspace/per-conversation selection still determines what the providers
 receive. The desktop checks for updates on login, when the window regains focus,
 every 60 seconds while visible and on **Refresh account**. There is no catalog
@@ -115,7 +132,10 @@ an accepted membership. Each institutional item shows the organization's name
 and `Install here`, without requiring a copy into the personal account. The
 installation creates an independent local record, without automatic activation
 or publication. An equivalent local definition counts as installed, so the
-desktop does not offer a duplicate installation. Plugins match by ID and source,
+desktop does not offer a duplicate installation. Plugins match by
+case-insensitive ID and source; GitHub owners and repositories also compare
+case-insensitively and ignore a `.git` suffix. The personal catalog uses the
+same rules,
 MCPs by ID and portable configuration after credentials are blanked, and skills
 by their full definition. Installing from stale state links that local record
 instead of creating another one. In the Cloud, the owner and administrators do CRUD; copying
@@ -143,7 +163,7 @@ Signing out or losing membership keeps the installed records and files.
 | --- | --- | --- |
 | `catalog_state` | none | connected, revision, plugins, mcp, skills and shared |
 | `catalog_install_project` | organization (nullable), id, revision, directory, existing | registered Project; rechecks current membership, revision and source before clone or link |
-| `catalog_share` | kind, local id | empty; publishes and links |
+| `catalog_share` | kind, local id | empty; publishes and links, or links to an equivalent personal plugin or skill |
 | `catalog_copy` | kind, local id, newId | empty; creates a private definition |
 | `catalog_install_plugin` | account id | empty; installs the selected source |
 | `catalog_install_skill` | account id | empty; materializes the skill |
@@ -159,7 +179,9 @@ Catalog refresh runs through `cloud_status` with `refresh: true`, including
 `plugin_save` and `mcp_save` also receive `revision` when editing a shared item.
 New private items do not need a revision. The `catalog` event updates the
 interface's hubs and markers. `plugins` and `skills` in the state include
-`local_id` and `installed`; plugins also include `source_changed`. `shared` maps
+`local_id` and `installed`; plugins also include `source_changed`. `local_id`
+names the linked installation or, when it is missing, the equivalent private
+item that satisfies the definition. `shared` maps
 `<type>:<local id>` to the ID in the account.
 
 ## Git projects
@@ -228,7 +250,8 @@ install dependencies or configure skills, MCPs or plugins. Native credential
 helpers and SSH authentication require a configured Mac; browser tests simulate
 cloning, while Rust tests exercise real Git against a local upload-pack fixture.
 The additive `organization_items` field contains `{ organization,
-organization_name, revision, kind, id, description, installed }`. The frontend
+organization_name, revision, kind, id, description, installed, local_id }`.
+`local_id` is the installed local item that satisfies the definition, or null. The frontend
 tolerates its absence. The installation queries the organization's catalog
 again; if the document changed, it updates the cache and returns a conflict
 before installing. `installed` also covers equivalent local definitions, even
@@ -244,7 +267,10 @@ with empty credentials.
   preservation of skills omitted by older clients. See the
   [shared fixture workflow](../operations/development.md#shared-cloud-api-fixtures).
 - `src-tauri/src/catalog.rs`: link migration, name collisions, preservation of
-  private items and credentials, rejection of malformed documents.
+  private items and credentials, rejection of malformed documents, personal
+  equivalence, GitHub source comparison and linking on share.
+- `src/catalog.test.ts`: resource-list sources, differing same-name definitions
+  and grouping of missing definitions.
 - `src-tauri/src/skills.rs`: validation, directory isolation, frontmatter, both
   providers' manifests and content updates.
 - `e2e/cloud.spec.ts`: explicit sharing, private copy, offline editing and

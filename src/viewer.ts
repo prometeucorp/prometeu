@@ -46,6 +46,10 @@ let query: HTMLInputElement;
 const box = () => $("vtext") as HTMLTextAreaElement;
 const here = () => (shown ? key(shown.id, shown.path) : "");
 const draft = () => drafts.get(here());
+const imageTypes: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon",
+};
 
 export function init(onError: (m: string) => void, onSaved: (id: string) => void) {
   fail = onError;
@@ -235,7 +239,9 @@ export function moveDrafts(id: string, from: string, to: string | null) {
 
 /// Board events refresh open files; preserve scrolling when the content is unchanged.
 export async function show(id: string, path: string) {
-  const kind = /\.pdf$/i.test(path) ? "pdf" : /\.csv$/i.test(path) ? "csv" : null;
+  const extension = path.split(".").pop()?.toLowerCase() ?? "";
+  const kind = /\.pdf$/i.test(path) ? "pdf" : /\.csv$/i.test(path) ? "csv"
+    : Object.prototype.hasOwnProperty.call(imageTypes, extension) ? "image" : null;
   if (kind) return showBlob(id, path, kind);
   const k = key(id, path);
   const same = shown?.id === id && shown.path === path;
@@ -258,7 +264,7 @@ export async function show(id: string, path: string) {
   crumb(path);
   blob(false);
   if (!same) reading = false;
-  $("vview").hidden = !!error || !/\.(md|markdown)$/i.test(path);
+  $("vview").hidden = !!error || !/\.(md|markdown|svg)$/i.test(path);
 
   // Unreadable, binary, or oversized files display an error instead of an editable buffer.
   const ta = box();
@@ -297,10 +303,24 @@ function view(next: boolean) {
   reading = next;
   // Marks belong to the source layout; the rendered preview has no find bar.
   if (next) closeFind(false);
-  $("vcode").hidden = next;
-  $("vread").hidden = !next;
   $("vsource").setAttribute("aria-pressed", String(!next));
   $("vpreview").setAttribute("aria-pressed", String(next));
+  if (shown && /\.svg$/i.test(shown.path)) {
+    blob(false);
+    $("vcode").hidden = next;
+    $("vfile").hidden = !next;
+    if (next) {
+      const into = $("vfile");
+      renderImage(into, new Blob([box().value], { type: "image/svg+xml" }), shown.path, () => {
+        URL.revokeObjectURL(fileUrl);
+        fileUrl = "";
+        into.textContent = t("viewer.imageError");
+      });
+    }
+    return;
+  }
+  $("vcode").hidden = next;
+  $("vread").hidden = !next;
   if (next) $("vread").innerHTML = md(box().value);
 }
 
@@ -312,23 +332,32 @@ function crumb(path: string) {
   el.children[2].textContent = path.slice(cut + 1);
 }
 
-/// PDF and CSV use #vfile. Release the previous PDF URL, which retains the entire file.
-let pdfUrl = "";
+/// Non-code files use #vfile. Release the previous object URL, which retains the file bytes.
+let fileUrl = "";
 function blob(on: boolean) {
   // The tab already names the file, and these formats have no save controls.
   $("vbar").hidden = on;
   $("vcode").hidden = on;
   $("vread").hidden = true;
   $("vfile").hidden = !on;
-  if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-  pdfUrl = "";
-  // Clear the iframe when switching from PDF to CSV.
+  if (fileUrl) URL.revokeObjectURL(fileUrl);
+  fileUrl = "";
   $("vfile").replaceChildren();
 }
 
-/// WebKit renders PDF in an iframe; CSV uses a table.
+function renderImage(into: HTMLElement, content: Blob, path: string, onError: () => void) {
+  into.className = "vfile image";
+  fileUrl = URL.createObjectURL(content);
+  const img = document.createElement("img");
+  img.alt = path.split("/").pop() || path;
+  img.onerror = () => { if (into.contains(img)) onError(); };
+  img.src = fileUrl;
+  into.append(img);
+}
+
+/// WebKit renders PDF in an iframe; CSV uses a table; images use the browser decoder.
 /// Read bytes only when the disk stamp changes to avoid large reads on every board event.
-async function showBlob(id: string, path: string, kind: "pdf" | "csv") {
+async function showBlob(id: string, path: string, kind: "pdf" | "csv" | "image") {
   const same = shown?.id === id && shown.path === path;
   const currentRequest = ++request;
   let stamp = "";
@@ -361,10 +390,19 @@ async function showBlob(id: string, path: string, kind: "pdf" | "csv") {
   const into = $("vfile");
   into.className = `vfile ${kind}`;
   if (kind === "pdf") {
-    pdfUrl = URL.createObjectURL(new Blob([bytes!], { type: "application/pdf" }));
+    fileUrl = URL.createObjectURL(new Blob([bytes!], { type: "application/pdf" }));
     const frame = document.createElement("iframe");
-    frame.src = pdfUrl;
+    frame.src = fileUrl;
     into.append(frame);
+    return;
+  }
+  if (kind === "image") {
+    const type = imageTypes[path.split(".").pop()?.toLowerCase() ?? ""];
+    renderImage(into, new Blob([bytes!], { type }), path, () => {
+      if (currentRequest !== request) return;
+      blob(false);
+      $("vpre").textContent = t("viewer.imageError");
+    });
     return;
   }
   table(into, parse(decode(bytes!)));

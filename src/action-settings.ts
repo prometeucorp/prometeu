@@ -5,7 +5,8 @@ import { openModelPicker, openEffortPicker } from "./model-picker";
 import { fromBack, t, type Key } from "./i18n";
 import * as mcp from "./mcp";
 import * as menu from "./menu";
-import { icon } from "./icons";
+import { sectionHeader, itemRow, overflowAction, listState } from "./components/compositions";
+import type { IconName } from "../packages/design-system/src/icons";
 import * as plugins from "./plugins";
 import { h } from "./util";
 import * as ui from "./ui";
@@ -15,33 +16,20 @@ const button = (key: Key, run: () => void) => ui.button(t(key), run);
 const field = (key: Key, control: HTMLElement) => ui.field(t(key), control);
 const checkbox = (key: Key, checked: boolean) => ui.checkbox(t(key), checked);
 const { input, select } = ui;
-function more(name: string, items: menu.Item[]) {
-  const b = button("actions.more", () => {
-    const box = b.getBoundingClientRect();
-    menu.openAt({ x: box.right, y: box.bottom + 4 }, items);
-  });
-  b.className = "ico action-more";
-  b.innerHTML = icon("ellipsis", 16);
-  b.setAttribute("aria-label", `${t("actions.more")} · ${name}`);
-  return b;
+function more(name: string, items: menu.Item[], key = name) {
+  return overflowAction({ label: `${t("actions.more")} · ${name}`, key: `action-more-${key}`, items });
 }
 function section(title: Key, count: number, controls: HTMLElement[]) {
   const root = h("section", "action-section");
-  const header = h("div", "action-section-head");
-  const heading = h("h2", "", t(title)); heading.append(h("span", "action-count", String(count)));
-  const tools = h("div", "action-toolbar"); tools.append(...controls);
-  header.append(heading, tools); root.append(header);
+  root.append(sectionHeader({ title: t(title), count, actions: controls }));
   return root;
 }
-function card(title: string, description: string, glyph: Parameters<typeof icon>[0], edit: () => void, options: menu.Item[]) {
-  const root = h("article", "action-card");
-  const mark = h("span", "action-mark"); mark.innerHTML = icon(glyph, 19);
-  const text = h("div", "action-card-copy");
-  const heading = h("div", "action-card-title"); heading.append(h("b", "", title));
-  text.append(heading, h("p", "action-description", description));
-  const editButton = button("actions.edit", edit); editButton.className = "ghost sm action-edit";
-  root.append(mark, text, editButton, more(title, options));
-  return { root, heading, text };
+function card(key: string, title: string, description: string, glyph: IconName, edit: () => void, options: menu.Item[]) {
+  const editButton = ui.button(t("actions.edit"), edit, "ghost"); editButton.classList.add("action-edit");
+  editButton.dataset.focus = `action-edit-${key}`;
+  const row = itemRow({ title, description, glyph, actions: [editButton, more(title, options, key)] });
+  row.root.classList.add("action-card");
+  return { root: row.root, heading: row.heading, text: row.copy };
 }
 
 export function settingsRows(redraw: () => void, say: (text: string, bad?: boolean) => void): HTMLElement[] {
@@ -50,13 +38,12 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
   const root = h("div", "actions-page");
   root.append(h("p", "actions-intro", t("actions.intro")));
   const create = button("actions.newCommand", () => commandEditor(null, redraw));
-  create.className = "outline md";
   const commands = section("actions.commands", catalog.commands.length, [create]);
   const commandList = h("div", "action-list");
   for (const action of catalog.commands) {
     const profile = catalog.profiles.find(p => p.id === action.profile);
     const builtin = action.profile === "prometeu-code-review";
-    const item = card(action.kind === "agent" ? profile?.name ?? action.name : action.name,
+    const item = card(`command-${action.name}`, action.kind === "agent" ? profile?.name ?? action.name : action.name,
       action.description || t(builtin ? "actions.reviewDescription" : action.kind === "agent" ? "actions.agentDescription" : "actions.promptDescription"),
       action.kind === "agent" ? "sparkles" : "terminal", () => commandEditor(action, redraw), [{
         label: t("actions.remove"), run: () => {
@@ -70,7 +57,7 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
     item.text.append(h("span", "action-caption", t(action.kind === "agent" ? "actions.agent" : "actions.prompt")));
     commandList.append(item.root);
   }
-  if (!catalog.commands.length) commandList.append(h("p", "action-empty", t("actions.noCommands")));
+  if (!catalog.commands.length) commandList.append(listState({ kind: "empty", text: t("actions.noCommands") }));
   commands.append(commandList);
 
   const scopeSelect = select(scope, [["", t("actions.global")], ...actions.projects().map(p => [p.id, p.name] as [string, string])]);
@@ -84,7 +71,7 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
     const overridden = scope && catalog.overrides[scope]?.[base.id];
     const profile = overridden || base;
     const model = profile.choice.model ? modelLabelOf(profile.choice.model, profile.choice.agent) : t("actions.default");
-    const item = card(profile.name, `${descriptor(profile.choice.agent).label} · ${model}`,
+    const item = card(`profile-${base.id}`, profile.name, `${descriptor(profile.choice.agent).label} · ${model}`,
       "eye", () => profileEditor(profile, scope, redraw), [{
         label: t(scope ? "actions.reset" : "actions.remove"), disabled: !!scope && !overridden,
         run: () => {
@@ -104,7 +91,7 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
     if (profile.watch) item.text.append(h("span", "action-caption", t("actions.watchEnabled")));
     profileList.append(item.root);
   }
-  if (!catalog.profiles.length) profileList.append(h("p", "action-empty", t("actions.noProfiles")));
+  if (!catalog.profiles.length) profileList.append(listState({ kind: "empty", text: t("actions.noProfiles") }));
   profiles.append(profileList);
 
   const pr = select(catalog.pr_action ?? "", [["", t("actions.prLegacy")], ...catalog.commands.filter(c => c.kind === "agent").map(c => [c.name, `/${c.name}`] as [string, string])]);

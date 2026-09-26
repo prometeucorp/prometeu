@@ -96,6 +96,6 @@ Status: Proposed
 | [0056](0056-background-tasks-hold-completion.md) | A turn only completes when its background tasks drain |
 | [0057](0057-skill-kickoff-and-artifact-path.md) | Start a conversation from a skill, with a project-declared artifact path |
 | [0058](0058-optional-context-evaluation.md) | Optional context evaluation behind an application-owned port |
-
 | [0059](0059-local-telemetry-foundation.md) | Local telemetry with canonical events in SQLite |
-| [0060](0060-background-energy-policy.md) | Separate display sleep from agent work |
+| [0060](0060-isolated-desktop-presentation.md) | Isolated Desktop presentation and executable compositions |
+| [0061](0061-background-energy-policy.md) | Separate display sleep from agent work |

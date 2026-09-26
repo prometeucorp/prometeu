@@ -1,4 +1,4 @@
-# ADR 0060 — Separate display sleep from agent work
+# ADR 0061 — Separate display sleep from agent work
 
 Date: 2026-09-25
 Status: Accepted

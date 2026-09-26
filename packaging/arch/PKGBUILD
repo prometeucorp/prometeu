@@ -1,7 +1,7 @@
 # Builds the committed tree of this checkout, so there is no remote source to verify.
 # See docs/operations/linux.md.
 pkgname=prometeu
-pkgver=0.17.0
+pkgver=0.18.2
 pkgrel=1
 pkgdesc='Desktop app for Claude Code, Codex and Antigravity CLI with parallel Git worktrees'
 arch=('x86_64' 'aarch64')
