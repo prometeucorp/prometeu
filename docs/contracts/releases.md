@@ -40,10 +40,10 @@ Platform jobs upload final signed packages as separate workflow artifacts. One
 job assembles the manifest only after both succeed, using the signatures beside
 the final files, including the repacked AppImage. It writes both generic and
 installer-specific entries. It verifies local artifacts before upload and the
-downloaded draft afterward. Reruns leave existing releases untouched and verify
-their downloaded assets; incomplete or invalid drafts fail verification. Uploads
-never replace existing assets, including when manual publication races with the
-initial draft check. The public format, asset names, URLs and updater key remain
+downloaded draft afterward. Reruns fail if the release already exists: signatures,
+version and notes cannot prove which commit built an older draft after a tag
+moves. Rebuilding requires manual draft removal. Uploads never replace existing
+assets, including when manual publication races with the initial draft check. The public format, asset names, URLs and updater key remain
 unchanged.
 
 ## Installation ownership

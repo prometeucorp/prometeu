@@ -70,9 +70,10 @@ workflow artifacts with stable filenames. Each job checks that its commit
 belongs to `main` before using signing credentials. Only the final job assembles
 `latest.json` and writes the draft, after both jobs succeed. It verifies updater
 signatures and Apple notarization before upload, then downloads the draft and
-verifies them again. Reruns leave existing drafts untouched and verify their
-downloaded assets; incomplete drafts fail and require manual removal before a
-new run. Uploads never replace assets, even if someone publishes concurrently.
+verifies them again. Reruns fail if any release already exists, so a moved tag
+cannot silently reuse binaries from an older draft. Rebuilding requires manual
+draft removal; published releases require a new version. Uploads never replace
+assets, even if someone publishes concurrently.
 Runs for the same ref remain serialized.
 The manifest and stable names are defined in the
 [release contract](../contracts/releases.md).

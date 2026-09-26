@@ -128,8 +128,8 @@ watch_run() {
   done
 }
 
-# Upload new releases only. Existing drafts are downloaded and verified by the workflow;
-# never replace assets, even if someone publishes between the state check and upload.
+# Upload new releases only. Existing drafts may belong to an older commit of a moved tag;
+# fail instead of reusing them or replacing assets during concurrent publication.
 draft() {
   VERSION=$1
   DIRECTORY=$2
@@ -142,8 +142,7 @@ draft() {
   [ -n "${RELEASE_NOTES:-}" ] || die "Missing release notes"
   if DRAFT=$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft 2>/dev/null); then
     [ "$DRAFT" = true ] || die "$TAG is already published; refusing to replace assets"
-    echo "$TAG draft already exists; verify its downloaded assets without modifying it"
-    return 0
+    die "$TAG draft already exists; remove the draft manually before rebuilding"
   fi
   NOTES_FILE=$(mktemp "${TMPDIR:-/tmp}/prometeu-notes.XXXXXX")
   printf '%s\n' "$RELEASE_NOTES" > "$NOTES_FILE"

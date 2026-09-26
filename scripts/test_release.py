@@ -78,7 +78,7 @@ else:
             gh.chmod(0o755)
             cases = [(set(ASSETS) - {name}, "missing", False) for name in ASSETS]
             cases += [(set(ASSETS), "false", False), (set(ASSETS), "missing", True),
-                      (set(ASSETS), "true", True), (set(ASSETS), "publish-after-check", True)]
+                      (set(ASSETS), "true", False), (set(ASSETS), "publish-after-check", False)]
             for assets, draft, allowed in cases:
                 with self.subTest(assets=assets, draft=draft):
                     calls.unlink(missing_ok=True)
@@ -94,6 +94,8 @@ else:
                         capture_output=True, text=True,
                     )
                     self.assertEqual(result.returncode == 0, allowed, result.stderr)
+                    if draft in ("true", "publish-after-check"):
+                        self.assertIn("draft already exists", result.stderr)
                     uploads = allowed and draft == "missing"
                     self.assertEqual(calls.exists(), uploads)
                     if uploads:
