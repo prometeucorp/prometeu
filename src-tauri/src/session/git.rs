@@ -26,6 +26,9 @@ const PORCELAIN_TTL: Duration = Duration::from_secs(1);
 struct SlotState<T> {
     generation: u64,
     scanned: u64,
+    /// Counts published scans, so a waiter takes the result of the scan it joined even when that
+    /// result is an error that later readers must not reuse.
+    completed: u64,
     at: Option<Instant>,
     value: Option<Result<T, String>>,
     scanning: bool,
@@ -42,6 +45,7 @@ impl<T> Default for Slot<T> {
             state: Mutex::new(SlotState {
                 generation: 0,
                 scanned: 0,
+                completed: 0,
                 at: None,
                 value: None,
                 scanning: false,
@@ -59,14 +63,40 @@ impl<T: Clone> Slot<T> {
         self.changed.notify_all();
     }
 
+    fn generation(&self) -> u64 {
+        lock(&self.state).generation
+    }
+
+    fn fresh(&self, ttl: Duration) -> bool {
+        let state = lock(&self.state);
+        state.scanned == state.generation && state.at.is_some_and(|at| at.elapsed() < ttl)
+    }
+
+    /// Publish a value computed outside `read`, unless a scan owns the slot or an invalidation
+    /// arrived after `generation` was read.
+    fn offer(&self, generation: u64, value: T) {
+        let mut state = lock(&self.state);
+        if state.scanning || state.generation != generation {
+            return;
+        }
+        state.scanned = generation;
+        state.completed += 1;
+        state.at = Some(Instant::now());
+        state.value = Some(Ok(value));
+    }
+
     fn read(
         &self,
         ttl: Duration,
         mut compute: impl FnMut() -> Result<T, String>,
     ) -> Result<T, String> {
         let mut state = lock(&self.state);
+        let mut joined = None;
         loop {
-            if state.scanned == state.generation && state.at.is_some_and(|at| at.elapsed() < ttl) {
+            if state.scanned == state.generation
+                && (state.at.is_some_and(|at| at.elapsed() < ttl)
+                    || joined.is_some_and(|seen| seen != state.completed))
+            {
                 return state
                     .value
                     .as_ref()
@@ -74,6 +104,7 @@ impl<T: Clone> Slot<T> {
                     .clone();
             }
             if state.scanning {
+                joined.get_or_insert(state.completed);
                 state = self
                     .changed
                     .wait(state)
@@ -89,19 +120,34 @@ impl<T: Clone> Slot<T> {
             let result = compute();
             let mut state = lock(&self.state);
             if state.generation != generation {
-                // An app mutation arrived during the scan. Keep ownership of the slot and run
-                // exactly one follow-up before any waiter can observe the stale result.
+                // An app mutation arrived during the scan. Keep ownership of the slot and scan
+                // again until one scan finishes without an invalidation, so no waiter observes a
+                // stale result.
                 drop(state);
                 continue;
             }
             state.scanned = generation;
-            state.at = Some(Instant::now());
+            state.completed += 1;
+            // An error reaches the waiters of this scan only; the next reader scans again.
+            state.at = result.is_ok().then(Instant::now);
             state.value = Some(result.clone());
             state.scanning = false;
             self.changed.notify_all();
             return result;
         }
     }
+}
+
+/// Return the slot for `key`, dropping unused slots whose value expired: such a slot behaves like
+/// a new one, so removed or cleaned worktrees do not keep their last scan in memory.
+fn slot<K: Eq + std::hash::Hash, T: Clone>(
+    slots: &Mutex<HashMap<K, Arc<Slot<T>>>>,
+    key: K,
+    ttl: Duration,
+) -> Arc<Slot<T>> {
+    let mut slots = lock(slots);
+    slots.retain(|_, slot| Arc::strong_count(slot) > 1 || slot.fresh(ttl));
+    slots.entry(key).or_default().clone()
 }
 
 fn cache_key(root: &Path) -> PathBuf {
@@ -120,33 +166,36 @@ fn status_slots() -> &'static StatusSlots {
     SLOTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+const PORCELAIN: [&str; 5] = [
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+    "--no-renames",
+];
+
+fn raw_slot(root: &Path) -> Arc<Slot<String>> {
+    slot(raw_slots(), cache_key(root), PORCELAIN_TTL)
+}
+
 fn raw_status(root: &Path) -> Result<String, String> {
-    let key = cache_key(root);
-    let slot = lock(raw_slots())
-        .entry(key)
-        .or_insert_with(|| Arc::new(Slot::default()))
-        .clone();
-    slot.read(PORCELAIN_TTL, || {
-        run(
-            root,
-            &[
-                "status",
-                "--porcelain=v1",
-                "-z",
-                "--untracked-files=all",
-                "--no-renames",
-            ],
-        )
-    })
+    raw_slot(root).read(PORCELAIN_TTL, || run(root, &PORCELAIN))
 }
 
 fn cached_status(root: &Path, base: &str) -> Result<GitStatus, String> {
     let key = (cache_key(root), base.to_string());
-    let slot = lock(status_slots())
-        .entry(key)
-        .or_insert_with(|| Arc::new(Slot::default()))
-        .clone();
-    slot.read(STATUS_TTL, || status_with(root, base, || raw_status(root)))
+    slot(status_slots(), key, STATUS_TTL).read(STATUS_TTL, || {
+        // The commit token must describe the listed files, so Changes reads its own porcelain
+        // inside the fingerprint bracket and never reuses an older Files scan. Files marks may
+        // reuse this snapshot instead.
+        let raw = raw_slot(root);
+        let generation = raw.generation();
+        status_with(root, base, || {
+            let text = run(root, &PORCELAIN)?;
+            raw.offer(generation, text.clone());
+            Ok(text)
+        })
+    })
 }
 
 pub fn invalidate_path(path: &Path) {
@@ -281,18 +330,7 @@ fn parse_status(text: &str) -> Result<StatusGroups, String> {
 }
 
 fn status(root: &Path, base: &str) -> Result<GitStatus, String> {
-    status_with(root, base, || {
-        run(
-            root,
-            &[
-                "status",
-                "--porcelain=v1",
-                "-z",
-                "--untracked-files=all",
-                "--no-renames",
-            ],
-        )
-    })
+    status_with(root, base, || run(root, &PORCELAIN))
 }
 
 fn status_with(

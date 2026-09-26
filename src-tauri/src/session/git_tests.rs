@@ -71,6 +71,95 @@ fn saved_files_invalidate_immediately_and_external_edits_appear_after_fallback()
         .any(|file| file.path == "external.txt"));
 }
 
+#[test]
+fn a_commit_token_never_describes_an_older_files_scan() {
+    let repo = Repository::new();
+    repo.write("tracked.txt", "initial\n");
+    repo.commit("initial");
+    repo.write("secret.env", "token\n");
+    // Files marks cache porcelain in which the new file is still untracked.
+    assert!(raw_status(&repo.0).unwrap().contains("?? secret.env"));
+    // An agent stages it without an app invalidation.
+    repo.git(&["add", "secret.env"]);
+    let shown = cached_status(&repo.0, "main").unwrap();
+    assert_eq!(entries(&shown.staged), [("secret.env", "A")]);
+    assert_eq!(shown.index, fingerprint(&repo.0).unwrap());
+    // Files marks reuse the snapshot that Changes just read.
+    assert!(raw_slot(&repo.0).fresh(PORCELAIN_TTL));
+}
+
+#[test]
+fn a_failed_scan_reaches_its_waiters_but_not_later_readers() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
+    use std::time::Duration;
+
+    let ttl = Duration::from_secs(30);
+    let slot = Arc::new(Slot::<usize>::default());
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let first = {
+        let slot = slot.clone();
+        std::thread::spawn(move || {
+            slot.read(ttl, || {
+                entered_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                Err("busy".to_string())
+            })
+        })
+    };
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let scans = Arc::new(AtomicUsize::new(0));
+    let waiter = {
+        let slot = slot.clone();
+        let scans = scans.clone();
+        std::thread::spawn(move || {
+            slot.read(ttl, || {
+                scans.fetch_add(1, Ordering::SeqCst);
+                Ok(1)
+            })
+        })
+    };
+    // Usually the waiter joins the running scan; if it arrives later it scans on its own, since
+    // the error is never reused. Both interleavings must hold the same guarantees.
+    std::thread::sleep(Duration::from_millis(50));
+    release_tx.send(()).unwrap();
+    assert_eq!(first.join().unwrap(), Err("busy".to_string()));
+    match waiter.join().unwrap() {
+        Err(error) => {
+            assert_eq!(error, "busy");
+            assert_eq!(scans.load(Ordering::SeqCst), 0);
+            assert_eq!(slot.read(ttl, || Ok(7)), Ok(7));
+        }
+        Ok(value) => {
+            assert_eq!(value, 1);
+            assert_eq!(scans.load(Ordering::SeqCst), 1);
+            assert_eq!(slot.read(ttl, || Ok(7)), Ok(1));
+        }
+    }
+}
+
+#[test]
+fn unused_expired_slots_are_pruned() {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    let slots: Mutex<HashMap<&str, Arc<Slot<usize>>>> = Mutex::new(HashMap::new());
+    let ttl = Duration::from_millis(20);
+    slot(&slots, "removed", ttl).read(ttl, || Ok(1)).unwrap();
+    let held = slot(&slots, "held", ttl);
+    held.read(ttl, || Ok(2)).unwrap();
+    std::thread::sleep(ttl * 2);
+    slot(&slots, "current", ttl);
+    let keys = lock(&slots).keys().copied().collect::<Vec<_>>();
+    assert!(!keys.contains(&"removed"));
+    assert!(keys.contains(&"held"));
+    assert!(keys.contains(&"current"));
+}
+
 struct Repository(PathBuf);
 
 impl Repository {

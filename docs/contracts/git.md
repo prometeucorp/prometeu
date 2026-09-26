@@ -76,16 +76,22 @@ answers `git: false`, and the launcher locks both toggles), and the panel shows
 the Git error as with any repository that does not answer. Old responses cannot
 replace the selection of another workspace or repository.
 
-The backend shares one in-flight porcelain read per canonical worktree. The
-full status, including branch/upstream, remotes, ahead/behind, merging and the
-index fingerprint, also has a single-flight slot per worktree and comparison
-base. App Git mutations and file writes/create/rename/trash invalidate the
+The backend shares one in-flight porcelain read per canonical worktree for
+Files marks. The full status, including branch/upstream, remotes, ahead/behind,
+merging and the index fingerprint, has its own single-flight slot per worktree
+and comparison base. It always reads its porcelain between the two fingerprint
+reads, so the `expected` token describes the files it lists; it never reuses an
+older Files scan, while Files marks may reuse the porcelain a status scan just
+read. App Git mutations and file writes/create/rename/trash invalidate the
 affected cache before publishing their result. Invalidation during a scan
-discards its stale result and runs exactly one follow-up before waiters receive
-the status. Different repositories use independent slots; the mutation lock is
-never held while a status consumer waits. Full status is reused for at most two
-seconds, raw porcelain for one second. A visible fallback catches external
-edits after those bounds without requiring a filesystem watcher.
+discards its stale result and scans again, until one scan finishes without an
+invalidation, before waiters receive the status. A failed scan reaches the
+requests that waited for it but is not reused by later requests. Different
+repositories use independent slots; the mutation lock is never held while a
+status consumer waits. A full status is reused for at most two seconds after its
+scan finishes, raw porcelain for one second; unused expired entries are dropped,
+so removed worktrees do not keep their last scan. A visible fallback catches
+external edits after those bounds without requiring a filesystem watcher.
 
 The frontend refreshes on workspace entry, repository-list changes, saved
 files, Git actions, return to foreground and while Changes is visible. Ordinary
@@ -108,8 +114,8 @@ one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
 The tree adds struck-through rows for `D` paths, which no longer exist on disk
 and therefore never come from `list_dir`.
 A directory outside Git, or a repository that fails, contributes no marks
-instead of an error. A workspace repository root derives marks from the same
-cached porcelain as Changes. A project opened on a subfolder retains the
+instead of an error. A workspace repository root derives marks from the shared
+porcelain, reusing a snapshot that Changes read within the last second. A project opened on a subfolder retains the
 path-limited query so only its own files appear. The command is async so the
 scan never runs on the main thread. Visible Files marks refresh every 15
 seconds on AC or 30 on battery/unknown power, plus immediate invalidation and

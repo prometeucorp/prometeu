@@ -131,10 +131,12 @@ sampling deadlines but cannot prove browser node identity.
 The Changes view now schedules fallback scans every five seconds on foreground
 AC or ten seconds on battery. Visible Files marks use 15 or 30 seconds. Both
 pause while hidden or unfocused and refresh on return. Board redraws that do
-not change the workspace or repository identity no longer request status. A
-shared raw porcelain snapshot serves compatible Changes and Files requests
-within one second, while per-worktree single-flight prevents overlapping scans;
-an invalidation during a scan forces a follow-up before returning its result.
+not change the workspace or repository identity no longer request status. Files
+marks reuse the porcelain snapshot that a Changes status read within the last
+second, while per-worktree single-flight prevents overlapping scans. Changes
+always reads its own porcelain between its index fingerprints, so the commit
+token matches the listed files; an invalidation during a scan forces follow-up
+scans before returning its result.
 Native Git actions and app file saves invalidate immediately. Real-repository
 tests cover an external edit after the fallback, concurrent consumers,
 conflicts and multi-repository status. These tests count Git invocations in a
