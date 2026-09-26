@@ -103,7 +103,10 @@ export const stories: Record<string, Factory> = {
     return wrap(conversationBlock(state === "text" ? { kind: "text", text: "## Review complete\n\nChanges look good.\n\n```ts\nconst ready = true;\n```" }
       : state === "thinking" ? { kind: "thinking", text: "Checking dependencies and preserving the existing behavior." } : tool(state), state === "running" || state === "thinking"));
   },
-  "chat-work": (state, report) => wrap(workCard([{ block: tool(state), live: state === "running" }], false, open => report(String(open)))),
+  "chat-work": (state, report) => wrap(workCard([
+    { block: tool("success"), live: false },
+    { block: { ...tool(state), id: "story-tool-2" }, live: state === "running" },
+  ], false, open => report(String(open)))),
   "chat-error": state => wrap(errorCard(state === "short" ? "Example operation failed" : "Example operation failed\nProcess exited with code 1\nThe original input remains available.")),
   "chat-request"(state, report) {
     const ask: Ask = { kind: "ask", id: "story-request", ts: 0, toolUseId: null, answered: state === "answered",
