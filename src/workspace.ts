@@ -331,8 +331,9 @@ export function draw() {
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
-  // A settled turn may have created files, including ignored ones without Git marks.
+  // A settled turn may have created files, including ignored ones without Git marks, or a PR.
   const settled = turns.settled(ws);
+  if (settled) askPr(ws);
   if ((gitRefresh.consider(ws) || settled) && background.foreground(background.currentOrDocument())) {
     reloadChanges(ws.id);
     if (sidePane === "files") tree.redrawSoon();
@@ -613,6 +614,18 @@ const openIn = (ws: Workspace, repo: string) =>
 
 function drawPr(ws: Workspace) {
   paintPr(ws);
+}
+
+/// After an agent turn, ask for this workspace's PR state at most every 20 seconds, so a PR the
+/// agent created replaces the create action without waiting for general discovery.
+const prAskedAt = new Map<string, number>();
+const PR_EVERY = 20_000;
+
+function askPr(ws: Workspace) {
+  const now = Date.now();
+  if (ws.cleaned || ws.archived || now - (prAskedAt.get(ws.id) ?? -PR_EVERY) < PR_EVERY) return;
+  prAskedAt.set(ws.id, now);
+  void invoke("pr_open", { id: ws.id }).catch(() => {});
 }
 
 /// Finish moves work to the final stage and archives it, stopping its agent and docks.

@@ -157,8 +157,12 @@ correctness benchmark, the visible fallback remains the implementation.
 The source-level general scan interval changes from 60 seconds (up to 60
 scheduled attempts per hour) to three minutes on foreground AC (up to 20),
 five minutes on foreground battery (up to 12) and 15 minutes while hidden or
-unfocused (up to four). Opening a workspace and returning to foreground add
-immediate requests. A request during a slow scan queues only one follow-up;
+unfocused (up to four). Opening a workspace adds an immediate request for its
+own repositories, and so does a turn that settles in the open workspace, at
+most every 20 seconds per workspace. Returning to the foreground adds an
+immediate general request only when the last one is at least a minute old, so
+frequent app switching adds at most one scan per minute. A request during a
+slow scan queues only one follow-up;
 one clone is queried once per general scan. Rust tests cover the gate, an
 aborted CLI process, archived/cleaned exclusion, and preservation of known PR
 metadata. The explicit task monitor retains its original cadence and richer

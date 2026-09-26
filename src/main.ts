@@ -762,7 +762,7 @@ const scanPrs = () => {
 };
 let previousPrContext = background.current();
 background.subscribe((next) => {
-  const returned = prScan.returnedToForeground(previousPrContext, next);
+  const returned = prScan.returnedToForeground(previousPrContext, next, Date.now());
   previousPrContext = next;
   if (returned) scanPrs();
   else schedulePrs();

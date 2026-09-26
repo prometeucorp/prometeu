@@ -103,10 +103,13 @@ and preserve the cursors; a turn failure or interruption pauses the tracking.
 
 General PR discovery is separate from this explicit task monitor. It starts
 when the app opens, scans one clone once for all of its eligible workspace
-branches, and refreshes at most every three minutes on foreground AC, five
-minutes on foreground battery or unknown power, and 15 minutes while hidden or
-unfocused. Returning to the foreground requests a scan immediately. Opening a
-workspace also refreshes its own repositories immediately. Archived, cleaned
+branches, and is scheduled every three minutes on foreground AC, five minutes
+on foreground battery or unknown power, and 15 minutes while hidden or
+unfocused. Returning to the foreground requests a scan immediately when the
+last request is at least one minute old; otherwise the schedule continues.
+Opening a workspace also refreshes its own repositories immediately, and a turn
+that settles in the open workspace refreshes them again, at most every 20
+seconds per workspace, so a PR the agent created appears promptly. Archived, cleaned
 and branchless workspaces are excluded from general discovery; recorded PRs
 remain available on archived workspaces. A second general request during a
 scan queues one follow-up. Each general `gh pr list` has a 15-second deadline
