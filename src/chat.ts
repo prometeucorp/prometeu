@@ -159,7 +159,7 @@ export class ChatView {
     this.cleanup.push(team.onChange(teamChanged));
     this.cleanup.push(onCatalogChange(() => this.paintComposer()));
     this.cleanup.push(background.subscribe((context) => {
-      if (this.disposed || !background.foreground(context)) return;
+      if (this.disposed || !context.visible) return;
       if (this.fullRenderPending) this.renderAll();
       else if (this.dirty.size || this.composerDirty) {
         cancelAnimationFrame(this.raf);
@@ -345,9 +345,10 @@ export class ChatView {
     if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
   }
 
+  /// Only a hidden or minimized window defers painting; a visible window without focus, such as a
+  /// second monitor or split view, keeps following the response.
   private nativeHidden(): boolean {
-    const context = background.current();
-    return background.hasObservation() && !background.foreground(context);
+    return background.hasObservation() && !background.current().visible;
   }
 
   /// Apply accumulated changes once per frame. Follow output only when the user was already at the bottom.

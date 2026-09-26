@@ -100,7 +100,7 @@ test("comments stay beside the session until resolved", { tag: "@webkit" }, asyn
   await expect(page.locator("#chatwrap .note")).toHaveCount(0);
 });
 
-test("stream tokens preserve controls and hidden output catches up on return", { tag: "@webkit" }, async ({ page }) => {
+test("stream tokens preserve controls, keep painting unfocused and catch up after hiding", { tag: "@webkit" }, async ({ page }) => {
   await boot(page);
   await openWorkspace(page, "Hello");
   await page.evaluate(() => {
@@ -118,6 +118,22 @@ test("stream tokens preserve controls and hidden output catches up on return", {
   });
   await expect(output).toContainText("Initial text and more");
   expect(await sendIcon!.evaluate(node => node.isConnected)).toBe(true);
+
+  // A visible window without focus, such as one on a second monitor, keeps following the response.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+    window.dispatchEvent(new Event("blur"));
+  });
+  await page.evaluate(() => {
+    (window as unknown as { mock: { line: (tab: string, line: unknown) => void } }).mock.line("t1", {
+      type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " while unfocused" } },
+    });
+  });
+  await expect(output).toContainText("while unfocused");
+  await page.evaluate(() => {
+    delete (document as unknown as { hasFocus?: unknown }).hasFocus;
+    window.dispatchEvent(new Event("focus"));
+  });
 
   await page.evaluate(() => {
     Object.defineProperty(document, "hidden", { configurable: true, value: true });

@@ -120,9 +120,11 @@ children that outlived the turn.
 to an animation frame. A text-only update repaints its current message without
 rebuilding the composer or comment pins; working and compaction transitions
 refresh the composer, while piece additions and replacements refresh pins. When
-the native window is hidden or unfocused, live lines continue to update the
-timeline but defer transcript painting. A foreground context event reconciles
-the buffered dirty pieces once, or renders a snapshot that arrived while hidden.
+the native window is hidden or minimized, live lines continue to update the
+timeline but defer transcript painting. A visible window without focus, such as
+one on a second monitor or in split view, keeps painting so the person can
+follow the response. A context event that shows the window again reconciles the
+buffered dirty pieces once, or renders a snapshot that arrived while hidden.
 If native context is unavailable, rendering remains active. Stable piece keys
 continue to preserve selection, expanded cards and comment anchors.
 
