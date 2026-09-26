@@ -149,7 +149,7 @@ pub fn open_external(url: String) -> Result<(), String> {
 /// the port for the address display.
 #[tauri::command]
 pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Result<u16, String> {
-    let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
+    let port = ensure_port(&app, &state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
     let url = format!("http://localhost:{port}");
     let fail = || i18n::ta("err.session.openFailed", &[("path", url.clone())]);
     if let Some(view) = app.get_webview(&label(&id)) {

@@ -77,6 +77,42 @@ mod tests {
     }
 
     #[test]
+    fn login_invalidates_a_probe_that_started_before_credentials_change() {
+        let mut schedule = Schedule::default();
+        let mut entry = account("account", true);
+        schedule.sync(&[entry.clone()]);
+        let ticket = schedule.begin(0, context(true, Power::Ac)).remove(0);
+
+        entry.logging_in = true;
+        schedule.sync(&[entry]);
+        assert!(!schedule.current(&ticket));
+        assert!(!schedule.finish(&ticket, 1, true, None));
+        assert!(schedule.begin(1, context(true, Power::Ac)).is_empty());
+    }
+
+    #[test]
+    fn cancelled_or_failed_login_resumes_probes_without_a_revision_change() {
+        for selected in [true, false] {
+            let mut schedule = Schedule::default();
+            let mut entry = account("account", selected);
+            schedule.sync(&[entry.clone()]);
+            let old = schedule.begin(0, context(true, Power::Ac)).remove(0);
+
+            entry.logging_in = true;
+            schedule.sync(&[entry.clone()]);
+            assert!(schedule.begin(1, context(true, Power::Ac)).is_empty());
+            // The worker discards its result during login, without calling finish.
+            entry.logging_in = false;
+            schedule.sync(&[entry]);
+            let tickets = schedule.begin(2, context(true, Power::Ac));
+            assert_eq!(tickets.len(), 1);
+            assert!(!schedule.finish(&old, 3, true, None));
+            assert!(schedule.current(&tickets[0]));
+            assert!(schedule.finish(&tickets[0], 3, true, None));
+        }
+    }
+
+    #[test]
     fn live_event_wins_over_an_older_in_flight_probe() {
         let mut schedule = Schedule::default();
         schedule.sync(&[account("account", true)]);
@@ -133,7 +169,9 @@ impl Schedule {
             .retain(|id, _| accounts.iter().any(|account| &account.id == id));
         for account in accounts {
             let changed = self.entries.get(&account.id).is_none_or(|old| {
-                old.info.revision != account.revision || old.info.provider != account.provider
+                old.info.revision != account.revision
+                    || old.info.provider != account.provider
+                    || old.info.logging_in != account.logging_in
             });
             if changed {
                 self.serial += 1;

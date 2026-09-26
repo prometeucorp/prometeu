@@ -568,6 +568,8 @@ pub async fn account_login(
         });
         profile
     };
+    // Invalidate quota work before login can change credentials, even if it later fails.
+    crate::usage::refresh(&app, Some(provider));
     // Login blocks new messages before this check. Refresh must not replace credentials during an
     // active turn.
     if lock(&app.state::<crate::AppState>().chats)
@@ -575,6 +577,7 @@ pub async fn account_login(
         .any(|chat| chat.account() == profile.id && chat.working())
     {
         *lock(pending()) = None;
+        crate::usage::refresh(&app, Some(provider));
         publish(&app);
         return Err(i18n::t("err.account.working"));
     }
@@ -611,6 +614,7 @@ pub async fn account_login(
     .map_err(i18n::io)
     .and_then(|result| result);
     *lock(pending()) = None;
+    crate::usage::refresh(&app, Some(provider));
     publish(&app);
     result?;
     accounts()

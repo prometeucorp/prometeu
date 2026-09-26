@@ -170,6 +170,7 @@ export async function open(ws: Workspace, tab?: string) {
   center("chatwrap");
   const first = ws.tabs.find((t) => t.id === (tab ?? ws.active)) ?? ws.tabs[0];
   sidebar.setOpen((openWs = ws.id));
+  observeTurns();
   changesUi.enter();
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
@@ -233,6 +234,7 @@ function catchUp(ws: Workspace) {
 export function leave() {
   navigation++;
   gitRefresh.clear();
+  turns.clear();
   proj = null;
   browser.hide();
   restoreBrowserSide();
@@ -244,6 +246,13 @@ export function leave() {
 }
 
 /* Rendering. */
+
+/// Record short turns before the application defers redraws to preserve menus and rename inputs.
+export function observeTurns() {
+  const ws = openWs ? current() : undefined;
+  if (!ws || ws.remote || ws.cleaned || pending(ws)) turns.clear();
+  else turns.observe(ws);
+}
 
 export function draw() {
   const ws = current();

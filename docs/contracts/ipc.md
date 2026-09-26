@@ -219,8 +219,9 @@ panel is open and wakes the resource sampler to reconsider its deadline; the
 status bar sends it when the panel opens and closes. The existing `machine`
 command and event keep `{ rss, cpu, procs, terms, ports }`; each process still
 has a numeric `hist` array. The command returns the cached process snapshot
-with current terminal and port counts, and starting or ending a dock PTY emits
-that snapshot with the new counts without a `ps` sample. Foreground compact
+with current terminal and port counts. Starting or ending a dock PTY, or assigning
+or replacing a workspace port, emits that snapshot when its counts or ports change,
+without a `ps` sample, even while the native window is unfocused. Foreground compact
 sampling uses 15 seconds on AC or 30 on battery/unknown power; an open panel
 uses 3 or 5 seconds. A hidden, minimized or unfocused native window starts no
 `ps` sample and takes one on return. CPU uses actual elapsed time. A gap longer

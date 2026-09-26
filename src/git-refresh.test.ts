@@ -34,3 +34,35 @@ it("reports a settled turn once, only for the workspace that was running", () =>
   expect(policy.settled({ id: "two", tabs: tabs("rodando") })).toBe(false);
   expect(policy.settled({ id: "one", tabs: tabs("pronta") })).toBe(false);
 });
+
+it("retains a short turn until a deferred workspace redraw consumes it", () => {
+  const policy = new TurnSettlePolicy();
+  const ready = { id: "one", tabs: [{ status: "pronta" as const }] };
+  expect(policy.settled(ready)).toBe(false);
+
+  policy.observe({ ...ready, tabs: [{ status: "rodando" }] });
+  policy.observe(ready);
+  // Menus and rename inputs can defer several board redraws after the turn ends.
+  policy.observe(ready);
+  expect(policy.settled(ready)).toBe(true);
+  expect(policy.settled(ready)).toBe(false);
+});
+
+it("does not carry a deferred settlement to another workspace", () => {
+  const policy = new TurnSettlePolicy();
+  policy.observe({ id: "one", tabs: [{ status: "rodando" }] });
+  policy.observe({ id: "one", tabs: [{ status: "pronta" }] });
+  expect(policy.settled({ id: "two", tabs: [{ status: "pronta" }] })).toBe(false);
+  expect(policy.settled({ id: "one", tabs: [{ status: "pronta" }] })).toBe(false);
+});
+
+it("forgets observed turns when leaving the workspace", () => {
+  const policy = new TurnSettlePolicy();
+  policy.observe({ id: "one", tabs: [{ status: "rodando" }] });
+  policy.clear();
+  expect(policy.settled({ id: "one", tabs: [{ status: "pronta" }] })).toBe(false);
+  policy.observe({ id: "one", tabs: [{ status: "rodando" }] });
+  policy.observe({ id: "one", tabs: [{ status: "pronta" }] });
+  policy.clear();
+  expect(policy.settled({ id: "one", tabs: [{ status: "pronta" }] })).toBe(false);
+});

@@ -143,7 +143,7 @@ pub fn set_resource_detail(app: AppHandle, open: bool) {
     service.changed.notify_all();
 }
 
-/// Terminal and port chips follow PTY starts and exits without waiting for the next `ps` sample.
+/// Terminal and port chips follow PTY starts, exits and port assignments without a `ps` sample.
 pub fn publish_counts(app: &AppHandle) {
     let (Some(service), Some(state)) = (app.try_state::<Service>(), app.try_state::<AppState>())
     else {

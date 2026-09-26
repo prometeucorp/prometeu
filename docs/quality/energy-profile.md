@@ -108,6 +108,13 @@ not a native process-launch trace or an energy measurement. A native provider
 fixture with identical account count remains necessary for before/after launch
 counts.
 
+Login lifecycle regressions additionally cover a probe already in flight when
+login starts, and immediate eligibility after cancellation or failure without
+a revision change. Both selected and inactive profiles resume, and an older
+ticket cannot finish the replacement probe. Login entry and every exit wake
+the scheduler after synchronizing the pending state, so a successful login does
+not wait for the watcher's fallback deadline.
+
 ## Resource sampling verification
 
 The `machine.rs` fake-clock tests count sample eligibility before `/bin/ps`
@@ -120,8 +127,10 @@ context wakes the sampler directly, without a webview round trip. A gap longer
 than twice the cadence that produced the samples resets the CPU history, so
 compact samples keep theirs and the panel does not open empty; CPU percentage
 still divides the cumulative CPU delta by actual elapsed time. Terminal and
-port counts are published when a dock PTY starts or exits, without a `ps`
-sample. These counts assume the app
+port counts are published when a dock PTY starts or exits or a workspace's
+assigned port changes, without a `ps` sample. A port-assignment regression checks
+publication after saving and releasing the board lock, including replacement of
+a browser-blocked port. These counts assume the app
 remains in each state for the whole hour and are **not** measured `ps` launches
 or watts. A native process-launch trace was unavailable in the baseline.
 
@@ -159,7 +168,9 @@ scheduled attempts per hour) to three minutes on foreground AC (up to 20),
 five minutes on foreground battery (up to 12) and 15 minutes while hidden or
 unfocused (up to four). Opening a workspace adds an immediate request for its
 own repositories, and so does a turn that settles in the open workspace, at
-most every 20 seconds per workspace. Returning to the foreground adds an
+most every 20 seconds per workspace. Board updates record short turns even while
+menus or rename inputs defer rendering, retaining one refresh for the next
+allowed redraw. Returning to the foreground adds an
 immediate general request only when the last one is at least a minute old, so
 frequent app switching adds at most one scan per minute. A request during a
 slow scan queues only one follow-up;

@@ -96,9 +96,10 @@ external edits after those bounds without requiring a filesystem watcher.
 The frontend refreshes on workspace entry, repository-list changes, saved
 files, Git actions, a turn that settles in the open workspace, return to
 foreground and while Changes is visible. Other board/chat redraws do not
-dispatch status. A visible Changes fallback runs
-every five seconds on AC or ten on battery/unknown power; hidden or unfocused
-windows do not scan. These are request intervals, with the Git command's
+dispatch status. Turn settlement is recorded while a menu or rename input defers
+redraws and consumed once when the open workspace can draw again. A visible
+Changes fallback runs every five seconds on AC or ten on battery/unknown power;
+hidden or unfocused windows do not scan. These are request intervals, with the Git command's
 duration in addition.
 
 ### File tree marks

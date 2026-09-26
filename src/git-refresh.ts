@@ -20,11 +20,26 @@ export class GitRefreshPolicy {
 /** A turn that settles in the displayed workspace may have created files or a pull request. */
 export class TurnSettlePolicy {
   private last: { id: string; busy: boolean } | null = null;
+  private pending = false;
 
-  settled(workspace: { id: string; tabs: readonly { status: Status }[] }): boolean {
+  /** Observe every board update, including updates whose redraw is deferred by a menu or rename. */
+  observe(workspace: { id: string; tabs: readonly { status: Status }[] }) {
     const busy = workspace.tabs.some((tab) => tab.status === "rodando");
-    const settled = this.last?.id === workspace.id && this.last.busy && !busy;
+    if (this.last?.id !== workspace.id) this.pending = false;
+    else if (this.last.busy && !busy) this.pending = true;
     this.last = { id: workspace.id, busy };
+  }
+
+  clear() {
+    this.last = null;
+    this.pending = false;
+  }
+
+  /** Consume the refresh once the workspace can draw, preserving direct draw callers. */
+  settled(workspace: { id: string; tabs: readonly { status: Status }[] }): boolean {
+    this.observe(workspace);
+    const settled = this.pending;
+    this.pending = false;
     return settled;
   }
 }

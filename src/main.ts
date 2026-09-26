@@ -128,6 +128,7 @@ const hooks: sidebar.Hooks = {
 let missed = false;
 
 function draw() {
+  ws.observeTurns();
   // Avoid replacing rows containing rename inputs or open menu anchors during agent-driven updates.
   if (rename.editing() || menu.isOpen()) {
     missed = true;

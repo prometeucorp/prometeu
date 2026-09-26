@@ -3,10 +3,11 @@
 
 use crate::lock::lock;
 use crate::session::cwd_of;
-use crate::state::Workspace;
+use crate::state::{Board, Workspace};
 use crate::{chat, i18n, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
 use std::path::Path;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 
 /// Validate terminal and terminal-<number> keys before creating PTYs. Numbered UI tabs need
@@ -31,7 +32,7 @@ pub fn open_dock(
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
-    ensure_port(&state, &id);
+    ensure_port(&app, &state, &id);
     let found = workspace_copy(&state, &id);
     let key = format!("{id}:{kind}");
 
@@ -330,8 +331,28 @@ pub(crate) fn script_env(ws: &Workspace) -> Vec<(String, String)> {
 }
 
 /// Assign a port lazily to older workspaces when their scripts are first requested.
-pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
-    let mut board = lock(&state.board);
+pub(crate) fn ensure_port(app: &AppHandle, state: &State<AppState>, id: &str) -> Option<u16> {
+    ensure_workspace_port(
+        &state.board,
+        id,
+        |board| {
+            if let Err(error) = board.save() {
+                eprintln!("não gravei a porta do workspace: {error}");
+            }
+        },
+        || crate::machine::publish_counts(app),
+    )
+}
+
+/// Publishing counts reads the board again, so publish only after the reservation is saved and
+/// its mutation lock is released. No PTY lifecycle event is required for a port replacement.
+fn ensure_workspace_port(
+    board: &Mutex<Board>,
+    id: &str,
+    save: impl FnOnce(&Board),
+    publish: impl FnOnce(),
+) -> Option<u16> {
+    let mut board = lock(board);
     let ws = board.workspaces.iter().find(|w| w.id == id)?;
     // Replace previously assigned browser-blocked ports. Existing servers retain their old port
     // until restarted; new runs use the replacement.
@@ -342,17 +363,17 @@ pub(crate) fn ensure_port(state: &State<AppState>, id: &str) -> Option<u16> {
     let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
     let port = scripts::alloc_port(Path::new(&worktree), &taken)?;
     board.workspace_mut(id)?.port = Some(port);
-    if let Err(error) = board.save() {
-        eprintln!("não gravei a porta do workspace: {error}");
-    }
+    save(&board);
+    drop(board);
+    publish();
     Some(port)
 }
 
 /// Open Run in the system browser for external inspection. Resolve its port from backend state
 /// rather than accepting an arbitrary URL over IPC.
 #[tauri::command]
-pub fn open_run(state: State<AppState>, id: String) -> Result<(), String> {
-    let port = ensure_port(&state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
+pub fn open_run(app: AppHandle, state: State<AppState>, id: String) -> Result<(), String> {
+    let port = ensure_port(&app, &state, &id).ok_or_else(|| i18n::t("err.session.noPort"))?;
     let url = format!("http://localhost:{port}");
     let ok = crate::platform::opener()
         .arg(&url)
@@ -409,8 +430,8 @@ pub fn dock_state(state: State<AppState>, id: String) -> Vec<DockView> {
 }
 
 #[tauri::command]
-pub fn workspace_scripts(state: State<AppState>, id: String) -> ScriptsView {
-    let port = ensure_port(&state, &id);
+pub fn workspace_scripts(app: AppHandle, state: State<AppState>, id: String) -> ScriptsView {
+    let port = ensure_port(&app, &state, &id);
     let scripts = workspace_copy(&state, &id)
         .map(|ws| scripts_of(&ws))
         .unwrap_or_default();
@@ -456,4 +477,73 @@ pub fn scripts_prompt(state: State<AppState>, id: String) -> String {
 
 fn workspace_copy(state: &State<AppState>, id: &str) -> Option<Workspace> {
     lock(&state.board).workspace(id).cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    fn board(port: Option<u16>) -> Mutex<Board> {
+        Mutex::new(
+            serde_json::from_value(serde_json::json!({
+                "stages": [],
+                "workspaces": [{
+                    "id": "workspace", "title": "Workspace", "repo": "", "repo_name": "",
+                    "branch": "", "worktree": "/workspace", "stage": "", "port": port,
+                    "tabs": []
+                }]
+            }))
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn assigned_ports_publish_after_saving_and_releasing_the_board() {
+        for previous in [Some(6000), None] {
+            let board = board(previous);
+            let effects = RefCell::new(Vec::new());
+            let port = ensure_workspace_port(
+                &board,
+                "workspace",
+                |saved| {
+                    effects
+                        .borrow_mut()
+                        .push(("saved", saved.workspace("workspace").unwrap().port));
+                },
+                || {
+                    let current = board
+                        .try_lock()
+                        .expect("publication must release the board lock");
+                    effects
+                        .borrow_mut()
+                        .push(("published", current.workspace("workspace").unwrap().port));
+                },
+            )
+            .expect("a usable port is available");
+
+            assert_ne!(Some(port), previous);
+            assert!(scripts::usable(port));
+            assert_eq!(
+                *effects.borrow(),
+                vec![("saved", Some(port)), ("published", Some(port))]
+            );
+        }
+    }
+
+    #[test]
+    fn unchanged_or_missing_workspace_ports_do_not_save_or_publish() {
+        let board = board(Some(3100));
+        for (id, expected) in [("workspace", Some(3100)), ("missing", None)] {
+            assert_eq!(
+                ensure_workspace_port(
+                    &board,
+                    id,
+                    |_| panic!("an unchanged port must not save"),
+                    || panic!("an unchanged port must not publish"),
+                ),
+                expected,
+            );
+        }
+    }
 }

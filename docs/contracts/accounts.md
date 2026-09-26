@@ -170,9 +170,15 @@ attempt is at least 30 seconds old. A visible selected quota can refresh at a
 known reset boundary sooner than its ordinary interval. These are dispatch
 budgets; provider execution has its own timeout.
 
-At most one probe per account runs at once. A per-account generation rejects a
-late probe after removal or reconnection, and live events take precedence over
-an in-flight probe. Removing an account clears its cached quota; a process that
+At most one current-generation probe per account is scheduled at once.
+Invalidated probes may finish, but their results are discarded. A per-account
+generation rejects a late probe after removal or reconnection, and live events
+take precedence over an in-flight probe. Entering login invalidates an older
+quota probe and pauses new probes for that account. Every login exit, including cancellation, failure
+and refusal during an active turn, synchronizes and wakes the scheduler after
+clearing the pending login. The account becomes eligible immediately, including
+inactive accounts whose revision did not change; a failed login preserves its
+cached quota. Removing an account clears its cached quota; a process that
 was already running may finish its turn, but its late quota event cannot
 recreate a removed or reconnected account's reading. Scheduler timestamps and
 failures are runtime-only; `usage.json` retains the original per-account
@@ -190,6 +196,8 @@ selection are discarded.
 - `claude.rs`, `codex/account.rs`: identity fixtures, profiles with separate
   credentials and reading of the same transcript/rollout.
 - `chat.rs`, `usage.rs`: transition between turns and quota isolation.
+- `usage_scheduler.rs`: login invalidation and immediate resumption after
+  cancellation or failure, for selected and inactive accounts.
 - `plugins.rs`: cleanup of per-account layers without following links.
 - `src/agents.test.ts`: late catalog response.
 - `e2e/accounts.spec.ts`: selection persisted per provider, cancellation,
