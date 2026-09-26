@@ -1,11 +1,12 @@
 """Verify the draft's updater packages against the public key embedded in the app."""
 
+import argparse
 import base64
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 
 
@@ -13,6 +14,25 @@ PACKAGES = {
     "darwin-aarch64": "Prometeu_aarch64.app.tar.gz",
     "linux-x86_64": "Prometeu_x86_64.AppImage",
 }
+
+
+def assemble(version, repo, directory, notes):
+    """Build one manifest from the final signed artifacts, after AppImage repacking."""
+    directory = Path(directory)
+    platforms = {}
+    for platform, name in PACKAGES.items():
+        entry = {
+            "url": f"https://github.com/{repo}/releases/download/v{version}/{name}",
+            "signature": (directory / f"{name}.sig").read_text().strip(),
+        }
+        platforms[platform] = entry
+        suffix = "app" if platform.startswith("darwin-") else "appimage"
+        platforms[f"{platform}-{suffix}"] = entry
+    manifest = {
+        "version": version, "notes": notes.strip(),
+        "pub_date": datetime.now(timezone.utc).isoformat(), "platforms": platforms,
+    }
+    (directory / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def verify(version, repo, directory, public_key, expected_notes):
@@ -57,6 +77,14 @@ def verify(version, repo, directory, public_key, expected_notes):
 
 
 if __name__ == "__main__":
-    version, repo, directory = sys.argv[1:]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--assemble", action="store_true")
+    parser.add_argument("version")
+    parser.add_argument("repo")
+    parser.add_argument("directory")
+    args = parser.parse_args()
     config = json.loads(Path("src-tauri/tauri.conf.json").read_text())
-    verify(version, repo, directory, config["plugins"]["updater"]["pubkey"], os.environ["RELEASE_NOTES"])
+    notes = os.environ["RELEASE_NOTES"]
+    if args.assemble:
+        assemble(args.version, args.repo, args.directory, notes)
+    verify(args.version, args.repo, args.directory, config["plugins"]["updater"]["pubkey"], notes)

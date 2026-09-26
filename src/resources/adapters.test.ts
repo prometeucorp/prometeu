@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
-vi.mock("../ipc", () => ({ invoke: vi.fn() }));
-import { invoke } from "../ipc";
+// A separate mock avoids expanding invoke's generic command tuples in mockImplementation.
+const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock("../ipc", () => ({ invoke: mocks.invoke }));
 import * as mcp from "../mcp";
 import * as plugins from "../plugins";
 import * as skills from "../skills";
@@ -23,18 +24,18 @@ test("hub snapshots preserve grouped origins, allowed operations and pending loc
         id: organization === "one" ? "Audit" : "audit", description: "Audit instructions", installed: false },
     ]),
   };
-  vi.mocked(invoke).mockImplementation(async (...[command]) => {
-    if (command === "catalog_install_organization_item") { await installation; return undefined as never; }
-    if (command === "catalog_state") return state as never;
-    if (command === "plugin_hub") return [{ id: "review", source: "/tmp/review", note: "Review commands" }] as never;
-    if (command === "skill_hub") return [{ id: "release", description: "Release notes", content: "Example instructions" }] as never;
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === "catalog_install_organization_item") { await installation; return undefined; }
+    if (command === "catalog_state") return state;
+    if (command === "plugin_hub") return [{ id: "review", source: "/tmp/review", note: "Review commands" }];
+    if (command === "skill_hub") return [{ id: "release", description: "Release notes", content: "Example instructions" }];
     if (command === "mcp_hub") return [
       { id: "prometeu", config: { builtin: true }, note: "" },
       { id: "notes", config: { url: "https://example.test/mcp" }, note: "Shared notes" },
-    ] as never;
-    if (command === "mcp_logins") return [] as never;
-    if (command === "mcp_login") { await login; return undefined as never; }
-    if (command === "mcp_check") return { steps: [], probe: { ok: true, auth: false, tools: 1, name: "Notes", detail: "" } } as never;
+    ];
+    if (command === "mcp_logins") return [];
+    if (command === "mcp_login") { await login; return undefined; }
+    if (command === "mcp_check") return { steps: [], probe: { ok: true, auth: false, tools: 1, name: "Notes", detail: "" } };
     throw new Error(`Unexpected command: ${command}`);
   });
   mcp.init({ say: vi.fn() }); plugins.init({ say: vi.fn() });
@@ -60,10 +61,10 @@ test("hub snapshots preserve grouped origins, allowed operations and pending loc
   await mcp.refresh();
   expect(mcp.resourceItems().find(item => item.key === notes.key)!.busy).toBe(true);
   authenticate.run!();
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "mcp_login")).toHaveLength(1);
+  expect(mocks.invoke.mock.calls.filter(([command]) => command === "mcp_login")).toHaveLength(1);
   finishLogin();
   await vi.waitFor(() => expect(mcp.resourceItems().find(item => item.key === notes.key)!.busy).toBe(false));
-  expect(vi.mocked(invoke).mock.calls.some(([command]) => command === "mcp_save")).toBe(false);
+  expect(mocks.invoke.mock.calls.some(([command]) => command === "mcp_save")).toBe(false);
 
   const pending = all.filter(item => item.id.toLowerCase() === "audit");
   expect(pending).toHaveLength(1);
@@ -74,7 +75,7 @@ test("hub snapshots preserve grouped origins, allowed operations and pending loc
   await catalog.load();
   expect(skills.resourceItems().find(item => item.key === pending[0].key)!.busy).toBe(true);
   install.run!();
-  const calls = vi.mocked(invoke).mock.calls.filter(([command]) => command === "catalog_install_organization_item");
+  const calls = mocks.invoke.mock.calls.filter(([command]) => command === "catalog_install_organization_item");
   expect(calls).toEqual([["catalog_install_organization_item", { organization: "two", kind: "skills", id: "audit", revision: 42 }]]);
   finishInstall();
   await vi.waitFor(() => expect(skills.resourceItems().find(item => item.key === pending[0].key)!.busy).toBe(false));

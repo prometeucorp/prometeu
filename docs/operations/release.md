@@ -22,9 +22,10 @@ every commit of the PR.
 
 `.github/workflows/ci.yml` runs on PRs, including from forks, and on pushes to
 `main`, on GitHub-hosted runners. The macOS job installs dependencies, installs
-Chromium and WebKit and runs `npm run check`. The `linux` job installs the
-WebKitGTK development packages, builds the frontend and runs the Rust tests and
-Clippy, which cover the Linux `cfg` branches; see [Linux](linux.md). Hosted runners are disposable and
+Chromium and WebKit and runs `npm run check`. The `linux` job uses the same
+Ubuntu 22.04 baseline as release, installs the WebKitGTK development packages,
+builds the frontend and runs the Rust tests and Clippy, which cover the Linux
+`cfg` branches; see [Linux](linux.md). Hosted runners are disposable and
 the workflow has no secrets, so fork code runs without risk. Do not register a
 self-hosted runner in this repository: the code is public and a fork's PR
 controls what the job runs. See
@@ -60,18 +61,27 @@ current Mesa and WebKitGTK aborts with `EGL_BAD_PARAMETER`, leaving a black
 window. tauri-bundler cannot exclude libraries, so after the build
 `scripts/appimage-unbundle-wayland.sh` deletes them, repacks with a pinned
 appimagetool and runtime, and fails if any remain. The Linux job then signs the
-repacked file again and, on tags, replaces the AppImage, its `.sig` and the
-AppImage signatures in `latest.json` in the draft.
+repacked file again before uploading its workflow artifact. The final job reads
+that signature when assembling `latest.json`.
 Linux source and Arch package instructions remain in the [Linux guide](linux.md).
 
-The macOS job creates the draft first. The Linux job reuses its release ID and
-merges its entries into `latest.json`. These jobs run sequentially to prevent
-concurrent manifest uploads from losing a platform. Workflow runs for the same
-ref are also serialized. The final verification downloads the draft, checks
-Apple notarization, and verifies both updater packages with the public key in
-`tauri.conf.json`. A missing platform or invalid signature fails the release.
+The macOS and Linux jobs build and sign independently, then upload separate
+workflow artifacts with stable filenames. Each job checks that its commit
+belongs to `main` before using signing credentials. Only the final job assembles
+`latest.json` and writes the draft, after both jobs succeed. It verifies updater
+signatures and Apple notarization before upload, then downloads the draft and
+verifies them again. Reruns may replace draft assets but refuse to overwrite a
+published release. Runs for the same ref remain serialized.
 The manifest and stable names are defined in the
 [release contract](../contracts/releases.md).
+
+CI and release share Rust cache keys per platform and Ubuntu baseline. This lets
+new tags restore compatible dependency caches from `main`; caches scoped to a
+previous tag are not reusable by the next tag. CI warms the test/Clippy profiles;
+optimized release dependencies may still compile cold unless a compatible release
+build has populated the default-branch cache. Both release jobs reuse their
+validated frontend output by overriding Tauri's `beforeBuildCommand` only in CI.
+Local `tauri build` retains its normal frontend build hook.
 
 `workflow_dispatch` builds signed packages for both systems without creating a
 release or tag. Its workflow artifacts expire after seven days. It does not
@@ -144,8 +154,9 @@ an explicit request.
 
 ## Verification
 
-`npm run test:release` tests manifest compatibility, missing assets, signature
-verification failures and the publication gate with a fake `gh`. It never
+`npm run test:release` tests manifest assembly from final signatures, compatibility,
+missing assets, signature verification failures, refusal to overwrite published
+assets and the publication gate with a fake `gh`. It never
 publishes or contacts GitHub and is part of `npm test`. `src/update-init.test.ts`
 covers AppImage eligibility and keeps package-managed Linux installs disabled;
 `src/update.test.ts` covers download and restart behavior. The release workflow
