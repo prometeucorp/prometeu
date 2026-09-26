@@ -33,6 +33,8 @@ The same state identifiers are stable navigation keys and machine-readable data.
 | User message, browser context, tool input, context report | `chat/content.ts` | Desktop and existing mobile consumers via compatibility facade |
 | Markdown and fenced code | `chat/markdown.ts` | Existing consumers via `src/markdown.ts`; preserves escaping and copy behavior |
 | Git file rows, groups, commit form | `git/file-row.ts`, `git/group.ts`, `git/commit-form.ts` | Workspace Changes |
+| Review notes, editor and summary | `git/review-note.ts`, `git/review-summary.ts` | Diff reader and Workspace review controller |
+| Review message tag | `chat/review-context.ts` | Chat drafts and portable history |
 | Diff reader | `git/diff-view.ts` | `src/diff.ts` adapter; review persistence remains there |
 
 `primitives.ts` and `menu.ts` re-export the existing design-system package; there

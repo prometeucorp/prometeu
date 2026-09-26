@@ -7,7 +7,7 @@ const viewDependencies = new Set([
   "src/resources/model.ts", "src/settings-navigation.ts", "src/ui.ts", "src/menu.ts", "src/icons.ts", "src/util.ts",
   "src/feedback-i18n.ts", "src/i18n.ts", "src/i18n.en.ts", "src/i18n.pt.ts", "src/platform.ts", "src/markdown.ts",
   "src/highlight.ts", "src/timeline.ts", "src/conversation.ts", "src/conversation-legacy.ts", "src/context.ts",
-  "src/browser-context.ts", "src/browser-types.ts", "src/mentions.ts", "src/types.ts",
+  "src/review-comments.ts", "src/review-context.ts", "src/message-context.ts", "src/browser-context.ts", "src/browser-types.ts", "src/mentions.ts", "src/types.ts",
 ]);
 const isolatedViews = new Set(["src/components/resource-view.ts", "src/components/compositions.ts"]);
 const compositionDependencies = new Set(["src/components/compositions.css", "src/components/primitives.ts", "src/components/menu.ts"]);
@@ -17,7 +17,7 @@ const resourceDependencies = new Set([
   "src/components/primitives.ts", "src/components/menu.ts",
 ]);
 const componentEffects = new Set(["fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage", "indexedDB"]);
-const pureRoots = new Set(["src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts"]);
+const pureRoots = new Set(["src/review-comments.ts", "src/review-context.ts", "src/message-context.ts", "src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts"]);
 const desktop = /^src\/(?:ipc|mock|team)\.ts$/;
 const mobileDesktop = /^src\/(?:ipc|mock|team|chat|session|main)\.ts$/;
 const ambientEffects = new Set([

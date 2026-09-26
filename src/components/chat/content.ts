@@ -1,5 +1,7 @@
+import { splitMessageContexts } from "../../message-context";
+import { reviewContextChip } from "./review-context";
 import { grouped, kilo, sectionTotal, type Report } from "../../context";
-import { splitBrowserContexts, type BrowserContext } from "../../browser-context";
+import { type BrowserContext } from "../../browser-context";
 import { type IconName } from "../../icons";
 import { t } from "../../i18n";
 import { isImage, leadingMentions } from "../../mentions";
@@ -62,8 +64,8 @@ export function renderUserMessage(host: HTMLElement, text: string): void {
     chip.title = path;
     return chip;
   });
-  host.replaceChildren(...chips, ...splitBrowserContexts(attached ? attached.rest : text).map(part =>
-    typeof part === "string" ? document.createTextNode(part) : browserContextChip(part)));
+  host.replaceChildren(...chips, ...splitMessageContexts(attached ? attached.rest : text).map(part =>
+    typeof part === "string" ? document.createTextNode(part) : part.kind === "browser" ? browserContextChip(part.value) : reviewContextChip(part.value)));
 }
 
 export function inputView(name: string, input: unknown): HTMLElement {

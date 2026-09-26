@@ -26,6 +26,8 @@ serves to decide ownership and dependency direction during incremental changes.
 2. `relay/src/logic.ts` performs no I/O; `room.ts` interprets its effects.
 3. `relay/src/protocol.ts` does not depend on APIs exclusive to the app or the Worker.
 4. Persisted state is changed in the backend and republished by the `board` event.
+   Local Git reading marks and [review notes](../contracts/diff-review.md) are
+   explicit presentation-store exceptions; their storage adapters stay outside components.
 5. Filesystem, Git and process access happens in the backend.
 6. Remote input is validated again on the side that owns the authority.
 7. Backend errors cross IPC as codes/data and are translated in the frontend.
@@ -176,7 +178,8 @@ files are excluded. It uses the TypeScript parser already installed for builds.
   dependencies through a helper or barrel. Direct imports of forbidden shell
   types also fail, but type-only targets are not traversed for runtime effects.
 - Design-system dependencies stay inside that package, including nested files.
-- `timeline.ts`, relay `logic.ts` and relay `protocol.ts`, plus their runtime
+- `timeline.ts`, the review rules/message codecs (`review-comments.ts`,
+  `review-context.ts`, `message-context.ts`), relay `logic.ts` and relay `protocol.ts`, plus their runtime
   dependencies, cannot import external runtime packages or use selected ambient
   names for DOM, storage, network, Worker APIs, timers, `process` or `console`.
 - Computed import paths and unresolved relative source imports fail rather than

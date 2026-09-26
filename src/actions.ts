@@ -50,4 +50,5 @@ export const expand = (prompt: string, draft: string) => [prompt.trim(), draft.t
 export async function start(workspace: string, action: Action, context = "") {
   const tab = await invoke("action_start", { workspace, name: action.name, context });
   await opened(workspace, tab);
+  return tab;
 }

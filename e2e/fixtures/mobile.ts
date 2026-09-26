@@ -1,3 +1,4 @@
+import { encodeReviewContext } from "../../src/review-context";
 import "../../packages/design-system/components.css";
 import { companionId } from "../../src/mobile/shell";
 import * as member from "../../src/team-member";
@@ -14,7 +15,7 @@ const selection: BrowserSelection = {
 };
 const sample = [
   { type: "user", message: { role: "user", content: "https://example.com/" + "workspace/".repeat(80) } },
-  { type: "user", message: { role: "user", content: `Adjust this element on mobile.\n\n${encodeBrowserContext({ selection, image: "/tmp/mobile-browser-context.png" })}\n\nKeep the button text.` } },
+  { type: "user", message: { role: "user", content: `Adjust this element on mobile.\n\n${encodeBrowserContext({ selection, image: "/tmp/mobile-browser-context.png" })}\n\nKeep the button text.\n\n${encodeReviewContext({ batch: "mobile-review", comments: [{ n: 1, repo: "app", file: "src/button.ts", in: "worktree", old: null, new: [4, 4], hunk: "@@ -4 +4 @@", excerpt: ["+button"], body: "Preserve keyboard access." }] })}` } },
   { type: "assistant", message: { id: "answer", role: "assistant", content: [
     { type: "tool_use", id: "tool", name: "Bash", input: { command: long } },
     { type: "text", text: `Long message ${long}\n\n\`\`\`sh\n${long}\n\`\`\`\n\n| File | Result |\n| --- | --- |\n| ${"code".repeat(150)} | Done |` },

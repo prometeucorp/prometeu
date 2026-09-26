@@ -1,3 +1,8 @@
+import { reviewContextChip } from "./components/chat/review-context";
+import { mergeReviewDraft, type ReviewDraft } from "./review-comments";
+import { encodeReviewContext, reviewContext } from "./review-context";
+import { reviews } from "./review-store";
+import { reviewError } from "./components/git/review-note";
 import { composer, attachmentChip } from "./components/chat/composer";
 import { conversationBlock, errorCard, workCard, paintWorkHead } from "./components/chat/blocks";
 import { requestCard } from "./components/chat/requests";
@@ -83,9 +88,17 @@ const drafts = {
   files: new Map<string, string[]>(),
   contexts: new Map<string, BrowserContext[]>(),
   pending: new Map<string, number>(),
+  reviews: new Map<string, ReviewDraft>(),
 };
 const draftListeners = new Set<(key: string) => void>();
 const draftChanged = (key: string) => draftListeners.forEach(listener => listener(key));
+
+/** Attach an immutable batch to any local tab without sending or replacing typed text. */
+export function attachReview(tab: string, draft: ReviewDraft) {
+  const merged = mergeReviewDraft(drafts.reviews.get(tab), draft);
+  encodeReviewContext(reviewContext(merged));
+  drafts.reviews.set(tab, merged); draftChanged(tab);
+}
 
 export class ChatView {
   private feed!: HTMLElement;
@@ -228,6 +241,7 @@ export class ChatView {
       drafts.says.delete(key);
       drafts.files.delete(key);
       drafts.contexts.delete(key);
+      drafts.reviews.delete(key);
     }
     this.disposed = true;
     for (const stop of this.cleanup.splice(0)) stop();
@@ -803,6 +817,7 @@ export class ChatView {
     for (const key of drafts.says.keys()) if (!alive.has(key)) drafts.says.delete(key);
     for (const key of drafts.files.keys()) if (!alive.has(key)) drafts.files.delete(key);
     for (const key of drafts.contexts.keys()) if (!alive.has(key)) drafts.contexts.delete(key);
+    for (const key of drafts.reviews.keys()) if (!alive.has(key)) drafts.reviews.delete(key);
   }
 
   private grow() {
@@ -836,12 +851,18 @@ export class ChatView {
     if (this.selectAction()) return;
     const files = this.attached();
     const contexts = this.contexts();
-    if ((!text && !files.length && !contexts.length) || !this.key) return;
+    const review = this.key ? drafts.reviews.get(this.key) : undefined;
+    if ((!text && !files.length && !contexts.length && !review) || !this.key) return;
     const info = this.ctx.info();
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
     // Prepend attachments as mentions, matching the launcher's initial prompt format.
-    const said = [paths.mentions(files, info.worktree), ...contexts.map(encodeBrowserContext), text].filter(Boolean).join("\n\n");
+    const said = [paths.mentions(files, info.worktree), ...contexts.map(encodeBrowserContext), ...(review ? [encodeReviewContext(reviewContext(review))] : []), text].filter(Boolean).join("\n\n");
     const key = this.key;
+    if (review) {
+      // Submission is a local user action; backend failures may still leave a persisted queue.
+      void reviews.submit(review, key).catch(e => this.ctx.say(reviewError(e), true));
+      drafts.reviews.delete(key);
+    }
     if (this.remote) team.write(said);
     else invoke("chat_send", { session: key, text: said }).catch(e => this.ctx.say(fromBack(e), true));
     drafts.says.delete(key);
@@ -897,9 +918,14 @@ export class ChatView {
     const key = this.key;
     const draft = this.area.value;
     const contexts = this.contexts();
-    const context = [actions.expand(paths.mentions(this.attached(), this.ctx.info().worktree), rest), ...contexts.map(encodeBrowserContext)].filter(Boolean).join("\n\n");
+    const review = key ? drafts.reviews.get(key) : undefined;
+    const context = [actions.expand(paths.mentions(this.attached(), this.ctx.info().worktree), rest), ...contexts.map(encodeBrowserContext), ...(review ? [encodeReviewContext(reviewContext(review))] : [])].filter(Boolean).join("\n\n");
     // Preserve the draft if the backend rejects execution.
-    void actions.start(workspace, action, context).then(() => {
+    void actions.start(workspace, action, context).then(tab => {
+      if (review) {
+        void reviews.submit(review, tab.id).catch(e => this.ctx.say(reviewError(e), true));
+        if (key && drafts.reviews.get(key) === review) drafts.reviews.delete(key);
+      }
       if (key && drafts.says.get(key) === draft) drafts.says.delete(key);
       if (key) drafts.files.delete(key);
       if (key) drafts.contexts.set(key, (drafts.contexts.get(key) ?? []).filter(context => !contexts.includes(context)));
@@ -993,8 +1019,12 @@ export class ChatView {
     const row = this.box.querySelector<HTMLElement>(".cfiles")!;
     const list = this.attached();
     const contexts = this.contexts();
-    row.hidden = !list.length && !contexts.length;
+    const review = this.key ? drafts.reviews.get(this.key) : undefined;
+    row.hidden = !list.length && !contexts.length && !review;
     row.replaceChildren(
+      ...(review ? [reviewContextChip(reviewContext(review), () => {
+        if (this.key) { drafts.reviews.delete(this.key); draftChanged(this.key); this.area.focus(); }
+      })] : []),
       ...list.map((path, i) => {
         return attachmentChip({ name: path.split("/").pop() ?? path,
           title: paths.short(path, this.ctx.info().worktree), removeLabel: t("chat.attachment.remove"),
