@@ -37,8 +37,7 @@ A galeria `/design-system.html#components-preview` monta outra composição com
 essas partes, dados fictícios e callbacks locais, sem importar nenhuma das
 duas telas. O verificador de dependências protege essa fronteira. A
 [receita para agentes](../architecture/desktop-composition.md) documenta as APIs
-e os pontos de uso reais. A [captura atual dos componentes](../images/design-system-audit/desktop-components.png)
-mostra essa composição independente acima da biblioteca de Recursos.
+e os pontos de uso reais.
 
 ## Catálogo e adoção no Desktop
 
@@ -81,30 +80,24 @@ atuais, embora consumam as primitivas e os ícones canônicos. O manifesto lista
 os componentes efetivamente disponíveis; não apresenta essa cobertura como
 refatoração completa de todas as telas.
 
-As capturas atuais mostram o [explorador de componentes](../images/design-system-audit/component-explorer.png)
-e [dois leitores de diff independentes](../images/design-system-audit/component-diff.png).
+## Inspeção visual reproduzível
 
-## Evidências visuais
+Execute `npm run dev` e abra `/design-system.html` para inspecionar os
+componentes atuais. O exemplo `/design-system.html?component=diff&state=two-instances`
+mostra dois leitores independentes; `#components-preview` e `#resources-preview`
+apresentam as composições compartilhadas e a biblioteca de Recursos.
 
-As capturas usam o navegador com mock e interface em inglês. Não são capturas
-do WKWebView do Tauri. As vistas amplas têm viewport de 1440 × 1000; as estreitas,
-900 × 800 com a barra lateral aberta. A galeria foi capturada em 1280 × 900.
-Essas capturas registram o primeiro piloto, anterior à extração dos componentes
-compartilhados; a galeria executável apresenta a implementação atual.
-
-| Referência | Evidência |
-| --- | --- |
-| [Geral, referência original](../images/design-system-audit/general.png) | Superfícies, hierarquia de texto e agrupamento que orientam a continuidade visual. |
-| [Ações, referência original](../images/design-system-audit/actions.png) | Cartões e hierarquia preservados; os controles agora mantêm a classe compartilhada. |
-| [Recursos antes](../images/design-system-audit/resources.png) / [depois](../images/design-system-audit/resources-after.png) | Mesma organização, com espaçamento por tokens e propriedade explícita do layout. |
-| [Janela estreita antes](../images/design-system-audit/resources-narrow.png) / [depois](../images/design-system-audit/resources-narrow-after.png) | O nome deixa de ocupar a coluna errada e as ações permanecem na mesma linha. |
-| [Galeria executável](../images/design-system-audit/resources-gallery.png) | A apresentação de produção com estados selecionáveis e dados fictícios. |
+Para conferir o layout, use a interface em inglês com viewports de 1440 × 1000
+e 900 × 800 no aplicativo com mock, e 1280 × 900 ou 460 × 800 na galeria.
+Essas verificações no navegador não substituem a validação nativa no WKWebView.
+A galeria executa os componentes de produção; screenshots não são necessárias
+para seu funcionamento nem para os testes.
 
 ## Achados e tratamento
 
 | Achado na base anterior | Tratamento no piloto |
 | --- | --- |
-| Em 900 × 800, o ícone continuava visível após a remoção de sua coluna. O nome recebia apenas 48 px. | A composição deixa de usar `.setrow` e `.glyph`. As container queries de `resources` ocultam o ícone e removem sua coluna juntas. Na captura atual, o nome recebe 258 px. |
+| Em 900 × 800, o ícone continuava visível após a remoção de sua coluna. O nome recebia apenas 48 px. | A composição deixa de usar `.setrow` e `.glyph`. As container queries de `resources` ocultam o ícone e removem sua coluna juntas. Os testes verificam espaço para o nome e ações dentro do painel. |
 | `button.md` e `button.outline` modificavam os botões compartilhados: padding de 16 px virava 12 px, e `--fg` virava `--fg-2`. | Os seletores legados excluem `.ui-button`. Um teste de navegador compara a aparência compacta entre a galeria independente e o Desktop. |
 | Ações chamava `ui.button`, mas substituía `className`, descartando a identidade do componente. | As variantes usam `classList.replace`; as classes locais são acrescentadas, mantendo `.ui-button`. |
 | Recursos obtinha `settingsRows().slice(1)` dos hubs e extraía metadados de DOM. | Hubs projetam `ResourceItem[]`; composição recebe dados e callbacks. Não existem controles ocultos para intermediar essas ações. |
