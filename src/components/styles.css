@@ -1,0 +1,10 @@
+/* Standalone Desktop component baseline. Application shells can add their layout on top. */
+@import "../ui.css";
+@import "../browser-context.css";
+@import "../attachment-tag.css";
+@import "./compositions.css";
+@import "./resource-view.css";
+@import "./chat/chat.css";
+@import "./chat/markdown.css";
+@import "./git/diff.css";
+@import "./git/git.css";

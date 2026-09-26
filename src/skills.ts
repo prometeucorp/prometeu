@@ -1,4 +1,5 @@
 import { invoke } from "./ipc";
+import type { ResourceItem } from "./resources/model";
 import { fromBack, t } from "./i18n";
 import { h } from "./util";
 import * as ui from "./ui";
@@ -20,35 +21,23 @@ export function init(report: typeof say, onChanged: () => Promise<void>) {
 export async function refresh() { hub = await invoke("skill_hub"); for (const fn of watchers) fn(); }
 async function changed() { await refresh(); await afterChange(); }
 
-function row(id: string, description: string, controls: HTMLElement[]) {
-  const row = h("div", "setrow");
-  row.dataset.resourceId = id;
-  const text = h("div", "txt"); text.append(h("b", "", id), h("span", "", description));
-  const act = h("div", "act");
-  const source = h("div", ""); source.hidden = true; source.append(...controls);
-  const more = ui.menuButton("…", () => controls.map(control => ({
-    label: control.textContent ?? "", disabled: (control as HTMLButtonElement).disabled,
-    danger: control.textContent === t("skill.remove"), run: () => control.click(),
-  })));
-  more.setAttribute("aria-label", `${t("actions.more")} · ${id}`);
-  more.dataset.focus = `skill-actions-${id}`;
-  act.append(more, source); row.append(text, catalog.originCell(row, catalog.installedOrigins("skills", id)), act); return row;
-}
 export function settingsActions() {
   return [{ label: t("skill.add"), run: () => editor(null) }];
 }
-export function settingsRows(): HTMLElement[] {
-  const rows = [row(t("skill.title"), t("skill.intro"), [ui.button(t("skill.add"), () => editor(null), "outline")])];
-  for (const skill of hub) {
-    rows.push(row(skill.id, skill.description, [
-      ui.button(t("actions.edit"), () => editor(skill), "ghost"),
-      ...catalog.controls("skills", skill.id, say),
-      ui.button(t("skill.remove"), () => {
-        void invoke("skill_remove", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true));
-      }, "ghost"),
-    ]));
-  }
-  return [...rows, ...catalog.pendingRows("skills", hub.map(s => s.id), say)];
+export function resourceItems(): ResourceItem[] {
+  return [
+    ...hub.map((skill): ResourceItem => ({
+      key: `skill-actions-${skill.id}`, id: skill.id, kind: "skills", description: skill.description,
+      origins: catalog.installedOrigins("skills", skill.id), glyph: "sparkles", actions: [
+        { label: t("actions.edit"), run: () => editor(skill) },
+        ...catalog.resourceActions("skills", skill.id, say),
+        { label: t("skill.remove"), danger: true, run: () => {
+          void invoke("skill_remove", { id: skill.id }).then(changed).catch(e => say(fromBack(e), true));
+        } },
+      ],
+    })),
+    ...catalog.pendingResources("skills", hub.map(skill => skill.id), say),
+  ];
 }
 function editor(skill: Skill | null) {
   const revision = skill ? catalog.current().revision : null;

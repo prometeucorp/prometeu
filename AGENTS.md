@@ -44,6 +44,9 @@ Start at `docs/README.md` for the complete index.
 - UI controls reuse `src/ui.ts`, `src/menu.ts` and the shared tokens.
   See the [Design System](docs/architecture/design-system.md) before creating or
   changing controls.
+  Find Desktop components, stories and real consumers in
+  [`src/components/`](src/components/README.md) and its `catalog.json`.
+  For isolated Desktop screens, follow the [composition recipe](docs/architecture/desktop-composition.md).
 
 The complete dependency rules are in
 `docs/architecture/dependency-rules.md`.

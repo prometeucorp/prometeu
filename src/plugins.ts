@@ -1,7 +1,7 @@
 import * as ui from "./ui";
+import type { ResourceItem } from "./resources/model";
 import { listen } from "@tauri-apps/api/event";
 import { invoke, type IpcResult } from "./ipc";
-import { icon } from "./icons";
 import { fromBack, t, type Key } from "./i18n";
 import * as menu from "./menu";
 import * as catalog from "./catalog";
@@ -179,11 +179,10 @@ export function init(context: Ctx) {
   ctx = context;
 }
 
-/// Start the Plugins page with its explanation and actions, then list entries.
-export function settingsRows(): HTMLElement[] {
+const updating = new Set<string>();
+export function resourceItems(): ResourceItem[] {
   const local = hub.filter(p => !skills.packageIds().has(p.id));
-  const rows = [...local.map(pluginRow), ...catalog.pendingRows("plugins", local.map(p => p.id), ctx.say)];
-  return [aboutRow(), ...(rows.length ? rows : [emptyRow()])];
+  return [...local.map(pluginResource), ...catalog.pendingResources("plugins", local.map(plugin => plugin.id), ctx.say)];
 }
 
 export function settingsActions(): menu.Item[] {
@@ -194,111 +193,39 @@ export function settingsActions(): menu.Item[] {
   ];
 }
 
-function aboutRow(): HTMLElement {
-  const row = template(
-    "div",
-    "setrow head",
-    `<div class="txt"><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".txt span")!.textContent = t("settings.plugins.body");
-
-  // Emphasize installing existing plugins; creation and local-folder registration are secondary actions.
-  const get = template("button", "outline md", `<span></span>`) as HTMLButtonElement;
-  get.children[0].textContent = t("plugin.install");
-  get.addEventListener("click", () => installer());
-
-  const make = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  make.children[0].textContent = t("plugin.make");
-  make.addEventListener("click", () => maker());
-
-  const add = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  add.children[0].textContent = t("plugin.add");
-  add.addEventListener("click", () => editor(null));
-
-  row.querySelector(".act")!.append(get, make, add);
-  return row;
+function installCatalogPlugin(p: catalog.CatalogPlugin, replacing = false) {
+  const dialog = ui.formDialog({ title: t(replacing ? "catalog.replaceSource" : "catalog.install"), save: t("catalog.install"), cancel: t("plugin.cancel"), error: fromBack,
+    submit: async () => { await invoke("catalog_install_plugin", { id: p.id }); await catalog.refresh(); } });
+  dialog.body.append(h("p", "ui-hint", p.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
 }
 
-function emptyRow(): HTMLElement {
-  const row = h("div", "setrow none", "");
-  row.textContent = t("plugin.empty");
-  return row;
-}
-
-function pluginRow(plugin: Plugin): HTMLElement {
-  const row = template(
-    "div",
-    "setrow",
-    `<span class="glyph"></span><div class="txt"><b></b><span></span></div><div class="act"></div>`,
-  );
-  row.querySelector(".glyph")!.innerHTML = icon(remote(plugin.source) ? "globe" : "puzzle", 18);
-  row.querySelector(".txt b")!.textContent = plugin.id;
-  row.dataset.resourceId = plugin.id;
-  row.querySelector(".txt span")!.textContent = subtitle(plugin);
-
-  const act = row.querySelector(".act")!;
-  act.before(catalog.originCell(row, catalog.installedOrigins("plugins", plugin.id)));
-  act.append(...catalog.controls("plugins", plugin.id, ctx.say));
+function pluginResource(plugin: Plugin): ResourceItem {
+  const actions = catalog.resourceActions("plugins", plugin.id, ctx.say);
   const cloud = catalog.current().plugins.find(p => p.local_id === plugin.id);
-  if (cloud?.source_changed) act.append(ui.button(t("catalog.replaceSource"), () => {
-    const dialog = ui.formDialog({ title: t("catalog.replaceSource"), save: t("catalog.install"), cancel: t("plugin.cancel"), error: fromBack,
-      submit: async () => { await invoke("catalog_install_plugin", { id: cloud.id }); await catalog.refresh(); } });
-    dialog.body.append(h("p", "ui-hint", cloud.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
-  }, "outline"));
-  // Offer Git updates only for plugins installed from repository URLs.
-  if (plugin.from) {
-    const up = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-    up.children[0].textContent = t("plugin.update");
-    up.addEventListener("click", () => {
-      up.disabled = true;
-      ctx.say(t("plugin.updating", { name: plugin.id }));
-      invoke("plugin_update", { id: plugin.id })
-        .then((fresh) => {
-          hub = fresh;
-          // Announce the update result because the refreshed list otherwise looks unchanged.
-          ctx.say(t("plugin.updated", { name: plugin.id }));
-          announce();
-        })
-        .catch((e) => {
-          up.disabled = false;
-          ctx.say(fromBack(e), true);
-        });
-    });
-    act.append(up);
-  }
-
-  const edit = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  edit.children[0].textContent = t("plugin.edit");
-  edit.addEventListener("click", () => editor(plugin));
-
-  const drop = template("button", "ghost md", `<span></span>`) as HTMLButtonElement;
-  drop.children[0].textContent = t(catalog.shared("plugins", plugin.id) ? "catalog.delete" : "plugin.remove");
-  drop.addEventListener("click", async () => {
-    // Removing app-owned plugins also deletes their files and requires confirmation.
-    if (plugin.made && !await ui.confirmDialog({
-      title: t("plugin.remove"), message: t("plugin.remove.made"),
-      accept: t("plugin.remove.made"), cancel: t("plugin.cancel"),
-    })) return;
-    await remove(plugin);
+  if (cloud?.source_changed) actions.push({ label: t("catalog.replaceSource"), run: () => installCatalogPlugin(cloud, true) });
+  if (plugin.from) actions.push({ label: t("plugin.update"), run: () => {
+    if (updating.has(plugin.id)) return;
+    updating.add(plugin.id); announce();
+    ctx.say(t("plugin.updating", { name: plugin.id }));
+    void invoke("plugin_update", { id: plugin.id })
+      .then(fresh => { hub = fresh; ctx.say(t("plugin.updated", { name: plugin.id })); })
+      .catch(error => ctx.say(fromBack(error), true))
+      .finally(() => { updating.delete(plugin.id); announce(); });
+  } });
+  actions.push({ label: t("plugin.edit"), run: () => editor(plugin) }, {
+    label: t(catalog.shared("plugins", plugin.id) ? "catalog.delete" : "plugin.remove"), danger: true,
+    run: async () => {
+      if (plugin.made && !await ui.confirmDialog({
+        title: t("plugin.remove"), message: t("plugin.remove.made"),
+        accept: t("plugin.remove.made"), cancel: t("plugin.cancel"),
+      })) return;
+      await remove(plugin);
+    },
   });
-
-  act.append(edit, drop);
-  actionMenu(row, plugin.id, drop);
-  return row;
-}
-
-function actionMenu(row: HTMLElement, id: string, drop?: HTMLButtonElement) {
-  const act = row.querySelector(".act")!;
-  const buttons = [...act.querySelectorAll("button")];
-  const hidden = h("div", ""); hidden.hidden = true; hidden.append(...buttons);
-  const more = ui.menuButton("…", () => buttons.map(button => ({
-    label: button.textContent ?? "", disabled: button.disabled,
-    danger: button === drop, run: () => button.click(),
-  })));
-  more.setAttribute("aria-label", `${t("actions.more")} · ${id}`);
-  more.dataset.focus = `plugin-actions-${id}`;
-  more.disabled = buttons.every(button => button.disabled);
-  act.replaceChildren(hidden, more);
+  return { key: `plugin-actions-${plugin.id}`, id: plugin.id, kind: "plugins", description: subtitle(plugin),
+    origins: catalog.installedOrigins("plugins", plugin.id), glyph: remote(plugin.source) ? "globe" : "puzzle",
+    busy: updating.has(plugin.id), actions,
+  };
 }
 
 const remote = (source: string) => /^https?:\/\//.test(source.trim());

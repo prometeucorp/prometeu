@@ -70,6 +70,7 @@ apresenta falhas sem perder dados e devolve o foco ao fechar. Não faz requests.
 | `disclosure(title, ...content)` | disclosure nativo sem controle de estado externo |
 | `card`, `badge`, `notice` | renderização de contêineres, indicadores e feedback com roles apropriados |
 | `avatar(image, kind, size)` | foto ou logotipo; sem imagem, glifo de pessoa ou organização, decorativo |
+| `iconNames` | nomes tipados dos ícones para catálogos e descoberta |
 | `icon(name, size)` | catálogo tipado de ícones vetoriais compartilhados |
 | `enhance(root)` | conecta o HTML do adaptador Rails ao runtime; devolve função de limpeza |
 

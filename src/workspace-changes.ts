@@ -1,8 +1,12 @@
+import { gitGroup } from "./components/git/group";
+import { iconButton as componentIconButton } from "./components/icon-button";
+import { gitFileRow } from "./components/git/file-row";
+import { commitForm } from "./components/git/commit-form";
 import { invoke } from "./ipc";
 import { avatar, icon } from "./icons";
 import { current as language, fromBack, t, tn, type Key } from "./i18n";
 import { $, h, template } from "./util";
-import { button as uiButton, confirmDialog, input as uiInput, field } from "./ui";
+import { button as uiButton, confirmDialog, input as uiInput } from "./ui";
 import * as diff from "./diff";
 import * as menu from "./menu";
 import { changesMenu, type Availability, type Refusal } from "./changes-menu";
@@ -135,9 +139,8 @@ function button(label: string, click: () => void, disabled = false, className = 
 }
 
 function iconButton(label: string, glyph: Parameters<typeof icon>[0], click: () => void, disabled = false) {
-  const node = button("", click, disabled, "ghost git-icon");
-  node.append(template("span", "", icon(glyph, 14)));
-  node.title = label; node.setAttribute("aria-label", label);
+  const node = componentIconButton({ label, glyph, run: click, disabled });
+  node.classList.add("git-icon");
   return node;
 }
 
@@ -270,35 +273,24 @@ function drawSidebar() {
   for (const scope of scopes) {
     const group = scope === "conflict" ? repo.conflicts : repo[scope];
     if (scope === "conflict" && !group.length) continue;
-    const section = h("section", "git-group"); section.dataset.scope = scope;
-    const head = h("div", "git-group-head");
-    const groupKey = `${view.repo}/${scope}`, body = h("div", "git-group-files");
-    body.id = `git-files-${scope}`; body.hidden = view.collapsed.has(groupKey);
-    const toggle = button("", () => {
-      body.hidden = !body.hidden;
-      if (body.hidden) view.collapsed.add(groupKey); else view.collapsed.delete(groupKey);
-      toggle.setAttribute("aria-expanded", String(!body.hidden));
-    }, false, "ghost git-group-toggle");
-    toggle.setAttribute("aria-expanded", String(!body.hidden)); toggle.setAttribute("aria-controls", body.id);
-    toggle.append(template("span", "", icon("chevron-down", 12)), h("strong", "", scope === "conflict" ? t("git.conflicts") : tn(group.length, "diff.files")));
-    head.append(toggle, h("span", "spacer"));
-    if (scope !== "conflict") {
-      const all = button(t(scope === "staged" ? "git.unstageAll" : "git.stageAll"), () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)), disabled || !group.length, "ghost git-file-action");
-      all.title = t(scope === "staged" ? "git.unstageAll" : "git.stageAll"); all.setAttribute("aria-label", all.title); head.append(all);
-    }
-    section.append(head, body);
+    const groupKey = `${view.repo}/${scope}`;
+    const { root: section, body } = gitGroup({ scope,
+      title: scope === "conflict" ? t("git.conflicts") : tn(group.length, "diff.files"),
+      collapsed: view.collapsed.has(groupKey),
+      changed: collapsed => { if (collapsed) view.collapsed.add(groupKey); else view.collapsed.delete(groupKey); },
+      action: scope === "conflict" ? undefined : {
+        label: t(scope === "staged" ? "git.unstageAll" : "git.stageAll"), disabled: disabled || !group.length,
+        run: () => void act(scope === "staged" ? "unstage" : "stage", group.map(file => file.path)),
+      },
+    });
     const visible = group.filter(file => file.path.toLowerCase().includes(view.filter.toLowerCase()));
     for (const file of visible) {
       const selected = view.selection?.path === file.path && view.selection.scope === scope;
-      const row = h("div", `git-file${selected ? " selected" : ""}`); row.dataset.path = file.path;
-      const cut = file.path.lastIndexOf("/");
-      const open = button("", () => selectFile(file, scope), false, "git-file-name"); open.title = file.path;
-      open.setAttribute("aria-current", String(selected));
-      open.append(template("span", "git-reviewed", icon("check", 12)), h("span", "", file.path.slice(cut + 1)), h("small", "", file.path.slice(0, cut + 1)));
-      if (file.status !== "D") open.ondblclick = () => context.openFile(repo.name, file.path);
-      // Replace the engine's page menu, which offers web actions over the file's path.
-      row.addEventListener("contextmenu", event => {
-        event.preventDefault();
+      const row = gitFileRow({
+        path: file.path, status: file.status, statusLabel: t(`git.status.${file.status}` as Key), selected,
+        select: () => selectFile(file, scope),
+        open: file.status !== "D" ? () => context.openFile(repo.name, file.path) : undefined,
+        contextMenu: event => {
         const host = context.fileHost(repo.name);
         menu.openAt({ x: event.clientX, y: event.clientY }, changesMenu(file, {
           ...host, scope, availability,
@@ -311,31 +303,29 @@ function drawSidebar() {
             discard: () => void discard(file.path, () => act("discard", [file.path])),
           },
         }));
+        },
+        action: scope !== "conflict" ? {
+          label: t(scope === "staged" ? "git.unstage.short" : "git.stage.short"),
+          description: `${t(scope === "staged" ? "git.unstage" : "git.stage")}: ${file.path}`, disabled,
+          run: () => void act(scope === "staged" ? "unstage" : "stage", [file.path]),
+        } : undefined,
       });
-      const letter = h("span", `git-letter status-${file.status === "?" ? "new" : file.status}`, file.status === "?" ? "U" : file.status);
-      const key = `git.status.${file.status}` as Key; letter.title = t(key);
-      row.append(open, letter);
-      if (scope !== "conflict") {
-        const action = button(t(scope === "staged" ? "git.unstage.short" : "git.stage.short"), () => void act(scope === "staged" ? "unstage" : "stage", [file.path]), disabled, "ghost git-file-action");
-        action.title = `${t(scope === "staged" ? "git.unstage" : "git.stage")}: ${file.path}`;
-        action.setAttribute("aria-label", action.title); row.append(action);
-      }
       body.append(row);
     }
     if (!visible.length) body.append(h("div", "git-hint", t(group.length ? "git.filter.empty" : "git.empty")));
     list.append(section);
   }
   if (local) {
-    const composer = h("div", "git-composer");
+    const composer = h("div", activeMode === "staged" ? "" : "git-composer");
     if (activeMode === "staged") {
-      const input = uiInput(view.messages.get(view.repo) ?? "", true);
-      input.id = "git-message"; input.placeholder = t("git.message.placeholder"); input.disabled = busy; input.rows = 3;
-      const canCommit = () => disabled || !repo.branch || !!repo.conflicts.length || (!repo.staged.length && !repo.merging) || !input.value.trim();
-      const commit = button(repo.merging ? t("git.commit.merge") : tn(repo.staged.length, "git.commit.files"), () => void act("commit"), canCommit(), "pri"); commit.id = "git-commit";
-      commit.prepend(template("span", "", icon("check", 14)));
-      commit.title = t(repo.conflicts.length ? "git.conflict.hint" : repo.staged.length ? "git.commit.hint" : "git.stage.hint");
-      input.oninput = () => { view.messages.set(view.repo, input.value); commit.disabled = canCommit(); };
-      composer.append(field(t("git.message"), input), commit, h("p", "git-hint", t("git.commit.hint")));
+      composer.append(commitForm({
+        message: view.messages.get(view.repo) ?? "", label: t("git.message"), placeholder: t("git.message.placeholder"),
+        submit: repo.merging ? t("git.commit.merge") : tn(repo.staged.length, "git.commit.files"),
+        hint: t("git.commit.hint"),
+        title: t(repo.conflicts.length ? "git.conflict.hint" : repo.staged.length ? "git.commit.hint" : "git.stage.hint"),
+        busy, disabled: disabled || !repo.branch || !!repo.conflicts.length || (!repo.staged.length && !repo.merging),
+        changed: message => view.messages.set(view.repo, message), commit: () => void act("commit"),
+      }));
     } else {
       composer.append(h("strong", "", repo.staged.length ? tn(repo.staged.length, "git.ready") : t("git.prepare")), h("p", "git-hint", t("git.stage.hint")));
       if (repo.staged.length || repo.merging) composer.append(button(t("git.reviewStaged"), () => show("staged")));

@@ -1,3 +1,6 @@
+import { composer, attachmentChip } from "./components/chat/composer";
+import { conversationBlock, errorCard, workCard, paintWorkHead } from "./components/chat/blocks";
+import { requestCard } from "./components/chat/requests";
 import * as actions from "./actions";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
@@ -7,22 +10,13 @@ import { encodeBrowserContext, type BrowserContext } from "./browser-context";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
 import { icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
-import { diffHtml, isDiff } from "./highlight";
 import { kilo } from "./context";
 import {
-  capError,
-  capLines,
   browserContextChip,
   contextPanel,
-  countTools,
-  errorPeek,
-  inputView,
   peek,
   renderUserMessage,
-  tallyText,
   took,
-  toolIcon,
-  toolLabel,
   wantsCard,
 } from "./chat-presentation";
 import { effortStep, fitsEffort, modelLabel } from "./model-choice";
@@ -39,9 +33,8 @@ import * as paths from "./paths";
 import { pasteFiles } from "./paste";
 import * as voice from "./voice";
 import * as team from "./team";
-import { pieces, summary, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece, type ToolBlock } from "./timeline";
+import { pieces, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece } from "./timeline";
 import type { Choice, ProviderId, Selection, Status } from "./types";
-import { button } from "./ui";
 import { h, template } from "./util";
 
 /// Render Timeline updates and composer interaction from canonical conversation events. Send prompts, responses, and interrupts through ConversationCommandV1. Remote conversations reuse this view with relay transport. Side-panel comments anchor to stable Piece.key values without entering the transcript.
@@ -437,7 +430,7 @@ export class ChatView {
     if (piece.kind === "say") {
       const el = h("div", "turn bot");
       const at = this.blockAt(piece);
-      if (at) el.append(this.block(at.block, at.live));
+      if (at) el.append(conversationBlock(at.block, at.live));
       this.paintMeta(el, piece);
       return el;
     }
@@ -531,7 +524,7 @@ export class ChatView {
       case "ask":
         return this.askCard(item, i);
       case "result": {
-        return this.errorCard(item.text || t("chat.result.error"));
+        return errorCard(item.text || t("chat.result.error"));
       }
       case "context":
         return contextPanel(item.report);
@@ -543,7 +536,7 @@ export class ChatView {
           (el.lastElementChild as HTMLElement).innerHTML = md(item.text);
           return el;
         }
-        if (item.error) return this.errorCard(item.text);
+        if (item.error) return errorCard(item.text);
         const el = h("div", "sys");
         el.textContent =
           item.what === "compacted"
@@ -554,25 +547,6 @@ export class ChatView {
         return el;
       }
     }
-  }
-
-  /// Present technical failures concisely while retaining full diagnostic output.
-  private errorCard(text: string): HTMLElement {
-    const value = fromBack(text).trim() || t("chat.result.error");
-    if (!value.includes("\n") && value.length <= 180) {
-      const el = h("div", "sys err");
-      el.textContent = value;
-      return el;
-    }
-    const el = template(
-      "details",
-      "syserr",
-      `<summary><span class="eic">${icon("x", 12)}</span><b></b><span class="prev"></span></summary><pre></pre>`,
-    );
-    el.querySelector("b")!.textContent = t("chat.error.title");
-    el.querySelector(".prev")!.textContent = errorPeek(value);
-    el.querySelector("pre")!.textContent = capError(value);
-    return el;
   }
 
   /// Update compatible blocks in place and append new ones; return false when the whole piece must be replaced.
@@ -608,7 +582,7 @@ export class ChatView {
       if (!at) continue;
       const node = el.children[k] as HTMLElement | undefined;
       if (!node) {
-        el.append(this.block(at.block, at.live));
+        el.append(conversationBlock(at.block, at.live));
         continue;
       }
       // If a block unexpectedly changes type, rebuild instead of displaying stale structure.
@@ -624,8 +598,10 @@ export class ChatView {
         node.classList.toggle("bare", !at.block.text);
       } else {
         // Rebuild changed tool states while preserving expansion.
-        const fresh = this.block(at.block, at.live);
-        if (node.classList.contains("open")) fresh.classList.add("open");
+        const fresh = conversationBlock(at.block, at.live);
+        if (node.classList.contains("open")) {
+          fresh.classList.add("open"); fresh.querySelector(".thead")?.setAttribute("aria-expanded", "true");
+        }
         node.replaceWith(fresh);
       }
     }
@@ -634,305 +610,28 @@ export class ChatView {
 
   /// Group consecutive agent work into one expandable card so intermediate steps do not bury readable speech.
   private workCard(piece: Extract<Piece, { kind: "work" }>): HTMLElement {
-    const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
-    if (!wantsCard(parts)) {
-      const el = h("div", "turn bot");
-      for (const p of parts) el.append(this.block(p.block, p.live));
-      return el;
-    }
-    const el = h("div", "work" + (this.opened.has(piece.key) ? " open" : ""));
-    const head = template("button", "whead", `<span class="wic"></span><b></b><span class="sum"></span><span class="st"></span>`);
-    head.addEventListener("click", () => {
-      const open = el.classList.toggle("open");
-      if (open) this.opened.add(piece.key);
-      else this.opened.delete(piece.key);
+    const parts = piece.refs.map(r => this.blockAt(r)).filter(p => !!p);
+    return workCard(parts, this.opened.has(piece.key), open => {
+      if (open) this.opened.add(piece.key); else this.opened.delete(piece.key);
     });
-    const body = h("div", "wbody");
-    for (const p of parts) body.append(this.block(p.block, p.live));
-    el.append(head, body);
-    this.paintWorkHead(el, piece);
-    return el;
   }
 
-  /// While running, the card header shows current activity; after completion, summarize step counts and affected work.
   private paintWorkHead(el: HTMLElement, piece: Extract<Piece, { kind: "work" }>) {
-    const parts = piece.refs.map((r) => this.blockAt(r)).filter((p) => !!p);
-    const tools = parts.map((p) => p.block).filter((b): b is ToolBlock => b.kind === "tool");
-    const last = parts[parts.length - 1];
-    const running = parts.some((p) => p.live) || tools.some((b) => !b.done || b.background);
-    const bad = tools.some((b) => b.error);
-    el.classList.toggle("going", running);
-    el.classList.toggle("bad", !running && bad);
-    el.classList.toggle("ok", !running && !bad);
-
-    const now = running && last.block.kind === "tool" ? last.block : null;
-    const tally = countTools(tools);
-    const name = now ? now.name : tally[0]?.[0] ?? "";
-    const q = (sel: string) => el.querySelector(sel)!;
-    q(".wic").innerHTML = icon(running && !now ? "sparkles" : toolIcon(name), 14);
-    q("b").textContent = now ? toolLabel(now.name) : running ? t("chat.thinking") : tn(tools.length, "chat.work");
-    q(".sum").textContent = now ? summary(now.name, now.input, now.json) : running ? "" : tallyText(tally);
-    q(".st").innerHTML = running ? `<span class="spin"></span>` : icon(bad ? "x" : "check", 12);
-  }
-
-  /// The final streaming block distinguishes ongoing reasoning from completed reasoning.
-  private block(block: Block, live: boolean): HTMLElement {
-    if (block.kind === "text") {
-      const el = h("div", "md" + (live ? " typing" : ""));
-      el.dataset.kind = "text";
-      el.innerHTML = md(block.text);
-      return el;
-    }
-    if (block.kind === "thinking") {
-      // Without retained reasoning text, show only its label and no expansion control.
-      const el = template(
-        "details",
-        "think" + (live ? " live" : "") + (block.text ? "" : " bare"),
-        `<summary><span class="tic">${icon("brain", 14)}</span><b></b><span class="prev"></span></summary><div></div>`,
-      );
-      el.dataset.kind = "thinking";
-      el.querySelector("b")!.textContent = t(live ? "chat.thinking" : "chat.thought");
-      el.querySelector(".prev")!.textContent = peek(block.text);
-      (el.lastElementChild as HTMLElement).textContent = block.text;
-      return el;
-    }
-    // Collapsed tool rows reveal input and output when opened.
-    const running = !block.done || block.background;
-    const el = h("div", "tool" + (running ? " run" : block.error ? " bad" : " ok"));
-    el.dataset.kind = "tool";
-    el.dataset.tool = block.id;
-    const head = template("button", "thead", `<span class="tic">${icon(toolIcon(block.name), 14)}</span><b></b><span class="sum"></span><span class="bgtag"></span><span class="st"></span>`);
-    head.querySelector("b")!.textContent = toolLabel(block.name);
-    head.querySelector(".sum")!.textContent = block.name === "ExitPlanMode" ? "" : summary(block.name, block.input, block.json);
-    head.querySelector(".bgtag")!.textContent = block.background ? t("chat.bg.tag") : "";
-    head.querySelector(".st")!.innerHTML = running ? `<span class="spin"></span>` : icon(block.error ? "x" : "check", 12);
-    head.addEventListener("click", () => el.classList.toggle("open"));
-    el.append(head);
-    const body = h("div", "tbody");
-    if (block.name === "ExitPlanMode") {
-      // Render plans directly as readable markdown.
-      el.classList.add("open", "plan");
-      const plan = h("div", "md");
-      plan.innerHTML = md(String((block.input as { plan?: string })?.plan ?? ""));
-      body.append(plan);
-    } else if (block.error) {
-      const failed = template("div", "tfail", `<span class="tic">${icon("x", 12)}</span><span></span>`);
-      failed.lastElementChild!.textContent = t("chat.tool.failed");
-      body.append(failed);
-
-      const technical = h("div", "ttech");
-      const input = inputView(block.name, block.input);
-      if (input.childElementCount) technical.append(input);
-      if (block.result !== null) {
-        const out = h("pre", "tout");
-        out.textContent = capError(fromBack(block.result));
-        technical.append(out);
-      }
-      if (technical.childElementCount) {
-        const details = template("details", "ttechnical", `<summary></summary>`);
-        details.querySelector("summary")!.textContent = t("chat.tool.details");
-        details.append(technical);
-        body.append(details);
-      }
-    } else if (block.name === "Skill" && block.result) {
-      // Collapse skill instructions while preserving readable markdown on expansion.
-      const what = h("div", "md");
-      what.innerHTML = md(capLines(block.result));
-      body.append(what);
-    } else {
-      body.append(inputView(block.name, block.input));
-      if (block.result !== null) {
-        const out = h("pre", "tout");
-        // Highlight unified diffs returned by tools like other edit diffs.
-        if (isDiff(block.result)) {
-          out.classList.add("tdiff");
-          out.innerHTML = diffHtml(capLines(block.result));
-        } else out.textContent = capLines(block.result);
-        body.append(out);
-      }
-    }
-    el.append(body);
-    return el;
+    paintWorkHead(el, piece.refs.map(r => this.blockAt(r)).filter(p => !!p));
   }
 
   /* Response requests. */
 
-  private askCard(ask: Ask, i: number): HTMLElement {
-    if (ask.answered) {
-      const el = template("div", "sys done", `${icon("check", 12)}<span></span>`);
-      el.querySelector("span")!.textContent = t("chat.answered", { what: toolLabel(ask.tool) });
-      return el;
-    }
-    const el = h("div", "ask");
-    if (ask.requestKind === "plan") return this.planCard(el, ask);
-    if (ask.requestKind === "question") return this.questionCard(el, ask);
-    return this.permCard(el, ask, i);
-  }
-
-  private planCard(el: HTMLElement, ask: Ask): HTMLElement {
-    el.classList.add("plan");
-    el.append(h("h4", "", t("chat.plan.title")));
-    const row = h("div", "row");
-    const go = h("button", "pri md", t("chat.plan.go"));
-    go.title = t("chat.plan.go.title");
-    go.addEventListener("click", () => {
-      // Approving a plan also enables bypass before resuming so its first tool does not immediately ask again.
-      void this.control({
-        v: 1,
-        type: "permission.mode.set",
-        mode: "bypass",
-      }).then(sent => { if (sent) this.respond(ask, { outcome: "allow" }); });
+  private askCard(ask: Ask, _i: number): HTMLElement {
+    return requestCard(ask, {
+      respond: response => this.respond(ask, response),
+      allowAlways: () => {
+        void this.control({ v: 1, type: "permission.mode.set", mode: "bypass" })
+          .then(sent => { if (sent) this.respond(ask, { outcome: "allow" }); });
+      },
+      feedbackOpen: this.feedback === ask.id,
+      feedbackChanged: open => { this.feedback = open ? ask.id : null; },
     });
-    const asking = h("button", "outline md", t("chat.plan.ask"));
-    asking.title = t("chat.plan.ask.title");
-    asking.addEventListener("click", () => this.respond(ask, { outcome: "allow" }));
-    const no = h("button", "ghost md", t("chat.plan.no"));
-    row.append(go, asking, no);
-    el.append(row);
-    // Send requested plan changes as denial feedback to the agent.
-    const fb = template("div", "fb", `<textarea rows="3"></textarea><div class="row"><span class="spacer"></span><button class="pri md"></button></div>`);
-    const area = fb.querySelector("textarea")!;
-    area.placeholder = t("chat.plan.feedback");
-    fb.querySelector("button")!.textContent = t("chat.plan.send");
-    fb.hidden = this.feedback !== ask.id;
-    no.addEventListener("click", () => {
-      this.feedback = ask.id;
-      fb.hidden = false;
-      area.focus();
-    });
-    const send = () => {
-      const text = area.value.trim();
-      if (!text) return;
-      this.feedback = null;
-      this.respond(ask, { outcome: "deny", message: text });
-    };
-    fb.querySelector("button")!.addEventListener("click", send);
-    area.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        send();
-      }
-    });
-    el.append(fb);
-    return el;
-  }
-
-  /// Show one question per tab, advance to unanswered questions, and submit all answers together.
-  private questionCard(el: HTMLElement, ask: Ask): HTMLElement {
-    el.classList.add("question");
-    type Q = { question: string; header?: string; multiSelect?: boolean; options: { label: string; description?: string }[] };
-    const questions = (ask.input.questions as Q[]) ?? [];
-    const answers: Record<string, string[]> = {};
-    const other: Record<string, string> = {};
-    let active = 0;
-    const has = (q: Q) => (answers[q.question]?.length ?? 0) > 0 || !!other[q.question]?.trim();
-    // Advance to the next unanswered question, wrap if needed, or remain when all are answered.
-    const next = () => {
-      const after = questions.findIndex((q, i) => i > active && !has(q));
-      const any = questions.findIndex((q) => !has(q));
-      active = after !== -1 ? after : any !== -1 ? any : active;
-    };
-    const tabs = h("div", "qtabs");
-    const body = h("div", "qbody");
-    const row = h("div", "row");
-    const go = h("button", "pri md", t("chat.ask.go")) as HTMLButtonElement;
-    go.addEventListener("click", () => {
-      const out: Record<string, string> = {};
-      for (const q of questions) {
-        const typed = other[q.question]?.trim();
-        const picked = answers[q.question] ?? [];
-        out[q.question] = [...picked, ...(typed ? [typed] : [])].join(", ");
-      }
-      this.respond(ask, { outcome: "answer", answers: out });
-    });
-    row.append(h("span", "spacer"), go);
-
-    const paint = () => {
-      tabs.replaceChildren(
-        ...questions.map((q, i) => {
-          const b = template("button", "qtab" + (i === active ? " on" : "") + (has(q) ? " done" : ""), `<span></span>${icon("check", 11)}`);
-          b.querySelector("span")!.textContent = q.header || t("chat.ask.n", { n: i + 1 });
-          b.addEventListener("click", () => {
-            active = i;
-            paint();
-          });
-          return b;
-        }),
-      );
-      tabs.hidden = questions.length < 2;
-      const q = questions[active];
-      body.replaceChildren();
-      if (!q) return;
-      body.append(h("p", "", q.question));
-      const opts = h("div", "opts");
-      for (const o of q.options ?? []) {
-        const on = (answers[q.question] ?? []).includes(o.label);
-        const b = template("button", "opt" + (on ? " on" : ""), `<b></b><span></span>`);
-        b.querySelector("b")!.textContent = o.label;
-        b.querySelector("span")!.textContent = o.description ?? "";
-        b.addEventListener("click", () => {
-          const list = answers[q.question] ?? [];
-          if (q.multiSelect) {
-            answers[q.question] = on ? list.filter((x) => x !== o.label) : [...list, o.label];
-          } else {
-            answers[q.question] = [o.label];
-            next();
-          }
-          paint();
-        });
-        opts.append(b);
-      }
-      body.append(opts);
-      const free = document.createElement("input");
-      free.className = "field";
-      free.placeholder = t("chat.ask.other");
-      free.value = other[q.question] ?? "";
-      free.addEventListener("input", () => {
-        other[q.question] = free.value;
-        paintGo();
-        paintTabs();
-      });
-      free.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && free.value.trim()) {
-          e.preventDefault();
-          if (questions.every(has)) go.click();
-          else {
-            next();
-            paint();
-          }
-        }
-      });
-      body.append(free);
-      paintGo();
-    };
-    const paintGo = () => void (go.disabled = !questions.every(has));
-    const paintTabs = () => {
-      for (const [i, b] of [...tabs.children].entries()) b.classList.toggle("done", has(questions[i]));
-    };
-    el.append(tabs, body, row);
-    paint();
-    return el;
-  }
-
-  private permCard(el: HTMLElement, ask: Ask, _i: number): HTMLElement {
-    el.append(h("h4", "", t("chat.perm.title", { tool: toolLabel(ask.tool) })));
-    el.append(inputView(ask.tool, ask.input));
-    const row = h("div", "row");
-    const yes = h("button", "pri md", t("chat.perm.yes"));
-    yes.addEventListener("click", () => this.respond(ask, { outcome: "allow" }));
-    const always = h("button", "outline md", t("chat.perm.always"));
-    always.addEventListener("click", () => {
-      void this.control({
-        v: 1,
-        type: "permission.mode.set",
-        mode: "bypass",
-      }).then(sent => { if (sent) this.respond(ask, { outcome: "allow" }); });
-    });
-    const no = h("button", "ghost md", t("chat.perm.no"));
-    no.addEventListener("click", () => this.respond(ask, { outcome: "deny", message: t("chat.perm.denied") }));
-    row.append(yes, always, no);
-    el.append(row);
-    return el;
   }
 
   private respond(ask: Ask, response: RequestResponse) {
@@ -961,70 +660,15 @@ export class ChatView {
   /* Composer. */
 
   private buildComposer() {
-    this.box.innerHTML = `
-      <!-- Keep attachments visible above the prompt, matching the launcher. -->
-      <div class="cfiles" hidden></div>
-      <textarea rows="1" spellcheck="true"></textarea>
-      <div class="crow composer-meta">
-        <!-- Model and effort changes restart the process on the next prompt while preserving the conversation. -->
-        <span class="with" hidden>
-          <button class="ghost mdl"></button>
-          <button class="ghost effort"><span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span></button>
-        </span>
-        <button class="ghost sm taskwatch" hidden></button>
-        <span class="hint" role="status"></span>
-      </div>
-      <div class="crow composer-toolbar">
-        <div class="composer-tools">
-          <!-- Tool selection resumes the same transcript with updated MCP and plugin settings. -->
-          <button class="ico sm addfile" hidden></button>
-          <button class="ico sm mic" hidden></button>
-          <button class="ghost sm actionsbtn"></button>
-          <button class="ghost sm mcpbtn" hidden><span></span></button>
-          <button class="ghost sm plugbtn" hidden><span></span></button>
-          <button class="ghost sm skillbtn" hidden><span></span></button>
-        </div>
-        <div class="composer-controls"></div>
-      </div>
-      <button class="outline md quotesel" hidden></button>`;
-    this.area = this.box.querySelector("textarea")!;
-    this.area.title = t("chat.input.hint");
-    const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
-    const remote = button(t("remoteControl.label"), () => {}, "ghost");
-    remote.classList.add("remotebtn");
-    remote.hidden = true;
-    remote.innerHTML = `${icon("globe", 14)}<span></span>`;
-    remote.setAttribute("aria-label", t("remoteControl.label"));
-    const stop = button(t("chat.stop"), () => this.interrupt(), "ghost");
-    stop.classList.add("stop");
-    stop.hidden = true;
-    stop.innerHTML = icon("square", 14);
-    stop.setAttribute("aria-label", t("chat.stop"));
-    stop.title = t("chat.stop.title");
-    const send = button(t("chat.send"), () => this.send(), "pri");
-    send.classList.add("send", "round");
-    send.setAttribute("aria-label", t("chat.send"));
-    q(".composer-controls").append(remote, stop, send);
-    q(".addfile").innerHTML = icon("plus", 14);
-    q(".addfile").title = t("chat.addFile");
-    q(".addfile").setAttribute("aria-label", t("chat.addFile"));
-    q(".quotesel").innerHTML = `${icon("message-square", 12)}<span></span>`;
-    q(".quotesel span").textContent = t("notes.quoteSelection");
-    q(".quotesel").title = t("notes.quoteSelection.title");
-    q(".actionsbtn").innerHTML = `${icon("play", 13)}<span></span>`;
-    q(".actionsbtn span").textContent = t("actions.title");
-    q(".actionsbtn").title = t("actions.title");
-    q(".actionsbtn").setAttribute("aria-label", t("actions.title"));
-    q(".actionsbtn").addEventListener("click", () => this.actionMenu());
+    const view = composer({
+      send: () => this.send(), stop: () => this.interrupt(), addFile: () => void this.addFile(),
+      voice: () => this.toggleVoice(), quote: () => this.quoteSelection(), actions: () => this.actionMenu(),
+      voiceAvailable: voice.available(),
+    });
+    this.box.replaceWith(view.root); this.box = view.root; this.area = view.area;
     this.cleanup.push(actions.onChange(() => this.paintComposer()));
-    // The CLI-inherited base arrives asynchronously and can unhide the MCP button (ADR 0046).
     this.cleanup.push(mcp.onChange(() => this.paintComposer()));
-    q(".addfile").addEventListener("click", () => void this.addFile());
-    q(".mic").innerHTML = icon("mic", 14);
-    q(".mic").hidden = !voice.available();
-    q(".mic").addEventListener("click", () => this.toggleVoice());
     this.cleanup.push(() => this.stopVoice?.());
-    q(".quotesel").addEventListener("click", () => this.quoteSelection());
 
     this.area.addEventListener("input", () => {
       this.keep();
@@ -1318,16 +962,14 @@ export class ChatView {
     row.hidden = !list.length && !contexts.length;
     row.replaceChildren(
       ...list.map((path, i) => {
-        const chip = template("span", "injchip", `<span></span><button class="ico sm">${icon("x", 12)}</button>`);
-        chip.children[0].textContent = path.split("/").pop() ?? path;
-        chip.children[0].setAttribute("title", paths.short(path, this.ctx.info().worktree));
-        chip.children[1].addEventListener("click", () => {
-          const files = this.attached().slice();
-          files.splice(i, 1);
-          if (this.key) drafts.files.set(this.key, files);
-          this.paintComposer();
+        return attachmentChip({ name: path.split("/").pop() ?? path,
+          title: paths.short(path, this.ctx.info().worktree), removeLabel: t("chat.attachment.remove"),
+          remove: () => {
+            const files = this.attached().slice(); files.splice(i, 1);
+            if (this.key) drafts.files.set(this.key, files);
+            this.paintComposer();
+          },
         });
-        return chip;
       }),
       ...contexts.map(context => browserContextChip(context, () => {
         if (!this.key) return;

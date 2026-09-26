@@ -112,6 +112,25 @@ tests. See [ADR 0058](../decisions/0058-optional-context-evaluation.md).
 Git, files, PTY, processes and the embedded browser are external effects. Rules
 that choose when to run those effects must stay testable without them.
 
+## Isolated Desktop presentation
+
+`src/components/resource-view.ts` consumes typed snapshots, translated labels and callbacks.
+It may reach only its model, Settings matching, Desktop compositions, existing UI/DOM facades and the
+shared component package. The transitive import checker rejects hubs, storage
+adapters, IPC and Tauri, including through a facade. The gallery supplies fake
+data to that same view; `src/settings-resources.ts` supplies hub projections.
+`src/components/compositions.ts` may reach only its stylesheet, UI/menu facades and the
+shared package; it cannot depend on feature models or matching rules.
+All production modules under `src/components/` follow an allowlist of shared
+controls and portable presentation helpers. The checker rejects app controllers,
+IPC, Tauri, stories and direct network/storage effects. Domain components may
+use canonical model types and the i18n adapter; business effects stay outside.
+`gallery.ts` and `stories.ts` are composition roots, not production components.
+The catalog's unit test verifies every declared production consumer can reach
+its component source through real imports, including compatibility facades.
+See [ADR 0060](../decisions/0060-isolated-desktop-presentation.md) and the
+[presentation contract](../contracts/desktop-presentation.md).
+
 ## Feature-based organization
 
 When splitting a large file, extract a complete responsibility, with its types

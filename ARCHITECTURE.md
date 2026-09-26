@@ -76,7 +76,15 @@ components, behavior, styles, TypeScript types and a Rails adapter.
 the desktop geometry. The Cloud uses the FormBuilder, the helpers and the
 runtime from the same package. See the
 [Design System](docs/architecture/design-system.md) for adoption, gallery and
-dependency rules.
+dependency rules. Settings / Resources also exposes a data-and-callback view in
+`src/components/resource-view.ts`, shared by the desktop and its isolated gallery. Resources and Actions compose reusable headers, rows, toolbars, menus and
+feedback from `src/components/compositions.ts`. Chat and Git also consume
+components under `src/components/`, whose manifest links APIs, stories and real
+callers. The gallery presents these same components through addressable states.
+Chat retains transport and drafts; Git retains operations and review storage.
+The diff reader owns caches and viewport observation per instance. Hub operations
+stay in their existing owners. See the
+[presentation contract](docs/contracts/desktop-presentation.md).
 
 ## Optional account
 

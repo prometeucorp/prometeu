@@ -97,3 +97,56 @@ test("custom queries and hashes preserve runtime boundaries; raw and url imports
     }), []);
   }
 });
+
+
+test("resource presentation allows primitives and rejects indirect integration imports", () => {
+  const sources = {
+    "src/components/resource-view.ts": 'import "../ui"; import "../resources/model"; import "./resource-view.css";',
+    "src/resources/model.ts": 'import type { Item } from "../menu";',
+    "src/ui.ts": 'export * from "../packages/design-system/src/ui";',
+    "src/menu.ts": 'export * from "../packages/design-system/src/menu";',
+    "packages/design-system/src/ui.ts": 'export const create = () => document.createElement("button");',
+    "packages/design-system/src/menu.ts": '',
+  };
+  assert.deepEqual(check(sources), []);
+  sources["src/ui.ts"] = 'export * from "./mcp";';
+  sources["src/mcp.ts"] = 'import "./ipc";';
+  sources["src/ipc.ts"] = '';
+  assert.match(check(sources).join("\n"), /src\/components\/resource-view.ts -> src\/ui.ts:1: forbidden dependency .\/mcp/);
+});
+
+
+test("desktop compositions reject integration dependencies even without a screen consumer", () => {
+  assert.deepEqual(check({
+    "src/components/compositions.ts": 'import "./primitives"; import "./compositions.css";',
+    "src/components/primitives.ts": 'export * from "../../packages/design-system/src/ui";',
+    "packages/design-system/src/ui.ts": 'export const create = () => document.createElement("button");',
+  }), []);
+  assert.match(check({
+    "src/components/compositions.ts": 'import "../helper";',
+    "src/helper.ts": 'import "./ipc";',
+    "src/ipc.ts": '',
+  }).join("\n"), /src\/components\/compositions.ts:1: forbidden dependency ..\/helper/);
+});
+
+
+test("desktop compositions cannot couple reusable parts to resource models", () => {
+  assert.match(check({
+    "src/components/compositions.ts": 'import type { ResourceItem } from "../resources/model";',
+    "src/resources/model.ts": '',
+  }).join("\n"), /forbidden dependency ..\/resources\/model/);
+});
+
+test("Desktop components reject transport and direct storage effects", () => {
+  for (const source of ['import "../../ipc";', 'localStorage.setItem("x", "y");', 'fetch("/data");']) {
+    assert.notDeepEqual(check({ "src/components/chat/composer.ts": source, "src/ipc.ts": '' }), []);
+  }
+});
+
+test("dotted source basenames remain part of transitive dependency checks", () => {
+  assert.match(check({
+    "src/team-member.ts": 'import "./labels.en";',
+    "src/labels.en.ts": 'import "./ipc";',
+    "src/ipc.ts": '',
+  }).join("\n"), /src\/team-member.ts -> src\/labels.en.ts:1: forbidden dependency .\/ipc/);
+});

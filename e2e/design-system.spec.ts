@@ -132,3 +132,17 @@ test("design system validates selection and preserves the submitter while blocki
   });
   expect(result).toEqual({ invalid: true, valid: true, injected: 0, blocked: true, busy: "true", decision: "approve", project: "cloud", reset: true });
 });
+
+// A browser is needed to resolve the legacy/shared CSS cascade; this compares the same compact
+// primitive in both hosts without asserting unrelated page typography or repeating interaction tests.
+test("desktop legacy styles preserve compact shared button spacing and color", async ({ page }) => {
+  await page.goto(`${baseURL}/index.html`);
+  await page.evaluate(() => document.body.classList.remove("ui-comfortable"));
+  const styles = (node: HTMLElement) => {
+    const style = getComputedStyle(node);
+    return { padding: style.padding, color: style.color, minHeight: style.minHeight };
+  };
+  const standalone = await page.getByRole("button", { name: "Cancel", exact: true }).evaluate(styles);
+  await page.goto("/design-system.html");
+  expect(await page.getByRole("button", { name: "Cancel", exact: true }).evaluate(styles)).toEqual(standalone);
+});
