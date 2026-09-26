@@ -56,11 +56,12 @@ function pending(kind: Kind): Pending[] {
     id: plugin.id, origin: t("catalog.personal"),
     description: plugin.note.trim() ? `${plugin.source} · ${plugin.note.trim()}` : plugin.source,
     // Plugin code comes from a remote source, so installation confirms the address first.
-    install: async () => {
+    install: () => new Promise<void>(resolve => {
       const dialog = formDialog({ title: t("catalog.install"), save: t("catalog.install"), cancel: t("actions.cancel"), error: fromBack,
+        closed: resolve,
         submit: async () => { await invoke("catalog_install_plugin", { id: plugin.id }); await refresh(); } });
       dialog.body.append(h("p", "ui-hint", plugin.source), h("p", "ui-hint", t("catalog.installHint"))); dialog.open();
-    },
+    }),
   });
   if (kind === "skills") for (const skill of state.skills.filter(s => !s.installed)) items.push({
     id: skill.id, description: skill.description, origin: t("catalog.personal"),
