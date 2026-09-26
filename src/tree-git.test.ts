@@ -47,10 +47,16 @@ it("lists deleted children per folder, folding deleted subtrees into one folder 
   expect(names("lib")).toEqual([]);
 });
 
-it("changes its deletion key only when the deleted set changes", () => {
+it("changes its list key only when the new or deleted set changes", () => {
   const same = gitMarks([{ path: "b", status: "D" }, { path: "a", status: "D" }, { path: "c", status: "M" }]);
-  expect(same.goneKey).toBe(gitMarks([{ path: "a", status: "D" }, { path: "b", status: "D" }]).goneKey);
-  expect(same.goneKey).not.toBe(gitMarks([{ path: "a", status: "D" }]).goneKey);
+  expect(same.listKey).toBe(gitMarks([{ path: "a", status: "D" }, { path: "b", status: "D" }]).listKey);
+  expect(same.listKey).not.toBe(gitMarks([{ path: "a", status: "D" }]).listKey);
+  // A file an agent created must appear in the tree, while edits only repaint rows.
+  const created = gitMarks([{ path: "a", status: "D" }, { path: "b", status: "D" }, { path: "src/new.ts", status: "A" }]);
+  expect(created.listKey).not.toBe(same.listKey);
+  expect(gitMarks([{ path: "src/new.ts", status: "A" }, { path: "c", status: "M" }]).listKey)
+    .toBe(gitMarks([{ path: "src/new.ts", status: "A" }]).listKey);
+  expect(gitMarks([{ path: "x", status: "A" }]).listKey).not.toBe(gitMarks([{ path: "x", status: "D" }]).listKey);
 });
 
 it("applies only the latest scan when overlapping scans finish out of order", async () => {

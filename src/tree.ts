@@ -1,4 +1,6 @@
 import { fromBack, t } from "./i18n";
+import * as background from "./background";
+import { marksInterval } from "./git-refresh";
 import { invoke } from "./ipc";
 import { fileIcon, icon } from "./icons";
 import * as menu from "./menu";
@@ -45,7 +47,18 @@ let say: (message: string, error?: boolean) => void = () => {};
 let editing = false;
 let marks: GitMarks = gitMarks([]);
 /// Agents and terminals change files without board events, so visible marks refresh on a timer.
-const MARKS_EVERY = 5_000;
+let marksTimer: ReturnType<typeof setTimeout> | null = null;
+let delayedRedraw: ReturnType<typeof setTimeout> | null = null;
+function scheduleMarks() {
+  if (marksTimer) clearTimeout(marksTimer);
+  const interval = marksInterval(background.currentOrDocument());
+  if (interval === null) return;
+  marksTimer = setTimeout(() => {
+    const id = workspace();
+    if (id && background.foreground(background.currentOrDocument()) && $("tree").offsetParent) void repaint(id);
+    scheduleMarks();
+  }, interval);
+}
 
 export function init(ctx: {
   openFile: (path: string) => void;
@@ -69,14 +82,28 @@ export function init(ctx: {
     openDirs.clear();
     redraw();
   });
-  setInterval(() => {
+  let wasForeground = background.foreground(background.currentOrDocument());
+  background.subscribe((context) => {
     const id = workspace();
-    if (id && !document.hidden && $("tree").offsetParent) void repaint(id);
-  }, MARKS_EVERY);
+    const foreground = background.foreground(context);
+    if (id && foreground && !wasForeground && $("tree").offsetParent) redraw();
+    wasForeground = foreground;
+    scheduleMarks();
+  });
+  window.addEventListener("focus", () => {
+    if (!background.hasObservation()) {
+      if (workspace() && $("tree").offsetParent) redraw();
+      scheduleMarks();
+    }
+  });
+  scheduleMarks();
 }
 
 /// User clicks redraw immediately to avoid visible lag.
 export function redraw() {
+  if (delayedRedraw) clearTimeout(delayedRedraw);
+  delayedRedraw = null;
+  if (!background.foreground(background.currentOrDocument())) return;
   const id = workspace();
   if (id) void draw(id);
 }
@@ -89,7 +116,16 @@ export function reset() {
 }
 
 /// Debounce board-driven refreshes because each open folder requires list_dir; agent bursts would otherwise repeat identical IPC work.
-export const redrawSoon = debounce(200, redraw);
+export function redrawSoon() {
+  if (delayedRedraw) clearTimeout(delayedRedraw);
+  delayedRedraw = setTimeout(redraw, 200);
+}
+
+/// Saving an open file changes marks but does not change the tree's file list.
+export const refreshMarksSoon = debounce(200, () => {
+  const id = workspace();
+  if (id) void repaint(id);
+});
 
 /// Mark the file the viewer shows, or none. Paths are relative to the tree's root, as list_dir
 /// returns them. The row is only marked, never scrolled into view: the person may be browsing
@@ -136,14 +172,15 @@ async function loadMarks(id: string) {
   });
 }
 
-/// Repaint rows in place, and rebuild them only when a file was deleted or restored.
+/// Repaint rows in place, and rebuild them only when a file appeared, was deleted or was restored.
 async function repaint(id: string) {
+  if (!background.foreground(background.currentOrDocument())) return;
   if (loading) return;
-  const before = marks.goneKey;
+  const before = marks.listKey;
   loading = loadMarks(id).finally(() => (loading = null));
   await loading;
   if (workspace() !== id) return;
-  if (marks.goneKey !== before) await draw(id);
+  if (marks.listKey !== before) await draw(id);
   else paintAll();
 }
 

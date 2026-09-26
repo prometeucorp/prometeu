@@ -5,6 +5,7 @@ mod actions;
 mod agents;
 mod antigravity;
 mod awake;
+mod background;
 mod browser;
 mod catalog;
 mod chat;
@@ -45,6 +46,7 @@ mod telemetry;
 mod transcript;
 mod typesafe;
 mod usage;
+mod usage_scheduler;
 mod workspace_tools;
 
 use state::Board;
@@ -134,7 +136,11 @@ fn main() {
             ready: Mutex::new(HashSet::new()),
             work: Mutex::new(HashMap::new()),
         })
+        .manage(background::State::default())
+        .manage(usage::Service::new())
+        .manage(machine::Service::new())
         .invoke_handler(tauri::generate_handler![
+            background::background_context,
             notifications::notification_permission,
             notifications::notification_show,
             notifications::notification_current,
@@ -153,11 +159,13 @@ fn main() {
             accounts::account_login,
             accounts::account_login_cancel,
             usage::usage,
+            usage::usage_refresh,
             telemetry::telemetry_summary,
             telemetry::telemetry_events,
             telemetry::telemetry_export,
             telemetry::telemetry_clear,
             machine::machine,
+            machine::set_resource_detail,
             awake::set_awake,
             session::load_board,
             session::add_project,
@@ -294,6 +302,10 @@ fn main() {
             typesafe::context_evaluate,
         ])
         .setup(|app| {
+            if let Some(window) = tauri::Manager::get_window(app, "main") {
+                background::refresh_window(&window);
+            }
+            background::watch(app.handle().clone());
             notifications::install(app.handle());
             embedded_mcp::start(app.handle().clone())?;
             file_drop::install(app.handle())?;
@@ -303,11 +315,13 @@ fn main() {
             Ok(())
         })
         .on_webview_event(file_drop::on_webview_event)
+        .on_window_event(|window, _event| background::refresh_window(window))
         .build(tauri::generate_context!())
         .expect("erro ao subir o Prometeu")
         .run(|app, event| {
             // Flush deferred board writes during shutdown, when no later save can be assumed.
             if matches!(event, tauri::RunEvent::Exit) {
+                awake::shutdown();
                 embedded_mcp::shutdown();
                 notifications::shutdown();
                 accounts::shutdown();

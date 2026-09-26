@@ -265,6 +265,12 @@ collaboration, and companion access through the mobile web app. Sharing is
 explicit. Remote conversations still execute only on the owner's Mac, which
 must stay awake with Prometeu open.
 
+On macOS, the status bar offers a separate “Agent active, display may sleep”
+choice. It keeps the Mac awake only while a local agent is working and permits
+the display to sleep. The existing “Agent active” choice continues keeping both
+the Mac and display awake. Linux retains its existing sleep choices because
+display behavior depends on the desktop compositor.
+
 Shared conversation content uses end-to-end encryption. The relay still sees
 routing metadata, and member keys are trusted as the relay directory reports
 them, including later key changes. There is no forward secrecy. This encryption does not cover content sent to model

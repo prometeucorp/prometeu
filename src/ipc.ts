@@ -14,6 +14,7 @@ import type { TeamConfig, Organization } from "./team";
 
 /** The frontend and browser mock share this contract. Rust remains the wire authority. */
 export type Commands = {
+  background_context: { args: undefined; result: import("./background").BackgroundContext };
   notification_permission: { args: { request: boolean }; result: import("./notifications").NoticePermission };
   notification_show: { args: { notice: import("./notifications").Notice }; result: void };
   notification_current: { args: undefined; result: import("./notifications").Notice | null };
@@ -131,7 +132,8 @@ export type Commands = {
   rename_workspace: { args: { id: string; title: string }; result: void };
   reveal_path: { args: { id: string; rel: string }; result: void };
   scripts_prompt: { args: { id: string }; result: string };
-  set_awake: { args: { on: boolean }; result: void };
+  set_awake: { args: { mode: "off" | "system" | "display" }; result: void };
+  set_resource_detail: { args: { open: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };
   set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null }; result: void };
   set_stage: { args: { id: string; stage: string }; result: void };
@@ -158,6 +160,7 @@ export type Commands = {
   telemetry_clear: { args: undefined; result: null };
   typesafe_status: { args: undefined; result: import("./evaluation").EvaluationStatus };
   usage: { args: undefined; result: Usage };
+  usage_refresh: { args: { provider?: T.ProviderId }; result: void };
   workspace_branch: { args: { id: string }; result: string | null };
   workspace_git_action: { args: { id: string; repo: number; operation: T.GitAction; paths: string[]; message?: string | null; expected?: string | null; remote?: string | null }; result: void };
   workspace_git_branches: { args: { id: string; repo: number }; result: T.GitBranch[] };

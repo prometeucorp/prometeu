@@ -8,8 +8,46 @@ use crate::state::{publish, Repo, Workspace};
 use crate::{i18n, AppState};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, State};
+
+#[derive(Default)]
+struct ScanProgress {
+    running: bool,
+    pending: bool,
+}
+
+#[derive(Default)]
+struct ScanGate(Mutex<ScanProgress>);
+
+impl ScanGate {
+    fn request(&self, mut scan: impl FnMut()) {
+        {
+            let mut progress = lock(&self.0);
+            if progress.running {
+                progress.pending = true;
+                return;
+            }
+            progress.running = true;
+        }
+        loop {
+            scan();
+            let mut progress = lock(&self.0);
+            if !progress.pending {
+                progress.running = false;
+                return;
+            }
+            progress.pending = false;
+        }
+    }
+}
+
+fn scan_gate() -> &'static ScanGate {
+    static GATE: OnceLock<ScanGate> = OnceLock::new();
+    GATE.get_or_init(ScanGate::default)
+}
 
 /// Refresh each repository's PR when opening the workspace; periodic refresh remains a fallback.
 #[tauri::command(async)]
@@ -30,11 +68,15 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
 /// must preserve the last known board state.
 #[tauri::command(async)]
 pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
+    scan_gate().request(|| scan_prs(&app, &state));
+}
+
+fn scan_prs(app: &AppHandle, state: &State<AppState>) {
     let generation = lock(&state.telemetry).generation;
     let alive: Vec<Workspace> = lock(&state.board)
         .workspaces
         .iter()
-        .filter(|workspace| !workspace.cleaned && !workspace.branch.is_empty())
+        .filter(|workspace| scannable(workspace.cleaned, workspace.archived, &workspace.branch))
         .cloned()
         .collect();
 
@@ -56,10 +98,9 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
 
     let mut found: Vec<(String, String, Option<Pr>)> = Vec::new();
     for (clone, list) in by_clone {
-        let prs = list_repo(Path::new(&clone));
-        if prs.is_empty() {
+        let Ok(prs) = list_repo(Path::new(&clone)) else {
             continue;
-        }
+        };
         for (id, name, branch) in list {
             found.push((id, name, pick(&prs, &branch)));
         }
@@ -85,11 +126,15 @@ pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
         }
     }
     if moved {
-        publish(&app);
+        publish(app);
         for (workspace, path, number) in associated {
-            crate::telemetry::associate(&app, generation, &workspace, &[(path, number)]);
+            crate::telemetry::associate(app, generation, &workspace, &[(path, number)]);
         }
     }
+}
+
+fn scannable(cleaned: bool, archived: bool, branch: &str) -> bool {
+    !cleaned && !archived && !branch.is_empty()
 }
 
 /// Open the requested repository's PR, or the primary PR. Let gh discover and open the URL without
@@ -125,7 +170,10 @@ pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), S
 }
 
 pub(crate) fn pr_for_branch(worktree: &Path, branch: &str) -> Option<Pr> {
-    pick(&list(worktree, &["--head", branch, "--limit", "5"]), branch)
+    pick(
+        &list(worktree, &["--head", branch, "--limit", "5"]).ok()?,
+        branch,
+    )
 }
 
 /// Prefer an open PR over a closed one for the same branch, then retain the newest in gh response
@@ -138,12 +186,13 @@ pub(crate) fn pick(prs: &[Pr], branch: &str) -> Option<Pr> {
         .cloned()
 }
 
-fn list_repo(repo: &Path) -> Vec<Pr> {
+fn list_repo(repo: &Path) -> Result<Vec<Pr>, ()> {
     list(repo, &["--limit", "60"])
 }
 
-fn list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
-    let out = Command::new("gh")
+fn list(dir: &Path, extra: &[&str]) -> Result<Vec<Pr>, ()> {
+    let mut command = Command::new("gh");
+    command
         .current_dir(dir)
         .args([
             "pr",
@@ -153,13 +202,55 @@ fn list(dir: &Path, extra: &[&str]) -> Vec<Pr> {
             "--json",
             "number,title,isDraft,state,headRefName",
         ])
-        .args(extra)
-        .output();
-    let Ok(out) = out else { return Vec::new() };
-    if !out.status.success() {
-        return Vec::new();
+        .args(extra);
+    let bytes = bounded_output(command, Duration::from_secs(15)).ok_or(())?;
+    serde_json::from_slice::<Vec<Pr>>(&bytes).map_err(|_| ())
+}
+
+/// A slow or abandoned CLI cannot hold the general scan indefinitely. The process group also
+/// releases a descendant that inherited stdout, and the reader drains output while gh runs.
+fn bounded_output(mut command: Command, timeout: Duration) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::sync::mpsc;
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .ok()?;
+    let pid = child.id() as i32;
+    let mut stdout = child.stdout.take()?;
+    let (data_tx, data_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout
+            .by_ref()
+            .take(2 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes);
+        let _ = data_tx.send(result.map(|_| bytes));
+    });
+    let (exit_tx, exit_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = exit_tx.send(child.wait());
+    });
+    let status = exit_rx.recv_timeout(timeout);
+    if matches!(&status, Ok(Ok(exit)) if exit.success()) {
+        if let Ok(Ok(bytes)) = data_rx.recv_timeout(Duration::from_millis(200)) {
+            if bytes.len() <= 2 * 1024 * 1024 {
+                return Some(bytes);
+            }
+        }
     }
-    serde_json::from_slice::<Vec<Pr>>(&out.stdout).unwrap_or_default()
+    // The direct process may have exited while a descendant still holds the output pipe.
+    unsafe {
+        libc::kill(-pid, libc::SIGKILL);
+    }
+    if status.is_err() {
+        let _ = exit_rx.recv_timeout(Duration::from_secs(2));
+    }
+    None
 }
 
 /// Persist gh results for each repository on the board.
@@ -251,9 +342,61 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pick, write};
+    use super::{bounded_output, pick, scannable, write, ScanGate};
     use crate::domain::Pr;
     use crate::state::Repo;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
+    use std::time::Duration;
+
+    #[test]
+    fn a_slow_general_scan_queues_only_one_follow_up() {
+        let gate = Arc::new(ScanGate::default());
+        let scans = Arc::new(AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = {
+            let gate = gate.clone();
+            let scans = scans.clone();
+            std::thread::spawn(move || {
+                gate.request(|| {
+                    let scan = scans.fetch_add(1, Ordering::SeqCst);
+                    if scan == 0 {
+                        entered_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+                    }
+                })
+            })
+        };
+        entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        gate.request(|| panic!("overlapping request must not start a scan"));
+        gate.request(|| panic!("a second overlap must not start another scan"));
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
+        assert_eq!(scans.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn archived_cleaned_and_branchless_workspaces_are_excluded() {
+        assert!(scannable(false, false, "feature"));
+        assert!(!scannable(true, false, "feature"));
+        assert!(!scannable(false, true, "feature"));
+        assert!(!scannable(false, false, ""));
+    }
+
+    #[test]
+    fn general_cli_read_has_a_deadline_and_requires_success() {
+        let mut slow = std::process::Command::new("sh");
+        slow.args(["-c", "sleep 5"]);
+        let started = std::time::Instant::now();
+        assert!(bounded_output(slow, Duration::from_millis(40)).is_none());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let mut failed = std::process::Command::new("sh");
+        failed.args(["-c", "printf '[]'; exit 1"]);
+        assert!(bounded_output(failed, Duration::from_secs(2)).is_none());
+    }
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {
         Pr {

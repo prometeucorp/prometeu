@@ -5,12 +5,14 @@
 //! choose which to display.
 
 use crate::lock::lock;
-use crate::{accounts, paths};
+use crate::{accounts, background, paths, usage_scheduler};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
-use tauri::{AppHandle, Emitter};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Quota window utilization from 0 to 100 and its reset time.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -54,6 +56,9 @@ pub fn usage() -> Usage {
 }
 
 pub fn forget(app: &AppHandle, account: &str) {
+    let service = app.state::<Service>();
+    lock(&service.schedule).forget(account);
+    service.wake();
     let mut all = lock(state());
     all.remove(account);
     write(&all);
@@ -61,17 +66,17 @@ pub fn forget(app: &AppHandle, account: &str) {
 }
 
 /// Read rate_limit_info from a Claude rate-limit event.
-pub fn claude(app: &AppHandle, account: &str, info: &Value) {
-    note(app, account, claude_windows(info));
+pub fn claude(app: &AppHandle, account: &str, revision: u64, info: &Value) {
+    note(app, account, claude_windows(info), revision);
 }
 
 /// Read rateLimits from Codex account rate-limit responses and notifications.
-pub fn codex(app: &AppHandle, account: &str, limits: &Value) {
+pub fn codex(app: &AppHandle, account: &str, revision: u64, limits: &Value) {
     let (windows, complete) = codex_windows(limits);
     if complete {
-        note(app, account, windows);
+        note(app, account, windows, revision);
     } else {
-        note_codex_update(app, account, windows);
+        note_codex_update(app, account, windows, revision);
     }
 }
 
@@ -156,54 +161,183 @@ fn codex_kind(seconds: Option<u64>, fallback: &str) -> String {
 
 /* Polling */
 
-/// Poll once per minute to follow quota resets without excessive requests.
-const POLL: std::time::Duration = std::time::Duration::from_secs(60);
+pub struct Service {
+    schedule: Mutex<usage_scheduler::Schedule>,
+    changed: Condvar,
+    epoch: AtomicU64,
+    started: Instant,
+}
 
-/// Use one background thread for synchronous polling outside Tokio workers. Read immediately at
-/// startup to refresh persisted values before the first conversation.
-pub fn watch(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        for profile in accounts::profiles().unwrap_or_default() {
-            if accounts::logging_in(&profile.id) {
-                continue;
-            }
-            match profile.provider {
-                crate::state::ProviderId::Antigravity => {
-                    if let Some(windows) = crate::antigravity::quota() {
-                        note(&app, &profile.id, windows);
-                    }
-                }
-                crate::state::ProviderId::RetiredGemini => {}
-                crate::state::ProviderId::Claude => {
-                    if let Ok(identity) = crate::claude::account_status(&profile) {
-                        if !accounts::logging_in(&profile.id) {
-                            let _ = accounts::set_identity(&app, &profile.id, identity);
-                        }
-                    }
-                    if let Some(info) = fetch_claude(&profile) {
-                        note(&app, &profile.id, claude_api_windows(&info));
-                    }
-                }
-                crate::state::ProviderId::Codex => {
-                    let mut received = false;
-                    if let Ok((identity, limits)) = crate::codex::account_probe(&profile) {
-                        if !accounts::logging_in(&profile.id) {
-                            let _ = accounts::set_identity(&app, &profile.id, identity);
-                            if let Some(limits) = limits {
-                                codex(&app, &profile.id, &limits);
-                                received = true;
-                            }
-                        }
-                    }
-                    if !received && !accounts::logging_in(&profile.id) {
-                        if let Some(reply) = fetch_codex(&profile) {
-                            note(&app, &profile.id, codex_api_windows(&reply));
-                        }
-                    }
-                }
+impl Service {
+    pub fn new() -> Self {
+        Self {
+            schedule: Mutex::new(usage_scheduler::Schedule::default()),
+            changed: Condvar::new(),
+            epoch: AtomicU64::new(0),
+            started: Instant::now(),
+        }
+    }
+
+    fn now(&self) -> u64 {
+        self.started.elapsed().as_secs()
+    }
+
+    fn wake(&self) {
+        self.epoch.fetch_add(1, Ordering::Relaxed);
+        self.changed.notify_all();
+    }
+}
+
+fn account_info(profiles: &[accounts::Profile]) -> Vec<usage_scheduler::AccountInfo> {
+    let selected = accounts::selected_ids();
+    profiles
+        .iter()
+        .map(|profile| usage_scheduler::AccountInfo {
+            id: profile.id.clone(),
+            provider: profile.provider,
+            revision: profile.revision,
+            selected: selected.contains(&profile.id),
+            logging_in: accounts::logging_in(&profile.id),
+        })
+        .collect()
+}
+
+/// A panel, account selection, or foreground return requests only stale selected profiles.
+#[tauri::command]
+pub fn usage_refresh(app: AppHandle, provider: Option<crate::state::ProviderId>) {
+    refresh(&app, provider);
+}
+
+pub fn refresh(app: &AppHandle, provider: Option<crate::state::ProviderId>) {
+    let profiles = accounts::profiles().unwrap_or_default();
+    let service = app.state::<Service>();
+    let mut schedule = lock(&service.schedule);
+    schedule.sync(&account_info(&profiles));
+    schedule.request(provider, service.now());
+    drop(schedule);
+    service.wake();
+}
+
+struct Probe {
+    identity: Option<accounts::Identity>,
+    windows: Option<Vec<Window>>,
+    complete: bool,
+}
+
+fn probe(profile: &accounts::Profile) -> Probe {
+    use crate::state::ProviderId;
+    match profile.provider {
+        ProviderId::Antigravity => Probe {
+            identity: None,
+            windows: crate::antigravity::quota(),
+            complete: true,
+        },
+        ProviderId::RetiredGemini => Probe {
+            identity: None,
+            windows: None,
+            complete: true,
+        },
+        ProviderId::Claude => Probe {
+            identity: crate::claude::account_status(profile).ok(),
+            windows: fetch_claude(profile).map(|info| claude_api_windows(&info)),
+            complete: true,
+        },
+        ProviderId::Codex => {
+            let (identity, limits) = match crate::codex::account_probe(profile) {
+                Ok((identity, limits)) => (Some(identity), limits),
+                Err(_) => (None, None),
+            };
+            let (windows, complete) = match limits {
+                Some(limits) => codex_windows(&limits),
+                None => (
+                    fetch_codex(profile)
+                        .map(|reply| codex_api_windows(&reply))
+                        .unwrap_or_default(),
+                    true,
+                ),
+            };
+            Probe {
+                identity,
+                windows: Some(windows),
+                complete,
             }
         }
-        std::thread::sleep(POLL);
+    }
+}
+
+fn reset_due(windows: &[Window], now_mono: u64) -> Option<u64> {
+    let wall = now();
+    windows
+        .iter()
+        .filter_map(|window| window.resets.checked_sub(wall))
+        .filter(|seconds| *seconds > 1)
+        .min()
+        .map(|seconds| now_mono.saturating_add(seconds))
+}
+
+/// One coordinator sleeps until the next deadline; due accounts probe independently so a slow
+/// provider cannot delay another account. An in-flight generation is checked before publication.
+pub fn watch(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        let service = app.state::<Service>();
+        let epoch = service.epoch.load(Ordering::Relaxed);
+        let profiles = accounts::profiles().unwrap_or_default();
+        let context = app.state::<background::State>().snapshot();
+        let now = service.now();
+        let (tickets, delay) = {
+            let mut schedule = lock(&service.schedule);
+            schedule.sync(&account_info(&profiles));
+            let tickets = schedule.begin(now, context);
+            let delay = schedule.next_delay(now, context);
+            (tickets, delay)
+        };
+        for ticket in tickets {
+            let Some(profile) = profiles
+                .iter()
+                .find(|profile| profile.id == ticket.id)
+                .cloned()
+            else {
+                continue;
+            };
+            let worker_app = app.clone();
+            std::thread::spawn(move || {
+                let result = probe(&profile);
+                let service = worker_app.state::<Service>();
+                let mut schedule = lock(&service.schedule);
+                if !schedule.current(&ticket)
+                    || accounts::logging_in(&profile.id)
+                    || !accounts::registered(&profile.id, Some(profile.revision))
+                {
+                    return;
+                }
+                if let Some(identity) = result.identity {
+                    let _ = accounts::set_identity(&worker_app, &profile.id, identity);
+                }
+                let windows = result.windows.filter(|windows| !windows.is_empty());
+                let next_reset = windows
+                    .as_ref()
+                    .and_then(|windows| reset_due(windows, service.now()));
+                let success = windows.is_some();
+                if let Some(windows) = windows {
+                    record(
+                        &worker_app,
+                        &profile.id,
+                        windows,
+                        result.complete,
+                        Some(profile.revision),
+                    );
+                }
+                schedule.finish(&ticket, service.now(), success, next_reset);
+                drop(schedule);
+                service.wake();
+            });
+        }
+        let guard = lock(&service.schedule);
+        if service.epoch.load(Ordering::Relaxed) == epoch {
+            let _ = service
+                .changed
+                .wait_timeout(guard, Duration::from_secs(delay));
+        }
     });
 }
 
@@ -392,12 +526,30 @@ fn days(y: i64, m: i64, d: i64) -> i64 {
 
 /// Persist and publish changed readings only. Repeated rate-limit events must not rewrite disk
 /// state or reset the displayed update time.
-fn note(app: &AppHandle, agent: &str, windows: Vec<Window>) {
-    record(app, agent, windows, true);
+fn note(app: &AppHandle, agent: &str, windows: Vec<Window>, revision: u64) {
+    let service = app.state::<Service>();
+    let mut schedule = lock(&service.schedule);
+    if !accounts::registered(agent, Some(revision)) {
+        return;
+    }
+    let reset = reset_due(&windows, service.now());
+    record(app, agent, windows, true, Some(revision));
+    schedule.live(agent, service.now(), reset);
+    drop(schedule);
+    service.wake();
 }
 
-fn record(app: &AppHandle, account: &str, windows: Vec<Window>, complete: bool) {
+fn record(
+    app: &AppHandle,
+    account: &str,
+    windows: Vec<Window>,
+    complete: bool,
+    revision: Option<u64>,
+) {
     let mut all = lock(state());
+    if !accounts::registered(account, revision) {
+        return;
+    }
     if !remember(&mut all, account, windows, complete) {
         return;
     }
@@ -467,8 +619,17 @@ fn same_scope(a: &Window, b: &Window) -> bool {
     a.scope.as_deref().unwrap_or("general") == b.scope.as_deref().unwrap_or("general")
 }
 
-fn note_codex_update(app: &AppHandle, account: &str, windows: Vec<Window>) {
-    record(app, account, windows, false);
+fn note_codex_update(app: &AppHandle, account: &str, windows: Vec<Window>, revision: u64) {
+    let service = app.state::<Service>();
+    let mut schedule = lock(&service.schedule);
+    if !accounts::registered(account, Some(revision)) {
+        return;
+    }
+    let reset = reset_due(&windows, service.now());
+    record(app, account, windows, false, Some(revision));
+    schedule.live(account, service.now(), reset);
+    drop(schedule);
+    service.wake();
 }
 
 fn path() -> std::path::PathBuf {

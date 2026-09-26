@@ -331,7 +331,7 @@ impl Pump {
         }
         crate::delegation::publish_observation(&self.app, &self.id, frame);
         // A turn that ends with subagents still running is not an opening for queued input.
-        if react(&self.app, &self.id, frame, &self.ready, &self.profile.id) {
+        if react(&self.app, &self.id, frame, &self.ready, &self.profile) {
             let state = self.app.state::<AppState>();
             let queued = lock(&state.board)
                 .tab_mut(&self.id)
@@ -667,7 +667,13 @@ fn keep(frame: &Value) -> bool {
 
 /// Apply canonical events to board activity, pending questions and turn completion. Returns whether
 /// the conversation settled on this event: the turn ended and no background task is still running.
-fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: &str) -> bool {
+fn react(
+    app: &AppHandle,
+    id: &str,
+    frame: &Value,
+    ready: &AtomicBool,
+    profile: &accounts::Profile,
+) -> bool {
     match frame["type"].as_str() {
         // A replacement process inherits no background tasks and no held completion.
         Some("session.state") if frame["state"] == "starting" => {
@@ -679,10 +685,10 @@ fn react(app: &AppHandle, id: &str, frame: &Value, ready: &AtomicBool, account: 
         }
         // Usage belongs to the account and is stored by the shared quota subsystem.
         Some("usage.updated") if frame["provider"] == "claude" => {
-            usage::claude(app, account, &frame["usage"])
+            usage::claude(app, &profile.id, profile.revision, &frame["usage"])
         }
         Some("usage.updated") if frame["provider"] == "codex" => {
-            usage::codex(app, account, &frame["usage"])
+            usage::codex(app, &profile.id, profile.revision, &frame["usage"])
         }
         // Codex reports context size and its external conversation identity.
         Some("context.updated") => {

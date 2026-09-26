@@ -52,6 +52,7 @@ async function openEditor(page: Page) {
 
 test("file saving preserves edits made while the write is pending", { tag: "@webkit" }, async ({ page }) => {
   await openEditor(page);
+  const otherRow = await page.locator("#tree .treerow", { hasText: ".gitignore" }).elementHandle();
   await page.locator("#vtext").fill("submitted text");
   await hold(page, "write_file");
   await page.locator("#vsave").click();
@@ -61,6 +62,9 @@ test("file saving preserves edits made while the write is pending", { tag: "@web
   await release(page);
   await expect(page.locator("#vsave")).toBeEnabled();
   await expect(page.locator("#vtext")).toHaveValue("newer draft");
+  // Saving this file updates marks without detaching another file's click target.
+  await page.waitForTimeout(300);
+  expect(await otherRow!.evaluate(node => node.isConnected)).toBe(true);
   await openFile(page, ".gitignore");
   await openFile(page, "CLAUDE.md");
   await expect(page.locator("#vtext")).toHaveValue("newer draft");

@@ -22,13 +22,15 @@ presentation. Arch Linux users asked for support.
 
 ## Decision
 
-Keep every IPC command and payload unchanged and pick platform programs in the
-backend: `xdg-open`, `systemd-inhibit` tied to the app PID through
+Keep platform programs behind the app's command boundaries: `xdg-open`,
+`systemd-inhibit` tied to the app PID through
 `tail --pid`, `notify-send --wait` with a default action for clicks,
 `canberra-gtk-play` with `pw-play`/`paplay` fallbacks, and `slurp` + `grim` on
 Wayland. `src-tauri/src/platform.rs` holds the shared choices; features keep
 their own validation and errors. Missing programs report the existing
-unavailable or failure errors, so the frontend needs no new states.
+unavailable or failure errors, so the frontend needs no new states. The later
+[sleep policy](0061-background-energy-policy.md) adds a macOS-only system
+assertion choice; Linux retains its original choices.
 
 The frontend detects macOS from the user agent only for presentation. macOS
 keeps its glyphs, app names and overlay title bar. Every other system gets a

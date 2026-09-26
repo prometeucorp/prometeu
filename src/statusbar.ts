@@ -9,6 +9,7 @@ import { fromBack, t } from "./i18n";
 import * as menu from "./menu";
 import { invoke } from "./ipc";
 import type { Board, ProviderId } from "./types";
+import { mac } from "./platform";
 import { $ } from "./util";
 
 /// App-wide provider usage and machine resources. Values cover all workspaces; clicking a chip opens its detail panel.
@@ -33,14 +34,21 @@ let machine: Machine = { rss: 0, cpu: 0, procs: [], terms: 0, ports: [] };
 let say: (text: string, isError?: boolean) => void = () => {};
 
 /// Sleep preference belongs to this Mac and is not synchronized.
-type Awake = "on" | "agent" | "off";
+type Awake = "on" | "agent" | "agent-system" | "off";
+type AwakeMode = "off" | "system" | "display";
 const AWAKE_STORE = "prometeu:acordado";
-const AWAKE: Awake[] = ["on", "agent", "off"];
+const AWAKE: Awake[] = mac ? ["on", "agent", "agent-system", "off"] : ["on", "agent", "off"];
 let awake: Awake = read();
 /// Board activity controls the keep-awake-while-working mode.
 let working = false;
 /// Remember the backend state to avoid redundant commands.
-let held: boolean | null = null;
+let held: AwakeMode | null = null;
+
+export function awakeMode(preference: Awake, active: boolean): AwakeMode {
+  if (preference === "on" || (preference === "agent" && active)) return "display";
+  if (preference === "agent-system" && active) return "system";
+  return "off";
+}
 
 /// Without localStorage, including in Node tests, default to allowing sleep.
 function read(): Awake {
@@ -71,13 +79,13 @@ export function boardChanged(board: Board) {
 
 /// Send a sleep command only when its desired state changes; agent tools publish frequent board updates.
 function hold() {
-  const want = awake === "on" || (awake === "agent" && working);
+  const want = awakeMode(awake, working);
   if (want === held) return;
   held = want;
-  invoke("set_awake", { on: want }).catch((err) => say(fromBack(err), true));
+  invoke("set_awake", { mode: want }).catch((err) => say(fromBack(err), true));
 }
 
-const holding = () => awake === "on" || (awake === "agent" && working);
+const holding = () => awakeMode(awake, working) !== "off";
 
 export function showUsage(next: Usage) {
   usage = next;
@@ -95,10 +103,44 @@ export function showAgents(have: readonly AgentDescriptor[]) {
 }
 
 export function showMachine(next: Machine) {
+  const before = machine;
   machine = next;
-  draw();
-  // Refresh an open resource panel as process readings change.
-  if (open === "res") fill();
+  patchMachine(before, next);
+}
+
+function patchMachine(before: Machine, next: Machine) {
+  const bar = document.getElementById("status");
+  const setText = (which: Which, value: string) => {
+    const text = bar?.querySelector<HTMLElement>(`[data-chip="${which}"] .utext`);
+    if (text && text.textContent !== value) text.textContent = value;
+  };
+  if (before.rss !== next.rss) setText("res", bytes(next.rss));
+  if (before.terms !== next.terms) setText("term", String(next.terms));
+  if (before.ports.length !== next.ports.length) setText("port", String(next.ports.length));
+  if (open === "port" && JSON.stringify(before.ports) !== JSON.stringify(next.ports)) fill();
+  if (open !== "res" || !panel) return;
+  if (before.procs.length !== next.procs.length || before.procs.some((proc, i) =>
+    [proc.kind, proc.name, proc.detail].join("\0") !== [next.procs[i].kind, next.procs[i].name, next.procs[i].detail].join("\0"))) {
+    fill();
+    return;
+  }
+  const summary = panel.querySelector<HTMLElement>(".uhead .uaside");
+  const text = `${next.cpu.toFixed(1)}% · ${bytes(next.rss)}`;
+  if (summary && summary.textContent !== text) summary.textContent = text;
+  const rows = panel.querySelectorAll<HTMLElement>(".prow");
+  next.procs.forEach((proc, i) => {
+    const row = rows[i];
+    const cpu = row?.querySelector<HTMLElement>(".pcpu");
+    const rss = row?.querySelector<HTMLElement>(".prss");
+    const cpuText = `${proc.cpu.toFixed(1)}%`;
+    const rssText = bytes(proc.rss);
+    if (cpu && cpu.textContent !== cpuText) cpu.textContent = cpuText;
+    if (rss && rss.textContent !== rssText) rss.textContent = rssText;
+    if (JSON.stringify(before.procs[i].hist) !== JSON.stringify(proc.hist)) {
+      const chart = row?.querySelector<HTMLElement>(".spark");
+      if (chart) chart.outerHTML = spark(proc.hist);
+    }
+  });
 }
 
 /// Compact quota labels fit beside usage values. Older caches used overage for the Fable quota window.
@@ -162,6 +204,7 @@ function draw() {
 function chip(which: Which, html: string, title: string, provider?: ProviderId): HTMLElement {
   const button = document.createElement("button");
   button.className = "uchip";
+  button.dataset.chip = which;
   button.title = title;
   button.innerHTML = html;
   if (provider) button.dataset.provider = provider;
@@ -199,6 +242,7 @@ let panel: HTMLElement | null = null;
 let open: Which | null = null;
 
 export function close() {
+  if (open === "res") void invoke("set_resource_detail", { open: false }).catch(() => {});
   const focused = panel?.contains(document.activeElement);
   panel?.remove();
   panel = null;
@@ -242,6 +286,8 @@ function toggle(which: Which, at: HTMLElement, e: MouseEvent, provider?: Provide
     );
   }
   open = which;
+  if (which === "res") void invoke("set_resource_detail", { open: true }).catch(() => {});
+  if (which === "usage") void invoke("usage_refresh", { provider }).catch(() => {});
   panel = document.createElement("div");
   panel.className = `upop ${which}`;
   panel.setAttribute("role", "dialog");

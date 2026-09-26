@@ -19,6 +19,13 @@ conversation and the page. The panel button allows reopening it during the
 preview. Leaving the browser or the workspace restores the panel's previous
 visibility.
 
+The preview's resize and body-mutation positioning observers, plus the toggle
+listener, are connected only while a preview is open. They remain connected
+while a menu or dialog temporarily conceals the native view so its bounds can
+recover on close. Hiding or leaving disconnects them and cancels a queued
+position frame. Opening another preview reconnects them after the native view
+opens; an old serialized open cannot reposition the new workspace.
+
 An explicit local MCP request may navigate to an owned delegated conversation
 and open this same preview through the `workspace-preview` event. The desktop
 rechecks availability and derives the URL from the workspace port; the event

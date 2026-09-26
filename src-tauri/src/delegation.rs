@@ -629,8 +629,8 @@ pub fn call(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Resul
         }
         "open_workspace_preview" => {
             available_workspace(&workspace, id)?;
-            let port =
-                dock::ensure_port(&app.state(), &workspace.id).ok_or("workspace_has_no_port")?;
+            let port = dock::ensure_port(app, &app.state(), &workspace.id)
+                .ok_or("workspace_has_no_port")?;
             app.emit_to(
                 "main",
                 "workspace-preview",

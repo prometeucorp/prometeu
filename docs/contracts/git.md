@@ -76,6 +76,32 @@ answers `git: false`, and the launcher locks both toggles), and the panel shows
 the Git error as with any repository that does not answer. Old responses cannot
 replace the selection of another workspace or repository.
 
+The backend shares one in-flight porcelain read per canonical worktree for
+Files marks. The full status, including branch/upstream, remotes, ahead/behind,
+merging and the index fingerprint, has its own single-flight slot per worktree
+and comparison base. It always reads its porcelain between the two fingerprint
+reads, so the `expected` token describes the files it lists; it never reuses an
+older Files scan, while Files marks may reuse the porcelain a status scan just
+read. App Git mutations and file writes/create/rename/trash invalidate the
+affected cache before publishing their result. Invalidation during a scan
+discards its stale result and scans again, until one scan finishes without an
+invalidation, before waiters receive the status. A failed scan reaches the
+requests that waited for it but is not reused by later requests. Different
+repositories use independent slots; the mutation lock is never held while a
+status consumer waits. A full status is reused for at most two seconds after its
+scan finishes, raw porcelain for one second; unused expired entries are dropped,
+so removed worktrees do not keep their last scan. A visible fallback catches
+external edits after those bounds without requiring a filesystem watcher.
+
+The frontend refreshes on workspace entry, repository-list changes, saved
+files, Git actions, a turn that settles in the open workspace, return to
+foreground and while Changes is visible. Other board/chat redraws do not
+dispatch status. Turn settlement is recorded while a menu or rename input defers
+redraws and consumed once when the open workspace can draw again. A visible
+Changes fallback runs every five seconds on AC or ten on battery/unknown power;
+hidden or unfocused windows do not scan. These are request intervals, with the Git command's
+duration in addition.
+
 ### File tree marks
 
 `tree_git_status` feeds the colors of the side **Files** tree and, unlike the
@@ -89,12 +115,21 @@ untracked or added files, `D` for deletions in the index and `M` for the rest. U
 one, as in the Changes pane, so ignored files inside a new folder stay unmarked.
 The tree adds struck-through rows for `D` paths, which no longer exist on disk
 and therefore never come from `list_dir`.
-A directory outside Git, or
-a repository that fails, contributes no marks instead of an error. The command is async so the scan never runs on the main thread. The tree
-refreshes marks every 5 seconds while it is visible, because terminals and
-agents change files without board events, and skips a tick while the previous
-scan is still running. A redraw may scan alongside a tick; only the latest scan
-started replaces the marks, so an older result finishing last is discarded.
+A directory outside Git, or a repository that fails, contributes no marks
+instead of an error. A workspace repository root derives marks from the shared
+porcelain, reusing a snapshot that Changes read within the last second. A project opened on a subfolder retains the
+path-limited query so only its own files appear. The command is async so the
+scan never runs on the main thread. Visible Files marks refresh every 15
+seconds on AC or 30 on battery/unknown power, plus immediate invalidation and
+foreground return; hidden/unfocused windows do not scan. The tree skips a tick
+while a previous scan is running and only the latest result paints marks.
+Saving an open file refreshes marks in place and retains other file rows and
+their click targets. A full redraw remains for list changes: a marks refresh
+whose set of new or deleted paths changed, such as a file an agent created,
+lists the open folders again, and so does a turn that settles in the open
+workspace, which also covers ignored files without marks. Reopening the
+displayed workspace lists its tree again. An explicit redraw cancels any older
+delayed redraw for the same tree.
 
 `tree_restore` brings such a row back to disk, finding the repository that
 holds `rel` under the tree root. The index wins over `HEAD`: a path the index

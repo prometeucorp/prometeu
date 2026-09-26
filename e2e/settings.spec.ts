@@ -15,6 +15,7 @@ async function refreshCatalog(page: Page) {
 // must survive that replacement; pure matching/legacy routing are covered by unit tests instead.
 test("@webkit settings retain search, menu focus and expanded sections across refresh", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator("#deskView")).toBeVisible();
   await page.locator("#settings").click();
   await page.locator(".setnavitem").getByText("Resources", { exact: true }).click();
   await page.locator('[data-filter="mcp"]').click();

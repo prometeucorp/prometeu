@@ -1,4 +1,5 @@
 import * as actions from "./actions";
+import * as background from "./background";
 import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
@@ -23,6 +24,7 @@ import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
+import { PrScanPolicy } from "./pr-refresh";
 import { fileDropTarget as launcherDropTarget, openLauncher, type Draft, type Open } from "./launcher";
 import * as menu from "./menu";
 import * as news from "./news";
@@ -42,6 +44,11 @@ import * as ws from "./workspace";
 
 // Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
+await background.start().catch(() => {});
+// The resource sampler wakes natively on context changes; quota refresh on return stays explicit.
+background.subscribe((context) => {
+  if (background.foreground(context)) void invoke("usage_refresh", {}).catch(() => {});
+});
 
 let state: Board = { stages: [], projects: [], workspaces: [] };
 
@@ -121,6 +128,7 @@ const hooks: sidebar.Hooks = {
 let missed = false;
 
 function draw() {
+  ws.observeTurns();
   // Avoid replacing rows containing rename inputs or open menu anchors during agent-driven updates.
   if (rename.editing() || menu.isOpen()) {
     missed = true;
@@ -330,7 +338,7 @@ listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
 /// Machine resource updates arrive every three seconds only when values change.
 listen<statusbar.Machine>("machine", ({ payload }) => statusbar.showMachine(payload));
-statusbar.init({ say, accounts: () => { settings.showAccounts(); showSettings(); } });
+statusbar.init({ say, accounts: () => { void invoke("usage_refresh", {}).catch(() => {}); settings.showAccounts(); showSettings(); } });
 invoke("machine").then(statusbar.showMachine).catch(() => {});
 
 /* File drops into conversations and terminals. */
@@ -741,8 +749,23 @@ showDesk();
 // Show release notes after the initial page renders so the dialog overlays the application.
 void news.init();
 
-// Refresh PR states through gh once per repository every minute, including immediately at startup so merged badges are current.
-const PR_SCAN = 60_000;
-const scanPrs = () => void invoke("refresh_prs").catch(() => {});
+// General discovery is advisory; explicit task monitors keep their configured clock in Rust.
+const prScan = new PrScanPolicy();
+let prTimer: ReturnType<typeof setTimeout> | null = null;
+const schedulePrs = () => {
+  if (prTimer) clearTimeout(prTimer);
+  prTimer = setTimeout(() => scanPrs(), prScan.remaining(background.current(), Date.now()));
+};
+const scanPrs = () => {
+  prScan.mark(Date.now());
+  void invoke("refresh_prs").catch(() => {});
+  schedulePrs();
+};
+let previousPrContext = background.current();
+background.subscribe((next) => {
+  const returned = prScan.returnedToForeground(previousPrContext, next, Date.now());
+  previousPrContext = next;
+  if (returned) scanPrs();
+  else schedulePrs();
+});
 scanPrs();
-setInterval(scanPrs, PR_SCAN);

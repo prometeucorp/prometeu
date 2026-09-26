@@ -342,6 +342,21 @@ pub fn profiles() -> Result<Vec<Profile>, String> {
     Ok(data.accounts.iter().map(Profile::of).collect())
 }
 
+pub fn selected_ids() -> Vec<String> {
+    lock(registry())
+        .as_ref()
+        .map(|data| data.active.values().cloned().collect())
+        .unwrap_or_default()
+}
+
+pub fn registered(id: &str, revision: Option<u64>) -> bool {
+    lock(registry()).as_ref().is_ok_and(|data| {
+        data.accounts.iter().any(|account| {
+            account.id == id && revision.is_none_or(|expected| account.revision == expected)
+        })
+    })
+}
+
 /// Link only explicitly shared data. Login, tokens, identity, and authentication caches remain
 /// private to the profile.
 pub fn share(base: &Path, home: &Path, name: &str, directory: bool) -> Result<(), String> {
@@ -435,6 +450,7 @@ pub fn account_select(app: AppHandle, id: String) -> Result<Snapshot, String> {
         return Err(i18n::t("err.account.busy"));
     }
     change(|data| data.select(&id))?;
+    crate::usage::refresh(&app, None);
     publish(&app);
     accounts()
 }
@@ -450,6 +466,7 @@ pub fn account_remove(app: AppHandle, id: String) -> Result<Snapshot, String> {
         // processes that still use their credentials and history links.
         change(|data| data.remove(&id))?;
     }
+    crate::usage::forget(&app, &id);
     publish(&app);
     accounts()
 }
@@ -551,6 +568,8 @@ pub async fn account_login(
         });
         profile
     };
+    // Invalidate quota work before login can change credentials, even if it later fails.
+    crate::usage::refresh(&app, Some(provider));
     // Login blocks new messages before this check. Refresh must not replace credentials during an
     // active turn.
     if lock(&app.state::<crate::AppState>().chats)
@@ -558,6 +577,7 @@ pub async fn account_login(
         .any(|chat| chat.account() == profile.id && chat.working())
     {
         *lock(pending()) = None;
+        crate::usage::refresh(&app, Some(provider));
         publish(&app);
         return Err(i18n::t("err.account.working"));
     }
@@ -594,6 +614,7 @@ pub async fn account_login(
     .map_err(i18n::io)
     .and_then(|result| result);
     *lock(pending()) = None;
+    crate::usage::refresh(&app, Some(provider));
     publish(&app);
     result?;
     accounts()

@@ -116,6 +116,18 @@ touch DOM, Tauri, disk, network or provider protocols. Legacy lines go through
 for the Stop button and the busy composer so the person can still interrupt
 children that outlived the turn.
 
+`ChatView` still reduces every live line in order and coalesces visible painting
+to an animation frame. A text-only update repaints its current message without
+rebuilding the composer or comment pins; working and compaction transitions
+refresh the composer, while piece additions and replacements refresh pins. When
+the native window is hidden or minimized, live lines continue to update the
+timeline but defer transcript painting. A visible window without focus, such as
+one on a second monitor or in split view, keeps painting so the person can
+follow the response. A context event that shows the window again reconciles the
+buffered dirty pieces once, or renders a snapshot that arrived while hidden.
+If native context is unavailable, rendering remains active. Stable piece keys
+continue to preserve selection, expanded cards and comment anchors.
+
 Native subagents outlive the turn that started them, so a conversation settles
 only when the turn has ended *and* `background.changed` reports no task.
 `chat.rs` holds the tab in `Rodando` and keeps queued input waiting until then;

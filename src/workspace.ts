@@ -1,4 +1,6 @@
 import * as actions from "./actions";
+import * as background from "./background";
+import { GitRefreshPolicy, TurnSettlePolicy, changesInterval } from "./git-refresh";
 import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
@@ -55,6 +57,8 @@ let ctx: Ctx;
 let openWs: string | null = null;
 /// Invalidate asynchronous continuations on every entry/exit, including returning to the same workspace ID.
 let navigation = 0;
+const gitRefresh = new GitRefreshPolicy();
+const turns = new TurnSettlePolicy();
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -66,7 +70,7 @@ export function init(context: Ctx) {
   ctx = context;
   changesUi.init({
     workspace: current,
-    refresh: async () => { if (openWs && hasDiff()) await loadChanges(openWs); },
+    refresh: async () => { if (openWs && hasDiff()) { await loadChanges(openWs); tree.redrawSoon(); } },
     show: activateChanges,
     say: ctx.say,
     openFile: (repo, path) => void openRepoFile(repo, path),
@@ -124,13 +128,21 @@ export function init(context: Ctx) {
     const here = root();
     if (here) invoke("reveal_path", { id: here, rel: "" }).catch((e) => ctx.say(fromBack(e), true));
   });
-  // Agent board events refresh changes, but external commits do not. Refresh on window focus and while Changes is visible.
-  window.addEventListener("focus", () => {
-    if (hasDiff()) reloadChanges(openWs!);
+  // Native focus/power changes choose the visible fallback budget; external edits still surface.
+  let wasForeground = background.foreground(background.currentOrDocument());
+  background.subscribe((context) => {
+    const foreground = background.foreground(context);
+    if (foreground && !wasForeground && hasDiff()) reloadChanges(openWs!);
+    wasForeground = foreground;
+    scheduleChanges();
   });
-  setInterval(() => {
-    if (hasDiff() && document.hasFocus() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
-  }, WATCH_EVERY);
+  window.addEventListener("focus", () => {
+    if (!background.hasObservation()) {
+      if (hasDiff()) reloadChanges(openWs!);
+      scheduleChanges();
+    }
+  });
+  scheduleChanges();
 
   // Build the static preparation indicator once instead of on every board redraw.
   $("offwave").innerHTML = wave(22);
@@ -158,6 +170,7 @@ export async function open(ws: Workspace, tab?: string) {
   center("chatwrap");
   const first = ws.tabs.find((t) => t.id === (tab ?? ws.active)) ?? ws.tabs[0];
   sidebar.setOpen((openWs = ws.id));
+  observeTurns();
   changesUi.enter();
   $("wsView").hidden = false;
   $("wsctl").hidden = false;
@@ -171,6 +184,8 @@ export async function open(ws: Workspace, tab?: string) {
   }
   // Opening acknowledges unread state and keeps visible activity from becoming unread again.
   invoke("look_at", { id: ws.id });
+  // Reopening the displayed workspace bypasses leave; its reset tree must still be listed again.
+  gitRefresh.clear();
   tree.reset();
   dockbar.reset();
   // Preparing or failed workspaces have no usable tabs or files. catchUp attaches after a later board update creates the first tab.
@@ -196,6 +211,7 @@ export async function open(ws: Workspace, tab?: string) {
   else if (fs.active) await showFile();
   else showTerm();
   if (!stillHere(epoch, ws.id)) return;
+  if (!ws.archived) void invoke("pr_open", { id: ws.id }).catch(() => {});
   ctx.redraw();
 }
 
@@ -217,6 +233,8 @@ function catchUp(ws: Workspace) {
 
 export function leave() {
   navigation++;
+  gitRefresh.clear();
+  turns.clear();
   proj = null;
   browser.hide();
   restoreBrowserSide();
@@ -228,6 +246,13 @@ export function leave() {
 }
 
 /* Rendering. */
+
+/// Record short turns before the application defers redraws to preserve menus and rename inputs.
+export function observeTurns() {
+  const ws = openWs ? current() : undefined;
+  if (!ws || ws.remote || ws.cleaned || pending(ws)) turns.clear();
+  else turns.observe(ws);
+}
 
 export function draw() {
   const ws = current();
@@ -315,8 +340,13 @@ export function draw() {
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
-  reloadChanges(ws.id);
-  if (sidePane === "files") tree.redrawSoon();
+  // A settled turn may have created files, including ignored ones without Git marks, or a PR.
+  const settled = turns.settled(ws);
+  if (settled) askPr(ws);
+  if ((gitRefresh.consider(ws) || settled) && background.foreground(background.currentOrDocument())) {
+    reloadChanges(ws.id);
+    if (sidePane === "files") tree.redrawSoon();
+  }
   // Board events refresh the displayed file after agent edits without polling.
   const file = files(ws.id).active;
   if (file) viewer.show(ws.id, file);
@@ -542,9 +572,6 @@ const hasDiff = () => {
 /* Branch PRs. */
 
 /// Choose PR actions from observed state: create, update unpublished work, open existing up-to-date PRs, or finish merged work. List multiple repositories in a menu and throttle backend refreshes.
-const prAt = new Map<string, number>();
-const PR_EVERY = 20_000;
-
 function paintPr(ws: Workspace) {
   const done = merged(ws);
   const all = prs(ws);
@@ -596,16 +623,18 @@ const openIn = (ws: Workspace, repo: string) =>
 
 function drawPr(ws: Workspace) {
   paintPr(ws);
-  askPr(ws);
 }
 
-/// Cleaned workspaces retain recorded PR metadata without querying a vanished branch.
+/// After an agent turn, ask for this workspace's PR state at most every 20 seconds, so a PR the
+/// agent created replaces the create action without waiting for general discovery.
+const prAskedAt = new Map<string, number>();
+const PR_EVERY = 20_000;
+
 function askPr(ws: Workspace) {
   const now = Date.now();
-  if (ws.cleaned || now - (prAt.get(ws.id) ?? 0) < PR_EVERY) return;
-  prAt.set(ws.id, now);
-  // Backend publication updates the board, and redraw presents the result.
-  invoke("pr_open", { id: ws.id }).catch(() => {});
+  if (ws.cleaned || ws.archived || now - (prAskedAt.get(ws.id) ?? -PR_EVERY) < PR_EVERY) return;
+  prAskedAt.set(ws.id, now);
+  void invoke("pr_open", { id: ws.id }).catch(() => {});
 }
 
 /// Finish moves work to the final stage and archives it, stopping its agent and docks.
@@ -1190,11 +1219,21 @@ export function closeActive(): boolean {
 /* Changes. */
 
 const total = changesUi.count;
-const WATCH_EVERY = 5_000;
+let changesTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleChanges() {
+  if (changesTimer) clearTimeout(changesTimer);
+  const interval = changesInterval(background.currentOrDocument());
+  if (interval === null) return;
+  changesTimer = setTimeout(() => {
+    if (hasDiff() && (sidePane === "diff" || files(openWs!).diff)) reloadChanges(openWs!);
+    scheduleChanges();
+  }, interval);
+}
 const reloadChanges = debounce(250, (id: string) => void loadChanges(id));
 let request = 0;
 
 async function loadChanges(id: string) {
+  if (!background.foreground(background.currentOrDocument())) return;
   const mine = ++request;
   try {
     const repos = await invoke("workspace_git_status", { id });
@@ -1215,7 +1254,10 @@ async function loadChanges(id: string) {
 
 export function fileSaved(id: string) {
   const ws = current();
-  if (ws?.id === id && diffable(ws)) reloadChanges(id);
+  if (ws?.id === id && diffable(ws) && background.foreground(background.currentOrDocument())) {
+    reloadChanges(id);
+    tree.refreshMarksSoon();
+  }
 }
 
 function outstanding(id: string): { dirty: number; unpushed: number } | null {
@@ -1329,6 +1371,7 @@ type Pane = "files" | "diff" | "comments";
 let sidePane: Pane = "files";
 
 function setSidePane(pane: Pane) {
+  const changed = sidePane !== pane;
   sidePane = pane;
   $("tab-files").classList.toggle("on", pane === "files");
   $("tab-diff").classList.toggle("on", pane === "diff");
@@ -1338,6 +1381,7 @@ function setSidePane(pane: Pane) {
   $("comments").hidden = pane !== "comments";
   $("side").classList.toggle("comments-open", pane === "comments");
   if (pane === "files") tree.redraw();
+  if (changed && pane === "diff" && hasDiff()) reloadChanges(openWs!);
   if (pane === "comments") notes.draw();
 }
 

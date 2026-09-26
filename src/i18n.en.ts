@@ -1330,6 +1330,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "status.awake.on.note": "Mac and display stay awake until Prometeu closes",
   "status.awake.agent": "Agent active",
   "status.awake.agent.note": "Mac and display stay awake while an agent is working",
+  "status.awake.agent-system": "Agent active, display may sleep",
+  "status.awake.agent-system.note": "Mac stays awake while an agent is working; the display may sleep",
   "status.awake.off": "Off",
   "status.awake.off.note": "Follows the usual macOS sleep settings",
   "status.awake.off.note.generic": "Follows the usual system sleep settings",

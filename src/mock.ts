@@ -68,6 +68,17 @@ function saveMockSkill(skill: Skill) {
   pluginHub = [...pluginHub.filter(p => p.id !== id), { id, source: `~/.prometeu/skills-packages/${skill.id}`, note: skill.description, made: false }];
 }
 const w = window as unknown as Record<string, unknown>;
+let backgroundRevision = 0;
+function mockBackground() {
+  return { visible: !document.hidden, focused: !document.hidden && document.hasFocus(), power: "unknown" as const, revision: backgroundRevision };
+}
+function emitBackground() {
+  backgroundRevision++;
+  emit("background-context", mockBackground());
+}
+window.addEventListener("focus", emitBackground);
+window.addEventListener("blur", emitBackground);
+document.addEventListener("visibilitychange", emitBackground);
 
 const accountDefaults: Accounts = {
   accounts: [
@@ -932,6 +943,9 @@ function fakeEvaluation(request: import("./evaluation").EvaluationRequest): impo
 }
 
 const mockCommands: IpcHandlers = {
+  background_context() {
+    return mockBackground();
+  },
   notification_permission({ request }) {
     const status = localStorage.getItem("mock:notification-permission");
     if (status === "default" && request) {
@@ -983,6 +997,8 @@ const mockCommands: IpcHandlers = {
     emit("usage", call("usage"));
     return snapshot;
   },
+  usage_refresh() { return; },
+  set_resource_detail() { return; },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
     if (!["claude", "codex", "antigravity"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
@@ -2423,6 +2439,7 @@ w.__TAURI_INTERNALS__ = {
 w.mock = {
   catalog: (servers: McpServer[]) => { mcpHub = servers; emit("catalog", null); },
   usage: (payload: unknown) => emit("usage", payload),
+  machine: (payload: unknown) => emit("machine", payload),
   accountError: (error: string) => emit("account-error", error),
   /// Mirror the authorized desktop navigation event without running an MCP server in the browser.
   preview: (workspace_id: string, conversation_id: string) => emit("workspace-preview", { workspace_id, conversation_id }),

@@ -107,15 +107,14 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0056](decisions/0056-background-tasks-hold-completion.md): a turn only completes when its background tasks drain.
 - [ADR 0057](decisions/0057-skill-kickoff-and-artifact-path.md): start a conversation from a skill, with a project-declared artifact path.
 - [ADR 0058](decisions/0058-optional-context-evaluation.md): optional context evaluation behind an application-owned port.
+- [ADR 0059](decisions/0059-local-telemetry-foundation.md): local telemetry with common columns and typed JSON payloads in SQLite.
+- [ADR 0060](decisions/0060-isolated-desktop-presentation.md): isolated Desktop presentation with a shared production/gallery view.
+- [ADR 0061](decisions/0061-background-energy-policy.md): explicit system-only inhibition while a macOS agent works.
 
 ## Local telemetry
 
 - [Local telemetry contract](contracts/telemetry.md): canonical content-free
   events, usage semantics, SQLite persistence, coverage, queries and verification.
-- [ADR 0059](decisions/0059-local-telemetry-foundation.md): local telemetry with
-  common columns and typed JSON payloads in SQLite.
-
-- [ADR 0060](decisions/0060-isolated-desktop-presentation.md): isolated Desktop presentation with a shared production/gallery view.
 
 ## Quality and operations
 
@@ -123,6 +122,8 @@ compatibility still in use stays documented in the current contracts.
   baseline evidence, preserved identity and the implemented Settings pilot.
 - [`quality/provider-matrix.md`](quality/provider-matrix.md): support per agent
   and expected evidence.
+- [Energy profiling](quality/energy-profile.md): issue #148 release-build
+  measurement protocol and source-level baseline.
 - [`operations/development.md`](operations/development.md): environment and tests.
 - [`operations/contributing.md`](operations/contributing.md): recipes for provider,
   IPC, collaboration and Cloud contract changes; [contribution workflow](../CONTRIBUTING.md).

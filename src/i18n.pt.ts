@@ -1366,6 +1366,8 @@ export const PT = {
   "status.awake.on.note": "Mac e tela acordados até o Prometeu fechar",
   "status.awake.agent": "Com agente ativo",
   "status.awake.agent.note": "Mac e tela acordados enquanto algum agente trabalhar",
+  "status.awake.agent-system": "Com agente ativo, tela pode apagar",
+  "status.awake.agent-system.note": "Mac acordado enquanto algum agente trabalhar; a tela pode apagar",
   "status.awake.off": "Desligado",
   "status.awake.off.note": "Segue o repouso normal do macOS",
   "status.awake.off.note.generic": "Segue o repouso normal do sistema",

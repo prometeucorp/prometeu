@@ -126,7 +126,9 @@ pub fn write_file(
 ) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let file = inside(&root, &rel)?;
-    save(&file, &text, &was)
+    let result = save(&file, &text, &was);
+    super::git::invalidate_path(&file);
+    result
 }
 
 /// A new or renamed entry's name: one plain path component, never Git's own folder.
@@ -279,7 +281,9 @@ pub fn create_path(
     dir: bool,
 ) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    create(&root, &rel, dir)
+    let result = create(&root, &rel, dir);
+    super::git::invalidate_path(&root);
+    result
 }
 
 #[tauri::command]
@@ -290,7 +294,9 @@ pub fn rename_path(
     to: String,
 ) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    rename(&root, &from, &to)
+    let result = rename(&root, &from, &to);
+    super::git::invalidate_path(&root);
+    result
 }
 
 /// Move to the system trash instead of deleting, so untracked work can still be recovered. Async
@@ -298,7 +304,9 @@ pub fn rename_path(
 #[tauri::command(async)]
 pub fn trash_path(state: State<AppState>, id: String, rel: String) -> Result<(), String> {
     let root = cwd_of(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-    trash_entry(&root, &rel)
+    let result = trash_entry(&root, &rel);
+    super::git::invalidate_path(&root);
+    result
 }
 
 /// Finder selects the entry with -R, so the person sees which file the tree meant. Systems served
