@@ -4,6 +4,7 @@
 # sh scripts/release.sh          Calculate the version from commits.
 # sh scripts/release.sh 0.2.0    Select a version explicitly.
 # sh scripts/release.sh publish Publish the CI-created draft.
+# sh scripts/release.sh draft VERSION DIRECTORY Upload CI-verified packages to a draft.
 #
 # This script controls version, changelog and tag. CI builds and signs a draft release in this
 # repository. Install and review its macOS DMG and Linux AppImage before publishing.
@@ -127,6 +128,35 @@ watch_run() {
   done
 }
 
+# Upload new releases only. Existing drafts may belong to an older commit of a moved tag;
+# fail instead of reusing them or replacing assets during concurrent publication.
+draft() {
+  VERSION=$1
+  DIRECTORY=$2
+  TAG=v$VERSION
+  for want in Prometeu_aarch64.dmg Prometeu_aarch64.app.tar.gz \
+              Prometeu_aarch64.app.tar.gz.sig Prometeu_x86_64.AppImage \
+              Prometeu_x86_64.AppImage.sig latest.json; do
+    [ -f "$DIRECTORY/$want" ] || die "Missing $want"
+  done
+  [ -n "${RELEASE_NOTES:-}" ] || die "Missing release notes"
+  if DRAFT=$(gh release view "$TAG" -R "$REPO" --json isDraft -q .isDraft 2>/dev/null); then
+    [ "$DRAFT" = true ] || die "$TAG is already published; refusing to replace assets"
+    die "$TAG draft already exists; remove the draft manually before rebuilding"
+  fi
+  NOTES_FILE=$(mktemp "${TMPDIR:-/tmp}/prometeu-notes.XXXXXX")
+  printf '%s\n' "$RELEASE_NOTES" > "$NOTES_FILE"
+  trap 'rm -f "$NOTES_FILE"' EXIT
+  gh release create "$TAG" -R "$REPO" --verify-tag --draft --title "$VERSION" --notes-file "$NOTES_FILE"
+  gh release upload "$TAG" -R "$REPO" \
+    "$DIRECTORY/Prometeu_aarch64.dmg" \
+    "$DIRECTORY/Prometeu_aarch64.app.tar.gz" \
+    "$DIRECTORY/Prometeu_aarch64.app.tar.gz.sig" \
+    "$DIRECTORY/Prometeu_x86_64.AppImage" \
+    "$DIRECTORY/Prometeu_x86_64.AppImage.sig" \
+    "$DIRECTORY/latest.json"
+}
+
 # Publish the reviewed draft.
 
 publish() {
@@ -158,6 +188,7 @@ publish() {
 }
 
 case "${1:-}" in
+  draft) shift; draft "$@" ;;
   publish) shift; publish "$@" ;;
   -h|--help|help) sed -n '2,6p' "$0"; exit 0 ;;
   *) cut "$@" ;;

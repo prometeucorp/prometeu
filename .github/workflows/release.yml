@@ -1,4 +1,4 @@
-# Build tags matching v* on GitHub-hosted macOS and Linux runners, sign and create a shared draft
+# Build both platforms in parallel on GitHub-hosted runners, then assemble one verified draft
 # release in this repository. Notes come from the version's CHANGELOG.md section.
 # Drafts do not reach the updater's releases/latest/download/latest.json endpoint. Install and review the
 # draft DMG and AppImage before running sh scripts/release.sh publish.
@@ -38,12 +38,9 @@ jobs:
     name: Build and sign macOS
     runs-on: macos-latest
     environment: release
-    permissions:
-      contents: write
     outputs:
       version: ${{ steps.notes.outputs.version }}
       notes: ${{ steps.notes.outputs.notes }}
-      release_id: ${{ steps.release.outputs.releaseId }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,6 +66,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
+          shared-key: desktop-macos
 
       - run: npm ci
 
@@ -137,36 +135,8 @@ jobs:
           echo "APPLE_BUILD_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "APPLE_KEYCHAIN_LIST=$KEYCHAIN_LIST_PATH" >> "$GITHUB_ENV"
 
-      - name: build assinado → draft neste repositório
-        id: release
-        if: github.ref_type == 'tag'
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: "Developer ID Application: Gustavo Brancaglione (6MQT6A482B)"
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: "6MQT6A482B"
-          # CI=true enables --skip-jenkins in bundle_dmg.sh, avoiding Finder AppleScript and its
-          # Automation permission for the changing runner binary. The DMG uses default icon placement.
-          CI: "true"
-          # Explicitly set TAURI_BUNDLER_DMG_IGNORE_CI=false so tauri-action does not override CI=true
-          # and restore Finder AppleScript.
-          TAURI_BUNDLER_DMG_IGNORE_CI: "false"
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ steps.notes.outputs.version }}
-          releaseBody: ${{ steps.notes.outputs.notes }}
-          releaseDraft: true
-          includeUpdaterJson: true
-          assetNamePattern: '[name]_[arch][ext]'
-          args: --verbose
-
-      - name: build assinado, sem publicar
-        if: github.ref_type != 'tag'
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+      # npm run check already produced and validated dist; keep the local Tauri hook unchanged.
+      - name: Build signed macOS packages
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -174,16 +144,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: "6MQT6A482B"
+          # Avoid Finder AppleScript and its Automation permission on disposable runners.
           CI: "true"
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
-        with:
-          args: --verbose
+        run: |
+          npm run tauri -- build --verbose --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: notarizar DMG final
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DMG=$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)
           [ -n "$DMG" ] || { echo "::error::falta o .dmg"; exit 1; }
@@ -195,21 +165,16 @@ jobs:
           xcrun stapler staple "$DMG"
           xcrun stapler validate "$DMG"
           spctl -a -t open --context context:primary-signature -v "$DMG"
-          # Use assetNamePattern's filename so --clobber replaces the pre-notarization DMG instead of
-          # adding another asset.
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            cp "$DMG" "$RUNNER_TEMP/Prometeu_aarch64.dmg"
-            gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Prometeu_aarch64.dmg" -R "$REPO" --clobber
-          fi
+          mkdir -p pkg
+          cp "$DMG" pkg/Prometeu_aarch64.dmg
+          cp src-tauri/target/release/bundle/macos/*.app.tar.gz pkg/Prometeu_aarch64.app.tar.gz
+          cp src-tauri/target/release/bundle/macos/*.app.tar.gz.sig pkg/Prometeu_aarch64.app.tar.gz.sig
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: github.ref_type != 'tag'
         with:
-          name: Prometeu_${{ steps.notes.outputs.version }}_${{ github.sha }}
-          path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+          name: release-macos
+          path: pkg/*
+          overwrite: true
           if-no-files-found: error
           retention-days: 7
 
@@ -229,19 +194,19 @@ jobs:
             security delete-keychain "$APPLE_BUILD_KEYCHAIN" || true
           fi
 
-  # tauri-action merges latest.json with the existing draft. Serialize uploads so neither platform
-  # can overwrite the other's entry, and reuse the draft ID instead of creating another release.
+  # Build independently; only the final job writes the shared draft and latest.json.
   linux:
     name: Build and sign Linux
-    needs: build
     runs-on: ubuntu-22.04
     environment: release
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify release commit belongs to main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       # Build on the oldest supported Ubuntu baseline to avoid requiring a newer glibc.
       - name: Install Linux build dependencies
@@ -261,39 +226,19 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
-          # CI's linux job uses a newer Ubuntu; its native dependencies cannot run on this baseline.
-          key: ubuntu-22.04
+          shared-key: desktop-linux-ubuntu-22.04
 
       - run: npm ci
       - run: npm run build
       - run: npm run test:rust
       - run: npm run lint:rust
 
-      - name: Build signed AppImage in the shared draft
-        if: github.ref_type == 'tag'
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          releaseId: ${{ needs.build.outputs.release_id }}
-          releaseBody: ${{ needs.build.outputs.notes }}
-          tagName: ${{ github.ref_name }}
-          releaseDraft: true
-          includeUpdaterJson: true
-          # tauri-action expands [arch] to amd64 for AppImage; keep the documented x86_64 URL.
-          assetNamePattern: 'Prometeu_x86_64[ext]'
-          args: --verbose --bundles appimage
-
-      - name: Build signed AppImage without publishing
-        if: github.ref_type != 'tag'
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+      - name: Build signed AppImage
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          args: --verbose --bundles appimage
+        run: |
+          npm run tauri -- build --verbose --bundles appimage --config '{"build":{"beforeBuildCommand":""}}'
 
       # The bundled Ubuntu 22.04 libwayland breaks EGL on current Mesa (black window); the host must
       # provide it. Repacking invalidates the updater signature, so sign the patched file again.
@@ -308,38 +253,20 @@ jobs:
           bash scripts/appimage-unbundle-wayland.sh "${images[0]}"
           rm -f "${images[0]}.sig"
           npx tauri signer sign "${images[0]}"
-          echo "APPIMAGE=${images[0]}" >> "$GITHUB_ENV"
-
-      # tauri-action already uploaded the unpatched AppImage and wrote its signature into latest.json.
-      # This job is the draft's last writer, so replacing both here cannot race the macOS entries.
-      - name: Replace the AppImage in the shared draft
-        if: github.ref_type == 'tag'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cp "$APPIMAGE" "$RUNNER_TEMP/Prometeu_x86_64.AppImage"
-          cp "$APPIMAGE.sig" "$RUNNER_TEMP/Prometeu_x86_64.AppImage.sig"
-          gh release download "$GITHUB_REF_NAME" -R "$REPO" -p latest.json -D "$RUNNER_TEMP/manifest"
-          jq --arg sig "$(cat "$APPIMAGE.sig")" \
-            '.platforms |= with_entries(if (.value.url // "") | endswith(".AppImage") then .value.signature = $sig else . end)' \
-            "$RUNNER_TEMP/manifest/latest.json" > "$RUNNER_TEMP/latest.json"
-          gh release upload "$GITHUB_REF_NAME" -R "$REPO" --clobber \
-            "$RUNNER_TEMP/Prometeu_x86_64.AppImage" \
-            "$RUNNER_TEMP/Prometeu_x86_64.AppImage.sig" \
-            "$RUNNER_TEMP/latest.json"
+          mkdir -p pkg
+          cp "${images[0]}" pkg/Prometeu_x86_64.AppImage
+          cp "${images[0]}.sig" pkg/Prometeu_x86_64.AppImage.sig
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: github.ref_type != 'tag'
         with:
-          name: Prometeu_${{ needs.build.outputs.version }}_linux-x86_64_${{ github.sha }}
-          path: |
-            src-tauri/target/release/bundle/appimage/*.AppImage
-            src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          name: release-linux
+          path: pkg/*
+          overwrite: true
           if-no-files-found: error
           retention-days: 7
 
   verify:
-    name: conferir a draft
+    name: Assemble and verify draft
     needs: [build, linux]
     if: github.ref_type == 'tag'
     runs-on: macos-latest
@@ -349,6 +276,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.build.outputs.version }}
+      RELEASE_NOTES: ${{ needs.build.outputs.notes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -356,19 +284,26 @@ jobs:
 
       - run: command -v minisign >/dev/null || brew install minisign
 
-      - name: baixar o que o build publicou
-        run: rm -rf pkg && gh release download "v$VERSION" -R "$REPO" -D pkg && ls -la pkg
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: pkg
 
-      - name: Apple aceita assinatura e notarização
+      - name: Assemble manifest and verify both updater packages
+        run: python3 scripts/verify-release.py --assemble "$VERSION" "$REPO" pkg
+
+      - name: Verify Apple notarization before uploading
         run: |
-          DMG=$(find pkg -maxdepth 1 -name '*.dmg' -print -quit)
-          [ -n "$DMG" ] || { echo "::error::falta o .dmg"; exit 1; }
-          xcrun stapler validate "$DMG"
-          spctl -a -t open --context context:primary-signature -v "$DMG"
+          xcrun stapler validate pkg/Prometeu_aarch64.dmg
+          spctl -a -t open --context context:primary-signature -v pkg/Prometeu_aarch64.dmg
 
-      # Exercise the installed updater path: read latest.json, download its package and verify against
-      # the public key embedded in the app.
-      - name: latest.json aponta para esta versão e a assinatura bate
-        env:
-          RELEASE_NOTES: ${{ needs.build.outputs.notes }}
-        run: python3 scripts/verify-release.py "$VERSION" "$REPO" pkg
+      - name: Upload verified packages to the draft
+        run: sh scripts/release.sh draft "$VERSION" pkg
+
+      - name: Verify the downloaded draft
+        run: |
+          gh release download "v$VERSION" -R "$REPO" -D downloaded
+          xcrun stapler validate downloaded/Prometeu_aarch64.dmg
+          spctl -a -t open --context context:primary-signature -v downloaded/Prometeu_aarch64.dmg
+          python3 scripts/verify-release.py "$VERSION" "$REPO" downloaded

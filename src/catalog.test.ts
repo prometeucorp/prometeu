@@ -1,6 +1,9 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { CatalogState } from "./catalog";
 
+// A separate mock avoids expanding invoke's generic command tuples in mockImplementation.
+const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
+
 const state: CatalogState = {
   connected: true, revision: 1,
   plugins: [
@@ -18,7 +21,7 @@ const state: CatalogState = {
   ],
 };
 vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}) }));
-vi.mock("./ipc", () => ({ invoke: vi.fn(() => Promise.resolve(state)) }));
+vi.mock("./ipc", () => ({ invoke: mocks.invoke }));
 vi.mock("./util", () => ({ h: vi.fn() }));
 vi.mock("./ui", async importOriginal => ({
   ...await importOriginal<typeof import("./ui")>(),
@@ -26,13 +29,12 @@ vi.mock("./ui", async importOriginal => ({
     body: { append: vi.fn() }, open: vi.fn(),
   })),
 }));
-const { invoke } = await import("./ipc");
 const { formDialog } = await import("./ui");
 
 const catalog = await import("./catalog");
 const { t, use } = await import("./i18n");
 use("en");
-beforeAll(() => catalog.load());
+beforeAll(() => { mocks.invoke.mockResolvedValue(state); return catalog.load(); });
 
 describe("catalog origins", () => {
   it("lists every catalog that offers an installed item on the same row", () => {
@@ -56,15 +58,15 @@ describe("catalog origins", () => {
 // The dialog owns retries and cancellation; the row must stay locked until it closes.
 it.each(["cancel", "success", "retry"])("holds the plugin row lock through dialog %s", async outcome => {
   vi.mocked(formDialog).mockClear();
-  vi.mocked(invoke).mockClear();
+  mocks.invoke.mockClear();
   let finish!: () => void;
   const installation = new Promise<void>(resolve => { finish = resolve; });
   let fail = outcome === "retry";
-  vi.mocked(invoke).mockImplementation(async (...[command]) => {
-    if (command === "catalog_state") return state as never;
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === "catalog_state") return state;
     if (command === "catalog_install_plugin") {
       if (fail) { fail = false; throw new Error("Installation failed"); }
-      await installation; return undefined as never;
+      await installation; return undefined;
     }
     throw new Error(`Unexpected command: ${command}`);
   });
@@ -74,7 +76,7 @@ it.each(["cancel", "success", "retry"])("holds the plugin row lock through dialo
   action.run!();
   await catalog.load();
   expect(row().busy).toBe(true);
-  expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === "catalog_install_plugin")).toHaveLength(0);
+  expect(mocks.invoke.mock.calls.filter(([command]) => command === "catalog_install_plugin")).toHaveLength(0);
   action.run!();
   expect(formDialog).toHaveBeenCalledTimes(1);
   const dialog = vi.mocked(formDialog).mock.calls[0][0];
@@ -88,7 +90,7 @@ it.each(["cancel", "success", "retry"])("holds the plugin row lock through dialo
     const submitted = dialog.submit();
     await catalog.load();
     expect(row().busy).toBe(true);
-    expect(invoke).toHaveBeenCalledWith("catalog_install_plugin", { id: "typesafe" });
+    expect(mocks.invoke).toHaveBeenCalledWith("catalog_install_plugin", { id: "typesafe" });
     finish(); await submitted;
     expect(row().busy).toBe(true);
   }
