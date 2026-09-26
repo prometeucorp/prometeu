@@ -78,14 +78,20 @@ fn a_commit_token_never_describes_an_older_files_scan() {
     repo.commit("initial");
     repo.write("secret.env", "token\n");
     // Files marks cache porcelain in which the new file is still untracked.
+    let raw = raw_slot(&repo.0);
     assert!(raw_status(&repo.0).unwrap().contains("?? secret.env"));
     // An agent stages it without an app invalidation.
     repo.git(&["add", "secret.env"]);
     let shown = cached_status(&repo.0, "main").unwrap();
     assert_eq!(entries(&shown.staged), [("secret.env", "A")]);
     assert_eq!(shown.index, fingerprint(&repo.0).unwrap());
-    // Files marks reuse the snapshot that Changes just read.
-    assert!(raw_slot(&repo.0).fresh(PORCELAIN_TTL));
+    // Verify the offered snapshot independently of how long the Git commands take.
+    let offered = raw
+        .read(Duration::MAX, || {
+            panic!("Changes must publish its Files snapshot")
+        })
+        .unwrap();
+    assert_eq!(offered, "A  secret.env\0");
 }
 
 #[test]
