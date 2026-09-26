@@ -172,15 +172,15 @@ async function loadMarks(id: string) {
   });
 }
 
-/// Repaint rows in place, and rebuild them only when a file was deleted or restored.
+/// Repaint rows in place, and rebuild them only when a file appeared, was deleted or was restored.
 async function repaint(id: string) {
   if (!background.foreground(background.currentOrDocument())) return;
   if (loading) return;
-  const before = marks.goneKey;
+  const before = marks.listKey;
   loading = loadMarks(id).finally(() => (loading = null));
   await loading;
   if (workspace() !== id) return;
-  if (marks.goneKey !== before) await draw(id);
+  if (marks.listKey !== before) await draw(id);
   else paintAll();
 }
 

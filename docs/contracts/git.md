@@ -94,8 +94,9 @@ so removed worktrees do not keep their last scan. A visible fallback catches
 external edits after those bounds without requiring a filesystem watcher.
 
 The frontend refreshes on workspace entry, repository-list changes, saved
-files, Git actions, return to foreground and while Changes is visible. Ordinary
-board/chat redraws do not dispatch status. A visible Changes fallback runs
+files, Git actions, a turn that settles in the open workspace, return to
+foreground and while Changes is visible. Other board/chat redraws do not
+dispatch status. A visible Changes fallback runs
 every five seconds on AC or ten on battery/unknown power; hidden or unfocused
 windows do not scan. These are request intervals, with the Git command's
 duration in addition.
@@ -122,8 +123,12 @@ seconds on AC or 30 on battery/unknown power, plus immediate invalidation and
 foreground return; hidden/unfocused windows do not scan. The tree skips a tick
 while a previous scan is running and only the latest result paints marks.
 Saving an open file refreshes marks in place and retains other file rows and
-their click targets. A full redraw remains for list changes; an explicit redraw
-cancels any older delayed redraw for the same tree.
+their click targets. A full redraw remains for list changes: a marks refresh
+whose set of new or deleted paths changed, such as a file an agent created,
+lists the open folders again, and so does a turn that settles in the open
+workspace, which also covers ignored files without marks. Reopening the
+displayed workspace lists its tree again. An explicit redraw cancels any older
+delayed redraw for the same tree.
 
 `tree_restore` brings such a row back to disk, finding the repository that
 holds `rel` under the tree root. The index wins over `HEAD`: a path the index

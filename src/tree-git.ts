@@ -16,8 +16,9 @@ export type GitMarks = {
   /// Deleted children of a tree folder (`""` is the root), so the tree can still show them.
   /// A folder holding deleted files comes back as a folder; callers drop names that still exist.
   gone(rel: string): GoneEntry[];
-  /// Changes whenever the set of deleted paths changes, so the tree knows to rebuild its rows.
-  goneKey: string;
+  /// Changes whenever the set of new or deleted paths changes, such as a file an agent created, so
+  /// the tree knows to list its folders again instead of repainting existing rows.
+  listKey: string;
 };
 
 /// Resolve `tree_git_status` entries into lookups by tree path.
@@ -25,6 +26,7 @@ export function gitMarks(files: GitFile[]): GitMarks {
   const own = new Map<string, Mark>();
   const folders = new Map<string, Mark>();
   const deleted: string[] = [];
+  const added: string[] = [];
   for (const file of files) {
     const mark = file.status as Mark;
     if (!(mark in RANK)) continue;
@@ -32,6 +34,7 @@ export function gitMarks(files: GitFile[]): GitMarks {
     const path = file.path.replace(/\/$/, "");
     own.set(path, mark);
     if (mark === "D") deleted.push(path);
+    if (mark === "A") added.push(path);
     const up = mark === "D" ? "M" : mark;
     for (let cut = path.lastIndexOf("/"); cut > 0; cut = path.lastIndexOf("/", cut - 1)) {
       const folder = path.slice(0, cut);
@@ -40,6 +43,7 @@ export function gitMarks(files: GitFile[]): GitMarks {
     }
   }
   deleted.sort();
+  added.sort();
   return {
     mark: (path, dir) => own.get(path) ?? (dir ? folders.get(path) : undefined) ?? null,
     gone(rel) {
@@ -54,7 +58,7 @@ export function gitMarks(files: GitFile[]): GitMarks {
       }
       return [...children.values()];
     },
-    goneKey: deleted.join("\0"),
+    listKey: [deleted.join("\0"), added.join("\0")].join("\n"),
   };
 }
 

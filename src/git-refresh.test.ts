@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { GitRefreshPolicy, changesInterval, marksInterval } from "./git-refresh";
+import { GitRefreshPolicy, TurnSettlePolicy, changesInterval, marksInterval } from "./git-refresh";
 import type { BackgroundContext } from "./background";
 
 const power = (value: BackgroundContext["power"]): BackgroundContext =>
@@ -22,4 +22,15 @@ it("pauses hidden Git fallbacks and budgets visible Changes and Files independen
   expect(marksInterval(power("unknown"))).toBe(30_000);
   expect(changesInterval({ ...power("ac"), visible: false })).toBeNull();
   expect(marksInterval({ ...power("ac"), focused: false })).toBeNull();
+});
+
+it("reports a settled turn once, only for the workspace that was running", () => {
+  const policy = new TurnSettlePolicy();
+  const tabs = (...status: ("rodando" | "pronta" | "querendo")[]) => status.map((value) => ({ status: value }));
+  expect(policy.settled({ id: "one", tabs: tabs("rodando", "pronta") })).toBe(false);
+  expect(policy.settled({ id: "one", tabs: tabs("rodando", "pronta") })).toBe(false);
+  expect(policy.settled({ id: "one", tabs: tabs("querendo", "pronta") })).toBe(true);
+  expect(policy.settled({ id: "one", tabs: tabs("pronta", "pronta") })).toBe(false);
+  expect(policy.settled({ id: "two", tabs: tabs("rodando") })).toBe(false);
+  expect(policy.settled({ id: "one", tabs: tabs("pronta") })).toBe(false);
 });

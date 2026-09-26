@@ -1,6 +1,6 @@
 import * as actions from "./actions";
 import * as background from "./background";
-import { GitRefreshPolicy, changesInterval } from "./git-refresh";
+import { GitRefreshPolicy, TurnSettlePolicy, changesInterval } from "./git-refresh";
 import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
@@ -58,6 +58,7 @@ let openWs: string | null = null;
 /// Invalidate asynchronous continuations on every entry/exit, including returning to the same workspace ID.
 let navigation = 0;
 const gitRefresh = new GitRefreshPolicy();
+const turns = new TurnSettlePolicy();
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -182,6 +183,8 @@ export async function open(ws: Workspace, tab?: string) {
   }
   // Opening acknowledges unread state and keeps visible activity from becoming unread again.
   invoke("look_at", { id: ws.id });
+  // Reopening the displayed workspace bypasses leave; its reset tree must still be listed again.
+  gitRefresh.clear();
   tree.reset();
   dockbar.reset();
   // Preparing or failed workspaces have no usable tabs or files. catchUp attaches after a later board update creates the first tab.
@@ -328,7 +331,9 @@ export function draw() {
   $("offpath").textContent = ws.worktree;
   drawBranch(ws);
   drawPr(ws);
-  if (gitRefresh.consider(ws) && background.foreground(background.currentOrDocument())) {
+  // A settled turn may have created files, including ignored ones without Git marks.
+  const settled = turns.settled(ws);
+  if ((gitRefresh.consider(ws) || settled) && background.foreground(background.currentOrDocument())) {
     reloadChanges(ws.id);
     if (sidePane === "files") tree.redrawSoon();
   }

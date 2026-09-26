@@ -1,4 +1,5 @@
-import type { BackgroundContext } from "./background";
+import { batteryBudget, foreground, type BackgroundContext } from "./background";
+import type { Status } from "./types";
 
 type Repos = { id: string; repos: readonly { worktree: string; base: string; name: string }[] };
 
@@ -16,8 +17,19 @@ export class GitRefreshPolicy {
   clear() { this.key = null; }
 }
 
-const foreground = (context: BackgroundContext) => context.visible && context.focused;
+/** A turn that settles in the displayed workspace may have created files or a pull request. */
+export class TurnSettlePolicy {
+  private last: { id: string; busy: boolean } | null = null;
+
+  settled(workspace: { id: string; tabs: readonly { status: Status }[] }): boolean {
+    const busy = workspace.tabs.some((tab) => tab.status === "rodando");
+    const settled = this.last?.id === workspace.id && this.last.busy && !busy;
+    this.last = { id: workspace.id, busy };
+    return settled;
+  }
+}
+
 export const changesInterval = (context: BackgroundContext): number | null =>
-  foreground(context) ? context.power === "ac" ? 5_000 : 10_000 : null;
+  foreground(context) ? batteryBudget(context) ? 10_000 : 5_000 : null;
 export const marksInterval = (context: BackgroundContext): number | null =>
-  foreground(context) ? context.power === "ac" ? 15_000 : 30_000 : null;
+  foreground(context) ? batteryBudget(context) ? 30_000 : 15_000 : null;
