@@ -143,36 +143,39 @@ fn power_source() -> Power {
 
 #[cfg(target_os = "linux")]
 fn power_source() -> Power {
-    let root = std::path::Path::new("/sys/class/power_supply");
+    linux_power(std::path::Path::new("/sys/class/power_supply"))
+}
+
+/// Peripheral batteries (`scope` `Device`, such as a wireless mouse) never describe the computer's
+/// power. Any online external supply, including USB-C and wireless chargers, means AC even while a
+/// battery briefly reports discharging.
+#[cfg(any(target_os = "linux", test))]
+fn linux_power(root: &std::path::Path) -> Power {
     let Ok(entries) = std::fs::read_dir(root) else {
         return Power::Unknown;
     };
-    let mut found_battery = false;
-    let mut found_ac = false;
+    let read = |path: &std::path::Path, name: &str| {
+        std::fs::read_to_string(path.join(name))
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    let (mut battery, mut external) = (false, false);
     for entry in entries.flatten() {
         let path = entry.path();
-        let kind = std::fs::read_to_string(path.join("type")).unwrap_or_default();
-        if kind.trim() == "Battery" {
-            found_battery = true;
-            if std::fs::read_to_string(path.join("status"))
-                .unwrap_or_default()
-                .trim()
-                == "Discharging"
-            {
-                return Power::Battery;
-            }
-        } else if kind.trim() == "Mains"
-            && std::fs::read_to_string(path.join("online"))
-                .unwrap_or_default()
-                .trim()
-                == "1"
-        {
-            found_ac = true;
+        if read(&path, "scope") == "Device" {
+            continue;
+        }
+        match read(&path, "type").as_str() {
+            "Battery" => battery = true,
+            "Mains" | "Wireless" | "BrickID" => external |= read(&path, "online") == "1",
+            kind if kind.starts_with("USB") => external |= read(&path, "online") == "1",
+            _ => {}
         }
     }
-    if found_ac {
+    if external {
         Power::Ac
-    } else if found_battery {
+    } else if battery {
         Power::Battery
     } else {
         Power::Unknown
@@ -198,6 +201,73 @@ mod tests {
     #[test]
     fn unknown_power_uses_conservative_budget() {
         assert_eq!(serde_json::to_value(Power::Unknown).unwrap(), "unknown");
+    }
+
+    /// A supply directory name and its sysfs attributes.
+    type Supply<'a> = (&'a str, &'a [(&'a str, &'a str)]);
+
+    fn supplies(entries: &[Supply]) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("prometeu-power-{}", uuid::Uuid::new_v4()));
+        for (name, files) in entries {
+            let dir = root.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            for (file, value) in *files {
+                std::fs::write(dir.join(file), format!("{value}\n")).unwrap();
+            }
+        }
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn linux_power_ignores_peripheral_batteries_and_accepts_any_external_supply() {
+        let mouse: Supply = (
+            "hidpp_battery_0",
+            &[
+                ("type", "Battery"),
+                ("scope", "Device"),
+                ("status", "Discharging"),
+            ],
+        );
+        let cases: [(&[Supply], Power); 5] = [
+            (
+                &[
+                    ("AC", &[("type", "Mains"), ("online", "1")]),
+                    ("BAT0", &[("type", "Battery"), ("status", "Charging")]),
+                    mouse,
+                ],
+                Power::Ac,
+            ),
+            (
+                &[
+                    (
+                        "ucsi-source-psy-USBC000:001",
+                        &[("type", "USB"), ("online", "1")],
+                    ),
+                    ("BAT0", &[("type", "Battery"), ("status", "Discharging")]),
+                ],
+                Power::Ac,
+            ),
+            (
+                &[
+                    ("AC", &[("type", "Mains"), ("online", "0")]),
+                    ("BAT0", &[("type", "Battery"), ("status", "Discharging")]),
+                    mouse,
+                ],
+                Power::Battery,
+            ),
+            (&[mouse], Power::Unknown),
+            (&[], Power::Unknown),
+        ];
+        for (entries, expected) in cases {
+            let root = supplies(entries);
+            assert_eq!(linux_power(&root), expected, "{entries:?}");
+            let _ = std::fs::remove_dir_all(root);
+        }
+        assert_eq!(
+            linux_power(std::path::Path::new("/nonexistent-power-supply")),
+            Power::Unknown
+        );
     }
 
     #[test]

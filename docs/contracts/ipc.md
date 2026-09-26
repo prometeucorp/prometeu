@@ -192,8 +192,9 @@ frontend subscribes before requesting the snapshot and ignores an older
 revision if the event arrives first. `visible` is false for a hidden or
 minimized main window; `focused` is true only when that native window is both
 visible and focused. macOS reads the IOKit power-source snapshot; Linux reads
-`/sys/class/power_supply`; unsupported or failed readings are `unknown` and
-use the battery budget for discretionary work. Window events refresh promptly,
+`/sys/class/power_supply`, ignores peripheral batteries (`scope` `Device`) and
+treats any online Mains, USB or wireless supply as AC; unsupported or failed
+readings are `unknown` and use the battery budget for discretionary work. Window events refresh promptly,
 with a five-second visibility fallback and a 60-second power fallback. This
 context is advisory for UI refresh only: agent processes, transcript capture,
 terminals, sharing and explicit task monitoring continue independently.
