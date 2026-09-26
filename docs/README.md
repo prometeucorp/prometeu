@@ -120,8 +120,6 @@ compatibility still in use stays documented in the current contracts.
   and expected evidence.
 - [Energy profiling](quality/energy-profile.md): issue #148 release-build
   measurement protocol and source-level baseline.
-- [Issue #148 energy plan](superpowers/plans/2026-09-25-issue-148-energy.md): proposed
-  measurement and implementation sequence; not current behavior.
 - [`operations/development.md`](operations/development.md): environment and tests.
 - [`operations/contributing.md`](operations/contributing.md): recipes for provider,
   IPC, collaboration and Cloud contract changes; [contribution workflow](../CONTRIBUTING.md).

@@ -181,7 +181,7 @@ removed after measurement. Each row is one run on the same AC machine under
 uncontrolled load; timing is diagnostic rather than a statistically comparable
 energy result. This browser fixture is not the native WKWebView release bundle.
 
-| Scenario and measure | Before Task 7 | After Task 7 |
+| Scenario and measure | Before `c7c888c` | After `c7c888c` |
 | --- | ---: | ---: |
 | Workspace, flushes and summed duration | 61 / 286 ms | 61 / 227 ms |
 | Workspace, Markdown parses and summed duration | 61 / 67 ms | 61 / 70 ms |
@@ -218,7 +218,7 @@ The deterministic checks cover account removal during a probe, native child
 settlement for sleep assertions, a long resource-sampling gap, external Git
 edits and concurrent status consumers, general-PR scan overlap and timeout,
 and preview/dialog and hidden-transcript journeys. They do not replace a paired
-native process-launch or energy log. The Task 0 baseline had no controlled
+native process-launch or energy log. The baseline in `969fe64` had no controlled
 battery run, equal authenticated account fixtures or usable Instruments trace;
 the machine remained on AC under unrelated load. No native before/after watts,
 Energy Impact or discharge comparison is available, so this issue has no
