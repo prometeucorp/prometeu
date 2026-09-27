@@ -4,6 +4,36 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.19.0] - 2026-09-27
+
+### New
+
+- **app:** Share window and power activity context
+- **app:** Allow display sleep during active agents
+- **review:** Annotate diffs and send review notes in one batch
+
+### Fixes
+
+- **git:** Preserve file rows during refresh
+- **git:** Keep commits limited to the files shown as staged
+- **linux:** Use plugged-in refresh budgets while on external power
+- **status:** Keep resource, terminal and port readings current
+- **chat:** Keep following responses in a visible window without focus
+- **files:** Show files an agent creates in the file tree
+- **github:** Refresh pull requests after agent turns instead of every app switch
+- Refresh quotas, ports and pull requests after state changes
+- **review:** Preserve current patches and concurrent note edits
+- **review:** Retain draft edits and focus across workspace changes
+- **review:** Place inline notes within their anchored hunk
+
+### Performance
+
+- **accounts:** Budget quota probes by account interest
+- **status:** Sample resources when visible or requested
+- **git:** Coalesce workspace status refreshes
+- **github:** Budget general pull request discovery
+- **chat:** Avoid unchanged streaming and preview paints
+
 ## [0.18.2] - 2026-09-26
 
 ### Fixes
