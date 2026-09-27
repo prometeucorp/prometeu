@@ -103,7 +103,9 @@ Publication is a separate operational step. See the
 classification; `typesafe.rs` is its only adapter and keeps the person's own
 API key in a private file. The integration starts disabled and runs only on an
 explicit **Review request** in the launcher, whose rules live in
-`src/context-review.ts`. It is independent of the agent provider, the Cloud
+`src/context-review.ts`. `src/review-policy.ts` binds model identity and draft
+language to conservative thresholds; `review_calibration.rs` owns independent,
+opt-in, content-free local records and export. It is independent of the agent provider, the Cloud
 account, the timeline and the relay. See the
 [contract](docs/contracts/context-evaluation.md) and
 [ADR 0058](docs/decisions/0058-optional-context-evaluation.md).

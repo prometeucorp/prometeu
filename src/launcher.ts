@@ -78,7 +78,7 @@ export type Open = {
   seed?: Issue;
   /// The Git panel can seed a chosen base or branch in an isolated worktree.
   git?: { base: string; branch?: string };
-  go: (d: Draft) => void;
+  go: (d: Draft) => Promise<boolean>;
   /// The Linear setup action closes the launcher and opens Settings.
   toSettings: () => void;
 };
@@ -791,8 +791,8 @@ export function openLauncher(board: Board, opts: Open) {
   $("d-actions").prepend(review.trigger);
   prompt.addEventListener("input", () => review?.update());
 
-  const hide = () => {
-    review?.close();
+  const hide = (creation?: Promise<boolean>) => {
+    review?.close(creation);
     menu.close();
     forgetCatalog();
     forgetAccounts();
@@ -818,8 +818,7 @@ export function openLauncher(board: Board, opts: Open) {
     draft.prompt = seed ? issueBlock(seed, prompt.value) : prompt.value;
     // Derive the title from the issue, then prompt, then branch.
     draft.title = draft.title || summarize(prompt.value) || draft.branch || projectName();
-    hide();
-    go(draft);
+    hide(Promise.resolve().then(() => go(draft)));
   };
 
   $("d-go").addEventListener("click", submit);

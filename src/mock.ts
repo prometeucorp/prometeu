@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import * as telemetry from "./mock-telemetry";
+import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
@@ -922,8 +923,10 @@ const saveMockTypeSafe = (value: MockTypeSafe) => {
   return { ...mockTypeSafe(), problem: null };
 };
 function fakeEvaluation(request: import("./evaluation").EvaluationRequest): import("./evaluation").EvaluationAnswer[] {
-  const text = request.context;
-  const draft = /Request draft:\n([\s\S]*?)\n\n/.exec(text)?.[1] ?? "";
+  const text = typeof request.context === "string" ? request.context : JSON.stringify(request.context);
+  const requester = typeof request.context === "object" ? request.context.requester : null;
+  const draft = requester && typeof requester === "object" && !Array.isArray(requester) && typeof requester.draft === "string"
+    ? requester.draft : /Request draft:\n([\s\S]*?)\n\n/.exec(text)?.[1] ?? "";
   const kind = /investigat|investig|diagnos/i.test(text) ? "investigation" : /\b(bug|fix|error|erro|corrig|falha|crash)/i.test(text) ? "bug_fix" : "feature";
   const rule = /\b(existing|existente)/i.test(text) && !/\b(skip|update|ignore|atualiz|ignor|pular)/i.test(text);
   const outcome: Record<string, [string, number]> = {
@@ -931,7 +934,7 @@ function fakeEvaluation(request: import("./evaluation").EvaluationRequest): impo
     business_rule: rule ? ["absent", 0.9] : ["present", 0.9],
     business_rule_resolver: ["person", 0.9],
     business_rule_kind: ["existing_records", 0.85],
-    expected_behavior: draft.trim().length < 25 && !/Description:\n/.test(text) ? ["ambiguous", 0.85] : ["present", 0.9],
+    expected_behavior: draft.trim().length < 25 && !/Description:\n|"description":"[^"]+/.test(text) ? ["ambiguous", 0.85] : ["present", 0.9],
     expected_behavior_resolver: ["person", 0.8],
     reproduction: ["present", 0.9],
     reproduction_resolver: ["agent", 0.8],
@@ -2314,6 +2317,11 @@ const mockCommands: IpcHandlers = {
   telemetry_events({ filter, cursor }) { return telemetry.page(filter, cursor); },
   telemetry_export({ filter }) { localStorage.setItem("mock:telemetryExport", telemetry.exportData(filter)); return null; },
   telemetry_clear() { telemetry.clear(); return null; },
+  review_calibration_status() { return reviewCalibration.status(); },
+  review_calibration_set_enabled({ enabled }) { return reviewCalibration.setEnabled(enabled); },
+  review_calibration_append({ generation, record }) { reviewCalibration.append(generation, record); return null; },
+  review_calibration_clear() { return reviewCalibration.clear(); },
+  review_calibration_export() { localStorage.setItem("mock:reviewCalibrationExport", reviewCalibration.exportCsv()); return null; },
   typesafe_status() {
     return { ...mockTypeSafe(), problem: null };
   },
@@ -2336,7 +2344,7 @@ const mockCommands: IpcHandlers = {
     const fail = localStorage.getItem("mock:typesafeFail");
     return new Promise((done, reject) => setTimeout(() => fail
       ? reject(`i18n:${JSON.stringify({ code: `err.evaluation.${fail}` })}`)
-      : done({ answers: fakeEvaluation(request) }), 700));
+      : done({ answers: fakeEvaluation(request), model: localStorage.getItem("mock:typesafeModel") ?? "jev-1.13.0" }), 700));
   },
   pty_resize() {},
   remove_workspace() {},

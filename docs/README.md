@@ -162,3 +162,4 @@ current system until the corresponding implementation is accepted.
 
 - [Diff review design](superpowers/specs/2026-09-26-diff-review-design.md).
 - [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).
+- [Review calibration implementation plan](superpowers/plans/2026-09-27-review-calibration.md).
