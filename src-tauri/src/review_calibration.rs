@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
-static STORAGE: Mutex<()> = Mutex::new(());
+static STORAGE: LazyLock<Mutex<Store>> = LazyLock::new(|| Mutex::new(Store::new(paths::root())));
 type Result<T> = std::result::Result<T, String>;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
@@ -118,9 +118,22 @@ struct Consent {
     enabled: bool,
     #[serde(default)]
     generation: u64,
+    #[serde(default)]
+    clearing: bool,
 }
 
-#[derive(Default, Serialize)]
+impl Consent {
+    fn advance(&mut self) -> Result<()> {
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .filter(|n| *n <= MAX_SAFE_INTEGER)
+            .ok_or_else(storage_error)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Default, Serialize)]
 pub struct Actions {
     answered: usize,
     handed_to_agent: usize,
@@ -139,6 +152,89 @@ pub struct Status {
 
 struct Store {
     root: PathBuf,
+    history: HistoryCache,
+}
+
+#[derive(Clone, Default)]
+struct Summary {
+    records: usize,
+    created: usize,
+    actions: Actions,
+}
+
+impl Summary {
+    fn add(&mut self, record: &Record) {
+        self.records += 1;
+        self.created += usize::from(record.created);
+        match record.action {
+            Action::Answered => self.actions.answered += 1,
+            Action::HandedToAgent => self.actions.handed_to_agent += 1,
+            Action::Dismissed => self.actions.dismissed += 1,
+            Action::None => self.actions.none += 1,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct HistoryStamp {
+    len: u64,
+    modified: std::time::SystemTime,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+
+impl HistoryStamp {
+    fn from_metadata(metadata: std::fs::Metadata) -> Result<Self> {
+        if !metadata.is_file() {
+            return Err(storage_error());
+        }
+        Ok(Self {
+            len: metadata.len(),
+            modified: metadata.modified().map_err(|_| storage_error())?,
+            #[cfg(unix)]
+            identity: {
+                use std::os::unix::fs::MetadataExt;
+                (
+                    metadata.dev(),
+                    metadata.ino(),
+                    metadata.ctime(),
+                    metadata.ctime_nsec(),
+                )
+            },
+        })
+    }
+
+    fn read(path: &Path) -> Result<Option<Self>> {
+        match std::fs::metadata(path) {
+            Ok(metadata) => Self::from_metadata(metadata).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(storage_error()),
+        }
+    }
+}
+
+#[derive(Default)]
+struct HistoryCache {
+    validated: Option<(Option<HistoryStamp>, Summary)>,
+}
+
+impl HistoryCache {
+    fn read(
+        &mut self,
+        stamp: Option<HistoryStamp>,
+        load: impl FnOnce() -> Result<Summary>,
+    ) -> Result<Summary> {
+        if let Some((validated, summary)) = &self.validated {
+            if *validated == stamp {
+                return Ok(summary.clone());
+            }
+        }
+        // Invalidating before I/O prevents a failed scan from preserving a stale summary.
+        self.validated = None;
+        let summary = load()?;
+        self.validated = Some((stamp, summary.clone()));
+        Ok(summary)
+    }
 }
 
 fn storage_error() -> String {
@@ -146,6 +242,12 @@ fn storage_error() -> String {
 }
 
 impl Store {
+    fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            history: HistoryCache::default(),
+        }
+    }
     fn consent_path(&self) -> PathBuf {
         self.root.join("review-calibration.json")
     }
@@ -161,8 +263,8 @@ impl Store {
         }
     }
 
-    fn records(&self) -> Result<Vec<Record>> {
-        let file = match std::fs::File::open(self.records_path()) {
+    fn records(path: &Path) -> Result<Vec<Record>> {
+        let file = match std::fs::File::open(path) {
             Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
             Err(_) => return Err(storage_error()),
@@ -181,52 +283,62 @@ impl Store {
             .collect()
     }
 
-    fn status(&self) -> Result<Status> {
-        let consent = self.consent()?;
-        let records = self.records()?;
-        let mut actions = Actions::default();
-        for record in &records {
-            match record.action {
-                Action::Answered => actions.answered += 1,
-                Action::HandedToAgent => actions.handed_to_agent += 1,
-                Action::Dismissed => actions.dismissed += 1,
-                Action::None => actions.none += 1,
+    fn summary(&mut self) -> Result<Summary> {
+        let path = self.records_path();
+        let stamp = HistoryStamp::read(&path)?;
+        self.history.read(stamp.clone(), || {
+            let mut summary = Summary::default();
+            for record in Self::records(&path)? {
+                summary.add(&record);
             }
+            if HistoryStamp::read(&path)? != stamp {
+                return Err(storage_error());
+            }
+            Ok(summary)
+        })
+    }
+
+    fn status(&mut self) -> Result<Status> {
+        let consent = self.consent()?;
+        if consent.clearing {
+            return Err(storage_error());
         }
+        let summary = self.summary()?;
         Ok(Status {
             enabled: consent.enabled,
             generation: consent.generation,
-            records: records.len(),
-            created: records.iter().filter(|r| r.created).count(),
-            actions,
+            records: summary.records,
+            created: summary.created,
+            actions: summary.actions,
         })
     }
 
     fn change_consent(&self, enabled: bool) -> Result<()> {
-        let generation = self
-            .consent()?
-            .generation
-            .checked_add(1)
-            .filter(|n| *n <= MAX_SAFE_INTEGER)
-            .ok_or_else(storage_error)?;
-        let body = serde_json::to_string(&Consent {
-            enabled,
-            generation,
-        })
-        .map_err(|_| storage_error())?;
+        let mut consent = self.consent()?;
+        consent.enabled = enabled;
+        consent.advance()?;
+        self.save_consent(&consent)
+    }
+
+    fn save_consent(&self, consent: &Consent) -> Result<()> {
+        let body = serde_json::to_string(consent).map_err(|_| storage_error())?;
         paths::write_private(&self.consent_path(), &body).map_err(|_| storage_error())
     }
 
-    fn append(&self, generation: u64, record: &Record) -> Result<()> {
+    fn append(&mut self, generation: u64, record: &Record) -> Result<()> {
         let consent = self.consent()?;
         if !consent.enabled || generation != consent.generation {
             return Ok(());
+        }
+        if consent.clearing {
+            return Err(storage_error());
         }
         if !record.valid() {
             return Err(i18n::t("err.calibration.invalid"));
         }
         // Refuse to append to damaged history; Clear is the explicit recovery action.
-        self.records()?;
+        let mut summary = self.summary()?;
+        let (previous, _) = self.history.validated.take().ok_or_else(storage_error)?;
         let mut body = serde_json::to_vec(record).map_err(|_| storage_error())?;
         body.push(b'\n');
         let mut options = std::fs::OpenOptions::new();
@@ -239,6 +351,12 @@ impl Store {
         let mut file = options
             .open(self.records_path())
             .map_err(|_| storage_error())?;
+        let opened = HistoryStamp::from_metadata(file.metadata().map_err(|_| storage_error())?)?;
+        if previous.as_ref().is_some_and(|stamp| *stamp != opened)
+            || (previous.is_none() && opened.len != 0)
+        {
+            return Err(storage_error());
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -247,18 +365,37 @@ impl Store {
         }
         file.write_all(&body)
             .and_then(|()| file.sync_all())
-            .map_err(|_| storage_error())
+            .map_err(|_| storage_error())?;
+        let written = HistoryStamp::from_metadata(file.metadata().map_err(|_| storage_error())?)?;
+        if written.len != opened.len + body.len() as u64
+            || HistoryStamp::read(&self.records_path())?.as_ref() != Some(&written)
+        {
+            return Err(storage_error());
+        }
+        summary.add(record);
+        self.history.validated = Some((Some(written), summary));
+        Ok(())
     }
 
-    fn clear(&self) -> Result<()> {
-        self.change_consent(self.consent()?.enabled)?;
-        paths::write_private(&self.records_path(), "").map_err(|_| storage_error())
+    fn clear(&mut self) -> Result<()> {
+        self.history.validated = None;
+        let mut consent = self.consent()?;
+        consent.advance()?;
+        // Persist the barrier before touching history so interrupted Clear cannot resume collection.
+        consent.clearing = true;
+        self.save_consent(&consent)?;
+        paths::write_private(&self.records_path(), "").map_err(|_| storage_error())?;
+        consent.clearing = false;
+        self.save_consent(&consent)
     }
 
     fn csv(&self) -> Result<String> {
+        if self.consent()?.clearing {
+            return Err(storage_error());
+        }
         let mut csv =
             String::from("v,at,model,language,answers,suggested,action,created,latency_ms\r\n");
-        for record in self.records()? {
+        for record in Self::records(&self.records_path())? {
             let value = serde_json::to_value(record).map_err(|_| storage_error())?;
             let fields = [
                 "v",
@@ -293,44 +430,36 @@ impl Store {
     }
 }
 
-fn store() -> Store {
-    Store {
-        root: paths::root(),
-    }
-}
-
 #[tauri::command(async)]
 pub fn review_calibration_status() -> Result<Status> {
-    let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-    store().status()
+    STORAGE.lock().unwrap_or_else(|e| e.into_inner()).status()
 }
 
 #[tauri::command(async)]
 pub fn review_calibration_set_enabled(enabled: bool) -> Result<Status> {
-    let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-    let store = store();
+    let mut store = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
     store.change_consent(enabled)?;
     store.status()
 }
 
 #[tauri::command(async)]
 pub fn review_calibration_append(generation: u64, record: Record) -> Result<()> {
-    let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-    store().append(generation, &record)
+    STORAGE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .append(generation, &record)
 }
 
 #[tauri::command(async)]
 pub fn review_calibration_clear() -> Result<Status> {
-    let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-    let store = store();
+    let mut store = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
     store.clear()?;
     store.status()
 }
 
 #[tauri::command(async)]
 pub fn review_calibration_export(path: String) -> Result<()> {
-    let _guard = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
-    let csv = store().csv()?;
+    let csv = STORAGE.lock().unwrap_or_else(|e| e.into_inner()).csv()?;
     write_export(Path::new(&path), &csv).map_err(|_| i18n::t("err.calibration.export"))
 }
 
@@ -378,15 +507,14 @@ mod tests {
         serde_json::from_value(serde_json::json!({"v":1,"at":1790000000000_u64,"model":"jev-1.13.0","language":"pt","answers":[{"id":"task_kind","outcome":"feature","confidence":0.91}],"suggested":["business_rule"],"action":"answered","created":true,"latency_ms":125})).unwrap()
     }
     fn temp() -> Store {
-        Store {
-            root: std::env::temp_dir()
-                .join(format!("prometeu-calibration-{}", uuid::Uuid::new_v4())),
-        }
+        Store::new(
+            std::env::temp_dir().join(format!("prometeu-calibration-{}", uuid::Uuid::new_v4())),
+        )
     }
 
     #[test]
     fn recording_requires_separate_opt_in_and_private_files() {
-        let store = temp();
+        let mut store = temp();
         assert!(!store.status().unwrap().enabled);
         store.append(0, &fixture()).unwrap();
         assert!(!store.root.exists());
@@ -417,7 +545,7 @@ mod tests {
 
     #[test]
     fn clear_and_disable_reject_late_records_even_after_reenable() {
-        let store = temp();
+        let mut store = temp();
         store.change_consent(true).unwrap();
         store.append(1, &fixture()).unwrap();
         store.clear().unwrap();
@@ -429,6 +557,98 @@ mod tests {
         assert_eq!(store.status().unwrap().records, 0);
         store.append(4, &fixture()).unwrap();
         assert_eq!(store.status().unwrap().records, 1);
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
+
+    #[test]
+    fn failed_clear_blocks_old_history_until_retry_even_after_restart() {
+        let mut store = temp();
+        store.change_consent(true).unwrap();
+        store.append(1, &fixture()).unwrap();
+        let saved = store.root.join("saved.jsonl");
+        std::fs::rename(store.records_path(), &saved).unwrap();
+        std::fs::create_dir(store.records_path()).unwrap();
+        assert!(store.clear().is_err());
+        std::fs::remove_dir(store.records_path()).unwrap();
+        std::fs::rename(saved, store.records_path()).unwrap();
+
+        let mut reopened = Store::new(store.root);
+        assert!(reopened.append(2, &fixture()).is_err());
+        assert!(reopened.status().is_err());
+        assert!(reopened.csv().is_err());
+        reopened.change_consent(false).unwrap();
+        reopened.change_consent(true).unwrap();
+        assert!(reopened.append(4, &fixture()).is_err());
+        reopened.clear().unwrap();
+        let summary = reopened.status().unwrap();
+        assert!(summary.enabled);
+        assert_eq!((summary.generation, summary.records), (5, 0));
+        reopened.append(1, &fixture()).unwrap();
+        reopened.append(2, &fixture()).unwrap();
+        reopened.append(4, &fixture()).unwrap();
+        assert_eq!(reopened.status().unwrap().records, 0);
+        reopened.append(5, &fixture()).unwrap();
+        assert_eq!(reopened.status().unwrap().records, 1);
+        std::fs::remove_dir_all(reopened.root).unwrap();
+    }
+
+    #[test]
+    fn legacy_consent_without_a_clear_marker_still_collects() {
+        let mut store = temp();
+        paths::write_private(&store.consent_path(), r#"{"enabled":true,"generation":1}"#).unwrap();
+        store.append(1, &fixture()).unwrap();
+        assert_eq!(store.status().unwrap().records, 1);
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
+
+    #[test]
+    fn unchanged_history_is_validated_only_once() {
+        let mut store = temp();
+        store.change_consent(true).unwrap();
+        store.append(1, &fixture()).unwrap();
+        let path = store.records_path();
+        let mut cache = HistoryCache::default();
+        let mut reads = 0;
+        for _ in 0..3 {
+            let summary = cache
+                .read(HistoryStamp::read(&path).unwrap(), || {
+                    reads += 1;
+                    let mut summary = Summary::default();
+                    for record in Store::records(&path)? {
+                        summary.add(&record);
+                    }
+                    Ok(summary)
+                })
+                .unwrap();
+            assert_eq!((summary.records, summary.created), (1, 1));
+        }
+        assert_eq!(reads, 1, "unchanged history must not be parsed again");
+        std::fs::remove_dir_all(store.root).unwrap();
+    }
+
+    #[test]
+    fn appends_update_the_summary_and_revalidate_replaced_or_damaged_history() {
+        let mut store = temp();
+        store.change_consent(true).unwrap();
+        store.append(1, &fixture()).unwrap();
+        assert_eq!(store.status().unwrap().records, 1);
+        let line = serde_json::to_string(&fixture()).unwrap() + "\n";
+        paths::write_private(&store.records_path(), &line.repeat(2)).unwrap();
+        let mut dismissed = fixture();
+        dismissed.created = false;
+        dismissed.action = Action::Dismissed;
+        store.append(1, &dismissed).unwrap();
+        let summary = store.status().unwrap();
+        assert_eq!((summary.records, summary.created), (3, 2));
+        assert_eq!(
+            (summary.actions.answered, summary.actions.dismissed),
+            (2, 1)
+        );
+        let mut damaged = std::fs::read(store.records_path()).unwrap();
+        damaged[0] = b'[';
+        std::fs::write(store.records_path(), damaged).unwrap();
+        assert!(store.append(1, &fixture()).is_err());
+        assert!(store.status().is_err());
         std::fs::remove_dir_all(store.root).unwrap();
     }
 
@@ -471,7 +691,7 @@ mod tests {
 
     #[test]
     fn csv_contains_all_records_and_clear_recovers_damaged_history() {
-        let store = temp();
+        let mut store = temp();
         store.change_consent(true).unwrap();
         store.append(1, &fixture()).unwrap();
         let mut second = fixture();

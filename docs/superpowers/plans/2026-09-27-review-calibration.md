@@ -74,3 +74,11 @@ Interface: model diagnostics do not advance the configuration epoch; Settings sh
 - Validation passed: documentation links and index, architecture rules, Rust formatting, desktop/mobile builds, type checks, release checks, 570 web tests, 485 Rust tests (7 ignored), and Clippy with warnings denied.
 - Full `npm run check` attempts stopped at intermittent browser failures. Three existing Settings scenarios opened the screen before startup navigation finished; they now wait for the initial desk, matching an existing readiness guard. An unrelated WebKit draft-restoration failure did not recur across three isolated repetitions, and a relay WebSocket shutdown timeout from an earlier parallel test run did not recur in subsequent complete web suites. These observations do not establish the cause of either intermittent failure.
 - Final browser validation: all 179 existing scenarios passed with `npm run test:e2e -- --workers=2`, followed by a successful `npm run lint:rust`. The default-concurrency `npm run check` is not claimed as passing.
+
+## PR review follow-up
+
+- [PR #156](https://github.com/prometeucorp/prometeu/pull/156): Greptile reported repeated history scans, stale append failures after Clear, and partial Clear recovery. All three were verified against the implementation.
+- Summary caching now invalidates on file changes or append failure and updates counters after successful appends. A scan-count regression failed before cache reuse; file replacement and same-length corruption remain covered.
+- Frontend tests reproduced three late-reply races around Clear. Consent revisions now reject stale append failures and refreshes while preserving the result of the newer mutation.
+- A filesystem failure regression reproduced collection into history retained by a failed Clear. A persisted recovery marker now blocks that history across restart and consent changes until Clear succeeds; legacy consent files remain readable.
+- The original PR commit passed all GitHub CI jobs, including the complete macOS `npm run check`. The follow-up passed local `CI=1 npm run check`: documentation, architecture, formatting, type checks, desktop/mobile frontend builds, release checks, 573 web tests, 489 Rust tests (7 ignored), all 179 E2E scenarios without retries, and Clippy.

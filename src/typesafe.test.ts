@@ -57,4 +57,54 @@ describe("evaluation shell", () => {
     await refresh;
     expect(shell.calibrationPort.consent()).toBe(2);
   });
+
+  it("ignores an append failure from before a successful Clear", async () => {
+    const shell = await import("./typesafe");
+    ipc.invoke.mockResolvedValueOnce(status);
+    await shell.setCalibrationEnabled(true);
+    let reject!: (error: unknown) => void;
+    ipc.invoke.mockImplementation((command: string) => command === "review_calibration_append"
+      ? new Promise((_, fail) => { reject = fail; }) : Promise.resolve({ ...status, generation: 2 }));
+    shell.calibrationPort.append(1, record);
+    await shell.clearCalibration();
+    reject('i18n:{"code":"err.calibration.storage"}');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(shell.calibrationError()).toBeNull();
+    expect(shell.calibrationPort.consent()).toBe(2);
+  });
+
+  it("ignores a failed append summary that finishes after Clear", async () => {
+    const shell = await import("./typesafe");
+    ipc.invoke.mockResolvedValueOnce(status);
+    await shell.setCalibrationEnabled(true);
+    let reject!: (error: unknown) => void;
+    ipc.invoke.mockImplementation((command: string) => command === "review_calibration_status"
+      ? new Promise((_, fail) => { reject = fail; }) : Promise.resolve({ ...status, generation: 2 }));
+    shell.calibrationPort.append(1, record);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await shell.clearCalibration();
+    reject('i18n:{"code":"err.calibration.storage"}');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(shell.calibrationError()).toBeNull();
+    expect(shell.calibrationPort.consent()).toBe(2);
+  });
+
+  it("keeps Clear authoritative when an older append completes during it", async () => {
+    const shell = await import("./typesafe");
+    ipc.invoke.mockResolvedValueOnce(status);
+    await shell.setCalibrationEnabled(true);
+    let appended!: () => void;
+    let cleared!: (value: CalibrationStatus) => void;
+    ipc.invoke.mockImplementation((command: string) => command === "review_calibration_append"
+      ? new Promise<void>(resolve => { appended = resolve; }) : command === "review_calibration_clear"
+        ? new Promise(resolve => { cleared = resolve; }) : Promise.resolve(status));
+    shell.calibrationPort.append(1, record);
+    const clear = shell.clearCalibration();
+    appended();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    cleared({ ...status, generation: 2 });
+    await clear;
+    expect(shell.calibrationPort.consent()).toBe(2);
+    expect(shell.calibrationError()).toBeNull();
+  });
 });

@@ -185,7 +185,8 @@ Interaction:
 ## Calibration persistence and IPC
 
 The independent opt-in defaults off and does not need a TypeSafe credential.
-`<root>/review-calibration.json` stores `{ "enabled": false, "generation": 0 }`.
+`<root>/review-calibration.json` stores `{ "enabled": false, "generation": 0, "clearing": false }`.
+The additive `clearing` field defaults to false for older consent files.
 `<root>/review-calibration.jsonl` contains one final record per completed current
 review. Both files are `0600` in the private `0700` application directory:
 
@@ -209,6 +210,12 @@ review. Both files are `0600` in the private `0700` application directory:
 - Consent is captured before evaluation and checked again under the backend's
   storage lock. Disable, re-enable and Clear increment the persisted generation;
   late results from earlier consent cannot append. Clear preserves enablement.
+- Clear persists `clearing: true` with the new generation before replacing the
+  records file, then resets the marker only after replacement succeeds. An
+  interrupted or failed Clear blocks new records, summaries and export until
+  Clear succeeds, including after restart or toggling consent. The browser
+  mock stores consent and history in one atomic localStorage value and does not
+  need this native two-file recovery marker.
 - Unknown record/answer fields are rejected, and all categorical values are
   validated before persistence. There is no text, project/repository name,
   credential, path, attachment content, workspace ID or vendor probabilities.
@@ -216,6 +223,11 @@ review. Both files are `0600` in the private `0700` application directory:
 - Corrupt storage reports a localized error and never overwrites history while
   appending. Clear explicitly recovers damaged records. Collection failure is
   independent of review and workspace creation.
+- The native store validates existing history once per process or detected file
+  change, caching only summary counters and the file's identity, size and
+  modification/change timestamps. Successful appends update those counters;
+  failed I/O invalidates the cache. Settings summaries and subsequent appends
+  avoid reparsing unchanged history. CSV export still reads the complete file.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
@@ -227,7 +239,9 @@ review. Both files are `0600` in the private `0700` application directory:
 
 Failures use `err.calibration.storage`, `err.calibration.invalid` or
 `err.calibration.export`. The Settings summary and error are refreshed after
-collection, preference changes and Clear. CSV contains the record fields in the
+collection, preference changes and Clear. Frontend consent revisions suppress
+late append errors and summary refreshes from before a consent change or Clear;
+collection pauses while either mutation is pending. CSV contains the record fields in the
 order shown above; arrays are JSON in escaped CSV cells. Export is private and
 atomic, accepts regular `.csv` destinations, rejects symlinks and leaves the
 parent directory's permissions alone. Exports are user-owned copies: Clear only
@@ -249,8 +263,8 @@ removes the application history, not exported files. Nothing is uploaded.
   short, investigative, attachment and low-confidence negatives, the CSV example,
   version mismatch/missing identity, per-language thresholds, escaped JSON budgets, content-free finalization and failed creation, one-at-a-time and two-per-request limits, dismissal, stale responses after
   edits, closing, disabling and key changes, failures and explicit-only calls.
-- `src-tauri/src/review_calibration.rs`: default-off/independent consent, private permissions, closed content-free schema, CSV, damaged history, Clear/disable generations and export destination protection.
-- `src/typesafe.test.ts` and `src/review-calibration.test.ts`: model diagnostics/epoch isolation, collection failures, stale summary rejection and browser/native calibration contract parity.
+- `src-tauri/src/review_calibration.rs`: default-off/independent consent, private permissions, closed content-free schema, CSV, damaged history, summary cache invalidation, interrupted Clear/restart recovery, legacy consent compatibility, Clear/disable generations and export destination protection.
+- `src/typesafe.test.ts` and `src/review-calibration.test.ts`: model diagnostics/epoch isolation, collection failures, stale append/summary rejection around Clear and browser/native calibration contract parity.
 - `src-tauri/tests/mock.rs`: command parity across Rust, the typed map and the
   mock.
 

@@ -122,6 +122,20 @@ records even after re-enabling. Storage failure never blocks creation. Settings
 shows counts, CSV export, Clear and failures; no records leave the Mac except by
 the person's explicit export.
 
+Clear uses a persisted in-progress marker across its consent and history files.
+It blocks collection and export until both writes complete, preserving the
+deletion boundary after a partial failure or process restart. Retrying Clear is
+the explicit recovery action; changing consent cannot bypass it. Older consent
+files default the additive marker to false. Late frontend append replies are
+bound to the consent revision, so they cannot undo a later Clear's recovery.
+
+The native process caches validated summary counters against history metadata
+(identity, size and modification/change timestamps), updating them after each
+successful append. This avoids quadratic parsing as opted-in history grows
+without trusting a changed or damaged file. Cache loss on restart causes one
+fresh validation; CSV export remains a complete scan. No second persisted index
+or additional migration is needed.
+
 Before inspecting outcomes or tuning thresholds, use this protocol:
 
 1. Study English and Portuguese separately, with the exact model version fixed.

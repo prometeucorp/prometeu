@@ -28,6 +28,8 @@ const notify = (configuration: boolean) => { for (const listener of [...listener
 let calibration: CalibrationStatus = { enabled: false, generation: 0, records: 0, created: 0, actions: { answered: 0, handed_to_agent: 0, dismissed: 0, none: 0 } };
 let calibrationProblem: string | null = null;
 let calibrationRevision = 0;
+let consentRevision = 0;
+let consentChanging = false;
 export const calibrationStatus = () => calibration;
 export const calibrationError = () => calibrationProblem;
 
@@ -41,13 +43,24 @@ async function calibrationChange(work: () => Promise<CalibrationStatus>) {
     throw error;
   }
 }
+async function calibrationMutation(work: () => Promise<CalibrationStatus>) {
+  const revision = ++consentRevision;
+  consentChanging = true;
+  try { return await calibrationChange(work); }
+  finally { if (revision === consentRevision) consentChanging = false; }
+}
 export const refreshCalibration = () => calibrationChange(() => invoke("review_calibration_status"));
-export const setCalibrationEnabled = (enabled: boolean) => calibrationChange(() => invoke("review_calibration_set_enabled", { enabled }));
-export const clearCalibration = () => calibrationChange(() => invoke("review_calibration_clear"));
+export const setCalibrationEnabled = (enabled: boolean) => calibrationMutation(() => invoke("review_calibration_set_enabled", { enabled }));
+export const clearCalibration = () => calibrationMutation(() => invoke("review_calibration_clear"));
 export const calibrationPort: CalibrationPort = {
-  consent: () => calibration.enabled && !calibrationProblem ? calibration.generation : null,
+  consent: () => calibration.enabled && !calibrationProblem && !consentChanging ? calibration.generation : null,
   append(generation, record) {
-    void invoke("review_calibration_append", { generation, record }).then(refreshCalibration).catch(error => {
+    const revision = consentRevision;
+    const current = () => revision === consentRevision && !consentChanging && generation === calibration.generation;
+    void invoke("review_calibration_append", { generation, record }).then(() => {
+      if (current()) void refreshCalibration().catch(() => {});
+    }, error => {
+      if (!current()) return;
       calibrationProblem = String(error);
       notify(false);
     });
