@@ -1,0 +1,423 @@
+{
+  "board": {
+    "actions": {
+      "commands": [],
+      "defaults_initialized": false,
+      "overrides": {},
+      "pr_action": null,
+      "profiles": []
+    },
+    "delegations": [],
+    "projects": [
+      {
+        "id": "project",
+        "name": "Project",
+        "path": "/contract/repo"
+      }
+    ],
+    "stages": [
+      "Working",
+      "Done"
+    ],
+    "telemetry_ids": {},
+    "tool_trust": [],
+    "tools": {
+      "mcp": null,
+      "plugins": null,
+      "skills": null
+    },
+    "workspaces": [
+      {
+        "active": "running",
+        "agent": "claude",
+        "archived": false,
+        "audience": [
+          "member"
+        ],
+        "branch": "task",
+        "cleaned": false,
+        "effort": "",
+        "failed": null,
+        "id": "workspace",
+        "issue": null,
+        "mcp": {
+          "add": [],
+          "base": "none",
+          "remove": []
+        },
+        "model": "",
+        "pinned": false,
+        "plugins": {
+          "add": [
+            "plugin"
+          ],
+          "base": "inherit",
+          "remove": [
+            "disabled"
+          ]
+        },
+        "port": 1420,
+        "preparing": false,
+        "preserve_branches": [],
+        "project": "",
+        "remote_control": false,
+        "repo": "/contract/repo",
+        "repo_name": "Project",
+        "repos": [
+          {
+            "base": "main",
+            "name": "Project",
+            "path": "/contract/repo",
+            "pr": {
+              "isDraft": true,
+              "number": 7,
+              "state": "OPEN",
+              "title": "Review"
+            },
+            "worktree": "/contract/worktree"
+          }
+        ],
+        "share_team": "team",
+        "shared": true,
+        "skills": null,
+        "stage": "Working",
+        "tabs": [
+          {
+            "agent_session": null,
+            "choice": {
+              "agent": "codex",
+              "effort": "high",
+              "model": "model"
+            },
+            "context_tokens": null,
+            "id": "running",
+            "kickoff": "package/skill",
+            "note": "Testing",
+            "pending_prompt": null,
+            "permission": null,
+            "plan": false,
+            "status": "rodando",
+            "task": null,
+            "title": "Build",
+            "tokens": 42
+          },
+          {
+            "agent_session": null,
+            "choice": null,
+            "context_tokens": null,
+            "id": "waiting",
+            "note": null,
+            "pending_prompt": null,
+            "permission": "ask",
+            "plan": true,
+            "status": "querendo",
+            "task": null,
+            "title": "Review",
+            "tokens": null
+          },
+          {
+            "agent_session": null,
+            "choice": null,
+            "context_tokens": null,
+            "id": "ready",
+            "note": null,
+            "pending_prompt": null,
+            "permission": "auto",
+            "plan": false,
+            "status": "pronta",
+            "task": null,
+            "title": "Ready",
+            "tokens": null
+          },
+          {
+            "agent_session": "native-thread",
+            "choice": null,
+            "context_tokens": null,
+            "id": "stopped",
+            "note": null,
+            "pending_prompt": "Continue",
+            "permission": null,
+            "plan": false,
+            "status": "desligada",
+            "task": null,
+            "title": "Stopped",
+            "tokens": null
+          }
+        ],
+        "title": "Contract task",
+        "unread": false,
+        "worktree": "/contract/worktree"
+      },
+      {
+        "active": null,
+        "agent": "claude",
+        "archived": false,
+        "audience": null,
+        "branch": "empty",
+        "cleaned": false,
+        "effort": "",
+        "failed": null,
+        "id": "empty",
+        "issue": null,
+        "mcp": null,
+        "model": "",
+        "pinned": false,
+        "plugins": null,
+        "port": null,
+        "preparing": false,
+        "preserve_branches": [],
+        "project": "",
+        "remote_control": false,
+        "repo": "/contract/repo",
+        "repo_name": "Project",
+        "repos": [],
+        "share_team": null,
+        "shared": false,
+        "skills": null,
+        "stage": "Working",
+        "tabs": [],
+        "title": "Empty",
+        "unread": false,
+        "worktree": "/contract/empty"
+      }
+    ]
+  },
+  "capabilities": {
+    "antigravity": {
+      "approvals": false,
+      "attachments": true,
+      "compact": false,
+      "contextReport": false,
+      "initialPlanMode": false,
+      "resume": true,
+      "userQuestions": false,
+      "workspaceMcpSelection": false,
+      "workspacePluginSelection": false
+    },
+    "claude": {
+      "approvals": true,
+      "attachments": true,
+      "compact": true,
+      "contextReport": true,
+      "initialPlanMode": true,
+      "resume": true,
+      "userQuestions": true,
+      "workspaceMcpSelection": true,
+      "workspacePluginSelection": true
+    },
+    "codex": {
+      "approvals": true,
+      "attachments": true,
+      "compact": true,
+      "contextReport": true,
+      "initialPlanMode": false,
+      "resume": true,
+      "userQuestions": true,
+      "workspaceMcpSelection": true,
+      "workspacePluginSelection": true
+    },
+    "gemini": {
+      "approvals": false,
+      "attachments": true,
+      "compact": false,
+      "contextReport": false,
+      "initialPlanMode": false,
+      "resume": true,
+      "userQuestions": false,
+      "workspaceMcpSelection": false,
+      "workspacePluginSelection": false
+    }
+  },
+  "events": {
+    "claude": [
+      {
+        "at": 0,
+        "content": [
+          {
+            "kind": "text",
+            "text": "Review the patch"
+          }
+        ],
+        "type": "user.message",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "messageId": "answer",
+        "type": "assistant.started",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "block": {
+          "kind": "text",
+          "text": ""
+        },
+        "index": 0,
+        "messageId": "answer",
+        "type": "assistant.block.started",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "delta": "Reviewed",
+        "index": 0,
+        "kind": "text",
+        "messageId": "answer",
+        "type": "assistant.delta",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "block": {
+          "kind": "text",
+          "text": "Reviewed"
+        },
+        "index": 0,
+        "messageId": "answer",
+        "type": "assistant.block",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "block": {
+          "id": "read",
+          "input": {
+            "file_path": "README.md"
+          },
+          "kind": "tool",
+          "name": "Read"
+        },
+        "index": 1,
+        "messageId": "answer",
+        "type": "assistant.block",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "input": {
+          "file_path": "README.md"
+        },
+        "kind": "approval",
+        "requestId": "approval",
+        "tool": "Read",
+        "toolId": "read",
+        "type": "request.opened",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "background": false,
+        "error": false,
+        "output": "Project guide",
+        "toolId": "read",
+        "type": "tool.completed",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "tasks": [],
+        "type": "background.changed",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "costUsd": null,
+        "durationMs": 0,
+        "message": "",
+        "outcome": "ok",
+        "type": "turn.completed",
+        "v": 1
+      }
+    ],
+    "codex": [
+      {
+        "at": 0,
+        "messageId": "turn",
+        "type": "assistant.started",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "block": {
+          "kind": "text",
+          "text": ""
+        },
+        "index": 0,
+        "messageId": "turn",
+        "type": "assistant.block.started",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "delta": "Reviewed",
+        "index": 0,
+        "kind": "text",
+        "messageId": "turn",
+        "type": "assistant.delta",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "block": {
+          "kind": "text",
+          "text": "Reviewed"
+        },
+        "index": 0,
+        "messageId": "turn",
+        "type": "assistant.block",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "input": {
+          "command": "git status"
+        },
+        "kind": "approval",
+        "requestId": "approval",
+        "tool": "Bash",
+        "toolId": "command",
+        "type": "request.opened",
+        "v": 1
+      },
+      {
+        "at": 0,
+        "costUsd": null,
+        "durationMs": null,
+        "message": "",
+        "outcome": "ok",
+        "type": "turn.completed",
+        "v": 1
+      }
+    ]
+  },
+  "models": {
+    "fetchedAt": 1234,
+    "models": [
+      {
+        "additional": false,
+        "efforts": [
+          "high"
+        ],
+        "id": "model",
+        "label": "Model"
+      },
+      {
+        "additional": true,
+        "efforts": [],
+        "id": "additional",
+        "label": "Additional"
+      }
+    ]
+  },
+  "providers": [
+    "claude",
+    "codex",
+    "antigravity",
+    "gemini"
+  ],
+  "snapshot": {
+    "seq": 10,
+    "text": "{\"at\":0,\"content\":[{\"kind\":\"text\",\"text\":\"Review the patch\"}],\"type\":\"user.message\",\"v\":1}\n{\"at\":0,\"messageId\":\"answer\",\"type\":\"assistant.started\",\"v\":1}\n{\"at\":0,\"block\":{\"kind\":\"text\",\"text\":\"\"},\"index\":0,\"messageId\":\"answer\",\"type\":\"assistant.block.started\",\"v\":1}\n{\"at\":0,\"delta\":\"Reviewed\",\"index\":0,\"kind\":\"text\",\"messageId\":\"answer\",\"type\":\"assistant.delta\",\"v\":1}\n{\"at\":0,\"block\":{\"kind\":\"text\",\"text\":\"Reviewed\"},\"index\":0,\"messageId\":\"answer\",\"type\":\"assistant.block\",\"v\":1}\n{\"at\":0,\"block\":{\"id\":\"read\",\"input\":{\"file_path\":\"README.md\"},\"kind\":\"tool\",\"name\":\"Read\"},\"index\":1,\"messageId\":\"answer\",\"type\":\"assistant.block\",\"v\":1}\n{\"at\":0,\"input\":{\"file_path\":\"README.md\"},\"kind\":\"approval\",\"requestId\":\"approval\",\"tool\":\"Read\",\"toolId\":\"read\",\"type\":\"request.opened\",\"v\":1}\n{\"at\":0,\"background\":false,\"error\":false,\"output\":\"Project guide\",\"toolId\":\"read\",\"type\":\"tool.completed\",\"v\":1}\n{\"at\":0,\"tasks\":[],\"type\":\"background.changed\",\"v\":1}\n{\"at\":0,\"costUsd\":null,\"durationMs\":0,\"message\":\"\",\"outcome\":\"ok\",\"type\":\"turn.completed\",\"v\":1}\n"
+  }
+}

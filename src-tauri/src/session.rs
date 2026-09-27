@@ -104,20 +104,12 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
 /// separate, confirmed decision.
 #[tauri::command(async)]
 pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
-    {
-        let mut board = lock(&state.board);
-        let last = board.stages.last().cloned();
-        if let (Some(stage), Some(ws)) = (last, board.workspace_mut(&id)) {
-            ws.stage = stage;
-        }
-    }
+    crate::workspace_lifecycle::finish(&mut lock(&state.board), &id);
     archive(&app, &state, &id, true);
 }
 
 fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
     let generation = lock(&state.telemetry).generation;
-    let mut dead: Vec<String> = Vec::new();
-    let mut changed = false;
     // Run the archive script before archiving, while its resources still exist. It cleans up
     // containers, databases, and tunnels asynchronously, without a PTY or blocking the window.
     if archived {
@@ -136,24 +128,11 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
             }
         }
     }
-    {
-        let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(id) {
-            changed = ws.archived != archived;
-            ws.archived = archived;
-            if archived {
-                dead = ws.tabs.iter().map(|t| t.id.clone()).collect();
-                for tab in &mut ws.tabs {
-                    tab.status = Status::Desligada;
-                    tab.note = None;
-                }
-            }
-        }
-    }
+    let effects = crate::workspace_lifecycle::archive(&mut lock(&state.board), id, archived);
     // Stop processes outside the board lock: signalling and waiting must not block other sessions.
-    stop(state, &dead);
+    stop(state, &effects.stop_tabs);
     publish(app);
-    if changed {
+    if effects.changed {
         crate::telemetry::journey(
             app,
             generation,

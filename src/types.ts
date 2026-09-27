@@ -229,8 +229,8 @@ export type Workspace = {
   preparing: boolean;
   /// Structured backend preparation error, translated by fromBack.
   failed: string | null;
-  /// Frontend-only remote workspace state; Rust never receives these entries. An offline owner freezes the view and disables input.
-  remote: Remote | null;
+  /// Frontend-only remote workspace state; absent from local Rust snapshots. An offline owner freezes the view and disables input.
+  remote?: Remote | null;
   tabs: Tab[];
   active: string | null;
 };

@@ -217,7 +217,9 @@ pub type Translate = Box<dyn FnMut(&str) -> Vec<String> + Send>;
 /// could fill while stdin waits for the child, recreating the pipe deadlock.
 /// ponytail: queued output has no memory ceiling during stalls; spool to disk if measured stalls
 /// require a bound.
-fn output_lines(output: impl Read + Send + 'static) -> std::sync::mpsc::IntoIter<String> {
+pub(crate) fn output_lines(
+    output: impl Read + Send + 'static,
+) -> std::sync::mpsc::IntoIter<String> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         for line in BufReader::new(output).lines().map_while(Result::ok) {
@@ -1424,6 +1426,26 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
 #[tauri::command]
 pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
     snapshot(&state, &session)
+}
+
+#[cfg(test)]
+pub(crate) fn contract_public_events(events: Vec<Value>) -> Vec<Value> {
+    events
+        .into_iter()
+        .filter(|event| event["type"] != "telemetry.usage")
+        .map(|event| {
+            let mut event: Value =
+                serde_json::from_str(&public_text(&event.to_string(), &event)).unwrap();
+            event["at"] = json!(0);
+            if event
+                .get("durationMs")
+                .is_some_and(|value| value.is_number())
+            {
+                event["durationMs"] = json!(0);
+            }
+            event
+        })
+        .collect()
 }
 
 #[cfg(test)]

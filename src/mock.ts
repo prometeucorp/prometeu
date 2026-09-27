@@ -2351,6 +2351,12 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
   }
   switch (cmd) {
 
+    // Native menu constructors destructure an identity tuple even in the browser shell.
+    case "plugin:menu|new": {
+      const rid = nextId++;
+      return [rid, args.options?.id ?? `mock-menu-${rid}`];
+    }
+
     case "plugin:event|listen": {
       const h = w[`_${args.handler}`] as Handler;
       handlers.set(args.event, [...(handlers.get(args.event) ?? []), h]);

@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "measuredAt": "2026-09-27T15:06:39.336Z",
+  "buildSha256": "6e0a678e5762bd61a7114757981e14769298c4e8ae01afe86c247b3b88ef03dc",
+  "revision": "115df1e861462bb2f60bb33aef9fd52c1783c519",
+  "dirty": true,
+  "environment": {
+    "platform": "linux",
+    "release": "5.15.167.4-microsoft-standard-WSL2",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 5 7600 6-Core Processor",
+    "node": "v24.0.1",
+    "browser": "151.0.7922.34"
+  },
+  "workload": {
+    "backend": "browser mock",
+    "build": "production",
+    "viewport": [
+      1600,
+      1000
+    ],
+    "tileSize": [
+      550,
+      350
+    ],
+    "warmups": 1,
+    "freshContexts": true,
+    "streams": 4,
+    "deltasPerStream": 100,
+    "batches": 20
+  },
+  "samples": [
+    {
+      "startupMs": 218,
+      "durationMs": 364.90000000037253,
+      "maxFrameGapMs": 18.5
+    },
+    {
+      "startupMs": 219.8999999994412,
+      "durationMs": 365,
+      "maxFrameGapMs": 19.700000000186265
+    },
+    {
+      "startupMs": 238.40000000037253,
+      "durationMs": 363.6000000005588,
+      "maxFrameGapMs": 19.5
+    },
+    {
+      "startupMs": 236.90000000037253,
+      "durationMs": 363.5,
+      "maxFrameGapMs": 19.40000000037253
+    },
+    {
+      "startupMs": 202.70000000018626,
+      "durationMs": 364.20000000018626,
+      "maxFrameGapMs": 18.5
+    }
+  ],
+  "summary": {
+    "startupMs": {
+      "median": 219.8999999994412,
+      "min": 202.70000000018626,
+      "max": 238.40000000037253
+    },
+    "durationMs": {
+      "median": 364.20000000018626,
+      "min": 363.5,
+      "max": 365
+    },
+    "maxFrameGapMs": {
+      "median": 19.40000000037253,
+      "min": 18.5,
+      "max": 19.700000000186265
+    }
+  }
+}

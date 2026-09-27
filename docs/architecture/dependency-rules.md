@@ -57,6 +57,13 @@ The board types still come from `state.rs`, so this boundary is not yet a
 standalone crate. See
 [ADR 0050](../decisions/0050-tested-application-boundaries.md).
 
+`workspace_lifecycle.rs` receives a mutable board for finish/archive/restore.
+It preserves the person's stage on archive, returns the tab IDs to stop, and
+reports whether the archived flag changed. `session.rs` still runs archive
+scripts before mutation, stops processes after releasing the board lock, and
+owns publication and telemetry. Restoring never starts a process. These rules
+are tested without Tauri state or effects; board types remain in `state.rs`.
+
 ## Rules in force for agents
 
 1. Claude, Codex or any other vendor protocol appears only in the corresponding
@@ -86,7 +93,8 @@ Separates TypeScript and Rust. Name, arguments, return value, error and events
 form a single contract. The web mock is another adapter of that same contract.
 `src/ipc.ts` owns the command argument/result map consumed by frontend callers
 and `IpcHandlers` in the mock. Exact command-name parity with Rust is tested;
-Rust payload shapes remain manually synchronized. See the
+Rust payload shapes remain manually synchronized; serialization fixtures check
+representative payloads against the actual TypeScript types and reducers. See the
 [IPC contract](../contracts/ipc.md).
 
 ### Collaboration

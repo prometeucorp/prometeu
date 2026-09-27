@@ -32,6 +32,33 @@ map and the existing boundary tests. Untrusted relay/control input remains
 subject to backend validation. Errors keep their existing rejection format.
 See [ADR 0024](../decisions/0024-typed-ipc.md).
 
+## Executable serialization examples
+
+`src-tauri/src/boundary_contract.rs` serializes real board, snapshot, model and
+capability types, plus output from synthetic Claude/Codex adapter scenarios,
+into `fixtures/backend-contract.json`. Its normal Rust test requires exact
+fixture equality. `npm run contracts:update` explicitly regenerates it; review
+the diff before accepting a contract change.
+
+`npm run test:contracts` checks those JSON literals against command-derived
+TypeScript result types and canonical event types, then feeds events through
+the production validator and timeline. The check preserves literal enum values
+and nullability while allowing extra backend fields. Both producer freshness
+and consumer checks run in `npm run check`. Frontend-only runs do not establish
+that the fixture still matches Rust.
+
+Coverage includes populated/empty workspaces, all tab statuses and provider
+IDs, inherited/replaced tool selections, nullable fields, omitted kickoff,
+model camelCase fields and representative conversation events. Empty action and
+delegation collections do not prove their nested contracts. These examples are
+not exhaustive schema generation, live provider certification, or invocation
+through a running Tauri webview. Command arguments and unrepresented results
+still require their existing focused tests.
+
+Local Rust workspaces omit `remote`. The TypeScript presentation field is
+optional (or null for browser fixtures); collaboration supplies it only for
+remote workspaces. No backend field or persisted format is added.
+
 Local notification commands and the `notification-open` event are described in
 the [notification contract](notifications.md).
 

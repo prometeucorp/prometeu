@@ -26,6 +26,12 @@ snapshot and the live stream, but it is not a durable identity.
 Unknown fields are ignored. An invalid version, type or required field discards
 only that line. An unknown type is a no-op and does not end the session.
 
+The [serialization checks](ipc.md#executable-serialization-examples) feed
+synthetic Claude/Codex adapter output through the same TypeScript validator and
+timeline. The existing Antigravity fixture separately covers recorded NDJSON
+translation. Canonical fixtures normalize timestamps and numeric durations;
+they do not change production event values or durable sequence semantics.
+
 ## Common content
 
 ```ts
