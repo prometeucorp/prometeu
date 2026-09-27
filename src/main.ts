@@ -470,8 +470,10 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
         // The command response and board event can arrive in either order. Insert the returned workspace locally until the next full board replaces state, avoiding premature navigation away.
         if (!state.workspaces.some((w) => w.id === created.id)) state.workspaces.push(created);
         openWorkspace(created);
+        return true;
       } catch (err) {
         say(fromBack(err), true);
+        return false;
       }
     },
   });

@@ -28,7 +28,7 @@ pub struct Question {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct EvaluationRequest {
-    pub context: String,
+    pub context: serde_json::Value,
     pub questions: Vec<Question>,
 }
 
@@ -40,9 +40,11 @@ pub struct Answer {
     pub confidence: f64,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct EvaluationResult {
     pub answers: Vec<Answer>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Application-owned failure codes. Adapters translate vendor statuses into these; no response
@@ -90,7 +92,7 @@ pub trait Evaluator {
         &self,
         request: &EvaluationRequest,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<Vec<Answer>, EvaluationError>;
+    ) -> Result<EvaluationResult, EvaluationError>;
 }
 
 fn token(value: &str) -> bool {
@@ -103,8 +105,14 @@ fn token(value: &str) -> bool {
 
 /// Enforce the bounds before any adapter sees the request.
 pub fn validate(request: &EvaluationRequest) -> Result<(), EvaluationError> {
-    if request.context.trim().is_empty()
-        || request.context.len() > MAX_CONTEXT
+    let context_size = match &request.context {
+        serde_json::Value::String(text) if !text.trim().is_empty() => text.len(),
+        serde_json::Value::Object(fields) if !fields.is_empty() => {
+            request.context.to_string().len()
+        }
+        _ => return Err(EvaluationError::Invalid),
+    };
+    if context_size > MAX_CONTEXT
         || request.questions.is_empty()
         || request.questions.len() > MAX_QUESTIONS
     {
@@ -190,8 +198,19 @@ pub fn run(
     if changed() {
         return Err(EvaluationError::Stale);
     }
+    let result = answers?;
+    if result.model.as_ref().is_some_and(|model| {
+        model.is_empty()
+            || model.len() > 80
+            || !model
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    }) {
+        return Err(EvaluationError::Malformed);
+    }
     Ok(EvaluationResult {
-        answers: accept(request, answers?)?,
+        answers: accept(request, result.answers)?,
+        model: result.model,
     })
 }
 
@@ -202,7 +221,7 @@ pub mod fake {
 
     /// Scripted evaluator for tests; records every request it receives.
     pub struct Fake {
-        pub reply: Result<Vec<Answer>, EvaluationError>,
+        pub reply: Result<EvaluationResult, EvaluationError>,
         pub calls: RefCell<Vec<EvaluationRequest>>,
         pub during: Option<Box<dyn Fn()>>,
     }
@@ -210,7 +229,10 @@ pub mod fake {
     impl Fake {
         pub fn new(reply: Result<Vec<Answer>, EvaluationError>) -> Self {
             Self {
-                reply,
+                reply: reply.map(|answers| EvaluationResult {
+                    answers,
+                    model: None,
+                }),
                 calls: RefCell::new(Vec::new()),
                 during: None,
             }
@@ -222,7 +244,7 @@ pub mod fake {
             &self,
             request: &EvaluationRequest,
             _: &dyn Fn() -> bool,
-        ) -> Result<Vec<Answer>, EvaluationError> {
+        ) -> Result<EvaluationResult, EvaluationError> {
             self.calls.borrow_mut().push(request.clone());
             if let Some(during) = &self.during {
                 during();
@@ -275,11 +297,38 @@ mod tests {
     }
 
     #[test]
+    fn model_identity_is_additive_and_survives_the_port() {
+        let legacy: EvaluationResult = serde_json::from_str(r#"{"answers":[]}"#).unwrap();
+        assert_eq!(legacy.model, None);
+        let mut fake = Fake::new(Ok(vec![answer("absent", 0.9)]));
+        fake.reply.as_mut().unwrap().model = Some("jev-1.13.0".into());
+        let result = run(&request(), Some(&fake), &Generation::new(), 0).unwrap();
+        assert_eq!(result.model.as_deref(), Some("jev-1.13.0"));
+    }
+
+    #[test]
+    fn structured_context_is_bounded_in_serialized_bytes() {
+        let mut request = request();
+        request.context = serde_json::json!({"draft": "Fix the import"});
+        assert_eq!(validate(&request), Ok(()));
+        request.context = serde_json::json!({"draft": "\u{0000}".repeat(MAX_CONTEXT / 2)});
+        assert_eq!(validate(&request), Err(EvaluationError::Invalid));
+        for context in [
+            serde_json::json!({}),
+            serde_json::Value::Null,
+            serde_json::json!([]),
+        ] {
+            request.context = context;
+            assert_eq!(validate(&request), Err(EvaluationError::Invalid));
+        }
+    }
+
+    #[test]
     fn invalid_requests_never_reach_the_evaluator() {
         let fake = Fake::new(Ok(vec![]));
         let generation = Generation::new();
         let mut large = request();
-        large.context = "x".repeat(MAX_CONTEXT + 1);
+        large.context = "x".repeat(MAX_CONTEXT + 1).into();
         let mut duplicate = request();
         duplicate.questions.push(duplicate.questions[0].clone());
         let mut open = request();

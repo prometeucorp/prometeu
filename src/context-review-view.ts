@@ -33,7 +33,7 @@ export function reviewControls(options: {
   };
 
   const insert = (key: "review.answerBlock" | "review.investigateBlock") => {
-    const suggestion = review.resolve();
+    const suggestion = review.resolve(key === "review.answerBlock" ? "answered" : "handed_to_agent");
     if (!suggestion) return;
     prompt.value = appendToDraft(prompt.value, t(key, { question: t(suggestion.question) }));
     prompt.focus();
@@ -71,6 +71,9 @@ export function reviewControls(options: {
       if (options.context().attachments) panel.append(h("p", "ui-hint", t("review.uninspected")));
       panel.append(actions);
     }
+    if (view.phase === "suggesting" || view.phase === "none") {
+      panel.append(h("p", "ui-hint", t("review.model", { model: view.model ?? t("review.model.unknown") })));
+    }
   };
 
   const review = createReview({
@@ -78,9 +81,10 @@ export function reviewControls(options: {
     epoch: typesafe.currentEpoch,
     available: typesafe.available,
     changed: render,
+    calibration: typesafe.calibrationPort,
   });
   // Enabling, disabling or changing the key invalidates pending and shown results.
-  const forget = typesafe.onChange(() => { review.reset(); drawTrigger(); });
+  const forget = typesafe.onChange(configuration => { if (configuration) review.reset(); drawTrigger(); });
   drawTrigger();
 
   return {
@@ -88,6 +92,9 @@ export function reviewControls(options: {
     /// Call after any change to the draft, issue, project, base or attachments.
     update() { review.update(options.context()); drawTrigger(); },
     /// Closing or submitting the launcher discards anything still pending.
-    close() { review.close(); forget(); },
+    close(creation: Promise<boolean> = Promise.resolve(false)) {
+      review.close(); forget();
+      void creation.then(created => review.finish(created), () => review.finish(false));
+    },
   };
 }

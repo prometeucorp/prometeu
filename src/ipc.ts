@@ -68,6 +68,11 @@ export type Commands = {
   cloud_relay_ticket: { args: { organization: string; user: string; expectedOrigin: string }; result: string };
   cloud_status: { args: { refresh: boolean }; result: CloudStatus };
   context_evaluate: { args: { request: import("./evaluation").EvaluationRequest }; result: import("./evaluation").EvaluationResult };
+  review_calibration_status: { args: undefined; result: import("./review-calibration").CalibrationStatus };
+  review_calibration_set_enabled: { args: { enabled: boolean }; result: import("./review-calibration").CalibrationStatus };
+  review_calibration_append: { args: { generation: number; record: import("./review-calibration").CalibrationRecord }; result: null };
+  review_calibration_clear: { args: undefined; result: import("./review-calibration").CalibrationStatus };
+  review_calibration_export: { args: { path: string }; result: null };
   create_path: { args: { id: string; rel: string; dir: boolean }; result: void };
   create_scripts_file: { args: { id: string }; result: string };
   create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
