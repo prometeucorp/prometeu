@@ -647,6 +647,13 @@ mod tests {
         let mut damaged = std::fs::read(store.records_path()).unwrap();
         damaged[0] = b'[';
         std::fs::write(store.records_path(), damaged).unwrap();
+        // Same-size writes can share a timestamp on Linux; make metadata change deterministic.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(store.records_path())
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH)
+            .unwrap();
         assert!(store.append(1, &fixture()).is_err());
         assert!(store.status().is_err());
         std::fs::remove_dir_all(store.root).unwrap();
