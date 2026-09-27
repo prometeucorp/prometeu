@@ -22,7 +22,6 @@
     "test:web": "vitest run",
     "test:contracts": "node scripts/check-contracts.mjs && vitest run src/backend-contract.test.ts src/conversation.test.ts",
     "contracts:update": "node scripts/update-contracts.mjs",
-    "bench:desktop": "npm run build && node scripts/benchmark-desktop.mjs",
     "test:e2e": "playwright test",
     "test:rust": "cd src-tauri && cargo test --workspace --all-targets",
     "docs:check": "node scripts/check-docs.mjs",

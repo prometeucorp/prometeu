@@ -5,7 +5,6 @@ src-tauri/gen/
 .playwright-mcp/
 playwright-report/
 test-results/
-benchmark-results/
 worktrees*/
 .wrangler/
 prototypes/

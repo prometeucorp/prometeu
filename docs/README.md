@@ -126,8 +126,6 @@ compatibility still in use stays documented in the current contracts.
   and expected evidence.
 - [Energy profiling](quality/energy-profile.md): issue #148 release-build
   measurement protocol and source-level baseline.
-- [Desktop performance](quality/desktop-performance.md): repeatable production
-  browser startup and concurrent-stream measurements over the mock backend.
 - [`operations/development.md`](operations/development.md): environment and tests.
 - [`operations/contributing.md`](operations/contributing.md): recipes for provider,
   IPC, collaboration and Cloud contract changes; [contribution workflow](../CONTRIBUTING.md).

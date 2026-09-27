@@ -46,8 +46,6 @@ Verification additions shared by the existing features:
   for Claude/Antigravity; see the [runtime contract](../contracts/agent-runtime.md#process-boundary-verification).
 - `workspace_lifecycle.rs` tests finish/archive/restore state preservation for
   every provider through shared board rules, without invoking any provider.
-- The [desktop benchmark](desktop-performance.md) measures the shared browser
-  presentation over the mock, without provider execution or native timing claims.
 
 ## Legend
 

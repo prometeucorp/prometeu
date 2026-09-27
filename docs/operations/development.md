@@ -128,11 +128,6 @@ The controlled Codex subprocess tests run with
 with a bounded child lifetime, without starting a provider or opening a window.
 Their synthetic peer is separate from recorded CLI conformance fixtures.
 
-`npm run bench:desktop` builds the production frontend and measures startup and
-four simultaneous visible streams in headless Chromium over the browser mock.
-It is an opt-in measurement, not an E2E scenario or native performance gate.
-See the [workload and comparison protocol](../quality/desktop-performance.md).
-
 Worker integration tests use Wrangler's test harness with HTTP requests sent
 directly to workerd, avoiding the development proxy's upstream connection loss
 after a streamed request body is canceled. WebSocket and HTTP Upgrade probes
