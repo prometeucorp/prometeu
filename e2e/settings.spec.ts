@@ -141,6 +141,8 @@ test("@webkit desktop components compose independent controls and restore menu f
 
   await page.setViewportSize({ width: 900, height: 800 });
   await page.goto("/");
+  // Initial navigation must finish before Settings can remain the active screen.
+  await expect(page.locator("#deskView")).toBeVisible();
   await page.locator("#settings").click();
   await page.locator(".setnavitem").getByText("Actions", { exact: true }).click();
   const profile = page.locator(".action-profile.desktop-item").first();

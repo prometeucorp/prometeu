@@ -12,6 +12,8 @@ async function workspace(page: Page) {
 
 test("reusable commands fill an editable prompt and persist after reopening", async ({ page }) => {
   await page.goto("/");
+  // Initial navigation must finish before Settings can remain the active screen.
+  await expect(page.locator("#deskView")).toBeVisible();
   await settings(page);
   await page.getByRole("button", { name: "New command", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Configure command" });
