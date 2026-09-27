@@ -6,6 +6,8 @@ mod agents;
 mod antigravity;
 mod awake;
 mod background;
+#[cfg(test)]
+mod boundary_contract;
 mod browser;
 mod catalog;
 mod chat;
@@ -48,6 +50,7 @@ mod transcript;
 mod typesafe;
 mod usage;
 mod usage_scheduler;
+mod workspace_lifecycle;
 mod workspace_tools;
 
 use state::Board;

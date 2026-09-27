@@ -175,8 +175,10 @@ Three contracts require explicit compatibility:
 The third already has a single typed and validated source in
 `relay/src/protocol.ts`. The first uses the command map in `src/ipc.ts` to
 check names, arguments, and results in both callers and the browser mock.
-Rust handler names have a parity test; argument/result bindings are still
-maintained manually. See [ADR 0024](docs/decisions/0024-typed-ipc.md).
+Rust handler names have a parity test. Rust-produced serialization fixtures
+check representative board, snapshot, model and conversation payloads against
+the TypeScript consumers; argument/result bindings are still maintained
+manually. See [ADR 0024](docs/decisions/0024-typed-ipc.md).
 The second uses the V1 contracts typed in the frontend. `claude.rs` adapts
 Claude's stream-json and `codex.rs` adapts Codex's JSON-RPC directly; both
 depend on the canonical primitives in `conversation.rs`.
@@ -222,6 +224,7 @@ The detailed rules and the current state of each one are in
 | starting from a skill | `src/kickoff.ts`, `src/launcher.ts`, `src-tauri/src/kickoff.rs`, `[method]` in `src-tauri/src/scripts.rs`; see [ADR 0057](docs/decisions/0057-skill-kickoff-and-artifact-path.md) |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
+| workspace archive/restore | `src-tauri/src/workspace_lifecycle.rs` (state changes and stop decisions), `src-tauri/src/session.rs` (scripts, processes, publication and telemetry) |
 | Local diff review | `src/review-comments.ts` (rules), `src/review-store.ts` (local storage), `src/workspace-review.ts` (coordination), `src/review-context.ts` (text contract); see [review notes](docs/contracts/diff-review.md) |
 | Git and files | `src/workspace-changes.ts`, `src/changes-menu.ts`, `src/file-menu.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |

@@ -1388,6 +1388,12 @@ fn kilo(n: u64) -> String {
 }
 
 #[cfg(test)]
+pub(crate) mod contract;
+
+#[cfg(test)]
+mod process_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};

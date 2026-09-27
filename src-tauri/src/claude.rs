@@ -1050,6 +1050,9 @@ fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
 }
 
 #[cfg(test)]
+pub(crate) mod contract;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

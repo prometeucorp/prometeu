@@ -3,6 +3,22 @@
 Status: contract in force; identity/capabilities implemented by ADR 0003 and
 canonical events implemented by ADR 0002.
 
+## Process-boundary verification
+
+`codex/process_tests.rs` runs the real `codex::Link` and `chat::output_lines`
+against a controlled Node subprocess over stdin/stdout/stderr. It checks queued
+input through initialization, UTF-8 split across pipe writes, malformed and
+unknown lines, interruption, incomplete output at nonzero exit, and a new
+process resuming with the observed provider thread identity. A deadline kills
+a stalled peer and every child is reaped.
+
+The peer is synthetic, explicitly not a CLI recording. It uses no provider
+account, network or model. The tests prove framing and adapter behavior, not
+Tauri publication, account/config materialization, OS shutdown of real provider
+descendants, or compatibility with an installed provider version. Claude and
+Antigravity retain their existing adapter/fixture coverage; this subprocess
+scenario does not certify those transports.
+
 This contract defines the boundary between Prometeu and an agent CLI. It is not
 an API for language models: it describes local processes that have their own
 catalog, session, protocol and capabilities.

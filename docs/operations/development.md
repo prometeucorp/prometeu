@@ -67,6 +67,7 @@ npm run build:mobile
 npm run test:release
 npm run test:web
 npm run test:rust
+npm run test:contracts
 npm run test:e2e
 npm run format:check
 npm run lint:rust
@@ -103,6 +104,9 @@ During development, run the smallest suite that covers the change first. Use
   TypeScript adapters.
 - Rust tests: lifecycle, Codex translation, state, paths, Git, internal IPC and
   processes.
+- Serialization contracts: real Rust payloads match a checked fixture; literal
+  TypeScript checks and production consumers verify the represented wire shapes.
+  See [coverage and limits](../contracts/ipc.md#executable-serialization-examples).
 - Worker integration: authentication and the real behavior of the local relay.
 - Playwright: critical UI flows against the mock.
 - Typecheck/build: imports, types, the i18n catalog and the bundle.
@@ -113,6 +117,16 @@ During development, run the smallest suite that covers the change first. Use
   effects, and presentation/protocol checks stay in force. The exact scope and
   limits are in the [dependency rules](../architecture/dependency-rules.md).
 - Clippy/rustfmt: backend discipline.
+
+For an intentional serialization change, run `npm run contracts:update`, review
+`fixtures/backend-contract.json`, then run `npm run test:contracts` and
+`npm run test:rust`. The update command requires the normal native build
+dependencies. Never accept a changed fixture merely to silence a failure.
+
+The controlled Codex subprocess tests run with
+`npm run test:rust -- process_transport`. They use Node and real stdio pipes,
+with a bounded child lifetime, without starting a provider or opening a window.
+Their synthetic peer is separate from recorded CLI conformance fixtures.
 
 Worker integration tests use Wrangler's test harness with HTTP requests sent
 directly to workerd, avoiding the development proxy's upstream connection loss
@@ -236,6 +250,10 @@ This repository's `.prometeu/settings.toml` offers the app itself and the mock
 as dogfooding scripts.
 
 ## Capturing agent fixtures
+
+Synthetic boundary scenarios must identify themselves as synthetic and state
+what they exercise. They must not claim a provider version or replace recorded
+CLI conformance evidence. The requirements below apply to recorded fixtures.
 
 Protocol fixtures must:
 

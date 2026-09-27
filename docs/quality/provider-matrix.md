@@ -34,6 +34,19 @@ retains unknown turn attribution; capture health exposes that limit. These are
 fixture-based guarantees, not live certification of every installed provider
 version. Full semantics are in the [contract](../contracts/telemetry.md).
 
+Verification additions shared by the existing features:
+
+- `boundary_contract.rs`, `scripts/check-contracts.mjs` and
+  `src/backend-contract.test.ts` check backend board/model serialization and
+  synthetic Claude/Codex output against frontend types and reducers. Antigravity
+  retains its recorded canonical fixture in `src/conversation.test.ts`.
+- `codex/process_tests.rs` checks initialization, split UTF-8, interruption,
+  partial output at process exit and resume through a controlled subprocess.
+  It does not establish live CLI compatibility or equivalent subprocess coverage
+  for Claude/Antigravity; see the [runtime contract](../contracts/agent-runtime.md#process-boundary-verification).
+- `workspace_lifecycle.rs` tests finish/archive/restore state preservation for
+  every provider through shared board rules, without invoking any provider.
+
 ## Legend
 
 - **Native:** the CLI already speaks the form consumed today.
