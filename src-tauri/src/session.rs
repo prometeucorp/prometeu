@@ -490,8 +490,9 @@ pub fn workspace_tools(
 
 /// The CLI-inherited servers of one workspace, absent from the hub, for the composer's picker rows
 /// and button gating (ADR 0046). Discovery reads Claude's configuration, so a Codex conversation has
-/// no inherited base and its rows stay hub-only.
-#[tauri::command]
+/// no inherited base and its rows stay hub-only. It runs off the main thread because the account
+/// connectors may cost a request when the cache is cold (ADR 0063).
+#[tauri::command(async)]
 pub fn mcp_inherited(
     state: State<AppState>,
     id: String,

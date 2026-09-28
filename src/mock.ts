@@ -623,7 +623,7 @@ function toolLayers(ws: Workspace, agent = ws.agent) {
   const own = workspaceTools(ws);
   const mcpIds = mcpHub.map((s) => s.id);
   // The Claude CLI base joins the universe below the hub; other agents have no inherited servers.
-  const base = agent === "claude" ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
+  const base = agent === "claude" ? cliBase().map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
   const pluginIds = pluginHub.map((p) => p.id);
   return { gate, declaredTools, global, own, base, mcpUniverse: [...mcpIds, ...base], pluginIds };
 }
@@ -747,12 +747,25 @@ let mcpHub: McpServer[] = [
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
 ];
 
-/// Servers discoverable from the user's Claude configuration; they form the CLI-inherited base of
-/// the workspace picker (ADR 0046) and the import menu.
+/// Servers discoverable from the user's Claude configuration files; they are importable into the
+/// hub and, with the account connectors, form the CLI-inherited base of the picker (ADR 0046).
 const cliServers: McpServer[] = [
   { id: "metabase", config: { type: "http", url: "https://metabase.example/mcp" }, note: "capim-backend" },
   { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
 ];
+
+/// Connectors of the person's Claude account (ADR 0063). They live in no configuration file, so
+/// they join the inherited base but never the import menu.
+const accountConnectors: McpServer[] = [
+  {
+    id: "claude.ai Linear",
+    config: { type: "claudeai-proxy", url: "https://mcp.linear.app/mcp", id: "mcpsrv_mock" },
+    note: "claude.ai",
+  },
+];
+
+/// The whole inherited base of a Claude workspace: configuration files first, account last.
+const cliBase = (): McpServer[] => [...cliServers, ...accountConnectors];
 
 /// Count tool-selection writes so tests can verify that each axis persists independently.
 let writes = 0;
@@ -1849,7 +1862,7 @@ const mockCommands: IpcHandlers = {
   mcp_inherited(args) {
     const ws = board.workspaces.find((x) => x.id === args.id);
     if (!ws || (args.agent ?? ws.agent) !== "claude") return [];
-    return cliServers.filter((s) => !mcpHub.some((h) => h.id === s.id));
+    return cliBase().filter((s) => !mcpHub.some((h) => h.id === s.id));
   },
   // Plugin hub behavior mirrors MCP hub editing.
   plugin_hub() {

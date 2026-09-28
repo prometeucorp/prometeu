@@ -2,7 +2,8 @@
 
 Date: 2026-09-15
 Status: Accepted — Discovery is superseded by
-[ADR 0047](0047-tool-selection-boundaries.md).
+[ADR 0047](0047-tool-selection-boundaries.md) and extended by
+[ADR 0063](0063-account-connectors-in-the-mcp-base.md).
 
 Amends the "Authority" section of
 [ADR 0045](0045-layered-tool-selection.md); the rest of that decision stands.
@@ -53,7 +54,9 @@ configuration form a **visible inherited base**, and the picker's universe is
   directory, and the directory's `.mcp.json` plus every ancestor directory's,
   nearest first, as Claude Code walks the tree upward. The first occurrence of
   an ID wins; a hub server shadows a discovered one with the same ID. Discovery
-  is read-only and requires no import.
+  is read-only and requires no import. The CLI later added a source that lives
+  in no file — the account's claude.ai connectors — which
+  [ADR 0063](0063-account-connectors-in-the-mcp-base.md) adds to this base.
 - **Resolution.** `selection.rs` gains `resolve_with_base`, which seeds the
   chain with an implicit `{ base: "inherit", add: <base> }` layer below
   global. `base: "none"` at any layer therefore also replaces the CLI base.

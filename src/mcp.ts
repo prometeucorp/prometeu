@@ -48,9 +48,10 @@ export async function load() {
 /// Deleted registry entries remain in persisted workspace choices. Show unavailable selections explicitly so users can remove them.
 export const known = (id: string) => hub.some((s) => s.id === id);
 
-/// Servers discovered from the person's CLI configuration that the hub lacks (ADR 0046). They form
-/// the visible inherited base of the workspace picker, cached per workspace and provider because discovery
-/// reads files under the workspace directory.
+/// Servers the CLI itself loads and the hub lacks: the person's CLI configuration (ADR 0046) plus
+/// the connectors of their Claude account (ADR 0063). They form the visible inherited base of the
+/// workspace picker, cached per workspace and provider because discovery reads files under the
+/// workspace directory.
 const inherited = new Map<string, McpServer[]>();
 /// Workspaces with a discovery in flight, so repeated paints do not stack fetches.
 const inflight = new Set<string>();
@@ -107,8 +108,9 @@ type Pick = {
 
 /// Provenance-aware MCP picker (ADR 0045): it shows the resolved effective set and writes the
 /// workspace layer as deltas over what the global and project layers already contribute. Rows come
-/// from the hub plus the CLI-inherited base (ADR 0046), so servers Claude Code loads on its own are
-/// visible and removable without importing them first.
+/// from the hub plus the CLI-inherited base — configuration files (ADR 0046) and account connectors
+/// (ADR 0063) — so servers Claude Code loads on its own are visible and removable without importing
+/// them first.
 export async function openPicker(p: Pick) {
   try {
     inherited.set(inheritedKey(p.workspace, p.agent), await invoke("mcp_inherited", { id: p.workspace, agent: p.agent }));
