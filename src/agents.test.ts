@@ -3,7 +3,7 @@ import { capabilitiesOf, catalogOf, effortsOf, installed, isKnownModel, loadAgen
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("./ipc", () => ({ invoke: mocks.invoke }));
-const common: AgentCapabilities = { initialPlanMode: false, workspaceMcpSelection: true, workspacePluginSelection: true, resume: true, compact: true, contextReport: true, approvals: true, userQuestions: true, attachments: true };
+const common: AgentCapabilities = { initialPlanMode: false, workspaceMcpSelection: true, workspacePluginSelection: true, resume: true, compact: true, contextReport: true, approvals: true, userQuestions: true, attachments: true, readOnlyProfile: true };
 let models: Record<string, AgentModel[]>;
 beforeEach(() => {
   models = { claude: [{ id: "opus", label: "Live Opus", efforts: ["high", "xhigh"] }], codex: [{ id: "shared", label: "GPT", efforts: ["none", "low", "ultra", "future"] }], antigravity: [{ id: "shared", label: "Gemini", efforts: [] }] };

@@ -56,6 +56,8 @@ pub struct AgentCapabilities {
     pub approvals: bool,
     pub user_questions: bool,
     pub attachments: bool,
+    /// The adapter enforces a read-only task profile by construction instead of by instruction.
+    pub read_only_profile: bool,
 }
 
 /// Return every supported provider even when its installation is unavailable.
@@ -98,6 +100,9 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
         // The app injects local file paths into messages. Both runtimes can read the same worktree;
         // no provider upload or binary payload is involved.
         attachments: true,
+        // Claude's restricted dontAsk mode and Codex's read-only sandbox remove write access;
+        // see actions::Access.
+        read_only_profile: true,
     };
     match id {
         ProviderId::Claude => AgentCapabilities {
@@ -113,6 +118,7 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
             compact: false,
             context_report: false,
             user_questions: false,
+            read_only_profile: false,
             ..common
         },
     }
@@ -262,11 +268,14 @@ mod tests {
         assert!(codex.capabilities.workspace_plugin_selection);
         assert!(codex.capabilities.workspace_mcp_selection);
         assert!(codex.capabilities.resume);
+        assert!(claude.capabilities.read_only_profile);
+        assert!(codex.capabilities.read_only_profile);
 
         let json = serde_json::to_value(codex).unwrap();
         assert_eq!(json["id"], "codex");
         assert_eq!(json["capabilities"]["initialPlanMode"], false);
         assert_eq!(json["capabilities"]["workspaceMcpSelection"], true);
+        assert_eq!(json["capabilities"]["readOnlyProfile"], true);
     }
     #[test]
     fn antigravity_advertises_only_supported_controls_and_external_account() {
@@ -279,6 +288,7 @@ mod tests {
         assert!(!g.capabilities.user_questions);
         assert!(!g.capabilities.workspace_mcp_selection);
         assert!(!g.capabilities.workspace_plugin_selection);
+        assert!(!g.capabilities.read_only_profile);
         let v = serde_json::to_value(g).unwrap();
         assert_eq!(v["authMethods"][0]["id"], "external");
         assert_eq!(v["authMethods"].as_array().unwrap().len(), 1);

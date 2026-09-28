@@ -115,12 +115,18 @@ type AgentCapabilities = {
   approvals: boolean;
   userQuestions: boolean;
   attachments: boolean;
+  readOnlyProfile: boolean;
 };
 ```
 
 This is the minimum set observed by the current interface. A capability only
 enters here when it changes behavior offered by the application. Protocol
 details, such as the name of a JSON-RPC method, are not capabilities.
+
+`readOnlyProfile` means the adapter can run a task profile whose `access` is
+`read_only` with write access removed by the CLI itself; see
+[actions](actions.md#access-level). Claude and Codex advertise it; Antigravity
+does not.
 
 Skills selection reuses the plugin pipeline, so the existing
 `workspacePluginSelection` also gates it. Resolving the global and project

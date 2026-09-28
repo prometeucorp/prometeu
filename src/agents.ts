@@ -18,6 +18,7 @@ export type AgentCapabilities = {
   approvals: boolean;
   userQuestions: boolean;
   attachments: boolean;
+  readOnlyProfile: boolean;
 };
 
 export type AuthMethod = { id: string; kind: "browser" | "external"; label: string };
@@ -54,6 +55,7 @@ const NO_CAPABILITIES: AgentCapabilities = {
   approvals: false,
   userQuestions: false,
   attachments: false,
+  readOnlyProfile: false,
 };
 
 /// Explicit bootstrap and failure states allow Claude startup without advertising unconfirmed optional capabilities.

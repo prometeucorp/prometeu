@@ -1692,6 +1692,7 @@ const mockCommands: IpcHandlers = {
             approvals: true,
             userQuestions: true,
             attachments: true,
+            readOnlyProfile: true,
           },
         },
         {
@@ -1714,6 +1715,7 @@ const mockCommands: IpcHandlers = {
             approvals: true,
             userQuestions: true,
             attachments: true,
+            readOnlyProfile: true,
           },
         },
         {
@@ -1722,7 +1724,7 @@ const mockCommands: IpcHandlers = {
           accountNotice: t("account.external.notice"),
           models: [],
           capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
-            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
+            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false, readOnlyProfile: false },
         },
       ],
     };
