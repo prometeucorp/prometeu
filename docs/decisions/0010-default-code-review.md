@@ -15,13 +15,16 @@ Include the editable **Code review** profile, associated with `/review`, on the
 first opening after this change. The profile reviews changes, reports findings
 and validation gaps and ends the turn. It does not publish a PR, modify files or
 follow CI by default. Those responsibilities stay configurable in other
-profiles.
+profiles. Since [ADR 0064](0064-cross-family-review.md), the adapter enforces
+its read-only access and it runs on a provider other than the builder's when one
+is available.
 
-The additive `defaults_initialized` field records the initialization. The
-default is materialized in the registry, instead of being an implicit layer that
-reappears after removal. An existing configuration with the same command or
-identity takes precedence; it is not replaced. The Open PR button keeps the
-person's choice.
+The additive `defaults_initialized` field records the initialization;
+`defaults_revision` records later seed upgrades, which replace only a profile
+identical to an earlier seed. The default is materialized in the registry,
+instead of being an implicit layer that reappears after removal. An existing
+configuration with the same command or identity takes precedence; it is not
+replaced. The Open PR button keeps the person's choice.
 
 The source JSON is shared by the backend and the mock. There is no transcript
 migration and no change in the configuration of tasks already started.

@@ -113,6 +113,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0061](decisions/0061-background-energy-policy.md): explicit system-only inhibition while a macOS agent works.
 - [ADR 0062](decisions/0062-local-diff-review.md): local review notes and explicit batch submission.
 - [ADR 0063](decisions/0063-account-connectors-in-the-mcp-base.md): the account's claude.ai connectors join the inherited MCP base.
+- [ADR 0064](decisions/0064-cross-family-review.md): the default review runs read-only, on another provider family when one is available.
 
 ## Local telemetry
 

@@ -22,14 +22,17 @@ same session.
 ## Decision
 
 Adopt the third option. Commands expand prompts or start agents in another tab.
-Profiles have a prompt, model/provider/effort, MCP, plugins, skills, permissions
-and optional tracking. Projects can override profiles. Executions store the
-resolved configuration; the session is still the transcript.
+Profiles have a prompt, model/provider/effort or a provider rule, an access
+level, MCP, plugins, skills, permissions and optional tracking
+([ADR 0064](0064-cross-family-review.md)). Projects can override profiles.
+Executions store the resolved configuration; the session is still the
+transcript.
 
 A single session takes responsibility for the delivery. Review, publication and
 fixes are profile instructions; they are not deterministic gates of a workflow
-engine. A textual result from the agent does not prove review approval. The
-example requires checking the published code and does not authorize a merge.
+engine. Read-only access is the exception: the adapter enforces it. A textual
+result from the agent does not prove review approval. The example requires
+checking the published code and does not authorize a merge.
 
 Tracking uses polling in the local backend through `gh`. The model only gets a
 turn when there is news. There are no webhooks, no change in the relay's
