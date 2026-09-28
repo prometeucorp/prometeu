@@ -3,6 +3,7 @@
     "actions": {
       "commands": [],
       "defaults_initialized": false,
+      "defaults_revision": 0,
       "overrides": {},
       "pr_action": null,
       "profiles": []

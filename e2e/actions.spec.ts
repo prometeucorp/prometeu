@@ -50,6 +50,7 @@ test("model picker: editing instructions preserves a profile’s historical mode
     const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
     const board = await invoke("load_board") as Board;
     const profile = board.actions.profiles[0];
+    profile.provider_rule = "fixed"; profile.candidates = [];
     profile.choice = { agent: "codex", model: "retired-model", effort: "retired-effort" };
     await invoke("actions_save", { catalog: board.actions });
   });

@@ -3559,6 +3559,9 @@ mod tests {
                 model: "sonnet".into(),
                 ..Default::default()
             },
+            provider_rule: crate::actions::ProviderRule::Fixed,
+            candidates: vec![],
+            access: crate::actions::Access::Default,
             mcp: None,
             plugins: Some(vec![]),
             skills: vec!["review".into()],

@@ -134,6 +134,7 @@ function selection(key: Key, values: string[] | null, available: string[]) {
 function profileEditor(old: actions.Profile | null, project: string, redraw: () => void) {
   const profile: actions.Profile = structuredClone(old ?? {
     id: crypto.randomUUID(), name: "", prompt: "", choice: { agent: "claude", model: "", effort: "" },
+    provider_rule: "fixed", candidates: [], access: "default",
     mcp: null, plugins: null, skills: [], permission: "ask", watch: null,
   });
   sheet(t("actions.profileEditor"), body => {
@@ -239,7 +240,7 @@ function delivery(redraw: () => void, say: (text: string, bad?: boolean) => void
   const next = structuredClone(actions.catalog());
   if (next.commands.some(c => c.name === "entregar")) { say(t("err.actions.used"), true); return; }
   const id = crypto.randomUUID();
-  next.profiles.push({ id, name: t("actions.deliveryName"), prompt: t("actions.deliveryPrompt"), choice: { agent: "claude", model: "", effort: "" }, mcp: null, plugins: null, skills: [], permission: "ask", watch: { interval_seconds: 60, comments: true, ci: true, max_turns: 10 } });
+  next.profiles.push({ id, name: t("actions.deliveryName"), prompt: t("actions.deliveryPrompt"), choice: { agent: "claude", model: "", effort: "" }, provider_rule: "fixed", candidates: [], access: "default", mcp: null, plugins: null, skills: [], permission: "ask", watch: { interval_seconds: 60, comments: true, ci: true, max_turns: 10 } });
   next.commands.push({ name: "entregar", description: t("actions.deliveryName"), kind: "agent", profile: id, prompt: t("actions.deliveryStart") });
   void actions.save(next).then(redraw).catch(e => say(fromBack(e), true));
 }

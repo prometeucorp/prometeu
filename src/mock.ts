@@ -4,7 +4,8 @@ import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
-import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
+import { emptyCatalog, initializeDefaults, validRules, type Catalog, type Profile } from "./actions";
+import type { AgentDescriptor } from "./agents";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
 import { simulatedSocket } from "./team-mock";
 import * as browser from "./mock-browser";
@@ -99,6 +100,62 @@ function accountSnapshot() {
   localStorage.setItem("mock:accounts", JSON.stringify({ ...snapshot, login: null }));
   emit("accounts", snapshot);
   return snapshot;
+}
+
+/// The mock's discovered providers, shared by `agents` and the task rules that read installations and capabilities.
+function mockProviders(): AgentDescriptor[] {
+  return [
+    {
+      id: "claude",
+      label: "Claude",
+      authMethods: [{ id: "browser", kind: "browser", label: "Claude" }],
+      installed: true,
+      models: [],
+      capabilities: {
+        initialPlanMode: true,
+        workspaceMcpSelection: true,
+        workspacePluginSelection: true,
+        resume: true,
+        compact: true,
+        contextReport: true,
+        approvals: true,
+        userQuestions: true,
+        attachments: true,
+        readOnlyProfile: true,
+      },
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      authMethods: [{ id: "browser", kind: "browser", label: "Codex" }],
+      installed: true,
+      models: [
+        { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+        { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+        { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
+      ],
+      capabilities: {
+        initialPlanMode: false,
+        workspaceMcpSelection: true,
+        workspacePluginSelection: true,
+        resume: true,
+        compact: true,
+        contextReport: true,
+        approvals: true,
+        userQuestions: true,
+        attachments: true,
+        readOnlyProfile: true,
+      },
+    },
+    {
+      id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
+      authMethods: [{ id: "external", kind: "external", label: t("account.external.attach") }],
+      accountNotice: t("account.external.notice"),
+      models: [],
+      capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
+        workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false, readOnlyProfile: false },
+    },
+  ];
 }
 
 const ws = (
@@ -1062,7 +1119,8 @@ const mockCommands: IpcHandlers = {
   },
   actions_save(args) {
     const catalog = args.catalog as Catalog;
-    if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim() || (p.watch && (p.watch.interval_seconds < 30 || p.watch.max_turns < 1 || p.watch.max_turns > 100)))) {
+    if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim() || (p.watch && (p.watch.interval_seconds < 30 || p.watch.max_turns < 1 || p.watch.max_turns > 100)))
+      || [...catalog.profiles, ...Object.values(catalog.overrides).flatMap(map => Object.values(map))].some(p => !validRules(p, agent => mockProviders().find(d => d.id === agent)?.capabilities.readOnlyProfile ?? false))) {
       throw `i18n:${JSON.stringify({ code: "err.actions.invalid" })}`;
     }
     board.actions = structuredClone(catalog);
@@ -1674,60 +1732,7 @@ const mockCommands: IpcHandlers = {
   async agents() {
     const delay = Number(localStorage.getItem("mock:agentsDelay") ?? 0);
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-    return {
-      providers: [
-        {
-          id: "claude",
-          label: "Claude",
-          authMethods: [{ id: "browser", kind: "browser", label: "Claude" }],
-          installed: true,
-          models: [],
-          capabilities: {
-            initialPlanMode: true,
-            workspaceMcpSelection: true,
-            workspacePluginSelection: true,
-            resume: true,
-            compact: true,
-            contextReport: true,
-            approvals: true,
-            userQuestions: true,
-            attachments: true,
-            readOnlyProfile: true,
-          },
-        },
-        {
-          id: "codex",
-          label: "Codex",
-          authMethods: [{ id: "browser", kind: "browser", label: "Codex" }],
-          installed: true,
-          models: [
-            { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-            { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-            { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
-          ],
-          capabilities: {
-            initialPlanMode: false,
-            workspaceMcpSelection: true,
-            workspacePluginSelection: true,
-            resume: true,
-            compact: true,
-            contextReport: true,
-            approvals: true,
-            userQuestions: true,
-            attachments: true,
-            readOnlyProfile: true,
-          },
-        },
-        {
-          id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
-          authMethods: [{ id: "external", kind: "external", label: t("account.external.attach") }],
-          accountNotice: t("account.external.notice"),
-          models: [],
-          capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
-            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false, readOnlyProfile: false },
-        },
-      ],
-    };
+    return { providers: mockProviders() };
   },
   async agent_models({ agent }) {
     const delay = Number(localStorage.getItem(`mock:catalogDelay:${agent}`) ?? 0);

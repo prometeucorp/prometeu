@@ -1,7 +1,7 @@
 //! The app owns reusable commands and profiles. Each execution stores a resolved copy; the monitor
 //! queries GitHub without keeping a model turn active.
 use crate::lock::lock;
-use crate::state::{publish, Choice, Status, Tab};
+use crate::state::{publish, Choice, ProviderId, Status, Tab};
 use crate::{chat, i18n, session, AppState};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -11,6 +11,10 @@ use tauri::{AppHandle, Manager, State};
 pub struct Catalog {
     #[serde(default)]
     pub defaults_initialized: bool,
+    /// Seed revision already applied. Absent in catalogs from before revisions, which the upgrade
+    /// treats as revision 1, ADR 0010's profile.
+    #[serde(default)]
+    pub defaults_revision: u32,
     pub profiles: Vec<Profile>,
     pub commands: Vec<Action>,
     /// Project overrides replace the whole profile; absence inherits the global profile.
@@ -21,25 +25,34 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// Initialize once so removing or customizing the profile survives subsequent startup.
+    /// Seed once so removing or customizing the profile survives later startups. A catalog seeded
+    /// by an earlier revision gets the current profile only while it is still identical to an
+    /// earlier seed; the revision records that the upgrade ran, so it never runs twice.
     pub fn initialize_defaults(&mut self) {
-        if self.defaults_initialized {
-            return;
-        }
         #[derive(Deserialize)]
         struct Seed {
+            revision: u32,
             profile: Profile,
             command: Action,
+            previous: Vec<Profile>,
         }
         let seed: Seed = serde_json::from_str(include_str!("../../src/action-defaults.json"))
             .expect("valid bundled action defaults");
-        if !self.profiles.iter().any(|p| p.id == seed.profile.id)
-            && !self.commands.iter().any(|c| c.name == seed.command.name)
-        {
-            self.profiles.push(seed.profile);
-            self.commands.push(seed.command);
+        if self.defaults_initialized && self.defaults_revision >= seed.revision {
+            return;
+        }
+        if !self.defaults_initialized {
+            if !self.profiles.iter().any(|p| p.id == seed.profile.id)
+                && !self.commands.iter().any(|c| c.name == seed.command.name)
+            {
+                self.profiles.push(seed.profile);
+                self.commands.push(seed.command);
+            }
+        } else if let Some(profile) = self.profiles.iter_mut().find(|p| seed.previous.contains(p)) {
+            *profile = seed.profile;
         }
         self.defaults_initialized = true;
+        self.defaults_revision = seed.revision;
     }
 }
 
@@ -51,12 +64,41 @@ pub enum Permission {
     Auto,
 }
 
+/// How a task picks its provider when it starts.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderRule {
+    /// Always `choice`.
+    #[default]
+    Fixed,
+    /// The first usable candidate whose provider did not build the workspace; see reviewer.rs.
+    DifferentFromBuilder,
+}
+
+/// What a task may change. Adapters materialize `ReadOnly`; `permission` applies only to
+/// `Default`.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    #[default]
+    Default,
+    ReadOnly,
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct Profile {
     pub id: String,
     pub name: String,
     pub prompt: String,
     pub choice: Choice,
+    #[serde(default)]
+    pub provider_rule: ProviderRule,
+    /// Ordered candidates for `DifferentFromBuilder`, each with its own model and effort. `choice`
+    /// mirrors the first, so an app that ignores these fields runs it as a fixed profile.
+    #[serde(default)]
+    pub candidates: Vec<Choice>,
+    #[serde(default)]
+    pub access: Access,
     pub mcp: Option<Vec<String>>,
     pub plugins: Option<Vec<String>>,
     pub skills: Vec<String>,
@@ -113,6 +155,38 @@ fn valid_name(name: &str) -> bool {
         && !matches!(name, "compact" | "context")
 }
 
+/// The providers a profile can start with.
+fn providers(p: &Profile) -> Vec<ProviderId> {
+    match p.provider_rule {
+        ProviderRule::Fixed => vec![p.choice.agent],
+        ProviderRule::DifferentFromBuilder => p.candidates.iter().map(|c| c.agent).collect(),
+    }
+}
+
+fn valid_rule(p: &Profile) -> bool {
+    match p.provider_rule {
+        ProviderRule::Fixed => p.candidates.is_empty(),
+        ProviderRule::DifferentFromBuilder => {
+            (1..=3).contains(&p.candidates.len())
+                && p.candidates[0] == p.choice
+                && p.candidates.iter().enumerate().all(|(i, c)| {
+                    c.agent != ProviderId::RetiredGemini
+                        && !p.candidates[..i].iter().any(|other| other.agent == c.agent)
+                })
+        }
+    }
+}
+
+/// Every provider the profile can start with must enforce read-only access, and MCP tools run
+/// outside that envelope, so an explicit server selection contradicts it.
+fn valid_access(p: &Profile) -> bool {
+    p.access == Access::Default
+        || (providers(p)
+            .into_iter()
+            .all(|agent| crate::agents::capabilities(agent).read_only_profile)
+            && p.mcp.as_ref().is_none_or(Vec::is_empty))
+}
+
 fn validate_profile(p: &Profile) -> Result<(), String> {
     if p.id.is_empty()
         || p.name.trim().is_empty()
@@ -126,6 +200,8 @@ fn validate_profile(p: &Profile) -> Result<(), String> {
                 || !(1..=100).contains(&w.max_turns)
                 || (!w.comments && !w.ci)
         })
+        || !valid_rule(p)
+        || !valid_access(p)
     {
         return Err(i18n::t("err.actions.invalid"));
     }
@@ -589,6 +665,9 @@ mod tests {
             name: "Revisor".into(),
             prompt: "Revise".into(),
             choice: Choice::default(),
+            provider_rule: ProviderRule::Fixed,
+            candidates: vec![],
+            access: Access::Default,
             mcp: None,
             plugins: None,
             skills: vec![],
@@ -611,10 +690,10 @@ mod tests {
         assert_eq!(board.actions.profiles[0].name, "Code review");
         assert!(board.actions.profiles[0].watch.is_none());
         assert!(validate(&board.actions).is_ok());
-        board.actions.profiles[0].choice.model = "opus".into();
+        board.actions.profiles[0].prompt = "Custom review".into();
         board.revive();
         assert_eq!(board.actions.profiles.len(), 1);
-        assert_eq!(board.actions.profiles[0].choice.model, "opus");
+        assert_eq!(board.actions.profiles[0].prompt, "Custom review");
         board.actions.commands.clear();
         board.actions.profiles.clear();
         let mut restored: crate::state::Board =
@@ -636,6 +715,97 @@ mod tests {
         assert_eq!(collision.commands.len(), 1);
         assert_eq!(collision.commands[0].prompt, "Custom");
         assert!(collision.profiles.is_empty());
+    }
+
+    fn seed() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../src/action-defaults.json")).unwrap()
+    }
+
+    #[test]
+    fn the_bundled_reviewer_is_cross_family_and_read_only() {
+        let mut c = Catalog::default();
+        c.initialize_defaults();
+        let p = &c.profiles[0];
+        assert_eq!(p.provider_rule, ProviderRule::DifferentFromBuilder);
+        assert_eq!(p.access, Access::ReadOnly);
+        let agents: Vec<_> = p.candidates.iter().map(|c| c.agent).collect();
+        assert_eq!(agents, [ProviderId::Codex, ProviderId::Claude]);
+        assert!(p.candidates[0] == p.choice);
+        assert_eq!(
+            c.defaults_revision,
+            seed()["revision"].as_u64().unwrap() as u32
+        );
+        assert!(validate(&c).is_ok());
+    }
+
+    #[test]
+    fn older_catalogs_load_and_upgrade_only_the_untouched_seed() {
+        let command = seed()["command"].clone();
+        let previous = seed()["previous"][0].clone();
+        let catalog = |profile: serde_json::Value| -> Catalog {
+            // A catalog written before this change: no rule, candidates, access or revision.
+            serde_json::from_value(json!({
+                "defaults_initialized": true, "profiles": [profile], "commands": [command]
+            }))
+            .unwrap()
+        };
+        let mut untouched = catalog(previous.clone());
+        assert_eq!(untouched.profiles[0].provider_rule, ProviderRule::Fixed);
+        assert_eq!(untouched.profiles[0].access, Access::Default);
+        untouched.initialize_defaults();
+        assert_eq!(untouched.profiles[0].access, Access::ReadOnly);
+        assert_eq!(untouched.profiles[0].choice.agent, ProviderId::Codex);
+        // The upgrade runs once; returning to the old shape later is the person's choice.
+        let mut reverted: Catalog =
+            serde_json::from_str(&serde_json::to_string(&untouched).unwrap()).unwrap();
+        reverted.profiles[0] = serde_json::from_value(previous.clone()).unwrap();
+        reverted.initialize_defaults();
+        assert_eq!(reverted.profiles[0].choice.agent, ProviderId::Claude);
+        assert_eq!(reverted.profiles[0].access, Access::Default);
+        let mut custom = previous;
+        custom["choice"]["model"] = json!("opus");
+        let mut customized = catalog(custom);
+        customized.initialize_defaults();
+        assert_eq!(customized.profiles[0].choice.model, "opus");
+        assert_eq!(customized.profiles[0].provider_rule, ProviderRule::Fixed);
+        assert_eq!(customized.defaults_revision, untouched.defaults_revision);
+    }
+
+    #[test]
+    fn provider_rules_and_read_only_access_are_validated() {
+        let valid = |p: &Profile| validate_profile(p).is_ok();
+        let choice = |agent| Choice {
+            agent,
+            ..Default::default()
+        };
+        let mut p = profile();
+        p.watch = None;
+        assert!(valid(&p));
+        p.candidates = vec![choice(ProviderId::Claude)];
+        assert!(!valid(&p), "a fixed profile carries no candidates");
+        p.provider_rule = ProviderRule::DifferentFromBuilder;
+        p.choice = choice(ProviderId::Codex);
+        p.candidates = vec![choice(ProviderId::Codex), choice(ProviderId::Claude)];
+        assert!(valid(&p));
+        p.choice = choice(ProviderId::Claude);
+        assert!(!valid(&p), "choice mirrors the first candidate");
+        p.choice = choice(ProviderId::Codex);
+        p.candidates.push(choice(ProviderId::Codex));
+        assert!(!valid(&p), "providers are distinct");
+        p.candidates = vec![choice(ProviderId::Codex), choice(ProviderId::RetiredGemini)];
+        assert!(!valid(&p), "retired providers cannot run");
+        p.candidates = vec![];
+        assert!(!valid(&p), "the rule needs a candidate");
+        p.candidates = vec![choice(ProviderId::Codex), choice(ProviderId::Antigravity)];
+        assert!(valid(&p));
+        p.access = Access::ReadOnly;
+        assert!(!valid(&p), "Antigravity cannot enforce read-only access");
+        p.candidates.pop();
+        assert!(valid(&p));
+        p.mcp = Some(vec!["server".into()]);
+        assert!(!valid(&p), "MCP tools run outside the read-only envelope");
+        p.mcp = Some(vec![]);
+        assert!(valid(&p));
     }
 
     #[test]
