@@ -162,5 +162,6 @@ current system until the corresponding implementation is accepted.
 ## Implementation records
 
 - [Diff review design](superpowers/specs/2026-09-26-diff-review-design.md).
+- [Cross-family review design](superpowers/specs/2026-09-28-cross-family-review-design.md).
 - [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).
 - [Review calibration implementation plan](superpowers/plans/2026-09-27-review-calibration.md).
