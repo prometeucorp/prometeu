@@ -182,6 +182,7 @@ fn launch_args(
     launch: &Launch,
 ) -> Result<Vec<String>, String> {
     if launch.plan
+        || launch.access == crate::actions::Access::ReadOnly
         || [&launch.mcp, &launch.plugins, &launch.skills]
             .iter()
             .any(|v| v.as_ref().is_some_and(|ids| !ids.is_empty()))
@@ -750,6 +751,9 @@ mod tests {
         assert!(launch_args(None, worktree, &launch).is_err());
         launch.plan = false;
         launch.mcp = Some(vec!["selected".into()]);
+        assert!(launch_args(None, worktree, &launch).is_err());
+        launch.mcp = None;
+        launch.access = crate::actions::Access::ReadOnly;
         assert!(launch_args(None, worktree, &launch).is_err());
     }
     #[test]

@@ -11,6 +11,7 @@ pub(crate) fn start(resume: Option<String>) -> Start {
         plugin_ids: vec![],
         plugin_hook_ids: vec![],
         permission: None,
+        access: Default::default(),
         instructions: String::new(),
     }
 }

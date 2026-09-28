@@ -3,7 +3,7 @@
 //! Tab.agent_session for resume. The app stores its rendered transcript separately from native
 //! Codex rollouts. Implement /compact through thread/compact/start and /context from tokenUsage;
 //! reject unsupported slash commands. Default sessions use approvalPolicy never and an unrestricted
-//! sandbox. Enable default_mode_request_user_input so ordinary turns can ask questions. Link
+//! sandbox; read-only tasks use the read-only sandbox. Enable default_mode_request_user_input so ordinary turns can ask questions. Link
 //! remains independent of threads and AppHandle for protocol tests.
 
 use crate::lock::lock;
@@ -30,6 +30,11 @@ pub fn spawn(
     resume: Option<String>,
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
+    let read_only = launch.access == crate::actions::Access::ReadOnly;
+    if read_only && launch.mcp.as_ref().is_some_and(|ids| !ids.is_empty()) {
+        // The core never freezes these together; refuse rather than drop a requested server.
+        return Err(i18n::t("err.actions.invalid"));
+    }
     let profile = accounts::active(crate::state::ProviderId::Codex)?;
     profile.prepare()?;
     // Standalone skills ride the plugin-package pipeline, so Codex materializes them together with
@@ -56,7 +61,14 @@ pub fn spawn(
     // Inject selected MCP configuration through -c and process environment secrets; see
     // mcp::codex_config. Materialization failure must stop startup rather than silently omit
     // selected tools.
-    if let Some((servers, env)) = crate::mcp::codex_config(id, launch.mcp.as_ref())? {
+    // Read-only replaces the whole MCP table, including servers from ~/.codex/config.toml.
+    let no_mcp = Vec::new();
+    let mcp = if read_only {
+        Some(&no_mcp)
+    } else {
+        launch.mcp.as_ref()
+    };
+    if let Some((servers, env)) = crate::mcp::codex_config(id, mcp)? {
         cmd.args(["-c", &format!("mcp_servers={servers}")]);
         for (key, value) in env {
             cmd.env(key, value);
@@ -71,6 +83,7 @@ pub fn spawn(
         plugin_ids: selected_plugins.ids,
         plugin_hook_ids: selected_plugins.hook_ids,
         permission: launch.permission,
+        access: launch.access,
         instructions: launch.instructions.clone(),
     };
     let io = chat::ProcessIo::new(
@@ -98,6 +111,8 @@ pub fn spawn(
 /// Thread startup settings.
 pub struct Start {
     pub permission: Option<crate::actions::Permission>,
+    /// Read-only tasks run in the operating system's read-only sandbox without approvals.
+    pub access: crate::actions::Access,
     pub instructions: String,
     pub cwd: String,
     pub resume: Option<String>,
@@ -663,10 +678,18 @@ impl Link {
     }
 
     fn open_thread(&mut self) {
+        let read_only = self.start.access == crate::actions::Access::ReadOnly;
         let mut params = json!({
             "cwd": self.start.cwd,
-            "approvalPolicy": if self.start.permission == Some(crate::actions::Permission::Ask) { "untrusted" } else { "never" },
-            "sandbox": "danger-full-access",
+            // The read-only sandbox blocks writes and network for commands; nothing prompts.
+            "approvalPolicy": if read_only {
+                "never"
+            } else if self.start.permission == Some(crate::actions::Permission::Ask) {
+                "untrusted"
+            } else {
+                "never"
+            },
+            "sandbox": if read_only { "read-only" } else { "danger-full-access" },
         });
         if !self.start.instructions.is_empty() {
             params["developerInstructions"] = Value::String(self.start.instructions.clone());
@@ -1434,6 +1457,7 @@ mod tests {
             plugin_ids: vec![],
             plugin_hook_ids: vec![],
             permission: None,
+            access: Default::default(),
             instructions: String::new(),
         };
         (Link::new(Box::new(out.clone()), start), out)
@@ -1489,6 +1513,56 @@ mod tests {
             "Review independently"
         );
         assert_eq!(message["params"]["threadId"], "previous");
+    }
+
+    #[test]
+    fn read_only_tasks_open_and_resume_in_the_read_only_sandbox() {
+        for resume in [None, Some("previous")] {
+            let (mut link, out) = link(resume);
+            link.start.access = crate::actions::Access::ReadOnly;
+            link.start.permission = Some(crate::actions::Permission::Ask);
+            out.take();
+            link.open_thread();
+            let method = if resume.is_some() {
+                "thread/resume"
+            } else {
+                "thread/start"
+            };
+            let sent = out.take();
+            let message = sent.iter().find(|v| v["method"] == method).unwrap();
+            assert_eq!(message["params"]["sandbox"], "read-only");
+            assert_eq!(message["params"]["approvalPolicy"], "never");
+        }
+    }
+
+    /// A read-only recording: the read runs and no approval request reaches the app.
+    #[test]
+    fn read_only_recording_has_no_approval_requests() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        let events: Vec<Value> = include_str!("codex/fixtures/read-only.ndjson")
+            .lines()
+            .flat_map(|line| link.on_line(line))
+            .collect();
+        assert!(events.iter().all(|e| e["type"] != "request.opened"));
+        assert!(events
+            .iter()
+            .any(|e| e["type"] == "tool.completed" && e["error"] == false));
+        assert!(events.iter().any(|e| e["type"] == "turn.completed"));
+        assert!(
+            out.take().iter().all(|m| m.get("result").is_none()),
+            "no server request was answered"
+        );
+    }
+
+    #[test]
+    fn ordinary_sessions_keep_full_access() {
+        let (mut link, out) = link(None);
+        out.take();
+        link.open_thread();
+        let sent = out.take();
+        let message = sent.iter().find(|v| v["method"] == "thread/start").unwrap();
+        assert_eq!(message["params"]["sandbox"], "danger-full-access");
     }
 
     /// Complete initialize and thread/start before sending other conversation input.
