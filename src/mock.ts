@@ -296,8 +296,10 @@ end
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
 
-/// Committed versions for the editor's change gutter; other sample files are unchanged since HEAD.
+/// Committed versions for the editor's change gutter: the sample files as they start, so edits and
+/// files created later read as changes, with one file already edited since HEAD.
 const committed: Record<string, string> = {
+  ...files,
   "app/adapters/transcriber.rb": files["app/adapters/transcriber.rb"]
     .replace('"gemini-3.6-flash"', '"gemini-3.5-flash"')
     .replace("        file.flush\n", "")
@@ -1579,7 +1581,8 @@ const mockCommands: IpcHandlers = {
       .slice(0, 40);
   },
   file_base(args) {
-    return committed[args.rel] ?? files[args.rel] ?? null;
+    // A file created after startup is new to Git, like an untracked file in the backend.
+    return committed[args.rel] ?? (args.rel in files ? "" : null);
   },
   file_stamp() {
     return "0";

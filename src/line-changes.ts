@@ -5,8 +5,9 @@
 export type LineChange = { kind: "A" | "M" | "D"; start: number; count: number };
 
 /// Past this many edits the middle of the file is reported as one modified range instead of paying
-/// for an exact comparison on every keystroke.
-const MAX_EDITS = 2000;
+/// for an exact comparison on every keystroke. The trace grows with its square: 500 edits keep it
+/// near 250k integers per pass.
+const MAX_EDITS = 500;
 
 const split = (text: string) => (text === "" ? [] : text.split("\n"));
 

@@ -184,7 +184,7 @@ untracked or only staged, returns `""`, so every line reads as new; an ignored
 file, a path outside Git, a binary file or one above `read_file`'s 2 MiB limit
 returns `null` and the editor draws no markers. The comparison runs in
 `src/line-changes.ts` against the live buffer, so unsaved edits move the
-markers at once; past 2000 edits the changed middle becomes one modified range.
+markers at once; past 500 edits the changed middle becomes one modified range.
 The viewer rereads the base when another file opens and at most every two
 seconds on board events, which covers a commit that leaves the file unchanged.
 Tests: `src/line-changes.test.ts` and `file_base_reads_the_committed_text_and_empty_for_new_files`.
