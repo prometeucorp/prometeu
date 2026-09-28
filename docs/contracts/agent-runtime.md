@@ -177,7 +177,7 @@ Semantics of the optional values:
   reads the board;
 - `read_only` access is materialized by adapters that advertise
   `readOnlyProfile` and refused by the others before spawning; it excludes plan
-  mode and MCP servers;
+  mode, MCP servers, plugins and skills;
 - `resume` is an opaque identity accepted by the provider. It may have been
   chosen by Prometeu, as in Claude, or returned by the provider, as in Codex.
 

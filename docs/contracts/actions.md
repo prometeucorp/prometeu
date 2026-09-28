@@ -12,7 +12,8 @@ runs read-only on a provider other than the builder's when one is available.
 The initialization is recorded so later removals and customizations are
 respected; existing names or identities are not overwritten. A catalog whose
 bundled profile is still identical to an earlier seed receives the current seed
-once; `defaults_revision` records it, so later edits stay. The source JSON is in
+once, at startup and whenever a Cloud catalog is applied; `defaults_revision`
+records it, so later edits stay. The source JSON is in
 [`action-defaults.json`](../../src/action-defaults.json). The registry is local,
 reusable across projects, and is not sent to the relay.
 
@@ -88,19 +89,25 @@ under `ask`; Codex uses `approvalPolicy: untrusted`; `auto` keeps the existing
 bypass. These options do not constitute worktree isolation.
 
 `read_only` requires every provider the profile can start with to advertise
-`readOnlyProfile`, and an MCP selection that is `null` or empty; the frozen task
-has no MCP servers. Adapters materialize it:
+`readOnlyProfile`, MCP and plugin selections that are `null` or empty, and no
+skill names; the frozen task has no MCP servers, plugins or skills, whatever the
+workspace selects. MCP tools, plugin hooks and servers, and skill tool grants
+act outside the envelope. Adapters materialize it and refuse a launch that
+carries any of them:
 
 - Claude: `--restricted --permission-mode dontAsk --tools
-  Read,Grep,Glob,Bash,Skill,Task --add-dir <worktree>` with
+  Read,Grep,Glob,Bash --add-dir <worktree>` with
   `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` and an inline empty strict
-  MCP configuration. Settings files are ignored, write tools are absent in the
-  session and its subagents, commands the CLI does not classify as read-only
-  are denied without a prompt, and bypass is refused. Plugins and skills
-  selected in Prometeu still load; plugins enabled only in CLI settings and
-  project skills do not.
+  MCP configuration. Settings files, CLI-enabled plugins and project skills are
+  ignored; write tools are absent; `Skill` is absent because skill grants,
+  bundled ones included, pre-approve commands; `Task` is absent because its
+  worktree isolation writes a git worktree; commands the CLI does not classify
+  as read-only are denied without a prompt; bypass is refused.
 - Codex: `sandbox: "read-only"` and `approvalPolicy: "never"` on start and
-  resume, with an empty `mcp_servers` table.
+  resume; `--disable` for `plugins`, `hooks`, `apps`, `computer_use` and
+  `browser_use`; and `-c mcp_servers.<name>.enabled=false` for every server in
+  the session's `config.toml`, because `-c mcp_servers={}` merges into that
+  table. A server name `-c` cannot address refuses the start.
 - Antigravity: refused before the spawn.
 
 Read-only access limits what injected repository content can do to the review

@@ -19,9 +19,11 @@ and whether the fallback was used.
   candidate as a fixed profile. `permission` keeps its meaning only under
   `default` access.
 - A `read_only` profile is valid only when every provider it can resolve to
-  advertises `AgentCapabilities.readOnlyProfile` and its MCP selection is
-  `null` or empty. Resolution freezes an empty MCP selection: MCP tools run
-  outside both providers' write envelopes, so read-only means no MCP servers.
+  advertises `AgentCapabilities.readOnlyProfile`, its MCP and plugin selections
+  are `null` or empty and it names no skills. Resolution freezes empty MCP and
+  plugin selections: MCP tools, plugin hooks and servers, and skill tool grants
+  act outside both providers' write envelopes, so read-only means no MCP
+  servers, plugins or skills.
 - Builder providers are the providers of the workspace's non-task tabs, each
   tab's `choice.agent` or `Workspace.agent` when it inherits; a workspace
   without such tabs contributes `Workspace.agent`. Delegation workers are
@@ -43,29 +45,32 @@ and whether the fallback was used.
 - `Launch.access` carries the frozen access to the adapters, which materialize
   it and refuse combinations they cannot honor:
   - Claude: `--restricted --permission-mode dontAsk --tools
-    Read,Grep,Glob,Bash,Skill,Task --add-dir <worktree>` with
+    Read,Grep,Glob,Bash --add-dir <worktree>` with
     `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`, plus `--strict-mcp-config
-    --mcp-config {"mcpServers":{}}` inline, never the bypass or plan flags.
-    Restricted mode ignores user, project and local settings files, so no
-    `permissions.allow` rule, project skill `allowed-tools` or setting can widen
-    the envelope; write tools are absent in the session and its subagents;
-    commands the CLI does not classify as read-only are denied without a
-    prompt; switching to `bypassPermissions` is refused by the CLI. Plugins
-    enabled only in CLI settings and project skills do not load; plugins and
-    skills selected in Prometeu (`--plugin-dir`) and the CLI's built-in plugins
-    do. The project `CLAUDE.md` loads through the added directory; web tools
-    are absent.
+    --mcp-config {"mcpServers":{}}` inline, never the bypass or plan flags and
+    no `--plugin-dir`. Restricted mode ignores user, project and local settings
+    files, so no `permissions.allow` rule, CLI-enabled plugin, project skill or
+    setting can widen the envelope; write tools are absent; `Skill` is absent
+    because skill grants, bundled ones included, pre-approve commands; `Task` is
+    absent because its worktree isolation writes a git worktree; commands the
+    CLI does not classify as read-only are denied without a prompt; switching to
+    `bypassPermissions` is refused by the CLI. The project `CLAUDE.md` loads
+    through the added directory; web tools are absent.
   - Codex: `sandbox: "read-only"` with `approvalPolicy: "never"` on
-    `thread/start` and `thread/resume`, and `mcp_servers={}`. The operating
-    system sandbox blocks writes and network for commands; nothing prompts.
+    `thread/start` and `thread/resume`; `--disable` for `plugins`, `hooks`,
+    `apps`, `computer_use` and `browser_use`; and every MCP server from the
+    session's `config.toml` disabled by name, since `-c mcp_servers={}` merges
+    into that table. The operating system sandbox blocks writes and network for
+    commands; nothing prompts.
   - Antigravity: `readOnlyProfile: false`; its adapter refuses read-only
     launches with `err.antigravity.unsupported`.
 - The bundled profile moves to seed revision 2: `different_from_builder` with
   candidates `[codex, claude]` at provider defaults and `access: read_only`,
   keeping the prompt. `Catalog.defaults_revision` upgrades a profile identical
   to the revision 1 seed exactly once; customized, overridden or removed
-  profiles stay as they are. Both seeds live in `action-defaults.json`, shared
-  by the backend and the mock.
+  profiles stay as they are. The upgrade also runs when a Cloud catalog is
+  applied, so an older document cannot undo it. Both seeds live in
+  `action-defaults.json`, shared by the backend and the mock.
 - The profile editor offers the provider rule, an ordered candidate list with
   per-row model and effort, and the access level. Read-only hides the
   permission field, disables MCP with an explanation and offers only providers

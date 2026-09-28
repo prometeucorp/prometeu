@@ -37,31 +37,36 @@ then the first usable candidate, then the first candidate; it never refuses the
 review. The frozen task records the picked candidate and whether it shares a
 builder's family, and the tab shows both.
 
-`access: read_only` is enforced by the adapter, not by the prompt. Claude runs
-in restricted mode with `dontAsk`, read tools only, the worktree added for
+`access: read_only` is enforced by the adapter, not by the prompt. Read-only
+tasks run without MCP servers, plugins, skills or subagents: their tools, hooks
+and tool grants act outside both envelopes. Claude runs in restricted mode with
+`dontAsk`, only `Read`, `Grep`, `Glob` and `Bash`, the worktree added for
 `CLAUDE.md` and an inline empty MCP configuration; settings files cannot widen
-it and bypass is refused. Codex runs in the `read-only` sandbox with
-`approvalPolicy: never`. Antigravity cannot enforce it and advertises
-`readOnlyProfile: false`. Read-only tasks run without MCP servers, whose tools
-act outside both envelopes.
+it and bypass is refused. `Skill` is absent because a skill's tool grants, bundled
+ones included, pre-approve commands, and `Task` because its worktree isolation
+writes a git worktree. Codex runs in the `read-only` sandbox with
+`approvalPolicy: never`, with plugins, hooks, connector apps and computer or
+browser control turned off, and every MCP server from `config.toml` disabled by
+name, because `-c mcp_servers={}` merges into that table instead of replacing
+it. Antigravity cannot enforce it and advertises `readOnlyProfile: false`.
 
 The bundled profile becomes `different_from_builder` with Codex then Claude at
 provider defaults and read-only access. A catalog upgrades a profile identical
-to the previous seed exactly once, recorded by `defaults_revision`; customized,
-overridden and removed profiles stay as they are.
+to the previous seed exactly once, recorded by `defaults_revision`, at startup
+and whenever a Cloud catalog is applied; customized, overridden and removed
+profiles stay as they are.
 
 ## Consequences
 
 A review usually comes from another family and uses that provider's quota; the
 status bar keeps showing each provider's account. Without another usable
 provider, the review still runs and says it shares the builder's family. A
-read-only reviewer cannot run tests that write caches or build outputs; checks
-belong to a deterministic step outside the agent. Claude's restricted mode loads
-the plugins and skills selected in Prometeu and the CLI's built-in plugins, not
-plugins enabled in CLI settings or project skills, and needs `--restricted`
-(verified with 2.1.283, present since at least 2.1.260); an older CLI fails the
-spawn visibly. Codex does not report sandbox-denied commands as items; the
-reviewer's text reports them. Git configuration left in the repository, such as
+read-only reviewer cannot run tests that write caches or build outputs, use a
+code-review skill or plugin, or split work across subagents; checks belong to a
+deterministic step outside the agent. Claude needs `--restricted` (verified with
+2.1.283, present since at least 2.1.260) and Codex the feature names of 0.154.0;
+an older CLI fails the spawn visibly instead of running unrestricted. Codex does
+not report sandbox-denied commands as items; the reviewer's text reports them. Git configuration left in the repository, such as
 `core.fsmonitor`, still runs for any Git read, including Prometeu's own.
 
 An older app ignores the new fields and runs the first candidate as a fixed
@@ -70,8 +75,9 @@ fixed.
 
 ## Evidence
 
-- [Selection](../../src-tauri/src/actions/reviewer.rs) and
-  [validation, freezing and the seed upgrade](../../src-tauri/src/actions.rs).
+- [Selection](../../src-tauri/src/actions/reviewer.rs),
+  [validation, freezing and the seed upgrade](../../src-tauri/src/actions.rs)
+  and [Cloud catalog application](../../src-tauri/src/catalog.rs).
 - [Claude arguments and recording](../../src-tauri/src/claude.rs),
   [Codex parameters and recording](../../src-tauri/src/codex.rs) and the
   [Antigravity refusal](../../src-tauri/src/antigravity.rs).

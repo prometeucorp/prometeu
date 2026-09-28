@@ -235,7 +235,9 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
       list.replaceChildren(...rows.map(candidate));
       permissionField.hidden = readOnly();
       readOnlyHint.hidden = !readOnly();
-      servers.lock(readOnly(), t("actions.readOnlyMcp"));
+      servers.lock(readOnly(), t("actions.readOnlyTools"));
+      packages.lock(readOnly(), t("actions.readOnlyTools"));
+      skills.disabled = readOnly();
       const blocked = (differentRule ? rows.map(row => row.agent) : [choice.agent]).filter(agent => readOnly() && !capable(agent));
       unsupported.textContent = blocked.map(agent => t("actions.readOnlyUnsupported", { provider: descriptor(agent).label })).join(" ");
       unsupported.hidden = differentRule || !blocked.length;
@@ -274,7 +276,8 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
         provider_rule: rule.value as actions.ProviderRule,
         candidates: differentRule ? rows.map(row => ({ ...row })) : [],
         access: access.value as actions.Access,
-        mcp: readOnly() ? null : servers.get(), plugins: packages.get(), skills: skills.value.split(",").map(s => s.trim()).filter(Boolean),
+        mcp: readOnly() ? null : servers.get(), plugins: readOnly() ? null : packages.get(),
+        skills: readOnly() ? [] : skills.value.split(",").map(s => s.trim()).filter(Boolean),
         permission: permission.value as actions.Profile["permission"],
         watch: watching.control.checked ? { interval_seconds: Number(interval.value), max_turns: Number(limit.value), comments: comments.control.checked, ci: ci.control.checked } : null,
       };

@@ -64,6 +64,14 @@ describe("provider rule and access", () => {
     expect(validRules({ ...review, provider_rule: "fixed" }, capable)).toBe(false);
     expect(validRules({ ...review, provider_rule: "fixed", candidates: [] }, capable)).toBe(true);
   });
+  it("keeps plugins and skills out of read-only profiles", () => {
+    const capable = () => true;
+    const review = initializeDefaults(emptyCatalog()).profiles[0];
+    expect(validRules({ ...review, plugins: ["plugin"] }, capable)).toBe(false);
+    expect(validRules({ ...review, plugins: [] }, capable)).toBe(true);
+    expect(validRules({ ...review, skills: ["review"] }, capable)).toBe(false);
+    expect(validRules({ ...review, access: "default", plugins: ["plugin"], skills: ["review"] }, capable)).toBe(true);
+  });
 });
 
 describe("reviewer selection mirror", () => {

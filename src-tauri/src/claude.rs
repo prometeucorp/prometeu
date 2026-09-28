@@ -229,9 +229,10 @@ pub fn spawn(
     )
 }
 
-/// Tools a read-only session keeps. Write tools are absent in the session and its subagents; web
-/// tools are absent because they reach the network.
-const READ_ONLY_TOOLS: &str = "Read,Grep,Glob,Bash,Skill,Task";
+/// Tools a read-only session keeps. Write and web tools are absent; so is Skill, because a skill's
+/// tool grants pre-approve commands (bundled skills included), and Task, because its worktree
+/// isolation creates a git worktree (verified with Claude 2.1.283).
+const READ_ONLY_TOOLS: &str = "Read,Grep,Glob,Bash";
 /// Restricted mode skips settings files, so the project's CLAUDE.md loads only through the added
 /// worktree with this variable (verified with Claude 2.1.283).
 const READ_ONLY_MEMORY: (&str, &str) = ("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "1");
@@ -264,8 +265,13 @@ fn launch_args(
     .map(String::from)
     .to_vec();
     let read_only = launch.access == crate::actions::Access::ReadOnly;
-    if read_only && (launch.plan || launch.mcp.as_ref().is_some_and(|ids| !ids.is_empty())) {
+    if read_only
+        && (launch.plan
+            || launch.mcp.as_ref().is_some_and(|ids| !ids.is_empty())
+            || launch.plugin_packages().is_some_and(|ids| !ids.is_empty()))
+    {
         // The core never freezes these together; refuse rather than drop a requested behavior.
+        // Plugins would bring hooks and skills whose grants reopen commands.
         return Err(i18n::t("err.actions.invalid"));
     }
     if read_only {
@@ -1414,19 +1420,24 @@ mod launch_tests {
 
     #[test]
     fn read_only_restricts_tools_settings_and_mcp_without_prompts() {
-        let args = launch_args("id", false, &read_only(), work()).unwrap();
-        let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
-        assert!(args.contains(&"--restricted".to_string()));
-        assert!(has(["--permission-mode", "dontAsk"]));
-        assert!(has(["--tools", "Read,Grep,Glob,Bash,Skill,Task"]));
-        assert!(has(["--add-dir", "/prometeu-launch-test"]));
-        assert!(args.contains(&"--strict-mcp-config".to_string()));
-        assert!(has(["--mcp-config", r#"{"mcpServers":{}}"#]));
-        for flag in [
-            "--dangerously-skip-permissions",
-            "--allow-dangerously-skip-permissions",
-        ] {
-            assert!(!args.contains(&flag.to_string()), "{flag}");
+        for resume in [false, true] {
+            let args = launch_args("id", resume, &read_only(), work()).unwrap();
+            let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+            assert!(args.contains(&"--restricted".to_string()));
+            assert!(has(["--permission-mode", "dontAsk"]));
+            // Skill grants and Task's worktree isolation would reopen writes; see READ_ONLY_TOOLS.
+            assert!(has(["--tools", "Read,Grep,Glob,Bash"]));
+            assert!(has(["--add-dir", "/prometeu-launch-test"]));
+            assert!(args.contains(&"--strict-mcp-config".to_string()));
+            assert!(has(["--mcp-config", r#"{"mcpServers":{}}"#]));
+            for flag in [
+                "--dangerously-skip-permissions",
+                "--allow-dangerously-skip-permissions",
+                "--plugin-dir",
+                "--plugin-url",
+            ] {
+                assert!(!args.contains(&flag.to_string()), "{flag}");
+            }
         }
     }
 
@@ -1440,8 +1451,17 @@ mod launch_tests {
             mcp: Some(vec!["server".into()]),
             ..read_only()
         };
-        assert!(launch_args("id", false, &plan, work()).is_err());
-        assert!(launch_args("id", false, &servers, work()).is_err());
+        let packages = Launch {
+            plugins: Some(vec!["plugin".into()]),
+            ..read_only()
+        };
+        let skills = Launch {
+            skills: Some(vec!["skill-review".into()]),
+            ..read_only()
+        };
+        for launch in [plan, servers, packages, skills] {
+            assert!(launch_args("id", false, &launch, work()).is_err());
+        }
     }
 
     #[test]

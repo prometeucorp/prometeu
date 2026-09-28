@@ -31,10 +31,8 @@ pub fn spawn(
     launch: &Launch,
 ) -> Result<chat::Chat, String> {
     let read_only = launch.access == crate::actions::Access::ReadOnly;
-    if read_only && launch.mcp.as_ref().is_some_and(|ids| !ids.is_empty()) {
-        // The core never freezes these together; refuse rather than drop a requested server.
-        return Err(i18n::t("err.actions.invalid"));
-    }
+    // Refuse before any preparation; the switches are applied once plugins are materialized.
+    process_features(launch, &[])?;
     let profile = accounts::active(crate::state::ProviderId::Codex)?;
     profile.prepare()?;
     // Standalone skills ride the plugin-package pipeline, so Codex materializes them together with
@@ -52,10 +50,13 @@ pub fn spawn(
     if let Some(home) = &selected_plugins.home {
         cmd.env("CODEX_HOME", home);
     }
-    // Sessions without plugins must not require newer plugin features, preserving conversation and
-    // MCP support on older installations.
-    if !selected_plugins.ids.is_empty() {
-        cmd.args(["--enable", "plugins", "--enable", "hooks"]);
+    cmd.args(process_features(launch, &selected_plugins.ids)?);
+    if read_only {
+        // The session reads this home's config.toml; its servers would start beside the sandbox.
+        let home = selected_plugins.home.as_deref().unwrap_or(&profile.home);
+        for server in disabled_servers(&configured(home)?)? {
+            cmd.args(["-c", &server]);
+        }
     }
     cmd.current_dir(worktree);
     // Inject selected MCP configuration through -c and process environment secrets; see
@@ -106,6 +107,71 @@ pub fn spawn(
         profile,
     );
     chat::launch(app, id, cmd, &log, Some(log.clone()), "err.codex.spawn", io)
+}
+
+/// Surfaces that act outside the sandbox: plugins (with their MCP servers, skills and hooks),
+/// user hooks, connector apps and computer or browser control. Read-only tasks turn them off;
+/// verified with codex-cli 0.154.0, and an older CLI refuses an unknown feature at startup instead
+/// of running without the restriction.
+const READ_ONLY_FEATURES: [&str; 5] = ["plugins", "hooks", "apps", "computer_use", "browser_use"];
+
+/// Feature switches for one session. Sessions without plugins must not require newer plugin
+/// features, preserving conversation and MCP support on older installations; selected plugins need
+/// their hooks. Read-only tasks carry no MCP server, plugin or skill (the core freezes them empty),
+/// so a selection here is refused rather than dropped.
+fn process_features(launch: &Launch, plugins: &[String]) -> Result<Vec<&'static str>, String> {
+    if launch.access != crate::actions::Access::ReadOnly {
+        return Ok(if plugins.is_empty() {
+            vec![]
+        } else {
+            vec!["--enable", "plugins", "--enable", "hooks"]
+        });
+    }
+    if launch.mcp.as_ref().is_some_and(|ids| !ids.is_empty())
+        || launch.plugin_packages().is_some_and(|ids| !ids.is_empty())
+        || !plugins.is_empty()
+    {
+        return Err(i18n::t("err.actions.invalid"));
+    }
+    Ok(READ_ONLY_FEATURES
+        .iter()
+        .flat_map(|feature| ["--disable", *feature])
+        .collect())
+}
+
+/// `-c mcp_servers=...` merges into the table from config.toml instead of replacing it, so a
+/// read-only session disables every configured server by name. A name `-c` cannot address fails
+/// closed rather than leaving that server running.
+fn disabled_servers(config: &toml::Value) -> Result<Vec<String>, String> {
+    let Some(servers) = config.get("mcp_servers").and_then(toml::Value::as_table) else {
+        return Ok(vec![]);
+    };
+    servers
+        .keys()
+        .map(|name| {
+            if !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            {
+                Ok(format!("mcp_servers.{name}.enabled=false"))
+            } else {
+                Err(i18n::ta("err.codex.readOnly", &[("name", name.clone())]))
+            }
+        })
+        .collect()
+}
+
+/// The configuration a Codex home carries; a home without one configures nothing.
+fn configured(home: &Path) -> Result<toml::Value, String> {
+    match std::fs::read_to_string(home.join("config.toml")) {
+        Ok(text) => toml::from_str(&text)
+            .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(toml::Value::Table(Default::default()))
+        }
+        Err(error) => Err(i18n::io(error)),
+    }
 }
 
 /// Thread startup settings.
@@ -1552,6 +1618,79 @@ mod tests {
         assert!(
             out.take().iter().all(|m| m.get("result").is_none()),
             "no server request was answered"
+        );
+    }
+
+    #[test]
+    fn read_only_turns_off_surfaces_outside_the_sandbox() {
+        let read_only = Launch {
+            access: crate::actions::Access::ReadOnly,
+            mcp: Some(vec![]),
+            plugins: Some(vec![]),
+            ..Default::default()
+        };
+        assert_eq!(
+            process_features(&read_only, &[]).unwrap(),
+            [
+                "--disable",
+                "plugins",
+                "--disable",
+                "hooks",
+                "--disable",
+                "apps",
+                "--disable",
+                "computer_use",
+                "--disable",
+                "browser_use"
+            ]
+        );
+        for refused in [
+            Launch {
+                mcp: Some(vec!["server".into()]),
+                ..read_only.clone()
+            },
+            Launch {
+                plugins: Some(vec!["plugin".into()]),
+                ..read_only.clone()
+            },
+            Launch {
+                skills: Some(vec!["skill-review".into()]),
+                ..read_only.clone()
+            },
+        ] {
+            assert!(process_features(&refused, &[]).is_err());
+        }
+        let ordinary = Launch::default();
+        assert!(process_features(&ordinary, &[]).unwrap().is_empty());
+        assert_eq!(
+            process_features(&ordinary, &["plugin@hub".into()]).unwrap(),
+            ["--enable", "plugins", "--enable", "hooks"]
+        );
+    }
+
+    /// `-c mcp_servers={}` merges into the CLI's table, so read-only disables each configured
+    /// server by name (observed with codex-cli 0.154.0: `codex mcp list` kept both servers).
+    #[test]
+    fn read_only_disables_configured_mcp_servers_by_name() {
+        let config: toml::Value = toml::from_str(
+            "[mcp_servers.capim-ds]\ncommand = \"npx\"\n[mcp_servers.node_repl]\ncommand = \"node\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            disabled_servers(&config).unwrap(),
+            [
+                "mcp_servers.capim-ds.enabled=false",
+                "mcp_servers.node_repl.enabled=false"
+            ]
+        );
+        assert!(disabled_servers(&toml::Value::Table(Default::default()))
+            .unwrap()
+            .is_empty());
+        let dotted: toml::Value =
+            toml::from_str("[mcp_servers.\"a.b\"]\ncommand = \"x\"\n").unwrap();
+        assert!(
+            disabled_servers(&dotted).is_err(),
+            "a name -c cannot address fails closed"
         );
     }
 

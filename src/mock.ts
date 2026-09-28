@@ -1159,10 +1159,14 @@ const mockCommands: IpcHandlers = {
       g === null && p === null && w === null ? null : resolveWithBase(base, g, p, w, universe);
     const plugins = axis(l.global.plugins, project.plugins, l.own.plugins, [], l.pluginIds);
     const skills = axis(l.global.skills, project.skills, l.own.skills, [], l.pluginIds);
-    if (profile.access === "read_only") profile.mcp = [];
-    else profile.mcp ??= axis(l.global.mcp, project.mcp, l.own.mcp, l.base, l.mcpUniverse);
-    // Mirror of plugin_packages: plugins and standalone skills materialize together.
-    profile.plugins ??= plugins === null && skills === null ? null : [...(plugins ?? []), ...(skills ?? [])];
+    if (profile.access === "read_only") {
+      // Mirror of resolve: MCP servers, plugins and skills act outside the read-only envelope.
+      profile.mcp = []; profile.plugins = [];
+    } else {
+      profile.mcp ??= axis(l.global.mcp, project.mcp, l.own.mcp, l.base, l.mcpUniverse);
+      // Mirror of plugin_packages: plugins and standalone skills materialize together.
+      profile.plugins ??= plugins === null && skills === null ? null : [...(plugins ?? []), ...(skills ?? [])];
+    }
     const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
       task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {}, same_family: picked.same_family } };
     scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });

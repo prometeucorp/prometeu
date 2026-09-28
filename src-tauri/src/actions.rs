@@ -183,14 +183,17 @@ fn valid_rule(p: &Profile) -> bool {
     }
 }
 
-/// Every provider the profile can start with must enforce read-only access, and MCP tools run
-/// outside that envelope, so an explicit server selection contradicts it.
+/// Every provider the profile can start with must enforce read-only access. MCP tools, plugins
+/// (their skills, hooks and servers) and skills (whose tool grants pre-approve commands) act outside
+/// that envelope, so an explicit selection of any of them contradicts it.
 fn valid_access(p: &Profile) -> bool {
     p.access == Access::Default
         || (providers(p)
             .into_iter()
             .all(|agent| crate::agents::capabilities(agent).read_only_profile)
-            && p.mcp.as_ref().is_none_or(Vec::is_empty))
+            && p.mcp.as_ref().is_none_or(Vec::is_empty)
+            && p.plugins.as_ref().is_none_or(Vec::is_empty)
+            && p.skills.is_empty())
 }
 
 fn validate_profile(p: &Profile) -> Result<(), String> {
@@ -289,14 +292,17 @@ pub fn resolve(
     // A task freezes the tools it starts with, so the caller resolves the layers once and an axis
     // the profile leaves unset inherits that resolved global and workspace selection.
     if p.access == Access::ReadOnly {
-        // MCP tools run outside both providers' read-only envelopes.
+        // MCP servers, plugins and skills act outside both providers' read-only envelopes.
         p.mcp = Some(vec![]);
-    } else if p.mcp.is_none() {
-        p.mcp = resolved.mcp.clone();
-    }
-    if p.plugins.is_none() {
-        // Standalone skills ride the plugin pipeline, so the frozen set carries both axes.
-        p.plugins = resolved.plugin_packages();
+        p.plugins = Some(vec![]);
+    } else {
+        if p.mcp.is_none() {
+            p.mcp = resolved.mcp.clone();
+        }
+        if p.plugins.is_none() {
+            // Standalone skills ride the plugin pipeline, so the frozen set carries both axes.
+            p.plugins = resolved.plugin_packages();
+        }
     }
     Ok((p, picked.same_family))
 }
@@ -864,6 +870,52 @@ mod tests {
         assert!(!same_family);
         assert_eq!(frozen.provider_rule, ProviderRule::Fixed);
         assert!(frozen.candidates.is_empty());
+        assert_eq!(frozen.mcp, Some(vec![]));
+        assert!(validate_profile(&frozen).is_ok());
+    }
+
+    #[test]
+    fn read_only_runs_without_plugins_or_skills() {
+        let mut p = profile();
+        p.watch = None;
+        p.access = Access::ReadOnly;
+        assert!(validate_profile(&p).is_ok());
+        p.plugins = Some(vec!["plugin".into()]);
+        assert!(
+            validate_profile(&p).is_err(),
+            "plugins carry skills, hooks and MCP servers"
+        );
+        p.plugins = None;
+        p.skills = vec!["review".into()];
+        assert!(
+            validate_profile(&p).is_err(),
+            "skills can pre-approve commands"
+        );
+        p.skills.clear();
+        let catalog = Catalog {
+            profiles: vec![p],
+            ..Default::default()
+        };
+        let (frozen, _) = resolve(
+            &catalog,
+            "",
+            "reviewer",
+            |p| Pick {
+                choice: p.choice.clone(),
+                same_family: false,
+            },
+            |_| session::ResolvedTools {
+                plugins: Some(vec!["hub".into()]),
+                skills: Some(vec!["skill-review".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            frozen.plugins,
+            Some(vec![]),
+            "inherited plugins are dropped"
+        );
         assert_eq!(frozen.mcp, Some(vec![]));
         assert!(validate_profile(&frozen).is_ok());
     }

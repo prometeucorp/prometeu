@@ -90,7 +90,7 @@ export function validRules(p: Profile, readOnlyCapable: (agent: ProviderId) => b
     ? agents.length >= 1 && agents.length <= 3 && new Set(agents).size === agents.length
       && first.agent === p.choice.agent && first.model === p.choice.model && first.effort === p.choice.effort
     : p.candidates.length === 0;
-  return rule && (p.access !== "read_only" || (agents.every(readOnlyCapable) && !p.mcp?.length));
+  return rule && (p.access !== "read_only" || (agents.every(readOnlyCapable) && !p.mcp?.length && !p.plugins?.length && !p.skills.length));
 }
 let board: Board | null = null;
 let opened: (workspace: string, tab: Tab) => Promise<void> = async () => {};

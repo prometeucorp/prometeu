@@ -10,6 +10,8 @@
 
 **Spec:** [`docs/superpowers/specs/2026-09-28-cross-family-review-design.md`](../specs/2026-09-28-cross-family-review-design.md)
 
+> **Amended after the final review:** read-only tasks also run without plugins, skills or subagents. Claude keeps only `Read,Grep,Glob,Bash`; Codex turns off plugins, hooks, apps, computer and browser use and disables configured MCP servers by name; applying a Cloud catalog runs the seed upgrade. The spec, ADR 0064 and the contracts describe the final behavior; task steps below are the original execution record.
+
 ## Global Constraints
 
 - Code identifiers, comments and tests in English; visible text through i18n in both `src/i18n.en.ts` and `src/i18n.pt.ts`; user data and agent output stay untouched.
