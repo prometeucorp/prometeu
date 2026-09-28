@@ -58,8 +58,8 @@ export function setOpen(id: string | null) {
 /// A board update during a project drag would replace the box being dragged; hold it until the drop.
 let held: (() => void) | null = null;
 let dragging = false;
-/// Project whose heading regains focus after a keyboard move redraws the sidebar.
-let refocus: string | null = null;
+/// Heading moved by keyboard; it regains focus after the redraw only if it still holds focus then.
+let refocus: { id: string; head: HTMLElement } | null = null;
 
 export function render(board: Board, hooks: Hooks) {
   if (dragging) held = () => renderRail(board, hooks);
@@ -147,6 +147,8 @@ const folded = (name: string) => localStorage.getItem(FOLD + name) === "1";
 
 function renderRail(board: Board, hooks: Hooks) {
   const rail = el("railbody");
+  const keep = refocus && document.activeElement === refocus.head ? refocus.id : null;
+  refocus = null;
   rail.replaceChildren();
   const live = board.workspaces.filter((w) => !w.archived && !w.remote);
 
@@ -295,10 +297,7 @@ function renderRail(board: Board, hooks: Hooks) {
     rail.append(arch);
   }
 
-  if (refocus) {
-    rail.querySelector<HTMLElement>(`.railproject[data-project="${CSS.escape(refocus)}"] > .group`)?.focus();
-    refocus = null;
-  }
+  if (keep) rail.querySelector<HTMLElement>(`.railproject[data-project="${CSS.escape(keep)}"] > .group`)?.focus();
 }
 
 function renderGroup(
@@ -495,7 +494,7 @@ function reorderable(box: HTMLElement, head: HTMLElement, hooks: Hooks) {
     if (e.key === "ArrowUp") next.before(box);
     else next.after(box);
     head.focus();
-    refocus = box.dataset.project!;
+    refocus = { id: box.dataset.project!, head };
     commit();
   });
 }
