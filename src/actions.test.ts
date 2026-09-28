@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import defaultsText from "./action-defaults.json?raw";
-import { builders, emptyCatalog, initializeDefaults, commandNames, expand, findCommand, pick, validRules, type Action, type Catalog, type Profile, type TaskRun } from "./actions";
+import { builders, emptyCatalog, initializeDefaults, commandNames, expand, findCommand, pick, taskBadges, validRules, type Action, type Catalog, type Profile, type TaskRun } from "./actions";
 
 const prompt: Action = { name: "review", kind: "prompt", prompt: "Review the diff.", description: "", profile: null };
 const task: Action = { ...prompt, name: "deliver", kind: "agent", profile: "owner" };
@@ -84,5 +84,16 @@ describe("reviewer selection mirror", () => {
     expect(builders({ agent: "codex", tabs: [] })).toEqual(["codex"]);
     expect(builders({ agent: "codex", tabs: [tab("review", "claude", true)] })).toEqual(["codex"]);
     expect(builders({ agent: "codex", tabs: [tab("a"), tab("b", "claude"), tab("c", "claude")] })).toEqual(["codex", "claude"]);
+  });
+});
+
+describe("task badges", () => {
+  const run = (access: "default" | "read_only", same_family?: boolean) =>
+    ({ profile: { access }, same_family } as unknown as TaskRun);
+  it("explains enforced read-only access and a same-family fallback", () => {
+    expect(taskBadges(null)).toEqual([]);
+    expect(taskBadges(run("default"))).toEqual([]);
+    expect(taskBadges(run("read_only", true)).map(b => b.label)).toEqual(["actions.readOnly", "actions.sameFamily"]);
+    expect(taskBadges(run("default", true)).map(b => b.title)).toEqual(["actions.sameFamilyTitle"]);
   });
 });

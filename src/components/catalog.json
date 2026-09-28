@@ -280,7 +280,8 @@
       "default",
       "busy",
       "offline",
-      "attachments"
+      "attachments",
+      "task"
     ]
   },
   {

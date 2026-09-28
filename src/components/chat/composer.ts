@@ -20,8 +20,9 @@ export function composer(options: {
   effort.innerHTML = '<span class="bars"><i></i><i></i><i></i><i></i><i></i></span><span class="el"></span>';
   withModel.append(model, effort);
   const watch = button("", undefined, "ghost"); watch.classList.add("sm", "taskwatch"); watch.hidden = true;
+  const badges = h("span", "taskbadges"); badges.hidden = true;
   const hint = h("span", "hint"); hint.setAttribute("role", "status");
-  meta.append(withModel, watch, hint);
+  meta.append(withModel, watch, badges, hint);
   const tools = h("div", "composer-tools");
   const addFile = iconButton({ label: t("chat.addFile"), glyph: "plus", run: options.addFile });
   addFile.classList.add("ico", "sm", "addfile"); addFile.hidden = true;
@@ -48,7 +49,7 @@ export function composer(options: {
   quote.innerHTML = `${icon("message-square", 12)}<span></span>`;
   quote.querySelector("span")!.textContent = t("notes.quoteSelection"); quote.title = t("notes.quoteSelection.title");
   root.append(files, area, meta, toolbar, quote);
-  return { root, area, files, hint, send, stop, addFile, mic, model, effort, withModel };
+  return { root, area, files, hint, send, stop, addFile, mic, model, effort, withModel, badges };
 }
 
 export function attachmentChip(options: { name: string; title: string; removeLabel: string; remove: () => void }) {

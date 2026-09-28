@@ -1,4 +1,5 @@
 import defaultsText from "./action-defaults.json?raw";
+import type { Key } from "./i18n";
 import { invoke } from "./ipc";
 import type { Board, Choice, ProviderId, Tab, Workspace } from "./types";
 
@@ -52,6 +53,14 @@ export function initializeDefaults(catalog: Catalog): Catalog {
   next.defaults_initialized = true;
   next.defaults_revision = seed.revision;
   return next;
+}
+/// How a task runs, beyond its model: read-only access enforced by the adapter and a same-family fallback.
+export function taskBadges(run: TaskRun | null | undefined): { label: Key; title: Key }[] {
+  if (!run) return [];
+  return [
+    ...(run.profile.access === "read_only" ? [{ label: "actions.readOnly", title: "actions.readOnlyTitle" } as const] : []),
+    ...(run.same_family ? [{ label: "actions.sameFamily", title: "actions.sameFamilyTitle" } as const] : []),
+  ];
 }
 /// Mirror of reviewer::builders.
 export function builders(ws: Pick<Workspace, "agent" | "tabs">): ProviderId[] {

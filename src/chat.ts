@@ -11,7 +11,8 @@ import * as background from "./background";
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { capabilitiesOf, onCatalogChange } from "./agents";
+import { capabilitiesOf, descriptor, onCatalogChange } from "./agents";
+import { badge } from "./ui";
 import { encodeBrowserContext, type BrowserContext } from "./browser-context";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
 import { icon } from "./icons";
@@ -977,6 +978,13 @@ export class ChatView {
         if (this.key) void invoke("action_pause", { session: this.key, paused: !run.paused }).catch(e => this.ctx.say(fromBack(e), true));
       };
     }
+    const badges = this.box.querySelector<HTMLElement>(".taskbadges")!;
+    const items = actions.taskBadges(run);
+    badges.hidden = !items.length;
+    badges.replaceChildren(...items.map(item => {
+      const element = badge(t(item.label)); element.title = t(item.title);
+      return element;
+    }));
 
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
@@ -1047,7 +1055,8 @@ export class ChatView {
   /// Present resolved model and effort beneath the composer. Local idle tabs can change within their provider, persisting the choice and restarting on the next prompt. Remote views show labels only; changing providers requires another tab because resume identities differ.
   private paintWith(info: Info) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
-    const label = modelLabel(info.model, info.agent);
+    // A task freezes its provider, which can differ from the workspace's, so name it beside the model.
+    const label = info.task ? `${descriptor(info.agent).label} · ${modelLabel(info.model, info.agent)}` : modelLabel(info.model, info.agent);
     el.hidden = !label;
     if (el.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
