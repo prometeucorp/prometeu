@@ -1,5 +1,5 @@
 import * as actions from "./actions";
-import { descriptor, modelLabelOf, onCatalogChange } from "./agents";
+import { capabilitiesOf, descriptor, installed, modelLabelOf, onCatalogChange } from "./agents";
 import { effortStep, fitsEffort, modelLabel } from "./model-choice";
 import { openModelPicker, openEffortPicker } from "./model-picker";
 import { fromBack, t, type Key } from "./i18n";
@@ -8,6 +8,7 @@ import * as menu from "./menu";
 import { sectionHeader, itemRow, overflowAction, listState } from "./components/compositions";
 import type { IconName } from "../packages/design-system/src/icons";
 import * as plugins from "./plugins";
+import type { Choice, ProviderId } from "./types";
 import { h } from "./util";
 import * as ui from "./ui";
 
@@ -71,7 +72,11 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
     const overridden = scope && catalog.overrides[scope]?.[base.id];
     const profile = overridden || base;
     const model = profile.choice.model ? modelLabelOf(profile.choice.model, profile.choice.agent) : t("actions.default");
-    const item = card(`profile-${base.id}`, profile.name, `${descriptor(profile.choice.agent).label} · ${model}`,
+    const differentRule = profile.provider_rule === "different_from_builder";
+    const providers = differentRule
+      ? profile.candidates.map(c => descriptor(c.agent).label).join(" → ")
+      : `${descriptor(profile.choice.agent).label} · ${model}`;
+    const item = card(`profile-${base.id}`, profile.name, providers,
       "eye", () => profileEditor(profile, scope, redraw), [{
         label: t(scope ? "actions.reset" : "actions.remove"), disabled: !!scope && !overridden,
         run: () => {
@@ -89,6 +94,8 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
     if (overridden) item.heading.append(h("span", "action-badge", t("actions.override")));
     else if (base.id === "prometeu-code-review") item.heading.append(h("span", "action-badge", t("actions.included")));
     if (profile.watch) item.text.append(h("span", "action-caption", t("actions.watchEnabled")));
+    if (differentRule) item.text.append(h("span", "action-caption", t("actions.differentCaption")));
+    if (profile.access === "read_only") item.text.append(h("span", "action-caption", t("actions.readOnly")));
     profileList.append(item.root);
   }
   if (!catalog.profiles.length) profileList.append(listState({ kind: "empty", text: t("actions.noProfiles") }));
@@ -127,8 +134,18 @@ function selection(key: Key, values: string[] | null, available: string[]) {
   if (!choices.length) list.append(h("span", "action-caption", t("actions.noTools")));
   list.disabled = inherit.control.checked;
   inherit.control.onchange = () => { list.disabled = inherit.control.checked; };
-  root.append(h("b", "action-tool-title", t(key)), inherit.label, list);
-  return { root, get: () => inherit.control.checked ? null : choices.filter(c => c.checked.checked).map(c => c.id) };
+  const note = h("p", "ui-hint"); note.hidden = true;
+  root.append(h("b", "action-tool-title", t(key)), inherit.label, list, note);
+  return {
+    root,
+    get: () => inherit.control.checked ? null : choices.filter(c => c.checked.checked).map(c => c.id),
+    /// Read-only profiles cannot use the axis; keep the selection visible but inert and say why.
+    lock(locked: boolean, reason: string) {
+      inherit.control.disabled = locked;
+      list.disabled = locked || inherit.control.checked;
+      note.hidden = !locked; note.textContent = reason;
+    },
+  };
 }
 
 function profileEditor(old: actions.Profile | null, project: string, redraw: () => void) {
@@ -141,36 +158,97 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     const name = input(profile.name); name.required = true;
     const prompt = input(profile.prompt, true); prompt.required = true;
     const choice = { ...profile.choice };
+    const rows: Choice[] = profile.candidates.map(c => ({ ...c }));
+    const rule = select(profile.provider_rule, [["fixed", t("actions.ruleFixed")], ["different_from_builder", t("actions.ruleDifferent")]]);
+    const access = select(profile.access, [["default", t("actions.accessDefault")], ["read_only", t("actions.accessReadOnly")]]);
+    const readOnly = () => access.value === "read_only";
+    const capable = (agent: ProviderId) => capabilitiesOf(agent).readOnlyProfile;
+    const accepts = (agent: ProviderId) => !readOnly() || capable(agent);
     const model = ui.button("", () => openModelPicker(model, {
-      current: choice,
+      current: choice, accepts,
       select: selected => {
         const effort = fitsEffort(selected.model, choice.effort, selected.agent);
         const adjusted = effort !== choice.effort;
         Object.assign(choice, selected, { effort });
         model.title = adjusted ? t("models.effortAdjusted") : "";
-        renderChoice();
+        render();
       },
     }));
     const effort = ui.button("", () => openEffortPicker(effort, choice, choice.effort, value => {
       choice.effort = value;
       model.title = "";
-      renderChoice();
+      render();
     }));
     model.className = effort.className = "outline md pick";
     const effortField = field("actions.effort", effort);
-    const renderChoice = () => {
-      model.textContent = `${descriptor(choice.agent).label} · ${modelLabel(choice.model, choice.agent)}`;
-      const step = effortStep(choice.model, choice.effort, choice.agent);
-      effortField.hidden = !step;
-      effort.textContent = step?.label ?? "";
+    const fixed = h("div", "ui-columns");
+    fixed.append(field("actions.model", model), effortField);
+    const unsupported = h("p", "ui-hint");
+    const list = h("div", "action-candidates");
+    const add = ui.menuButton(t("actions.addCandidate"), () => installed()
+      .filter(provider => !rows.some(row => row.agent === provider.id) && accepts(provider.id))
+      .map(provider => ({ label: provider.label, run: () => { rows.push({ agent: provider.id, model: "", effort: "" }); render(); } })));
+    const different = h("div", "action-rule");
+    different.append(h("b", "action-tool-title", t("actions.candidates")), list, add, h("p", "ui-hint", t("actions.candidatesHint")));
+    const candidate = (row: Choice, index: number) => {
+      const root = h("div", "action-candidate");
+      const label = descriptor(row.agent).label;
+      const picker = ui.button(`${index + 1}. ${label} · ${modelLabel(row.model, row.agent)}`, () => openModelPicker(picker, {
+        current: row, only: row.agent,
+        select: selected => { Object.assign(row, selected, { effort: fitsEffort(selected.model, row.effort, selected.agent) }); render(); },
+      }));
+      picker.className = "outline md pick";
+      picker.setAttribute("aria-label", `${t("actions.model")} · ${label}`);
+      root.append(picker);
+      const step = effortStep(row.model, row.effort, row.agent);
+      if (step) {
+        const bars = ui.button(step.label, () => openEffortPicker(bars, row, row.effort, value => { row.effort = value; render(); }));
+        bars.className = "outline md pick";
+        bars.setAttribute("aria-label", `${t("actions.effort")} · ${label}`);
+        root.append(bars);
+      }
+      root.append(more(label, [
+        { label: t("actions.moveUp"), disabled: index === 0, run: () => { rows.splice(index - 1, 0, ...rows.splice(index, 1)); render(); } },
+        { label: t("actions.remove"), disabled: rows.length === 1, run: () => { rows.splice(index, 1); render(); } },
+      ], `candidate-${index}`));
+      const notes = [
+        ...(descriptor(row.agent).installed ? [] : [t("actions.uninstalled")]),
+        ...(readOnly() && !capable(row.agent) ? [t("actions.readOnlyUnsupported", { provider: label })] : []),
+      ];
+      if (notes.length) root.append(h("span", "action-caption", notes.join(" · ")));
+      return root;
     };
-    renderChoice();
-    const forgetCatalog = onCatalogChange(renderChoice);
-    body.closest("dialog")!.addEventListener("close", forgetCatalog, { once: true });
     const servers = selection("actions.mcp", profile.mcp, mcp.list().map(s => s.id));
     const packages = selection("actions.plugins", profile.plugins, plugins.list().map(p => p.id));
     const skills = input(profile.skills.join(", "));
     const permission = select(profile.permission, [["ask", t("actions.ask")], ["auto", t("actions.auto")]]);
+    const permissionField = field("actions.permission", permission.control);
+    const readOnlyHint = h("p", "ui-hint", t("actions.readOnlyHint"));
+    const render = () => {
+      const differentRule = rule.value === "different_from_builder";
+      fixed.hidden = differentRule;
+      different.hidden = !differentRule;
+      model.textContent = `${descriptor(choice.agent).label} · ${modelLabel(choice.model, choice.agent)}`;
+      const step = effortStep(choice.model, choice.effort, choice.agent);
+      effortField.hidden = !step;
+      effort.textContent = step?.label ?? "";
+      list.replaceChildren(...rows.map(candidate));
+      permissionField.hidden = readOnly();
+      readOnlyHint.hidden = !readOnly();
+      servers.lock(readOnly(), t("actions.readOnlyMcp"));
+      const blocked = (differentRule ? rows.map(row => row.agent) : [choice.agent]).filter(agent => readOnly() && !capable(agent));
+      unsupported.textContent = blocked.map(agent => t("actions.readOnlyUnsupported", { provider: descriptor(agent).label })).join(" ");
+      unsupported.hidden = differentRule || !blocked.length;
+    };
+    rule.onchange = () => {
+      if (rule.value === "different_from_builder" && !rows.length) rows.push({ ...choice });
+      if (rule.value === "fixed" && rows.length) Object.assign(choice, rows[0]);
+      render();
+    };
+    access.onchange = render;
+    render();
+    const forgetCatalog = onCatalogChange(render);
+    body.closest("dialog")!.addEventListener("close", forgetCatalog, { once: true });
     const watching = checkbox("actions.watch", !!profile.watch);
     const watchBody = h("div", "actionwatch"); watchBody.hidden = !watching.control.checked;
     watching.control.onchange = () => { watchBody.hidden = !watching.control.checked; };
@@ -181,22 +259,26 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     const comments = checkbox("actions.comments", profile.watch?.comments ?? true);
     const ci = checkbox("actions.ci", profile.watch?.ci ?? true);
     watchBody.append(field("actions.interval", interval), comments.label, ci.label, field("actions.limit", limit), h("p", "ui-hint", t("actions.watchHint")));
-    const models = h("div", "ui-columns");
-    models.append(field("actions.model", model), effortField);
     const tools = ui.disclosure(t("actions.tools"));
     tools.toggleAttribute("open", !!profile.mcp?.length || !!profile.plugins?.length || !!profile.skills.length);
     tools.append(servers.root, packages.root,
       field("actions.skills", skills), h("p", "ui-hint", t("actions.skillsHint")));
-    body.append(field("actions.name", name), field("actions.instructions", prompt), models, tools,
-      field("actions.permission", permission.control), watching.label, watchBody, h("p", "ui-hint", t("actions.snapshotHint")));
+    body.append(field("actions.name", name), field("actions.instructions", prompt), field("actions.providerRule", rule.control),
+      fixed, unsupported, different, field("actions.access", access.control), readOnlyHint, tools, permissionField,
+      watching.label, watchBody, h("p", "ui-hint", t("actions.snapshotHint")));
     return () => {
+      const differentRule = rule.value === "different_from_builder";
       const next = structuredClone(actions.catalog());
       const result: actions.Profile = { ...profile, name: name.value.trim(), prompt: prompt.value.trim(),
-        choice: { ...choice },
-        mcp: servers.get(), plugins: packages.get(), skills: skills.value.split(",").map(s => s.trim()).filter(Boolean),
+        choice: differentRule ? { ...rows[0] } : { ...choice },
+        provider_rule: rule.value as actions.ProviderRule,
+        candidates: differentRule ? rows.map(row => ({ ...row })) : [],
+        access: access.value as actions.Access,
+        mcp: readOnly() ? null : servers.get(), plugins: packages.get(), skills: skills.value.split(",").map(s => s.trim()).filter(Boolean),
         permission: permission.value as actions.Profile["permission"],
         watch: watching.control.checked ? { interval_seconds: Number(interval.value), max_turns: Number(limit.value), comments: comments.control.checked, ci: ci.control.checked } : null,
       };
+      if (!actions.validRules(result, capable)) throw new Error(unsupported.textContent || t("err.actions.invalid"));
       if (project) { (next.overrides[project] ??= {})[result.id] = result; }
       else { next.profiles = [...next.profiles.filter(p => p.id !== result.id), result]; }
       return next;
