@@ -35,6 +35,8 @@ export type Hooks = {
   issues: () => number | null;
   addProject: () => void;
   removeProject: (id: string) => void;
+  /// Persist the project order chosen by dragging headings.
+  reorderProjects: (ids: string[]) => void;
   projectTools: (id: string) => void;
   /// Open clone files without creating a workspace.
   openProject: (id: string) => void;
@@ -234,11 +236,16 @@ function renderRail(board: Board, hooks: Hooks) {
         },
       ]);
     });
-    renderGroup(rail, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
+    // Wrap each project so dragging its heading moves the workspaces along with it.
+    const box = h("div", "railproject");
+    box.dataset.project = project.id;
+    const head = renderGroup(box, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
       extra: [more, plus],
       open: () => hooks.openProject(project.id),
       on: openId === project.id,
     });
+    reorderable(box, head, hooks);
+    rail.append(box);
   }
 
   // Group multi-repository workspaces by repository set. These transient collections have split avatars but no project creation/menu controls.
@@ -301,7 +308,7 @@ function renderGroup(
     /// Mark the heading when its project page is open.
     on?: boolean;
   } = {},
-) {
+): HTMLElement {
   const shut = folded(key);
   // Use a focusable div because project controls cannot be nested inside another button.
   const head = template(
@@ -339,7 +346,7 @@ function renderGroup(
   }
   if (opts.extra) head.append(...opts.extra);
   rail.append(head);
-  if (shut) return;
+  if (shut) return head;
 
   for (const ws of list) {
     const card = h("div", "railworkspace" + (ws.id === openId ? " on" : ""));
@@ -407,6 +414,64 @@ function renderGroup(
     }
     rail.append(card);
   }
+  return head;
+}
+
+/// Pixels the pointer must travel before a press on a heading becomes a drag instead of a click.
+const DRAG_START = 4;
+
+/// Reorder projects by dragging their headings, or with Alt+Arrow on a focused heading. Pointer
+/// gestures are used because Tauri intercepts HTML drag events for native file drops.
+function reorderable(box: HTMLElement, head: HTMLElement, hooks: Hooks) {
+  const commit = () => {
+    const ids = [...box.parentElement!.querySelectorAll<HTMLElement>(":scope > .railproject")].map((p) => p.dataset.project!);
+    hooks.reorderProjects(ids);
+  };
+  let dropped = false;
+  head.addEventListener("click", (e) => dropped && e.stopImmediatePropagation(), { capture: true });
+  head.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || (e.target as Element).closest("button, .gc")) return;
+    const y0 = e.clientY;
+    let moving = false;
+    const move = (m: PointerEvent) => {
+      if (!moving) {
+        if (Math.abs(m.clientY - y0) < DRAG_START) return;
+        moving = true;
+        box.classList.add("dragging");
+        document.body.classList.add("reordering");
+      }
+      const over = document.elementFromPoint(m.clientX, m.clientY)?.closest<HTMLElement>(".railproject");
+      if (!over || over === box || over.parentElement !== box.parentElement) return;
+      const at = over.getBoundingClientRect();
+      if (m.clientY < at.top + at.height / 2) over.before(box);
+      else over.after(box);
+    };
+    const end = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", end);
+      document.removeEventListener("pointercancel", end);
+      if (!moving) return;
+      box.classList.remove("dragging");
+      document.body.classList.remove("reordering");
+      // The release may still fire a click on the heading; swallow it so dropping does not open the project.
+      dropped = true;
+      setTimeout(() => (dropped = false));
+      commit();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", end);
+    document.addEventListener("pointercancel", end);
+  });
+  head.addEventListener("keydown", (e) => {
+    if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const next = e.key === "ArrowUp" ? box.previousElementSibling : box.nextElementSibling;
+    if (!next?.classList.contains("railproject")) return;
+    if (e.key === "ArrowUp") next.before(box);
+    else next.after(box);
+    head.focus();
+    commit();
+  });
 }
 
 function statusDot(status: Status, text = label(status)) {

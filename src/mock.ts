@@ -1306,6 +1306,15 @@ const mockCommands: IpcHandlers = {
     localStorage.removeItem("mock:cloud");
     return emptyCloud();
   },
+  reorder_projects(args) {
+    const at = (id: string) => {
+      const i = args.ids.indexOf(id);
+      return i < 0 ? args.ids.length : i;
+    };
+    board.projects = [...board.projects].sort((a, b) => at(a.id) - at(b.id));
+    emit("board", board);
+    return;
+  },
   remove_project(args) {
     board.projects = board.projects.filter((project) => project.id !== args.id);
     emit("board", board);

@@ -116,6 +116,7 @@ const hooks: sidebar.Hooks = {
   issues: () => issues.count(),
   addProject: () => openProjects(say),
   removeProject: (id) => invoke("remove_project", { id }),
+  reorderProjects: (ids) => invoke("reorder_projects", { ids }),
   projectTools: (id) => void trust.open(id, say),
   openProject: (id) => {
     const project = state.projects.find((p) => p.id === id);
