@@ -64,9 +64,12 @@ For the `mcp` axis of a Claude conversation the universe is the hub plus the
 **CLI-inherited base** ([ADR 0046](../decisions/0046-cli-inherited-mcp-base.md)):
 the servers discovered read-only using the Claude adapter's configured home
 (`CLAUDE_CONFIG_DIR`, with `~/.claude.json` as the default) and from the working
-directory's `.mcp.json` plus its ancestors. Local definitions take precedence
-over project definitions (nearest first), then user definitions. A hub server
-still shadows a discovered ID; see
+directory's `.mcp.json` plus its ancestors, and the connectors of the active
+Claude account ([ADR 0063](../decisions/0063-account-connectors-in-the-mcp-base.md)),
+read from the account API with the login's own credential and named
+`claude.ai <display name>`. Local definitions take precedence over project
+definitions (nearest first), then user definitions, then the account. A hub
+server still shadows a discovered ID; see
 [ADR 0047](../decisions/0047-tool-selection-boundaries.md). The base participates
 in resolution as an implicit
 `{ base: "inherit", add: <base> }` layer below global
@@ -96,7 +99,10 @@ Claude, when any layer declares the axis the spawn passes
 effective set**, including the kept CLI-inherited servers, so the resolved list
 is exactly what the CLI loads; when no layer declares it, no strict flag is
 passed and the CLI loads its own defaults — the same set the picker shows
-(ADR 0046 amends the Authority section of ADR 0045).
+(ADR 0046 amends the Authority section of ADR 0045). A kept account connector
+is materialized as `{ "type": "claudeai-proxy", "url": …, "id": … }`, the entry
+the CLI creates for itself: the strict flag stops the CLI from fetching the
+account list, so without this entry the connector would be dropped in silence.
 
 Selecting is activating. The package must be enabled from the start of the
 session and, when it declares hooks, they must be active before the first

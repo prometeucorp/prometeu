@@ -358,8 +358,9 @@ fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
 }
 
 /// Read Claude's OAuth credential from a file first, then the macOS Keychain through security when
-/// needed. Claude Code on Linux keeps it only in the file.
-fn claude_token(profile: &accounts::Profile) -> Option<String> {
+/// needed. Claude Code on Linux keeps it only in the file. `mcp.rs` reads the same credential to
+/// list the account's connectors, so the lookup lives here once.
+pub(crate) fn claude_token(profile: &accounts::Profile) -> Option<String> {
     let body = std::fs::read_to_string(profile.home.join(".credentials.json"))
         .ok()
         .or_else(|| keychain(profile))?;

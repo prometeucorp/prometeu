@@ -317,6 +317,9 @@ fn main() {
             background::watch(app.handle().clone());
             notifications::install(app.handle());
             embedded_mcp::start(app.handle().clone())?;
+            // The account connectors are part of the inherited MCP base; fetch them before the
+            // first picker or spawn asks for them (ADR 0063).
+            mcp::warm_connectors();
             file_drop::install(app.handle())?;
             actions::watch(app.handle().clone());
             machine::watch(app.handle().clone());
