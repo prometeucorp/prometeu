@@ -4,6 +4,16 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.20.0] - 2026-09-28
+
+### New
+
+- **review:** Show the calibrated model and optional review history
+
+### Fixes
+
+- **review:** Keep calibration collection reliable after clearing
+
 ## [0.19.0] - 2026-09-27
 
 ### New
