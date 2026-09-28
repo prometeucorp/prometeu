@@ -296,6 +296,14 @@ end
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
 };
 
+/// Committed versions for the editor's change gutter; other sample files are unchanged since HEAD.
+const committed: Record<string, string> = {
+  "app/adapters/transcriber.rb": files["app/adapters/transcriber.rb"]
+    .replace('"gemini-3.6-flash"', '"gemini-3.5-flash"')
+    .replace("        file.flush\n", "")
+    .replace("  end\nend\n", "  end\n\n  def self.version = MODEL\nend\n"),
+};
+
 /// Changes in the second repository exercise independent history for the same feature.
 const changes2 = [
   {
@@ -1569,6 +1577,9 @@ const mockCommands: IpcHandlers = {
           a.path.localeCompare(b.path),
       )
       .slice(0, 40);
+  },
+  file_base(args) {
+    return committed[args.rel] ?? files[args.rel] ?? null;
   },
   file_stamp() {
     return "0";

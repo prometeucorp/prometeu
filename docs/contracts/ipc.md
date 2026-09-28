@@ -265,7 +265,7 @@ does not produce those projections in new logs.
 
 ## Root of the file commands
 
-`list_dir`, `tree_git_status`, `tree_restore`, `read_file`, `read_bytes`, `write_file`,
+`list_dir`, `tree_git_status`, `tree_restore`, `file_base`, `read_file`, `read_bytes`, `write_file`,
 `create_path`, `rename_path`, `trash_path`, `find_paths` and `reveal_path` receive in `id` the workspace **or** the project. A workspace resolves in its
 working directory: a dedicated worktree, the clone itself, or the common parent
 of multiple worktrees. A project resolves in the registered clone's folder, which is what
