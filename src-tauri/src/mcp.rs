@@ -183,7 +183,11 @@ const CONNECTOR_TTL: Duration = Duration::from_secs(300);
 /// The account API this endpoint requires; see ADR 0063.
 const CONNECTOR_BETA: &str = "mcp-servers-2025-12-04";
 
+/// A list belongs to the login that produced it: the connectors of one account say nothing about
+/// another, and a new login on the same account bumps its revision.
 struct Cached {
+    account: String,
+    revision: u64,
     at: Instant,
     servers: Vec<Server>,
 }
@@ -196,28 +200,45 @@ fn connector_cache() -> &'static Mutex<Option<Cached>> {
 /// The connectors of the person's Claude account (ADR 0063). Claude Code keeps them in no
 /// configuration file: it fetches them from the account at every start and loads them under its own
 /// `claudeai` scope. Discovery has to ask the same endpoint, or the picker would hide what the CLI
-/// shows and a strict spawn would drop every connector without saying so. A failed fetch keeps the
-/// last known list rather than emptying the base over a network blip.
-pub fn connectors() -> Vec<Server> {
+/// shows and a strict spawn would drop every connector without saying so.
+///
+/// `None` means the list of a logged-in account is unknown — asked and failed, with nothing cached
+/// for that login — which is not the same as an account with no connectors: the picker degrades to
+/// the file base, while a spawn that materializes a selection refuses to start rather than drop
+/// connectors in silence. A failure after a successful fetch keeps the last known list, so a network
+/// blip changes nothing.
+pub fn connectors() -> Option<Vec<Server>> {
+    // Without an account, or without its credential, there is nothing to ask and the CLI loads no
+    // connector either: an empty list is the whole truth, not a gap.
+    let Some((profile, token)) = crate::accounts::active(crate::state::ProviderId::Claude)
+        .ok()
+        .and_then(|profile| Some((profile.clone(), crate::usage::claude_token(&profile)?)))
+    else {
+        return Some(Vec::new());
+    };
+    let mine =
+        |cached: &Cached| cached.account == profile.id && cached.revision == profile.revision;
     {
         let cache = crate::lock::lock(connector_cache());
-        if let Some(cached) = cache.as_ref() {
+        if let Some(cached) = cache.as_ref().filter(|cached| mine(cached)) {
             if cached.at.elapsed() < CONNECTOR_TTL {
-                return cached.servers.clone();
+                return Some(cached.servers.clone());
             }
         }
     }
-    let Some(fetched) = fetch_connectors().map(|body| connectors_from(&body)) else {
+    let Some(fetched) = fetch_connectors(&token).map(|body| connectors_from(&body)) else {
         return crate::lock::lock(connector_cache())
             .as_ref()
-            .map(|cached| cached.servers.clone())
-            .unwrap_or_default();
+            .filter(|cached| mine(cached))
+            .map(|cached| cached.servers.clone());
     };
     *crate::lock::lock(connector_cache()) = Some(Cached {
+        account: profile.id.clone(),
+        revision: profile.revision,
         at: Instant::now(),
         servers: fetched.clone(),
     });
-    fetched
+    Some(fetched)
 }
 
 /// Warm the cache off the interface thread so the first picker or spawn finds the list ready.
@@ -228,10 +249,9 @@ pub fn warm_connectors() {
 }
 
 /// Ask the account API with the active Claude login's own credential, the same one the CLI uses.
-/// Every failure is silent: the connectors are an inherited base, not a Prometeu-owned registry.
-fn fetch_connectors() -> Option<Value> {
-    let profile = crate::accounts::active(crate::state::ProviderId::Claude).ok()?;
-    let token = crate::usage::claude_token(&profile)?;
+/// The failure is silent here and answered by the caller, which knows whether an absent list may be
+/// tolerated.
+fn fetch_connectors(token: &str) -> Option<Value> {
     let base = std::env::var("ANTHROPIC_BASE_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
@@ -309,7 +329,14 @@ pub fn inherited(workdir: &Path) -> Vec<Server> {
         }
         dir = current.parent();
     }
-    inherited_from(claude.as_ref(), workdir, &files, &connectors())
+    // The picker and the button gating survive an unknown account: they show the file base, and the
+    // spawn is the one that refuses to materialize a selection without the connectors.
+    inherited_from(
+        claude.as_ref(),
+        workdir,
+        &files,
+        &connectors().unwrap_or_default(),
+    )
 }
 
 /// The pure core of `inherited`, injectable so tests need no home directory, file tree or account.
@@ -468,6 +495,7 @@ pub fn config_for(
     let Some(chosen) = chosen else {
         return Ok(None);
     };
+    requires_connectors(connectors().is_some())?;
     let path = session_path(id);
     // Refresh OAuth tokens while materializing session configuration, without persisting them in
     // the registry; see mcp_auth.rs.
@@ -480,6 +508,16 @@ pub fn config_for(
     paths::write_private(&path, &body)
         .map_err(|cause| i18n::ta("err.mcp.session", &[("cause", cause)]))?;
     Ok(Some(path))
+}
+
+/// The strict flag stops the CLI from fetching the account connectors, so materializing a selection
+/// while their list is unknown would drop every one of them in silence. A preparation error prevents
+/// the spawn instead (ADR 0063 and docs/contracts/agent-runtime.md). Pure, so the policy is tested
+/// without an account or the network.
+fn requires_connectors(known: bool) -> Result<(), String> {
+    known
+        .then_some(())
+        .ok_or_else(|| i18n::t("err.mcp.connectors"))
 }
 
 /// Materialize every chosen server. Resolution already filtered the chosen ids against the
@@ -1152,7 +1190,7 @@ mod tests {
     #[ignore]
     fn lists_real_account_connectors() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let got = connectors();
+        let got = connectors().expect("the account list must be readable in this run");
         for server in &got {
             println!("{} -> {}", server.id, server.config);
         }
@@ -1480,6 +1518,15 @@ mod tests {
         let servers = body["mcpServers"].as_object().expect("objeto");
         assert_eq!(servers.len(), 1);
         assert!(servers.contains_key("notion"));
+    }
+
+    /// An unknown account list fails the spawn too: under the strict flag the CLI no longer fetches
+    /// the connectors, so materializing without them would drop what the person kept (ADR 0063).
+    #[test]
+    fn unknown_account_connectors_prevent_materialization() {
+        assert!(requires_connectors(true).is_ok());
+        let err = requires_connectors(false).expect_err("failure");
+        assert!(err.contains("err.mcp.connectors"), "{err}");
     }
 
     /// A chosen id the universe no longer has fails the spawn instead of silently shrinking the

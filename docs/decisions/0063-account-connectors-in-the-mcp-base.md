@@ -68,9 +68,20 @@ base, alongside the configuration files of ADR 0046:
   dynamic server and connects with the account's own authentication; Prometeu
   never handles the connector's token.
 - **Freshness.** The list is cached for five minutes and warmed at startup, so
-  neither the picker nor a spawn waits on the network in the common case. A
-  failed fetch keeps the last known list instead of emptying the base, because
-  an empty base under a declared axis would silently drop servers.
+  neither the picker nor a spawn waits on the network in the common case. The
+  cache belongs to the login that produced it — the account id and its revision
+  — so switching accounts or logging in again never shows another account's
+  connectors. A failed fetch keeps that login's last known list, so a network
+  blip changes nothing.
+- **Unknown is not empty.** Without an account or without its credential the
+  list is empty and complete: the CLI would load no connector either. With a
+  credential in hand and no successful fetch for that login, the list is
+  unknown rather than empty. The picker degrades to the file base,
+  because hiding rows costs nothing that a retry does not fix. A spawn that
+  materializes a declared selection refuses instead: the strict flag stops the
+  CLI from fetching the connectors, so starting would silently drop what the
+  person kept, and `docs/contracts/agent-runtime.md` already requires a
+  preparation error to prevent the spawn.
 
 Scope: Claude only, like ADR 0046. Codex has no account connector source.
 
@@ -92,7 +103,10 @@ Negative:
   already tolerates for CLI files;
 - the credential is read for a second purpose, widening the reasons Prometeu
   touches the Claude login;
-- a five-minute cache can show a connector removed on claude.ai minutes ago.
+- a five-minute cache can show a connector removed on claude.ai minutes ago;
+- a conversation with a declared MCP selection does not start while the account
+  is unreachable and no list was ever read, which trades an offline start for
+  never losing connectors in silence.
 
 ## Evidence
 
@@ -100,6 +114,8 @@ Negative:
   numbered repeat, the entry an incomplete server does not produce, a
   configuration file shadowing a connector, and the `claudeai-proxy` entry in
   the strict configuration.
+- `mcp.rs`: `unknown_account_connectors_prevent_materialization` — a declared
+  selection refuses to materialize while the list is unknown.
 - `mcp.rs`: the existing `inherited_base_combines_user_project_and_repository_configuration`
   still describes the file scopes, now with an explicit empty account.
 - Web: `src/mock.ts` mirrors the base with a connector row that the import menu

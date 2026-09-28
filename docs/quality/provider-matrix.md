@@ -165,8 +165,10 @@ under the [release contract](../contracts/releases.md).
   servers configured for Codex in `~/.codex/config.toml` are not discovered and
   stay invisible to the picker, a recorded follow-up;
 - the account connectors are read from an endpoint Prometeu does not own and
-  are cached for five minutes, so an edit made on claude.ai can take that long
-  to reach the picker, and an unreachable account keeps the last known list;
+  are cached per login for five minutes, so an edit made on claude.ai can take
+  that long to reach the picker, and an unreachable account keeps that login's
+  last known list; with no list ever read, the picker shows the file base and a
+  spawn with a declared MCP selection fails instead of dropping connectors;
 - attachments have UI tests over the mock and native validation of the saved
   destination; the real thumbnail gesture was confirmed in Prometeu Dev on
   2026-09-06. Actual reading by the CLI still requires manual verification.

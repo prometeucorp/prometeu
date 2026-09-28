@@ -1543,6 +1543,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.mcp.session": "could not prepare MCP for this conversation: {cause}",
   "err.mcp.noName": "the server needs a name",
   "err.mcp.badConfig": "the server configuration is malformed",
+  "err.mcp.connectors": "could not read the connectors of your Claude account — check the connection and try again, or clear the conversation’s MCP selection",
   "err.mcp.missing": "the MCP {id} left the registry — remove it from the selection or register it again",
   "err.tools.badPayload": "the tool selection arrived malformed",
   "err.tools.badAxis": "each item belongs to its own axis: standalone skills go through the skills picker",
