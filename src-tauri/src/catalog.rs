@@ -408,12 +408,20 @@ fn apply(app: &AppHandle, cache: &mut Cache, new: Doc) -> Result<(), String> {
     }
     // Preserve existing actions; logging in never exports the local catalog.
     if let Some(actions) = &new.actions {
-        actions::validate(actions)?;
-        lock(&app.state::<AppState>().board).actions = actions.clone();
+        lock(&app.state::<AppState>().board).actions = incoming_actions(actions)?;
         publish(app);
     }
     cache.doc = new;
     Ok(())
+}
+
+/// A document saved before a seed revision still carries the earlier bundled profile. Upgrade it the
+/// way `Board::revive` does, so applying the document cannot undo the local upgrade.
+fn incoming_actions(actions: &actions::Catalog) -> Result<actions::Catalog, String> {
+    actions::validate(actions)?;
+    let mut actions = actions.clone();
+    actions.initialize_defaults();
+    Ok(actions)
 }
 
 fn merge_servers(mut servers: Vec<mcp::Server>, cache: &Cache, new: &Doc) -> Vec<mcp::Server> {
@@ -1212,6 +1220,25 @@ pub fn catalog_state(app: AppHandle) -> CatalogState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloud_actions_keep_the_seed_upgrade() {
+        let seed: Value =
+            serde_json::from_str(include_str!("../../src/action-defaults.json")).unwrap();
+        let (previous, command) = (seed["previous"][0].clone(), seed["command"].clone());
+        // A document saved while the bundled review was still at revision 1.
+        let old: actions::Catalog = serde_json::from_value(serde_json::json!({
+            "defaults_initialized": true, "profiles": [previous], "commands": [command]
+        }))
+        .unwrap();
+        let applied = incoming_actions(&old).unwrap();
+        assert_eq!(applied.profiles[0].access, actions::Access::ReadOnly);
+        assert_eq!(
+            applied.defaults_revision,
+            seed["revision"].as_u64().unwrap() as u32
+        );
+        assert!(incoming_actions(&applied).unwrap() == applied, "idempotent");
+    }
 
     #[test]
     fn shared_cloud_contract_catalogs_use_the_production_parser() {
