@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager, State};
 
+mod reviewer;
+pub use reviewer::Pick;
+
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Catalog {
     #[serde(default)]
@@ -144,6 +147,9 @@ pub struct Run {
     /// Keep the PR identity attached to the execution even if the branch changes.
     #[serde(default)]
     pub prs: BTreeMap<String, u64>,
+    /// The rule found no usable candidate outside the builders' families. Absent in older tasks.
+    #[serde(default)]
+    pub same_family: bool,
 }
 
 fn valid_name(name: &str) -> bool {
@@ -258,12 +264,16 @@ pub fn actions_save(
     Ok(())
 }
 
+/// Freeze a profile for one execution and report whether its provider shares a builder's family.
+/// The project override replaces the global profile; `pick` chooses the provider, frozen as a fixed
+/// choice; tools resolve for that provider, since the MCP base differs between providers.
 pub fn resolve(
     c: &Catalog,
     project: &str,
     id: &str,
-    tools: impl FnOnce(crate::state::ProviderId) -> session::ResolvedTools,
-) -> Result<Profile, String> {
+    pick: impl FnOnce(&Profile) -> Pick,
+    tools: impl FnOnce(ProviderId) -> session::ResolvedTools,
+) -> Result<(Profile, bool), String> {
     let mut p = c
         .overrides
         .get(project)
@@ -271,18 +281,24 @@ pub fn resolve(
         .or_else(|| c.profiles.iter().find(|p| p.id == id))
         .cloned()
         .ok_or_else(|| i18n::t("err.actions.missing"))?;
-    // Resolve for the profile's provider, which may differ from the workspace default.
+    let picked = pick(&p);
+    p.choice = picked.choice;
+    p.provider_rule = ProviderRule::Fixed;
+    p.candidates.clear();
     let resolved = tools(p.choice.agent);
     // A task freezes the tools it starts with, so the caller resolves the layers once and an axis
     // the profile leaves unset inherits that resolved global and workspace selection.
-    if p.mcp.is_none() {
+    if p.access == Access::ReadOnly {
+        // MCP tools run outside both providers' read-only envelopes.
+        p.mcp = Some(vec![]);
+    } else if p.mcp.is_none() {
         p.mcp = resolved.mcp.clone();
     }
     if p.plugins.is_none() {
         // Standalone skills ride the plugin pipeline, so the frozen set carries both axes.
         p.plugins = resolved.plugin_packages();
     }
-    Ok(p)
+    Ok((p, picked.same_family))
 }
 
 pub fn instructions(p: &Profile) -> String {
@@ -351,10 +367,12 @@ pub fn action_start(
         }) {
             return Err(i18n::t("err.actions.busy"));
         }
-        let profile = resolve(
+        let builders = reviewer::builders(&ws);
+        let (profile, same_family) = resolve(
             &actions,
             &ws.project,
             a.profile.as_deref().unwrap_or(""),
+            |p| reviewer::pick(p, &builders, crate::agents::usable),
             |agent| session::resolve_workspace_tools(&global, &trust, &ws, agent),
         )?;
         validate_profile(&profile)?;
@@ -399,6 +417,7 @@ pub fn action_start(
                 error: None,
                 seen: BTreeMap::new(),
                 prs: BTreeMap::new(),
+                same_family,
             }),
         };
         // Mutation phase: re-validate against the live board, since another action may have
@@ -809,6 +828,47 @@ mod tests {
     }
 
     #[test]
+    fn resolution_picks_the_provider_before_tools_and_freezes_read_only_mcp() {
+        let mut review = profile();
+        review.watch = None;
+        review.provider_rule = ProviderRule::DifferentFromBuilder;
+        review.choice = Choice {
+            agent: ProviderId::Codex,
+            ..Default::default()
+        };
+        review.candidates = vec![review.choice.clone(), Choice::default()];
+        review.access = Access::ReadOnly;
+        let catalog = Catalog {
+            profiles: vec![review],
+            ..Default::default()
+        };
+        let (frozen, same_family) = resolve(
+            &catalog,
+            "",
+            "reviewer",
+            |p| reviewer::pick(p, &[ProviderId::Codex], |_| true),
+            |agent| {
+                assert_eq!(
+                    agent,
+                    ProviderId::Claude,
+                    "tools resolve for the picked provider"
+                );
+                session::ResolvedTools {
+                    mcp: Some(vec!["hub".into()]),
+                    ..Default::default()
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(frozen.choice.agent, ProviderId::Claude);
+        assert!(!same_family);
+        assert_eq!(frozen.provider_rule, ProviderRule::Fixed);
+        assert!(frozen.candidates.is_empty());
+        assert_eq!(frozen.mcp, Some(vec![]));
+        assert!(validate_profile(&frozen).is_ok());
+    }
+
+    #[test]
     fn validates_references_names_and_monitor_limits() {
         let mut c = Catalog {
             profiles: vec![profile()],
@@ -871,6 +931,7 @@ mod tests {
             error: None,
             seen: BTreeMap::new(),
             prs: BTreeMap::new(),
+            same_family: false,
         };
         let snapshot = |body: &str, closed| {
             Ok(crate::github::TaskSnapshot {
@@ -914,6 +975,7 @@ mod tests {
             error: None,
             seen: BTreeMap::from([("event".into(), "body".into())]),
             prs: BTreeMap::from([("repo".into(), 42)]),
+            same_family: false,
         };
         p.choice.model = "opus".into();
         let restored: Run = serde_json::from_str(&serde_json::to_string(&run).unwrap()).unwrap();

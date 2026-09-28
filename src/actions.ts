@@ -1,6 +1,6 @@
 import defaultsText from "./action-defaults.json?raw";
 import { invoke } from "./ipc";
-import type { Board, Choice, ProviderId, Tab } from "./types";
+import type { Board, Choice, ProviderId, Tab, Workspace } from "./types";
 
 export type Watch = { interval_seconds: number; comments: boolean; ci: boolean; max_turns: number };
 export type ProviderRule = "fixed" | "different_from_builder";
@@ -17,6 +17,8 @@ export type Catalog = { defaults_initialized?: boolean; defaults_revision?: numb
 export type TaskRun = {
   command: string; profile: Profile; paused: boolean; done: boolean; turns: number;
   checked_at: number; error: string | null; seen: Record<string, string>; prs: Record<string, number>;
+  /// No usable candidate outside the builders' families existed; absent in older tasks.
+  same_family?: boolean;
 };
 export const emptyCatalog = (): Catalog => ({ profiles: [], commands: [], overrides: {}, pr_action: null });
 type Seed = { revision: number; profile: Profile; command: Action; previous: Profile[] };
@@ -50,6 +52,25 @@ export function initializeDefaults(catalog: Catalog): Catalog {
   next.defaults_initialized = true;
   next.defaults_revision = seed.revision;
   return next;
+}
+/// Mirror of reviewer::builders.
+export function builders(ws: Pick<Workspace, "agent" | "tabs">): ProviderId[] {
+  const found: ProviderId[] = [];
+  for (const tab of ws.tabs) {
+    if (tab.task) continue;
+    const agent = tab.choice?.agent ?? ws.agent;
+    if (!found.includes(agent)) found.push(agent);
+  }
+  return found.length ? found : [ws.agent];
+}
+/// Mirror of reviewer::pick.
+export function pick(profile: Profile, builders: ProviderId[], usable: (agent: ProviderId) => boolean): { choice: Choice; same_family: boolean } {
+  const candidates = profile.candidates;
+  if (profile.provider_rule !== "different_from_builder" || !candidates.length) return { choice: { ...profile.choice }, same_family: false };
+  const known = new Map<ProviderId, boolean>();
+  const ready = (agent: ProviderId) => { if (!known.has(agent)) known.set(agent, usable(agent)); return known.get(agent)!; };
+  const choice = candidates.find(c => !builders.includes(c.agent) && ready(c.agent)) ?? candidates.find(c => ready(c.agent)) ?? candidates[0];
+  return { choice: { ...choice }, same_family: builders.includes(choice.agent) };
 }
 /// Mirror of the backend's provider-rule and access validation, so the editor can explain what the backend would refuse.
 export function validRules(p: Profile, readOnlyCapable: (agent: ProviderId) => boolean): boolean {

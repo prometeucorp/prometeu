@@ -178,6 +178,20 @@ pub fn agents() -> Agents {
     }
 }
 
+/// A provider can take a task now when its CLI is on the adopted PATH and its active account is
+/// signed in. Antigravity's identity is never probed, so its version check and an attached account
+/// stand for both.
+pub fn usable(id: ProviderId) -> bool {
+    match id {
+        ProviderId::Claude => crate::platform::has("claude") && crate::accounts::signed_in(id),
+        ProviderId::Codex => crate::platform::has("codex") && crate::accounts::signed_in(id),
+        ProviderId::Antigravity => {
+            crate::accounts::active(id).is_ok() && crate::antigravity::installed()
+        }
+        ProviderId::RetiredGemini => false,
+    }
+}
+
 /// Query the selected account without creating a conversation or performing inference.
 #[tauri::command]
 pub async fn agent_models(agent: ProviderId) -> Result<ModelCatalog, CatalogError> {

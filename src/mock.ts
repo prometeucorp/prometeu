@@ -4,7 +4,7 @@ import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
-import { emptyCatalog, initializeDefaults, validRules, type Catalog, type Profile } from "./actions";
+import { builders, emptyCatalog, initializeDefaults, pick, validRules, type Catalog, type Profile } from "./actions";
 import type { AgentDescriptor } from "./agents";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
 import { simulatedSocket } from "./team-mock";
@@ -156,6 +156,13 @@ function mockProviders(): AgentDescriptor[] {
         workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false, readOnlyProfile: false },
     },
   ];
+}
+
+/// Mirror of agents::usable over the mock's installations and accounts; attached Antigravity accounts are never probed.
+function mockUsable(agent: ProviderId): boolean {
+  const provider = mockProviders().find(p => p.id === agent);
+  const account = mockAccounts.accounts.find(a => a.id === mockAccounts.active[agent]);
+  return !!provider?.installed && !!account && (account.connected || provider.authMethods.some(m => m.kind === "external"));
 }
 
 const ws = (
@@ -1139,7 +1146,10 @@ const mockCommands: IpcHandlers = {
       return existing;
     }
     if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
-    const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
+    const source = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
+    // Mirror of resolve: the provider is picked first because tool resolution depends on it.
+    const picked = pick(source, builders(workspace), mockUsable);
+    const profile: Profile = { ...source, choice: picked.choice, provider_rule: "fixed", candidates: [] };
     // Mirror of resolve_workspace_tools: a profile that leaves an axis unset inherits the resolved
     // global, project and workspace layers instead of only the workspace's own adds.
     const l = toolLayers(workspace, profile.choice.agent);
@@ -1149,11 +1159,12 @@ const mockCommands: IpcHandlers = {
       g === null && p === null && w === null ? null : resolveWithBase(base, g, p, w, universe);
     const plugins = axis(l.global.plugins, project.plugins, l.own.plugins, [], l.pluginIds);
     const skills = axis(l.global.skills, project.skills, l.own.skills, [], l.pluginIds);
-    profile.mcp ??= axis(l.global.mcp, project.mcp, l.own.mcp, l.base, l.mcpUniverse);
+    if (profile.access === "read_only") profile.mcp = [];
+    else profile.mcp ??= axis(l.global.mcp, project.mcp, l.own.mcp, l.base, l.mcpUniverse);
     // Mirror of plugin_packages: plugins and standalone skills materialize together.
     profile.plugins ??= plugins === null && skills === null ? null : [...(plugins ?? []), ...(skills ?? [])];
     const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
-      task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
+      task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {}, same_family: picked.same_family } };
     scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
     workspace.tabs.push(tab); workspace.active = tab.id;
     emit("board", board);

@@ -3585,10 +3585,19 @@ mod tests {
             plugins: None,
             skills: None,
         };
-        let profile = crate::actions::resolve(&catalog, &ws.project, "review", |agent| {
-            assert_eq!(agent, ProviderId::Claude);
-            resolved
-        })
+        let (profile, _) = crate::actions::resolve(
+            &catalog,
+            &ws.project,
+            "review",
+            |p| crate::actions::Pick {
+                choice: p.choice.clone(),
+                same_family: false,
+            },
+            |agent| {
+                assert_eq!(agent, ProviderId::Claude);
+                resolved
+            },
+        )
         .unwrap();
         let mut task = tab("task", None);
         task.task = Some(
