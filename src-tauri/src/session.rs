@@ -912,6 +912,9 @@ pub struct Draft {
 pub struct Launch {
     #[serde(default)]
     pub permission: Option<crate::actions::Permission>,
+    /// Read-only access removes write tools in the adapter; only task profiles set it.
+    #[serde(default)]
+    pub access: crate::actions::Access,
     #[serde(default)]
     pub instructions: String,
     #[serde(default)]
@@ -1313,6 +1316,7 @@ impl Workspace {
                 mcp: run.profile.mcp.clone(),
                 plugins: run.profile.plugins.clone(),
                 permission: Some(run.profile.permission),
+                access: run.profile.access,
                 instructions: crate::actions::instructions(&run.profile),
                 config_scope: Some(tab.to_string()),
                 ..Launch::from(run.profile.choice.clone())
@@ -3541,6 +3545,32 @@ mod tests {
         );
         assert_eq!(prov(&items, "hub-a"), Some(Provenance::Inherited));
         assert_eq!(prov(&items, "cli-on"), None);
+    }
+
+    #[test]
+    fn task_launch_carries_the_frozen_access() {
+        let mut ws = bare();
+        let mut task = tab("task", None);
+        task.task = Some(
+            serde_json::from_value(serde_json::json!({
+                "command": "review", "profile": {
+                    "id": "review", "name": "Review", "prompt": "Review",
+                    "choice": {"agent": "codex", "model": "", "effort": ""},
+                    "access": "read_only", "mcp": [], "plugins": null,
+                    "skills": [], "permission": "ask", "watch": null
+                }, "paused": false, "done": false, "turns": 0,
+                "checked_at": 0, "error": null
+            }))
+            .unwrap(),
+        );
+        ws.tabs.push(task);
+        let launch = ws.launch_of("task", &ResolvedTools::default());
+        assert_eq!(launch.access, crate::actions::Access::ReadOnly);
+        assert_eq!(launch.mcp, Some(vec![]));
+        assert_eq!(
+            ws.launch(&ResolvedTools::default()).access,
+            crate::actions::Access::Default
+        );
     }
 
     #[test]

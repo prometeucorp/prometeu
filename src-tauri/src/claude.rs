@@ -206,9 +206,7 @@ pub fn spawn(
     if profile.managed && !account_status_at(&profile, worktree)?.connected {
         return Err(i18n::t("err.account.disconnected"));
     }
-    let mut cmd = Command::new("claude");
-    cmd.args(args).current_dir(worktree);
-    profile.apply(&mut cmd)?;
+    let cmd = process_command(args, worktree, launch, &profile)?;
     let seed = paths::transcript(id, worktree);
     let wire = |stdin| {
         let mut adapter = Adapter {
@@ -230,6 +228,16 @@ pub fn spawn(
         chat::ProcessIo::new(passthrough_stderr, wire, profile),
     )
 }
+
+/// Tools a read-only session keeps. Write tools are absent in the session and its subagents; web
+/// tools are absent because they reach the network.
+const READ_ONLY_TOOLS: &str = "Read,Grep,Glob,Bash,Skill,Task";
+/// Restricted mode skips settings files, so the project's CLAUDE.md loads only through the added
+/// worktree with this variable (verified with Claude 2.1.283).
+const READ_ONLY_MEMORY: (&str, &str) = ("CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD", "1");
+/// An inline empty configuration loads no MCP server, not even account connectors, without the
+/// connector lookup a hub selection needs.
+const NO_MCP: &str = r#"{"mcpServers":{}}"#;
 
 /// Build headless stream-json arguments for a new or resumed session using the same ID. Route
 /// permission prompts through stdio so the process can receive replies. Plan mode permits a later
@@ -255,7 +263,28 @@ fn launch_args(
     ]
     .map(String::from)
     .to_vec();
-    if launch.plan {
+    let read_only = launch.access == crate::actions::Access::ReadOnly;
+    if read_only && (launch.plan || launch.mcp.as_ref().is_some_and(|ids| !ids.is_empty())) {
+        // The core never freezes these together; refuse rather than drop a requested behavior.
+        return Err(i18n::t("err.actions.invalid"));
+    }
+    if read_only {
+        // Restricted mode ignores user, project and local settings files, so no allow rule,
+        // project skill or setting widens this envelope, and the CLI refuses bypassPermissions.
+        // dontAsk denies what the CLI does not classify as read-only instead of prompting.
+        args.extend(
+            [
+                "--restricted",
+                "--permission-mode",
+                "dontAsk",
+                "--tools",
+                READ_ONLY_TOOLS,
+                "--add-dir",
+            ]
+            .map(String::from),
+        );
+        args.push(worktree.display().to_string());
+    } else if launch.plan {
         args.extend(
             [
                 "--permission-mode",
@@ -280,7 +309,9 @@ fn launch_args(
     // defaults. The strict file carries the whole effective set, including the CLI-inherited
     // servers the layers kept (ADR 0046). Materialization failures must prevent startup rather
     // than silently discard selected tools.
-    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref(), worktree)? {
+    if read_only {
+        args.extend(["--strict-mcp-config", "--mcp-config", NO_MCP].map(String::from));
+    } else if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref(), worktree)? {
         args.extend([
             "--mcp-config".into(),
             path.display().to_string(),
@@ -294,6 +325,23 @@ fn launch_args(
     let packages = launch.plugin_packages();
     args.extend(crate::plugins::args_for(packages.as_ref()));
     Ok(args)
+}
+
+/// Build the process with the account's environment. The read-only variable goes after
+/// `account_env`, which strips every inherited CLAUDE* variable.
+fn process_command(
+    args: Vec<String>,
+    worktree: &Path,
+    launch: &crate::session::Launch,
+    profile: &accounts::Profile,
+) -> Result<Command, String> {
+    let mut cmd = Command::new("claude");
+    cmd.args(args).current_dir(worktree);
+    profile.apply(&mut cmd)?;
+    if launch.access == crate::actions::Access::ReadOnly {
+        cmd.env(READ_ONLY_MEMORY.0, READ_ONLY_MEMORY.1);
+    }
+    Ok(cmd)
 }
 
 fn passthrough_stderr(line: &str) -> Option<String> {
@@ -1298,8 +1346,39 @@ mod account_tests {
 }
 
 #[cfg(test)]
+mod read_only_recording_tests {
+    use super::Adapter;
+    use serde_json::Value;
+
+    /// A read-only recording: reads run, writes are denied, and no permission request reaches V1.
+    #[test]
+    fn read_only_recording_denies_writes_without_requests() {
+        let mut adapter = Adapter {
+            fresh: true,
+            ..Adapter::default()
+        };
+        let events: Vec<Value> = include_str!("claude/fixtures/read-only.ndjson")
+            .lines()
+            .flat_map(|line| adapter.translate_line(line))
+            .map(|line| serde_json::from_str(&line).unwrap())
+            .collect();
+        assert!(events.iter().all(|e| e["type"] != "request.opened"));
+        let results: Vec<&Value> = events
+            .iter()
+            .filter(|e| e["type"] == "tool.completed")
+            .collect();
+        assert!(results.iter().any(|e| e["error"] == false
+            && e["output"]
+                .as_str()
+                .is_some_and(|out| out.contains("main.rs"))));
+        assert!(results.iter().filter(|e| e["error"] == true).count() >= 2);
+        assert!(events.iter().any(|e| e["type"] == "turn.completed"));
+    }
+}
+
+#[cfg(test)]
 mod launch_tests {
-    use super::launch_args;
+    use super::{launch_args, process_command};
     use crate::paths;
     use crate::session::Launch;
     use crate::state::ProviderId;
@@ -1322,6 +1401,74 @@ mod launch_tests {
             plan,
             ..Default::default()
         }
+    }
+
+    fn read_only() -> Launch {
+        Launch {
+            access: crate::actions::Access::ReadOnly,
+            permission: Some(crate::actions::Permission::Auto),
+            mcp: Some(vec![]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn read_only_restricts_tools_settings_and_mcp_without_prompts() {
+        let args = launch_args("id", false, &read_only(), work()).unwrap();
+        let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+        assert!(args.contains(&"--restricted".to_string()));
+        assert!(has(["--permission-mode", "dontAsk"]));
+        assert!(has(["--tools", "Read,Grep,Glob,Bash,Skill,Task"]));
+        assert!(has(["--add-dir", "/prometeu-launch-test"]));
+        assert!(args.contains(&"--strict-mcp-config".to_string()));
+        assert!(has(["--mcp-config", r#"{"mcpServers":{}}"#]));
+        for flag in [
+            "--dangerously-skip-permissions",
+            "--allow-dangerously-skip-permissions",
+        ] {
+            assert!(!args.contains(&flag.to_string()), "{flag}");
+        }
+    }
+
+    #[test]
+    fn read_only_refuses_plan_mode_and_mcp_servers() {
+        let plan = Launch {
+            plan: true,
+            ..read_only()
+        };
+        let servers = Launch {
+            mcp: Some(vec!["server".into()]),
+            ..read_only()
+        };
+        assert!(launch_args("id", false, &plan, work()).is_err());
+        assert!(launch_args("id", false, &servers, work()).is_err());
+    }
+
+    #[test]
+    fn read_only_memory_survives_inherited_claude_variables() {
+        let key = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD";
+        std::env::set_var(key, "0");
+        let profile = crate::accounts::Profile {
+            id: "claude".into(),
+            provider: ProviderId::Claude,
+            home: std::env::temp_dir(),
+            managed: false,
+            revision: 0,
+        };
+        let cmd = process_command(vec![], work(), &read_only(), &profile).unwrap();
+        let ordinary = process_command(vec![], work(), &launch("", "", false), &profile).unwrap();
+        std::env::remove_var(key);
+        let value = |cmd: &Command| {
+            cmd.get_envs()
+                .find(|(k, _)| *k == key)
+                .and_then(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+        };
+        assert_eq!(value(&cmd).as_deref(), Some("1"));
+        assert_eq!(
+            value(&ordinary),
+            None,
+            "ordinary sessions remove the inherited value"
+        );
     }
 
     #[test]
