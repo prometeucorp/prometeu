@@ -174,6 +174,7 @@ fn main() {
             session::load_board,
             session::add_project,
             session::remove_project,
+            session::reorder_projects,
             session::list_branches,
             session::create_workspace,
             session::set_stage,

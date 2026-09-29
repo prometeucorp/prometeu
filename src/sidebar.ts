@@ -35,6 +35,8 @@ export type Hooks = {
   issues: () => number | null;
   addProject: () => void;
   removeProject: (id: string) => void;
+  /// Persist the project order chosen by dragging headings.
+  reorderProjects: (ids: string[]) => void;
   projectTools: (id: string) => void;
   /// Open clone files without creating a workspace.
   openProject: (id: string) => void;
@@ -53,8 +55,15 @@ export function setOpen(id: string | null) {
   openId = id;
 }
 
+/// A board update during a project drag would replace the box being dragged; hold it until the drop.
+let held: (() => void) | null = null;
+let dragging = false;
+/// Heading moved by keyboard; it regains focus after the redraw only if it still holds focus then.
+let refocus: { id: string; head: HTMLElement } | null = null;
+
 export function render(board: Board, hooks: Hooks) {
-  renderRail(board, hooks);
+  if (dragging) held = () => renderRail(board, hooks);
+  else renderRail(board, hooks);
 }
 
 const el = (id: string) => document.getElementById(id)!;
@@ -138,6 +147,8 @@ const folded = (name: string) => localStorage.getItem(FOLD + name) === "1";
 
 function renderRail(board: Board, hooks: Hooks) {
   const rail = el("railbody");
+  const keep = refocus && document.activeElement === refocus.head ? refocus.id : null;
+  refocus = null;
   rail.replaceChildren();
   const live = board.workspaces.filter((w) => !w.archived && !w.remote);
 
@@ -234,11 +245,16 @@ function renderRail(board: Board, hooks: Hooks) {
         },
       ]);
     });
-    renderGroup(rail, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
+    // Wrap each project so dragging its heading moves the workspaces along with it.
+    const box = h("div", "railproject");
+    box.dataset.project = project.id;
+    const head = renderGroup(box, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
       extra: [more, plus],
       open: () => hooks.openProject(project.id),
       on: openId === project.id,
     });
+    reorderable(box, head, hooks);
+    rail.append(box);
   }
 
   // Group multi-repository workspaces by repository set. These transient collections have split avatars but no project creation/menu controls.
@@ -280,6 +296,8 @@ function renderRail(board: Board, hooks: Hooks) {
     arch.addEventListener("click", hooks.toArchived);
     rail.append(arch);
   }
+
+  if (keep) rail.querySelector<HTMLElement>(`.railproject[data-project="${CSS.escape(keep)}"] > .group`)?.focus();
 }
 
 function renderGroup(
@@ -301,7 +319,7 @@ function renderGroup(
     /// Mark the heading when its project page is open.
     on?: boolean;
   } = {},
-) {
+): HTMLElement {
   const shut = folded(key);
   // Use a focusable div because project controls cannot be nested inside another button.
   const head = template(
@@ -339,7 +357,7 @@ function renderGroup(
   }
   if (opts.extra) head.append(...opts.extra);
   rail.append(head);
-  if (shut) return;
+  if (shut) return head;
 
   for (const ws of list) {
     const card = h("div", "railworkspace" + (ws.id === openId ? " on" : ""));
@@ -407,6 +425,78 @@ function renderGroup(
     }
     rail.append(card);
   }
+  return head;
+}
+
+/// Pixels the pointer must travel before a press on a heading becomes a drag instead of a click.
+const DRAG_START = 4;
+
+/// Reorder projects by dragging their headings, or with Alt+Arrow on a focused heading. Pointer
+/// gestures are used because Tauri intercepts HTML drag events for native file drops.
+function reorderable(box: HTMLElement, head: HTMLElement, hooks: Hooks) {
+  const commit = () => {
+    const ids = [...box.parentElement!.querySelectorAll<HTMLElement>(":scope > .railproject")].map((p) => p.dataset.project!);
+    hooks.reorderProjects(ids);
+  };
+  let dropped = false;
+  head.addEventListener("click", (e) => dropped && e.stopImmediatePropagation(), { capture: true });
+  head.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || (e.target as Element).closest("button, .gc")) return;
+    const y0 = e.clientY;
+    const list = box.parentElement!;
+    const home = box.nextSibling;
+    let moving = false;
+    const move = (m: PointerEvent) => {
+      if (!moving) {
+        if (Math.abs(m.clientY - y0) < DRAG_START) return;
+        moving = dragging = true;
+        box.classList.add("dragging");
+        document.body.classList.add("reordering");
+      }
+      const over = document.elementFromPoint(m.clientX, m.clientY)?.closest<HTMLElement>(".railproject");
+      if (!over || over === box || over.parentElement !== list) return;
+      // Compare with the target's heading, not its whole box, so its workspaces count as "after".
+      const at = over.firstElementChild!.getBoundingClientRect();
+      if (m.clientY < at.top + at.height / 2) over.before(box);
+      else over.after(box);
+    };
+    const end = (u: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", end);
+      document.removeEventListener("pointercancel", end);
+      if (!moving) return;
+      box.classList.remove("dragging");
+      document.body.classList.remove("reordering");
+      dragging = false;
+      const redraw = held;
+      held = null;
+      if (u.type === "pointercancel") {
+        // An interrupted gesture is not a drop: put the project back and apply any held update.
+        list.insertBefore(box, home);
+        redraw?.();
+        return;
+      }
+      // The release may still fire a click on the heading; swallow it so dropping does not open the project.
+      dropped = true;
+      setTimeout(() => (dropped = false));
+      // The command publishes the board, which redraws the sidebar with every held change.
+      commit();
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", end);
+    document.addEventListener("pointercancel", end);
+  });
+  head.addEventListener("keydown", (e) => {
+    if (e.target !== head || !e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const next = e.key === "ArrowUp" ? box.previousElementSibling : box.nextElementSibling;
+    if (!next?.classList.contains("railproject")) return;
+    if (e.key === "ArrowUp") next.before(box);
+    else next.after(box);
+    head.focus();
+    refocus = { id: box.dataset.project!, head };
+    commit();
+  });
 }
 
 function statusDot(status: Status, text = label(status)) {

@@ -76,6 +76,21 @@ fn remove_registered_project(board: &std::sync::Mutex<Board>, id: &str) {
     lock(board).projects.retain(|p| p.id != id);
 }
 
+/// The sidebar lists projects in board order. Projects missing from `ids` (registered while the
+/// drag was in flight) keep their relative order after the listed ones; unknown IDs are ignored.
+#[tauri::command]
+pub fn reorder_projects(app: AppHandle, state: State<AppState>, ids: Vec<String>) {
+    {
+        let _sync = crate::catalog::guard();
+        sort_projects(&mut lock(&state.board).projects, &ids);
+    }
+    publish(&app);
+}
+
+fn sort_projects(projects: &mut [Project], ids: &[String]) {
+    projects.sort_by_key(|p| ids.iter().position(|id| *id == p.id).unwrap_or(ids.len()));
+}
+
 /* ---------- workspaces ---------- */
 
 /// The workspace owns its stage, regardless of whether the menu, header, or drag gesture changes
@@ -2544,6 +2559,18 @@ mod tests {
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
+
+    #[test]
+    fn project_order_follows_ids_and_keeps_unlisted_projects_last() {
+        let mut board = crate::state::Board::default();
+        for path in ["/a", "/b", "/c", "/d"] {
+            super::register_project(&mut board, Path::new(path));
+        }
+        let ids = ["/c", "/gone", "/a"].map(String::from);
+        super::sort_projects(&mut board.projects, &ids);
+        let order: Vec<_> = board.projects.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(order, ["/c", "/a", "/b", "/d"]);
+    }
 
     #[test]
     fn local_project_changes_wait_for_catalog_installation_without_locking_the_board() {

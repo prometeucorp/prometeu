@@ -59,6 +59,14 @@ Local Rust workspaces omit `remote`. The TypeScript presentation field is
 optional (or null for browser fixtures); collaboration supplies it only for
 remote workspaces. No backend field or persisted format is added.
 
+`reorder_projects` receives `{ ids: string[] }`, returns empty and reorders the
+board's `projects` to match. Projects absent from `ids` keep their relative
+order after the listed ones and unknown IDs are ignored, so a project registered
+during a drag is not lost. The change reaches the frontend through the `board`
+event; the browser mock applies the same rule. Test:
+`project_order_follows_ids_and_keeps_unlisted_projects_last` in
+`src-tauri/src/session.rs`.
+
 Local notification commands and the `notification-open` event are described in
 the [notification contract](notifications.md).
 

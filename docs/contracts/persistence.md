@@ -192,7 +192,8 @@ changes. Tests: `src/model-choice.test.ts`, `src/agents.test.ts`, and
 ## Board
 
 `Board` contains projects, stages, workspaces and the optional `actions`
-catalog. `Tab.task` stores the resolved configuration and the tasks' cursors.
+catalog. The order of `projects` is the sidebar order the person chose by
+dragging; older boards keep their registration order. `Tab.task` stores the resolved configuration and the tasks' cursors.
 The absence of those fields keeps previous sessions working. The catalog
 receives Code review exactly once, recorded in `actions.defaults_initialized`;
 see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
