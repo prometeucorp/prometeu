@@ -51,28 +51,18 @@ pub fn spawn(
         cmd.env("CODEX_HOME", home);
     }
     cmd.args(process_features(launch, &selected_plugins.ids)?);
-    if read_only {
-        // The session reads this home's config.toml; its servers would start beside the sandbox.
-        let home = selected_plugins.home.as_deref().unwrap_or(&profile.home);
-        for server in disabled_servers(&configured(home)?)? {
-            cmd.args(["-c", &server]);
-        }
-    }
     cmd.current_dir(worktree);
     // Inject selected MCP configuration through -c and process environment secrets; see
     // mcp::codex_config. Materialization failure must stop startup rather than silently omit
     // selected tools.
-    // Read-only replaces the whole MCP table, including servers from ~/.codex/config.toml.
-    let no_mcp = Vec::new();
-    let mcp = if read_only {
-        Some(&no_mcp)
-    } else {
-        launch.mcp.as_ref()
-    };
-    if let Some((servers, env)) = crate::mcp::codex_config(id, mcp)? {
-        cmd.args(["-c", &format!("mcp_servers={servers}")]);
-        for (key, value) in env {
-            cmd.env(key, value);
+    // Read-only threads disable the effective MCP set after Codex reads every config layer.
+    // A CLI override of an empty table merges with configured servers instead of clearing them.
+    if !read_only {
+        if let Some((servers, env)) = crate::mcp::codex_config(id, launch.mcp.as_ref())? {
+            cmd.args(["-c", &format!("mcp_servers={servers}")]);
+            for (key, value) in env {
+                cmd.env(key, value);
+            }
         }
     }
     let log = paths::chat_log(id);
@@ -139,41 +129,6 @@ fn process_features(launch: &Launch, plugins: &[String]) -> Result<Vec<&'static 
         .collect())
 }
 
-/// `-c mcp_servers=...` merges into the table from config.toml instead of replacing it, so a
-/// read-only session disables every configured server by name. A name `-c` cannot address fails
-/// closed rather than leaving that server running.
-fn disabled_servers(config: &toml::Value) -> Result<Vec<String>, String> {
-    let Some(servers) = config.get("mcp_servers").and_then(toml::Value::as_table) else {
-        return Ok(vec![]);
-    };
-    servers
-        .keys()
-        .map(|name| {
-            if !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-            {
-                Ok(format!("mcp_servers.{name}.enabled=false"))
-            } else {
-                Err(i18n::ta("err.codex.readOnly", &[("name", name.clone())]))
-            }
-        })
-        .collect()
-}
-
-/// The configuration a Codex home carries; a home without one configures nothing.
-fn configured(home: &Path) -> Result<toml::Value, String> {
-    match std::fs::read_to_string(home.join("config.toml")) {
-        Ok(text) => toml::from_str(&text)
-            .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok(toml::Value::Table(Default::default()))
-        }
-        Err(error) => Err(i18n::io(error)),
-    }
-}
-
 /// Thread startup settings.
 pub struct Start {
     pub permission: Option<crate::actions::Permission>,
@@ -197,6 +152,8 @@ pub struct Start {
 /// Track the purpose of each outstanding request to interpret its response.
 enum Sent {
     Init,
+    /// Read the effective configuration for this worktree before opening a read-only thread.
+    Config,
     /// If thread/resume fails, start a new conversation and notify the person instead of leaving
     /// the tab unusable.
     Thread {
@@ -265,6 +222,8 @@ pub struct Link {
     thread: Option<String>,
     /// Retain a thread startup failure and reject subsequent messages with its reason.
     failed: Option<String>,
+    /// Per-thread MCP overrides from Codex's effective configuration, retained for resume fallback.
+    read_only_config: Option<Value>,
     /// Queue messages received before the thread exists and deliver them in order after startup.
     queue: Vec<Value>,
     model: String,
@@ -298,6 +257,7 @@ impl Link {
             sent: HashMap::new(),
             thread: None,
             failed: None,
+            read_only_config: None,
             queue: vec![],
             model: String::new(),
             window: None,
@@ -552,9 +512,23 @@ impl Link {
         let error = msg["error"]["message"].as_str().map(str::to_string);
         match self.sent.remove(&id) {
             Some(Sent::Init) => {
+                if error.is_some() && self.start.access == crate::actions::Access::ReadOnly {
+                    return self.fail_read_only();
+                }
                 let _ = self.notify("initialized", json!({}));
                 let _ = self.call("account/rateLimits/read", json!({}), Sent::Usage);
-                if self.start.plugin_hook_ids.is_empty() {
+                if self.start.access == crate::actions::Access::ReadOnly {
+                    if self
+                        .call(
+                            "config/read",
+                            json!({ "cwd": self.start.cwd }),
+                            Sent::Config,
+                        )
+                        .is_err()
+                    {
+                        return self.fail_read_only();
+                    }
+                } else if self.start.plugin_hook_ids.is_empty() {
                     self.open_thread();
                 } else {
                     let _ = self.call(
@@ -563,6 +537,21 @@ impl Link {
                         Sent::Hooks,
                     );
                 }
+                vec![]
+            }
+            Some(Sent::Config) => {
+                if error.is_some() {
+                    return self.fail_read_only();
+                }
+                let Some(servers) = msg["result"]["config"]["mcp_servers"].as_object() else {
+                    return self.fail_read_only();
+                };
+                let disabled = servers
+                    .keys()
+                    .map(|name| (name.clone(), json!({ "enabled": false })))
+                    .collect::<serde_json::Map<String, Value>>();
+                self.read_only_config = Some(json!({ "mcp_servers": disabled }));
+                self.open_thread();
                 vec![]
             }
             // An unauthenticated Codex account returns an error and leaves its usage section empty.
@@ -763,6 +752,13 @@ impl Link {
         if !self.start.model.is_empty() {
             params["model"] = Value::String(self.start.model.clone());
         }
+        if read_only {
+            let Some(config) = &self.read_only_config else {
+                self.fail_read_only();
+                return;
+            };
+            params["config"] = config.clone();
+        }
         match self.start.resume.clone() {
             Some(thread) => {
                 params["threadId"] = Value::String(thread);
@@ -781,6 +777,14 @@ impl Link {
         self.failed = Some(message.clone());
         self.queue.clear();
         vec![notice("error", "plugin.hooks", &message)]
+    }
+
+    /// A read-only task must not start until Codex has reported the MCP servers it would load.
+    fn fail_read_only(&mut self) -> Vec<Value> {
+        let message = i18n::t("err.codex.readOnly");
+        self.failed = Some(message.clone());
+        self.queue.clear();
+        vec![notice("error", "provider.config", &message)]
     }
 
     /// Present server requests as pending UI cards while retaining their JSON-RPC IDs.
@@ -1582,23 +1586,99 @@ mod tests {
     }
 
     #[test]
-    fn read_only_tasks_open_and_resume_in_the_read_only_sandbox() {
+    fn read_only_discovers_effective_mcp_servers_before_start_or_resume() {
         for resume in [None, Some("previous")] {
             let (mut link, out) = link(resume);
             link.start.access = crate::actions::Access::ReadOnly;
             link.start.permission = Some(crate::actions::Permission::Ask);
             out.take();
-            link.open_thread();
+            link.on_line(r#"{"id":1,"result":{}}"#);
+            let sent = out.take();
+            assert!(sent.iter().all(|request| {
+                request["method"] != "thread/start" && request["method"] != "thread/resume"
+            }));
+            let (config_id, config_at) = call_id(&sent, "config/read");
+            assert_eq!(sent[config_at]["params"]["cwd"], "/wt");
+
+            link.on_line(
+                &json!({
+                    "id": config_id,
+                    "result": {"config": {"mcp_servers": {
+                        "home_probe": {"command": "sh", "enabled": true},
+                        "project_probe": {"command": "sh", "enabled": true},
+                        "a.b": {"command": "sh", "enabled": true}
+                    }}}
+                })
+                .to_string(),
+            );
+            let sent = out.take();
             let method = if resume.is_some() {
                 "thread/resume"
             } else {
                 "thread/start"
             };
-            let sent = out.take();
-            let message = sent.iter().find(|v| v["method"] == method).unwrap();
-            assert_eq!(message["params"]["sandbox"], "read-only");
-            assert_eq!(message["params"]["approvalPolicy"], "never");
+            let (_, at) = call_id(&sent, method);
+            let params = &sent[at]["params"];
+            assert_eq!(params["sandbox"], "read-only");
+            assert_eq!(params["approvalPolicy"], "never");
+            assert_eq!(
+                params["config"],
+                json!({"mcp_servers": {
+                    "home_probe": {"enabled": false},
+                    "project_probe": {"enabled": false},
+                    "a.b": {"enabled": false}
+                }})
+            );
         }
+    }
+
+    #[test]
+    fn read_only_refuses_to_start_without_effective_mcp_configuration() {
+        for response in [
+            json!({"result": {"config": {}}}),
+            json!({"error": {"message": "unavailable"}}),
+        ] {
+            let (mut link, out) = link(None);
+            link.start.access = crate::actions::Access::ReadOnly;
+            out.take();
+            link.on_line(r#"{"id":1,"result":{}}"#);
+            let sent = out.take();
+            let (config_id, _) = call_id(&sent, "config/read");
+            let mut response = response;
+            response["id"] = json!(config_id);
+            let events = link.on_line(&response.to_string());
+            assert!(events.iter().any(|event| event["type"] == "system.notice"));
+            assert!(link.failed.is_some());
+            assert!(out
+                .take()
+                .iter()
+                .all(|request| request["method"] != "thread/start"));
+        }
+    }
+
+    #[test]
+    fn read_only_resume_fallback_keeps_mcp_servers_disabled() {
+        let (mut link, out) = link(Some("previous"));
+        link.start.access = crate::actions::Access::ReadOnly;
+        out.take();
+        link.on_line(r#"{"id":1,"result":{}}"#);
+        let sent = out.take();
+        let (config_id, _) = call_id(&sent, "config/read");
+        link.on_line(
+            &json!({"id": config_id, "result": {"config": {"mcp_servers": {
+                "project_probe": {"command": "sh"}
+            }}}})
+            .to_string(),
+        );
+        let sent = out.take();
+        let (resume_id, _) = call_id(&sent, "thread/resume");
+        link.on_line(&json!({"id": resume_id, "error": {"message": "missing thread"}}).to_string());
+        let sent = out.take();
+        let (_, at) = call_id(&sent, "thread/start");
+        assert_eq!(
+            sent[at]["params"]["config"]["mcp_servers"]["project_probe"]["enabled"],
+            false
+        );
     }
 
     /// A read-only recording: the read runs and no approval request reaches the app.
@@ -1665,32 +1745,6 @@ mod tests {
         assert_eq!(
             process_features(&ordinary, &["plugin@hub".into()]).unwrap(),
             ["--enable", "plugins", "--enable", "hooks"]
-        );
-    }
-
-    /// `-c mcp_servers={}` merges into the CLI's table, so read-only disables each configured
-    /// server by name (observed with codex-cli 0.154.0: `codex mcp list` kept both servers).
-    #[test]
-    fn read_only_disables_configured_mcp_servers_by_name() {
-        let config: toml::Value = toml::from_str(
-            "[mcp_servers.capim-ds]\ncommand = \"npx\"\n[mcp_servers.node_repl]\ncommand = \"node\"\n",
-        )
-        .unwrap();
-        assert_eq!(
-            disabled_servers(&config).unwrap(),
-            [
-                "mcp_servers.capim-ds.enabled=false",
-                "mcp_servers.node_repl.enabled=false"
-            ]
-        );
-        assert!(disabled_servers(&toml::Value::Table(Default::default()))
-            .unwrap()
-            .is_empty());
-        let dotted: toml::Value =
-            toml::from_str("[mcp_servers.\"a.b\"]\ncommand = \"x\"\n").unwrap();
-        assert!(
-            disabled_servers(&dotted).is_err(),
-            "a name -c cannot address fails closed"
         );
     }
 

@@ -50,10 +50,10 @@ provider's external configuration remains. The catalog contains no secrets:
 credentials stay in the existing hubs.
 
 Changing the profile or the workspace selection does not change that copy.
-Resuming uses the same profile. Changing the model through a task's footer is
-refused; edit the profile for future executions. Codex plugins and MCP use a
-configuration derived per task session, so the selection of another conversation
-is not changed.
+Resuming uses the same profile without resolving workspace tools again.
+Changing the model through a task's footer is refused; edit the profile for
+future executions. Codex plugins and MCP use a configuration derived per task
+session, so the selection of another conversation is not changed.
 
 Skills are names instructed to the agent, available in the installation or in
 the selected plugins. That list is not an allowlist and does not disable the
@@ -105,9 +105,12 @@ carries any of them:
   as read-only are denied without a prompt; bypass is refused.
 - Codex: `sandbox: "read-only"` and `approvalPolicy: "never"` on start and
   resume; `--disable` for `plugins`, `hooks`, `apps`, `computer_use` and
-  `browser_use`; and `-c mcp_servers.<name>.enabled=false` for every server in
-  the session's `config.toml`, because `-c mcp_servers={}` merges into that
-  table. A server name `-c` cannot address refuses the start.
+  `browser_use`. Before opening the thread, the adapter reads Codex's effective
+  configuration for the worktree through `config/read` and passes
+  `config.mcp_servers.<name>.enabled: false` for every server on `thread/start`
+  or `thread/resume`. It refuses the task if that configuration cannot be read.
+  An empty `-c mcp_servers={}` would merge with configured servers instead of
+  removing them, so read-only launches do not pass an MCP CLI override.
 - Antigravity: refused before the spawn.
 
 Read-only access limits what injected repository content can do to the review

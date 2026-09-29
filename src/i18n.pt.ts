@@ -1632,7 +1632,7 @@ export const PT = {
   "err.plugin.codex.prepare": "não deu para preparar o plugin para o Codex: {cause}",
   "err.plugin.codex.cli": "o Codex não conseguiu instalar o plugin: {cause}",
   "err.plugin.codex.config": "não deu para preparar o ambiente isolado de plugins do Codex: {cause}",
-  "err.codex.readOnly": "não deu para desligar o servidor MCP {name} configurado no Codex; a tarefa somente leitura não começou",
+  "err.codex.readOnly": "não deu para verificar a configuração de MCP do Codex; a tarefa somente leitura não começou",
   "err.plugin.codex.hooks": "o Codex não conseguiu ativar os hooks do plugin: {cause}",
   "err.plugin.codex.hooksMissing": "o Codex não descobriu os hooks declarados por: {plugins}",
   "err.plugin.codex.hooksInvalid": "o Codex devolveu hooks incompletos para: {plugins}",

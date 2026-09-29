@@ -1587,7 +1587,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.plugin.codex.prepare": "could not prepare the plugin for Codex: {cause}",
   "err.plugin.codex.cli": "Codex could not install the plugin: {cause}",
   "err.plugin.codex.config": "could not prepare the isolated Codex plugin environment: {cause}",
-  "err.codex.readOnly": "could not turn off the MCP server {name} configured in Codex, so the read-only task did not start",
+  "err.codex.readOnly": "could not verify Codex MCP configuration, so the read-only task did not start",
   "err.plugin.codex.hooks": "Codex could not activate the plugin hooks: {cause}",
   "err.plugin.codex.hooksMissing": "Codex did not discover the hooks declared by: {plugins}",
   "err.plugin.codex.hooksInvalid": "Codex returned incomplete hooks for: {plugins}",

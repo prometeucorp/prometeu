@@ -1338,6 +1338,24 @@ impl Workspace {
         launch
     }
 
+    /// Tasks already carry a frozen launch profile. Only ordinary tabs need workspace tool
+    /// resolution when their process is revived.
+    fn launch_for_revive(
+        &self,
+        tab: &str,
+        resolve: impl FnOnce(ProviderId) -> ResolvedTools,
+    ) -> Launch {
+        if self
+            .tabs
+            .iter()
+            .any(|candidate| candidate.id == tab && candidate.task.is_some())
+        {
+            return self.launch_of(tab, &ResolvedTools::default());
+        }
+        let agent = self.launch_of(tab, &ResolvedTools::default()).agent;
+        self.launch_of(tab, &resolve(agent))
+    }
+
     /// Model overrides preserve the resolved tool selection for new and resumed tabs.
     fn launch_with(&self, choice: Option<Choice>, tools: &ResolvedTools) -> Launch {
         choice.map_or_else(
@@ -1944,9 +1962,9 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
         let Some((ws, previous)) = snapshot else {
             return Err(i18n::t("err.session.noTab"));
         };
-        let agent = ws.launch_of(tab, &ResolvedTools::default()).agent;
-        let tools = resolve_workspace_tools(&global, &trust, &ws, agent);
-        let mut launch = ws.launch_of(tab, &tools);
+        let mut launch = ws.launch_for_revive(tab, |agent| {
+            resolve_workspace_tools(&global, &trust, &ws, agent)
+        });
         // A conversation started from a skill keeps that skill's package across resumes, validated
         // like at creation; a skill no longer installed never blocks the resume (ADR 0057).
         let kickoff_lost = ws
@@ -3571,6 +3589,25 @@ mod tests {
             ws.launch(&ResolvedTools::default()).access,
             crate::actions::Access::Default
         );
+        let revived = ws.launch_for_revive("task", |_| {
+            panic!("a frozen task must not resolve workspace tools on resume")
+        });
+        assert_eq!(revived.access, crate::actions::Access::ReadOnly);
+        assert_eq!(revived.mcp, Some(vec![]));
+    }
+
+    #[test]
+    fn ordinary_tab_resolves_workspace_tools_on_resume() {
+        let mut ws = bare();
+        ws.tabs.push(tab("ordinary", None));
+        let launch = ws.launch_for_revive("ordinary", |agent| {
+            assert_eq!(agent, ws.agent);
+            ResolvedTools {
+                mcp: Some(vec!["ordinary-server".into()]),
+                ..Default::default()
+            }
+        });
+        assert_eq!(launch.mcp, Some(vec!["ordinary-server".into()]));
     }
 
     #[test]

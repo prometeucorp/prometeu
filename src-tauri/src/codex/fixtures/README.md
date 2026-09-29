@@ -15,3 +15,8 @@ no MCP tools. Codex 0.154.0 does not report the sandbox-denied command and patch
 as items; the agent's final message reports them. Only turn and item
 notifications were kept; the thread identity became `t-1` and paths became
 `/wt`.
+
+The current adapter instead reads the effective MCP configuration through
+`config/read` and disables those servers in the `thread/start` or
+`thread/resume` config. The recording only verifies the resulting read-only
+conversation events; the startup handshake is covered by adapter tests.

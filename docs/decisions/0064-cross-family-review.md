@@ -46,9 +46,12 @@ it and bypass is refused. `Skill` is absent because a skill's tool grants, bundl
 ones included, pre-approve commands, and `Task` because its worktree isolation
 writes a git worktree. Codex runs in the `read-only` sandbox with
 `approvalPolicy: never`, with plugins, hooks, connector apps and computer or
-browser control turned off, and every MCP server from `config.toml` disabled by
-name, because `-c mcp_servers={}` merges into that table instead of replacing
-it. Antigravity cannot enforce it and advertises `readOnlyProfile: false`.
+browser control turned off, and every MCP server in the effective configuration
+disabled by name through the per-thread configuration. The adapter first asks
+Codex for the effective configuration of the worktree, including project
+layers, and refuses the task when it cannot inspect the MCP server list. An
+empty CLI MCP override would merge into the configured table instead of replacing it.
+Antigravity cannot enforce it and advertises `readOnlyProfile: false`.
 
 The bundled profile becomes `different_from_builder` with Codex then Claude at
 provider defaults and read-only access. A catalog upgrades a profile identical
