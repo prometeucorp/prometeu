@@ -249,6 +249,21 @@
     ]
   },
   {
+    "id": "chat-notice",
+    "name": "noticeCard",
+    "source": "src/components/chat/blocks.ts",
+    "exports": [
+      "noticeCard"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "short",
+      "details"
+    ]
+  },
+  {
     "id": "chat-request",
     "name": "requestCard",
     "source": "src/components/chat/requests.ts",

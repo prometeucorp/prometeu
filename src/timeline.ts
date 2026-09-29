@@ -40,7 +40,7 @@ export type Item =
   | { kind: "assistant"; ts: number; msg: string; blocks: Block[]; streaming: boolean; next: number }
   | Ask
   | { kind: "result"; ts: number; error: boolean; text: string; cost: number | null; ms: number | null }
-  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary" | "stderr"; tokens?: [number, number] }
+  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary" | "stderr" | "background"; tokens?: [number, number] }
   | { kind: "context"; ts: number; report: Report };
 
 export type Command = SlashCommand;
@@ -164,7 +164,7 @@ export class Timeline {
             ts: event.at,
             text: event.detail,
             error,
-            what: event.code === "provider.stderr" ? "stderr" : undefined,
+            what: event.code === "provider.stderr" ? "stderr" : event.code === "background.completed" ? "background" : undefined,
           }),
         ];
       }

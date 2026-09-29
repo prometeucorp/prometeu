@@ -238,6 +238,18 @@
 .sys { font-size: 12px; color: var(--fg-3); text-align: center; }
 .sys.err { color: var(--err); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sys.done { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.sys { overflow-wrap: anywhere; }
+.sysnote { font-size: 12px; color: var(--fg-2); }
+.sysnote > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
+.sysnote > summary::-webkit-details-marker { display: none; }
+.sysnote .nic { display: flex; flex: none; color: var(--fg-3); }
+.sysnote b { flex: none; color: var(--fg); font-weight: 500; }
+.sysnote .prev { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.sysnote[open] .prev { display: none; }
+.sysnote > .md {
+  margin: 8px 0 0 19px; padding: 2px 10px; max-height: 420px; overflow: auto;
+  border-left: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2);
+}
 .syserr { font-size: 12px; color: var(--fg-2); }
 .syserr > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
 .syserr > summary::-webkit-details-marker { display: none; }

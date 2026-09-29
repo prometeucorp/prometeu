@@ -5,7 +5,7 @@ import { anchorSelection, type ReviewNote } from "../review-comments";
 import * as ui from "./primitives";
 import { icon, iconNames, fileIcon, stageIcon, brand, avatar, avatars } from "./icons";
 import { iconButton } from "./icon-button";
-import { conversationBlock, workCard, errorCard } from "./chat/blocks";
+import { conversationBlock, workCard, errorCard, noticeCard } from "./chat/blocks";
 import { requestCard } from "./chat/requests";
 import { composer, attachmentChip } from "./chat/composer";
 import { renderUserMessage, browserContextChip, inputView, contextPanel } from "./chat/content";
@@ -139,6 +139,7 @@ export const stories: Record<string, Factory> = {
     { block: { ...tool(state), id: "story-tool-2" }, live: state === "running" },
   ], false, open => report(String(open)))),
   "chat-error": state => wrap(errorCard(state === "short" ? "Example operation failed" : "Example operation failed\nProcess exited with code 1\nThe original input remains available.")),
+  "chat-notice": state => wrap(noticeCard(state === "short" ? 'Agent "explore" finished' : "## Findings\n\nThe renderer lives in `src/chat.ts` and the styles in `src/components/chat/chat.css`.\n\n- Short notices stay on one line.\n- Long reports fold behind their first line.", t("chat.notice.background"))),
   "chat-request"(state, report) {
     const ask: Ask = { kind: "ask", id: "story-request", ts: 0, toolUseId: null, answered: state === "answered",
       requestKind: state === "plan" ? "plan" : state === "permission" ? "approval" : "question", tool: "Example tool",

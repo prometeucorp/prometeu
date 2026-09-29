@@ -4,7 +4,7 @@ import { encodeReviewContext, reviewContext } from "./review-context";
 import { reviews } from "./review-store";
 import { reviewError } from "./components/git/review-note";
 import { composer, attachmentChip } from "./components/chat/composer";
-import { conversationBlock, errorCard, workCard, paintWorkHead } from "./components/chat/blocks";
+import { conversationBlock, errorCard, noticeCard, workCard, paintWorkHead } from "./components/chat/blocks";
 import { requestCard } from "./components/chat/requests";
 import * as actions from "./actions";
 import * as background from "./background";
@@ -585,13 +585,11 @@ export class ChatView {
           return el;
         }
         if (item.error) return errorCard(item.text);
+        if (item.what !== "compacted") return noticeCard(item.text, t(item.what === "background" ? "chat.notice.background" : "chat.notice.title"));
         const el = h("div", "sys");
-        el.textContent =
-          item.what === "compacted"
-            ? item.tokens
-              ? t("chat.compacted.tokens", { pre: kilo(item.tokens[0]), post: kilo(item.tokens[1]) })
-              : t("chat.compacted")
-            : item.text;
+        el.textContent = item.tokens
+          ? t("chat.compacted.tokens", { pre: kilo(item.tokens[0]), post: kilo(item.tokens[1]) })
+          : t("chat.compacted");
         return el;
       }
     }
