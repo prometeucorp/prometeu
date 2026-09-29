@@ -297,7 +297,7 @@ describe("Timeline", () => {
     expect(a.blocks[0].background).toBe(false);
     expect(t.tasks.size).toBe(0);
     expect(t.working).toBe(false);
-    expect(t.items[1]).toMatchObject({ kind: "system", text: 'Agent "explore" finished', error: false });
+    expect(t.items[1]).toMatchObject({ kind: "system", text: 'Agent "explore" finished', error: false, what: "background" });
   });
 
   it("stops working when an interruption ends the turn and the children it started", () => {
@@ -318,8 +318,14 @@ describe("Timeline", () => {
   it("normalizes task notifications from user XML into the same system row", () => {
     const t = new Timeline();
     t.push(j({ type: "user", message: { role: "user", content: "<task-notification>\n<task-id>x</task-id>\n<summary>Agent \"explore\" finished</summary>\n</task-notification>" } }));
-    expect(t.items[0]).toMatchObject({ kind: "system", text: 'Agent "explore" finished' });
+    expect(t.items[0]).toMatchObject({ kind: "system", text: 'Agent "explore" finished', what: "background" });
     expect(t.busy).toBe(false);
+  });
+
+  it("appends the unescaped subagent report to its task notification", () => {
+    const t = new Timeline();
+    t.push(j({ type: "user", message: { role: "user", content: "<task-notification>\n<task-id>x</task-id>\n<summary>Agent \"explore\" completed</summary>\n<result>## Findings\n\n`a &amp;&amp; b` returns 2&gt;1</result>\n</task-notification>" } }));
+    expect(t.items[0]).toMatchObject({ kind: "system", text: 'Agent "explore" completed\n\n## Findings\n\n`a && b` returns 2>1', what: "background" });
   });
 
   it("shows compaction progress, final size and folded summary while excluding command echoes", () => {

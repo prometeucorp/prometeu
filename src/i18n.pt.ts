@@ -1025,6 +1025,8 @@ export const PT = {
   "chat.answered": "{what}: respondido",
   "chat.result.error": "O turno terminou com erro",
   "chat.error.title": "O agente encontrou um erro",
+  "chat.notice.title": "Aviso",
+  "chat.notice.background": "Tarefa em segundo plano concluída",
   "chat.tool.failed": "Uma etapa falhou; o agente recebeu os detalhes e pode tentar de novo.",
   "chat.tool.details": "Ver detalhes técnicos",
   "chat.plan.title": "Plano pronto",

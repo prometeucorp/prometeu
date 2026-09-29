@@ -1001,6 +1001,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "chat.answered": "{what}: answered",
   "chat.result.error": "The turn ended with an error",
   "chat.error.title": "The agent encountered an error",
+  "chat.notice.title": "Notice",
+  "chat.notice.background": "Background task finished",
   "chat.tool.failed": "A step failed; the agent received the details and can try again.",
   "chat.tool.details": "View technical details",
   "chat.plan.title": "Plan ready",

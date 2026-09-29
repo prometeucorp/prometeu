@@ -30,12 +30,12 @@
 .think.bare summary::before { content: "·"; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .working { display: flex; align-items: center; gap: 5px; padding: 4px 2px; }
-.working .wlabel { font-size: 12px; color: var(--fg-3); margin-left: 6px; }
+.working .wlabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--fg-3); margin-left: 6px; }
 .working .wlabel:empty { display: none; }
 /* Dim the pending setup prompt and show its notice. */
 .turn.user.wait { flex-direction: column; align-items: flex-end; gap: 2px; }
 .turn.user.wait .bubble { opacity: 0.55; }
-.working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
+.working i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: 0.15s; }
 .working i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }
@@ -238,6 +238,18 @@
 .sys { font-size: 12px; color: var(--fg-3); text-align: center; }
 .sys.err { color: var(--err); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sys.done { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.sys { overflow-wrap: anywhere; }
+.sysnote { font-size: 12px; color: var(--fg-2); }
+.sysnote > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
+.sysnote > summary::-webkit-details-marker { display: none; }
+.sysnote .nic { display: flex; flex: none; color: var(--fg-3); }
+.sysnote b { flex: none; color: var(--fg); font-weight: 500; }
+.sysnote .prev { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.sysnote[open] .prev { display: none; }
+.sysnote > .md {
+  margin: 8px 0 0 19px; padding: 2px 10px; max-height: 420px; overflow: auto;
+  border-left: 1px solid var(--line); font-size: 12.5px; color: var(--fg-2);
+}
 .syserr { font-size: 12px; color: var(--fg-2); }
 .syserr > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
 .syserr > summary::-webkit-details-marker { display: none; }

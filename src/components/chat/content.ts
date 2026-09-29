@@ -192,6 +192,12 @@ export function peek(text: string): string {
   return text.split("\n").find((l) => l.trim()) ?? "";
 }
 
+/// The first line of a multi-line text, marked as cut when more lines follow.
+export function firstLine(text: string): string {
+  const line = peek(text);
+  return line && text.trim() !== line.trim() ? `${line} …` : line;
+}
+
 export function took(ms: number): string {
   const s = ms / 1000;
   if (s < 2) return `${s.toFixed(1)}s`;

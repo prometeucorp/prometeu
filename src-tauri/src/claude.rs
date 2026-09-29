@@ -457,11 +457,11 @@ impl Adapter {
             return vec![event("system.summary", at, json!({ "text": text }))];
         }
         if trim.starts_with("<task-notification>") {
-            if let Some(summary) = between(text, "<summary>", "</summary>") {
+            if let Some(detail) = task_notice(text) {
                 return vec![event(
                     "system.notice",
                     at,
-                    json!({ "level": "info", "code": "background.completed", "detail": summary.trim() }),
+                    json!({ "level": "info", "code": "background.completed", "detail": detail }),
                 )];
             }
         }
@@ -1049,6 +1049,32 @@ fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
     Some(rest.split_once(end)?.0)
 }
 
+/// Claude escapes the notification's XML text; a subagent's report follows its one-line summary in `<result>`.
+fn task_notice(text: &str) -> Option<String> {
+    let summary = unescape(between(text, "<summary>", "</summary>")?.trim());
+    let result = text
+        .split_once("<result>")
+        .and_then(|(_, rest)| rest.rsplit_once("</result>"))
+        .map(|(body, _)| unescape(body.trim()))
+        .unwrap_or_default();
+    Some(
+        [summary, result]
+            .into_iter()
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+    )
+}
+
+fn unescape(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
 #[cfg(test)]
 pub(crate) mod contract;
 
@@ -1170,6 +1196,30 @@ mod tests {
         }));
         assert_eq!(notified[0]["type"], "background.changed");
         assert!(work.observe(&notified[0]));
+    }
+
+    #[test]
+    fn task_notifications_carry_the_unescaped_subagent_report() {
+        let mut adapter = Adapter::default();
+        let content = "<task-notification>\n<task-id>bg1</task-id>\n<status>completed</status>\n<summary>Agent \"explore\" completed</summary>\n<result>## Findings\n\n`a &amp;&amp; b` returns 2&gt;1</result>\n</task-notification>";
+        let frames = adapter.translate(
+            &json!({ "type": "user", "ts": 1, "message": { "role": "user", "content": content } }),
+        );
+        assert_eq!(frames[0]["type"], "system.notice");
+        assert_eq!(frames[0]["code"], "background.completed");
+        assert_eq!(
+            frames[0]["detail"],
+            "Agent \"explore\" completed\n\n## Findings\n\n`a && b` returns 2>1"
+        );
+
+        let command = "<task-notification>\n<summary>Background command \"ls 2&gt;&amp;1\" completed (exit code 0)</summary>\n</task-notification>";
+        let frames = adapter.translate(
+            &json!({ "type": "user", "ts": 2, "message": { "role": "user", "content": command } }),
+        );
+        assert_eq!(
+            frames[0]["detail"],
+            "Background command \"ls 2>&1\" completed (exit code 0)"
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@ import { encodeReviewContext, reviewContext } from "./review-context";
 import { reviews } from "./review-store";
 import { reviewError } from "./components/git/review-note";
 import { composer, attachmentChip } from "./components/chat/composer";
-import { conversationBlock, errorCard, workCard, paintWorkHead } from "./components/chat/blocks";
+import { conversationBlock, errorCard, noticeCard, workCard, paintWorkHead } from "./components/chat/blocks";
 import { requestCard } from "./components/chat/requests";
 import * as actions from "./actions";
 import * as background from "./background";
@@ -20,6 +20,7 @@ import { kilo } from "./context";
 import {
   browserContextChip,
   contextPanel,
+  firstLine,
   peek,
   renderUserMessage,
   took,
@@ -386,9 +387,12 @@ export class ChatView {
     const label = this.tl.compacting
       ? t("chat.compacting")
       : tasks.length
-        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => k.description || "…").join(" · ")}`
+        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => firstLine(k.description) || "…").join(" · ")}`
         : "";
-    this.working.querySelector(".wlabel")!.textContent = label;
+    // A background command's description is the whole script; the label keeps one line and the tooltip the rest.
+    const wlabel = this.working.querySelector<HTMLElement>(".wlabel")!;
+    wlabel.textContent = label;
+    wlabel.title = tasks.map((k) => k.description).filter(Boolean).join("\n\n");
     this.feed.append(this.working);
   }
 
@@ -585,13 +589,11 @@ export class ChatView {
           return el;
         }
         if (item.error) return errorCard(item.text);
+        if (item.what !== "compacted") return noticeCard(item.text, t(item.what === "background" ? "chat.notice.background" : "chat.notice.title"));
         const el = h("div", "sys");
-        el.textContent =
-          item.what === "compacted"
-            ? item.tokens
-              ? t("chat.compacted.tokens", { pre: kilo(item.tokens[0]), post: kilo(item.tokens[1]) })
-              : t("chat.compacted")
-            : item.text;
+        el.textContent = item.tokens
+          ? t("chat.compacted.tokens", { pre: kilo(item.tokens[0]), post: kilo(item.tokens[1]) })
+          : t("chat.compacted");
         return el;
       }
     }
