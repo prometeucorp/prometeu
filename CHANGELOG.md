@@ -4,6 +4,26 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.21.0] - 2026-09-29
+
+### New
+
+- **viewer:** Show changed lines in the editor gutter
+- **sidebar:** Reorder projects by dragging them
+
+### Fixes
+
+- **sidebar:** Keep project drags stable across redraws and cancels
+- **sidebar:** Restore project focus only if it was not moved elsewhere
+- **chat:** Fold long subagent reports into a readable card
+- **chat:** Show the subagent report and keep background labels on one line
+- **chat:** Mark cut background commands in the activity label
+- **mcp:** Show your claude.ai connectors in the MCP picker and keep them when a conversation starts
+
+### Performance
+
+- **viewer:** Keep the change gutter cheap on large edits
+
 ## [0.20.0] - 2026-09-28
 
 ### New
