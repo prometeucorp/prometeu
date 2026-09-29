@@ -52,6 +52,10 @@ commit_parsers = [
   # This feat(ui) commit only reorganized shared components without changing visible behavior. Exclude it
   # without rewriting main.
   { sha = "15bbd4235cbbb7a04227494adcc8171a1a46b0aa", skip = true },
+  # These fix(mcp) commits were described in Portuguese; the commit that skips them carries the English
+  # entry.
+  { sha = "cef2531a68abfde3c10faad0293a95133cebeadb", skip = true },
+  { sha = "12dc84a46917510da6392b64b0f8fcb6c24585fc", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = '^Revert "chore\(release\)', skip = true },
   { message = "^Marcar a versão", skip = true },
