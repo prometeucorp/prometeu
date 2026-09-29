@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import defaultsText from "./action-defaults.json?raw";
-import { builders, emptyCatalog, initializeDefaults, commandNames, expand, findCommand, pick, taskBadges, validRules, type Action, type Catalog, type Profile, type TaskRun } from "./actions";
+import { builders, emptyCatalog, initializeDefaults, commandNames, expand, findCommand, leadWith, pick, taskBadges, validRules, type Action, type Catalog, type Profile, type TaskRun } from "./actions";
 
 const prompt: Action = { name: "review", kind: "prompt", prompt: "Review the diff.", description: "", profile: null };
 const task: Action = { ...prompt, name: "deliver", kind: "agent", profile: "owner" };
@@ -103,5 +103,16 @@ describe("task badges", () => {
     expect(taskBadges(run("default"))).toEqual([]);
     expect(taskBadges(run("read_only", true)).map(b => b.label)).toEqual(["actions.readOnly", "actions.sameFamily"]);
     expect(taskBadges(run("default", true)).map(b => b.title)).toEqual(["actions.sameFamilyTitle"]);
+  });
+});
+
+describe("switching to candidates", () => {
+  it("keeps the fixed choice as the first candidate and the others after it", () => {
+    const codex = { agent: "codex" as const, model: "", effort: "" };
+    const claude = { agent: "claude" as const, model: "", effort: "" };
+    const edited = { agent: "codex" as const, model: "gpt-5.4", effort: "high" };
+    expect(leadWith([], edited)).toEqual([edited]);
+    expect(leadWith([codex, claude], edited)).toEqual([edited, claude]);
+    expect(leadWith([claude, codex], { ...claude, model: "opus" })).toEqual([{ ...claude, model: "opus" }, codex]);
   });
 });

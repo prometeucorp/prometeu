@@ -62,6 +62,11 @@ export function taskBadges(run: TaskRun | null | undefined): { label: Key; title
     ...(run.same_family ? [{ label: "actions.sameFamily", title: "actions.sameFamilyTitle" } as const] : []),
   ];
 }
+/// A fixed choice becomes the first candidate when a profile switches to the provider rule, so an
+/// edit made in fixed mode survives; other candidates keep their order.
+export function leadWith(candidates: Choice[], choice: Choice): Choice[] {
+  return [{ ...choice }, ...candidates.filter(c => c.agent !== choice.agent).map(c => ({ ...c }))];
+}
 /// Mirror of reviewer::builders.
 export function builders(ws: Pick<Workspace, "agent" | "tabs">): ProviderId[] {
   const found: ProviderId[] = [];

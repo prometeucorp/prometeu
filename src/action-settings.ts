@@ -243,8 +243,8 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
       unsupported.hidden = differentRule || !blocked.length;
     };
     rule.onchange = () => {
-      if (rule.value === "different_from_builder" && !rows.length) rows.push({ ...choice });
-      if (rule.value === "fixed" && rows.length) Object.assign(choice, rows[0]);
+      if (rule.value === "different_from_builder") rows.splice(0, rows.length, ...actions.leadWith(rows, choice));
+      else if (rows.length) Object.assign(choice, rows[0]);
       render();
     };
     access.onchange = render;
