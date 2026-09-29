@@ -104,8 +104,8 @@ export class LegacyConversationAdapter {
     if (o.isCompactSummary || text.startsWith("This session is being continued from a previous conversation")) {
       return [this.event("system.summary", at, { text })];
     }
-    const task = /^\s*<task-notification>/.test(text) ? /<summary>([\s\S]*?)<\/summary>/.exec(text) : null;
-    if (task) return [this.event("system.notice", at, { level: "info", code: "background.completed", detail: task[1].trim() })];
+    const task = /^\s*<task-notification>/.test(text) ? taskNotice(text) : null;
+    if (task !== null) return [this.event("system.notice", at, { level: "info", code: "background.completed", detail: task })];
     return [this.event("user.message", at, { content: [{ kind: "text", text }] })];
   }
 
@@ -305,6 +305,19 @@ function toBlock(raw: Line | undefined): AssistantBlock | null {
     default:
       return null;
   }
+}
+
+/// Claude escapes the notification's XML text; a subagent's report follows its one-line summary in `<result>`.
+function taskNotice(text: string): string | null {
+  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(text);
+  if (!summary) return null;
+  const result = /<result>([\s\S]*)<\/result>/.exec(text);
+  const report = result ? unescape(result[1].trim()) : "";
+  return [unescape(summary[1].trim()), report].filter(Boolean).join("\n\n");
+}
+
+function unescape(text: string): string {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&(#39|apos);/g, "'").replace(/&amp;/g, "&");
 }
 
 function resultText(content: unknown): string {

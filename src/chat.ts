@@ -386,9 +386,12 @@ export class ChatView {
     const label = this.tl.compacting
       ? t("chat.compacting")
       : tasks.length
-        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => k.description || "…").join(" · ")}`
+        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => peek(k.description) || "…").join(" · ")}`
         : "";
-    this.working.querySelector(".wlabel")!.textContent = label;
+    // A background command's description is the whole script; the label keeps one line and the tooltip the rest.
+    const wlabel = this.working.querySelector<HTMLElement>(".wlabel")!;
+    wlabel.textContent = label;
+    wlabel.title = tasks.map((k) => k.description).filter(Boolean).join("\n\n");
     this.feed.append(this.working);
   }
 

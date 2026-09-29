@@ -127,6 +127,12 @@ unfamiliar or `null`. Legacy transcript adaptation supplies the same canonical
 kind. `src/timeline.test.ts`, `e2e/conversation-requests.spec.ts` and the Rust
 remote-control tests cover those cases without changing the V1 wire format.
 
+A `system.notice` with `code: "background.completed"` reports a finished
+background task. Its `detail` is the task's one-line summary; when a subagent
+returns a report, the report follows as Markdown after a blank line. Adapters
+decode the XML escaping Claude applies to `<task-notification>` text, and the
+chat folds long notices behind their first line.
+
 `turn.completed` ends the turn and any visual compaction, but it does not end
 background tasks. Consumers treat the conversation as working until the turn has
 ended and `background.changed` reports no task; only `interrupted` ends both at

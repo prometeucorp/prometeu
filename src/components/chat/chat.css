@@ -30,12 +30,12 @@
 .think.bare summary::before { content: "·"; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 .working { display: flex; align-items: center; gap: 5px; padding: 4px 2px; }
-.working .wlabel { font-size: 12px; color: var(--fg-3); margin-left: 6px; }
+.working .wlabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--fg-3); margin-left: 6px; }
 .working .wlabel:empty { display: none; }
 /* Dim the pending setup prompt and show its notice. */
 .turn.user.wait { flex-direction: column; align-items: flex-end; gap: 2px; }
 .turn.user.wait .bubble { opacity: 0.55; }
-.working i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
+.working i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: bounce 1.2s ease-in-out infinite; }
 .working i:nth-child(2) { animation-delay: 0.15s; }
 .working i:nth-child(3) { animation-delay: 0.3s; }
 @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.5; } 30% { transform: translateY(-4px); opacity: 1; } }

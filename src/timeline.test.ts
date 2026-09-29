@@ -322,6 +322,12 @@ describe("Timeline", () => {
     expect(t.busy).toBe(false);
   });
 
+  it("appends the unescaped subagent report to its task notification", () => {
+    const t = new Timeline();
+    t.push(j({ type: "user", message: { role: "user", content: "<task-notification>\n<task-id>x</task-id>\n<summary>Agent \"explore\" completed</summary>\n<result>## Findings\n\n`a &amp;&amp; b` returns 2&gt;1</result>\n</task-notification>" } }));
+    expect(t.items[0]).toMatchObject({ kind: "system", text: 'Agent "explore" completed\n\n## Findings\n\n`a && b` returns 2>1', what: "background" });
+  });
+
   it("shows compaction progress, final size and folded summary while excluding command echoes", () => {
     const t = new Timeline();
     t.push(j({ type: "user", message: { role: "user", content: "/compact" } }));
