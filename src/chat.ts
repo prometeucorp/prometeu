@@ -20,6 +20,7 @@ import { kilo } from "./context";
 import {
   browserContextChip,
   contextPanel,
+  firstLine,
   peek,
   renderUserMessage,
   took,
@@ -386,7 +387,7 @@ export class ChatView {
     const label = this.tl.compacting
       ? t("chat.compacting")
       : tasks.length
-        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => peek(k.description) || "…").join(" · ")}`
+        ? `${tn(tasks.length, "chat.bg")}: ${tasks.map((k) => firstLine(k.description) || "…").join(" · ")}`
         : "";
     // A background command's description is the whole script; the label keeps one line and the tooltip the rest.
     const wlabel = this.working.querySelector<HTMLElement>(".wlabel")!;
