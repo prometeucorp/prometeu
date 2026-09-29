@@ -288,14 +288,15 @@ pub fn resolve(
     p.choice = picked.choice;
     p.provider_rule = ProviderRule::Fixed;
     p.candidates.clear();
-    let resolved = tools(p.choice.agent);
     // A task freezes the tools it starts with, so the caller resolves the layers once and an axis
     // the profile leaves unset inherits that resolved global and workspace selection.
     if p.access == Access::ReadOnly {
-        // MCP servers, plugins and skills act outside both providers' read-only envelopes.
+        // MCP servers, plugins and skills act outside both providers' read-only envelopes, so the
+        // layers are not resolved at all; that can fetch account connectors for nothing.
         p.mcp = Some(vec![]);
         p.plugins = Some(vec![]);
     } else {
+        let resolved = tools(p.choice.agent);
         if p.mcp.is_none() {
             p.mcp = resolved.mcp.clone();
         }
@@ -834,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn resolution_picks_the_provider_before_tools_and_freezes_read_only_mcp() {
+    fn resolution_picks_the_provider_before_tools() {
         let mut review = profile();
         review.watch = None;
         review.provider_rule = ProviderRule::DifferentFromBuilder;
@@ -843,7 +844,6 @@ mod tests {
             ..Default::default()
         };
         review.candidates = vec![review.choice.clone(), Choice::default()];
-        review.access = Access::ReadOnly;
         let catalog = Catalog {
             profiles: vec![review],
             ..Default::default()
@@ -870,7 +870,7 @@ mod tests {
         assert!(!same_family);
         assert_eq!(frozen.provider_rule, ProviderRule::Fixed);
         assert!(frozen.candidates.is_empty());
-        assert_eq!(frozen.mcp, Some(vec![]));
+        assert_eq!(frozen.mcp, Some(vec!["hub".into()]));
         assert!(validate_profile(&frozen).is_ok());
     }
 
@@ -918,6 +918,31 @@ mod tests {
         );
         assert_eq!(frozen.mcp, Some(vec![]));
         assert!(validate_profile(&frozen).is_ok());
+    }
+
+    #[test]
+    fn read_only_resolution_skips_tool_resolution() {
+        // Resolving tools can fetch account connectors; read-only discards them anyway.
+        let mut p = profile();
+        p.watch = None;
+        p.access = Access::ReadOnly;
+        let catalog = Catalog {
+            profiles: vec![p],
+            ..Default::default()
+        };
+        let (frozen, _) = resolve(
+            &catalog,
+            "",
+            "reviewer",
+            |p| Pick {
+                choice: p.choice.clone(),
+                same_family: false,
+            },
+            |_| panic!("read-only tasks do not resolve tools"),
+        )
+        .unwrap();
+        assert_eq!(frozen.mcp, Some(vec![]));
+        assert_eq!(frozen.plugins, Some(vec![]));
     }
 
     #[test]
