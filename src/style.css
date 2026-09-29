@@ -337,6 +337,16 @@ main { flex: 1; min-height: 0; position: relative; }
   min-width: var(--gutter); padding: 0 16px 0 12px; text-align: right; color: var(--fg-3);
   white-space: pre; user-select: none; cursor: default;
 }
+/* Change gutter against the committed file, in the Files tree's colors: bars for added and modified
+   lines, a notch at the boundary where lines were removed. The sticky gutter positions the layer. */
+#vchanges { position: absolute; top: 0; right: 6px; width: 3px; pointer-events: none; }
+#vchanges > div { position: absolute; left: 0; width: 3px; top: calc(var(--row) * 20px); height: calc(var(--rows) * 20px); }
+#vchanges > .A { background: var(--done); }
+#vchanges > .M { background: var(--wait); }
+#vchanges > .D {
+  top: calc(var(--row) * 20px - 4px); left: -1px; width: 0; height: 0;
+  border-left: 6px solid var(--err); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+}
 /* The transparent textarea overlays the highlighted pre element. Font, line height, padding, and white-space: pre must match exactly. The pre element sizes the layer; vcode owns scrolling. */
 .vstack { position: relative; flex: 1; }
 #vpre {

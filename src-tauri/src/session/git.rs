@@ -20,6 +20,8 @@ use tauri::State;
 // operations on separate repositories are needed.
 static MUTATION: Mutex<()> = Mutex::new(());
 const TEXT_LIMIT: usize = 400_000;
+/// Matches `read_file`'s limit: a larger file never reaches the editor.
+const BASE_LIMIT: usize = 2 * 1024 * 1024;
 const STATUS_TTL: Duration = Duration::from_secs(2);
 const PORCELAIN_TTL: Duration = Duration::from_secs(1);
 
@@ -510,22 +512,7 @@ fn tree_repos(state: &State<AppState>, id: &str) -> Option<(PathBuf, Vec<PathBuf
 /// only a path whose deletion was staged too comes back from `HEAD`, in the index and on disk. A
 /// folder mixes both, file by file.
 fn restore_deleted(root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), String> {
-    let (dir, inner) = repos
-        .iter()
-        .filter_map(|dir| {
-            let place = dir
-                .strip_prefix(root)
-                .ok()?
-                .to_string_lossy()
-                .replace('\\', "/");
-            let inner = match place.is_empty() {
-                true => rel,
-                false => rel.strip_prefix(&place)?.strip_prefix('/')?,
-            };
-            Some((dir, inner))
-        })
-        .next()
-        .ok_or_else(|| i18n::t("err.session.outside"))?;
+    let (dir, inner) = repo_of(root, repos, rel).ok_or_else(|| i18n::t("err.session.outside"))?;
     let path = valid_path(dir, inner)?;
     if path.symlink_metadata().is_ok() {
         return Err(i18n::ta("err.files.exists", &[("name", inner.to_string())]));
@@ -560,6 +547,66 @@ fn restore_deleted(root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), Stri
         run(dir, &args)?;
     }
     Ok(())
+}
+
+/// The repository directory holding the tree path `rel`, and `rel` relative to it.
+fn repo_of<'a>(root: &Path, repos: &'a [PathBuf], rel: &'a str) -> Option<(&'a PathBuf, &'a str)> {
+    repos.iter().find_map(|dir| {
+        let place = dir
+            .strip_prefix(root)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let inner = match place.is_empty() {
+            true => rel,
+            false => rel.strip_prefix(&place)?.strip_prefix('/')?,
+        };
+        Some((dir, inner))
+    })
+}
+
+/// The committed text the editor compares a file with. A file Git does not know yet, untracked or
+/// only staged, compares with an empty text, so every line reads as new. `None` means there is no
+/// comparison to draw: outside Git, ignored, binary, or too large.
+fn file_base_text(root: &Path, repos: &[PathBuf], rel: &str) -> Option<String> {
+    let (dir, inner) = repo_of(root, repos, rel)?;
+    valid_path(dir, inner).ok()?;
+    // `./` resolves the path from `dir`, which may sit below the repository top level.
+    let spec = format!("HEAD:./{inner}");
+    if let Ok(oid) = run(dir, &["rev-parse", "--verify", "-q", &spec]) {
+        let oid = oid.trim();
+        let size: usize = run(dir, &["cat-file", "-s", oid])
+            .ok()?
+            .trim()
+            .parse()
+            .ok()?;
+        if size > BASE_LIMIT {
+            return None;
+        }
+        return run(dir, &["cat-file", "blob", oid]).ok();
+    }
+    let known = run(
+        dir,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            inner,
+        ],
+    )
+    .ok()?;
+    (!known.is_empty()).then(String::new)
+}
+
+/// The editor's change gutter base for a tree path. Accepts a workspace or a project id, like
+/// `read_file`, and never fails: without a base the editor simply draws no markers.
+#[tauri::command(async)]
+pub fn file_base(state: State<AppState>, id: String, rel: String) -> Option<String> {
+    let (root, repos) = tree_repos(&state, &id)?;
+    file_base_text(&root, &repos, &rel)
 }
 
 /// Restore a file or folder the tree shows as deleted. Accepts a workspace or a project id.

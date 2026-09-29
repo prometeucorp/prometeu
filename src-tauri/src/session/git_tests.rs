@@ -825,3 +825,60 @@ fn restore_deleted_mixes_index_and_head_inside_a_folder() {
     );
     assert!(restore_deleted(&repo.0, &repos, "never").is_err());
 }
+
+#[test]
+fn file_base_reads_the_committed_text_and_empty_for_new_files() {
+    let repo = Repository::new();
+    std::fs::create_dir_all(repo.0.join("api")).unwrap();
+    repo.write("api/main.rs", "one\n");
+    repo.write(".gitignore", "ignored.txt\n");
+    repo.commit("start");
+    repo.write("api/main.rs", "two\n");
+    repo.write("new.md", "new\n");
+    repo.write("ignored.txt", "secret\n");
+    let repos = [repo.0.clone()];
+
+    assert_eq!(
+        file_base_text(&repo.0, &repos, "api/main.rs").as_deref(),
+        Some("one\n")
+    );
+    assert_eq!(
+        file_base_text(&repo.0, &repos, "new.md").as_deref(),
+        Some("")
+    );
+    repo.git(&["add", "new.md"]);
+    assert_eq!(
+        file_base_text(&repo.0, &repos, "new.md").as_deref(),
+        Some("")
+    );
+    assert_eq!(file_base_text(&repo.0, &repos, "ignored.txt"), None);
+    assert_eq!(file_base_text(&repo.0, &repos, "../outside"), None);
+
+    // A project on a subfolder and a grouping folder above the worktree resolve the same file.
+    let sub = repo.0.join("api");
+    assert_eq!(
+        file_base_text(&sub, std::slice::from_ref(&sub), "main.rs").as_deref(),
+        Some("one\n")
+    );
+    let parent = repo.0.parent().unwrap();
+    let name = repo.0.file_name().unwrap().to_string_lossy();
+    assert_eq!(
+        file_base_text(
+            parent,
+            std::slice::from_ref(&repo.0),
+            &format!("{name}/api/main.rs")
+        )
+        .as_deref(),
+        Some("one\n")
+    );
+
+    // Outside Git there is no base.
+    let plain = std::env::temp_dir().join(format!("prometeu-plain-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&plain).unwrap();
+    std::fs::write(plain.join("a.txt"), "a\n").unwrap();
+    assert_eq!(
+        file_base_text(&plain, std::slice::from_ref(&plain), "a.txt"),
+        None
+    );
+    std::fs::remove_dir_all(&plain).unwrap();
+}

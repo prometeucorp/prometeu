@@ -80,6 +80,7 @@ export type Commands = {
   feedback_capture: { args: undefined; result: string | null };
   feedback_image: { args: { path: string }; result: { name: string; type: "image/png" | "image/jpeg" | "image/webp"; data: string } };
   feedback_send: { args: { report: Record<string, unknown> }; result: void };
+  file_base: { args: { id: string; rel: string }; result: string | null };
   file_stamp: { args: { id: string; rel: string }; result: string };
   find_paths: { args: { id: string; query: string; recent: string[]; files?: boolean }; result: PathEntry[] };
   finish_workspace: { args: { id: string }; result: void };
