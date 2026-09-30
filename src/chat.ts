@@ -1142,7 +1142,7 @@ export class ChatView {
           invoke("set_workspace_mcp", { id: workspace, mcp: sel }).catch((e) =>
             this.ctx.say(fromBack(e), true),
           ),
-        at: () => ({ x: at.left, y: at.bottom + 4 }),
+        at: () => ({ x: at.left, y: at.top - 4, above: true }),
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
@@ -1174,7 +1174,7 @@ export class ChatView {
           invoke("set_workspace_plugins", { id: workspace, plugins: sel }).catch((e) =>
             this.ctx.say(fromBack(e), true),
           ),
-        at: () => ({ x: at.left, y: at.bottom + 4 }),
+        at: () => ({ x: at.left, y: at.top - 4, above: true }),
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };
@@ -1207,7 +1207,7 @@ export class ChatView {
           invoke("set_workspace_skills", { id: workspace, skills: sel }).catch((e) =>
             this.ctx.say(fromBack(e), true),
           ),
-        at: () => ({ x: at.left, y: at.bottom + 4 }),
+        at: () => ({ x: at.left, y: at.top - 4, above: true }),
         trust: () => void trust.open(workspace, this.ctx.say),
       });
     };

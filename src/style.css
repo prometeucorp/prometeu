@@ -1139,10 +1139,15 @@ body.noside .side { display: none; }
 .menu.cmds .ml { flex: none; max-width: 240px; }
 .menu.cmds .mh { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 /* Tool picker: ids stay readable while long command lines and URLs ellipsize instead of stretching the menu. */
-.menu.tools { max-width: min(420px, calc(100vw - 16px)); }
+/* Account connectors make the list long, so it scrolls inside the window like the searchable pickers. */
+.menu.tools { max-width: min(420px, calc(100vw - 16px)); max-height: min(480px, calc(100dvh - 16px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .menu.tools .mrow { flex: none; }
 .menu.tools .ml { flex: none; max-width: 200px; }
 .menu.tools .mh { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* The application note and section headers wrap instead of cutting off what they explain. */
+.menu.tools .mrow.off { height: auto; min-height: 30px; padding-block: 4px; }
+.menu.tools .mrow.off .ml { flex: 1; max-width: none; white-space: normal; }
+.menu.tools .mrow.off .mh { flex: none; }
 
 /* External file drop. */
 
