@@ -126,7 +126,8 @@ Negative:
   mirror (`composeAxis`, `resolveWithBase`, `axisProvenance`) stays identical
   to the Rust rules. `src/tool-picker.test.ts` covers the header stating the
   `cli` provenance, the removal badge, and reopening at the scroll offset
-  after each choice.
+  and keyboard selection after each choice.
 - E2E: the picker shows the base under its header, stays inside the window
-  and scrolls when account connectors make the list long, and a removal
-  persists as a workspace-layer delta.
+  and scrolls when account connectors make the list long, keeps its place
+  after pointer and keyboard choices, and a removal persists as a
+  workspace-layer delta.

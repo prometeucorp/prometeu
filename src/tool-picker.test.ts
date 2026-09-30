@@ -3,9 +3,9 @@ import type { Item } from "./menu";
 import type { EffectiveItem, McpServer, ProjectTools, Selection } from "./types";
 
 // A separate mock avoids expanding invoke's generic command tuples in mockImplementation.
-const mocks = vi.hoisted(() => ({ invoke: vi.fn(), openAt: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), openAt: vi.fn(), selectAt: vi.fn() }));
 vi.mock("./ipc", () => ({ invoke: mocks.invoke }));
-vi.mock("./menu", () => ({ openAt: mocks.openAt }));
+vi.mock("./menu", () => ({ openAt: mocks.openAt, selectAt: mocks.selectAt }));
 
 import { t, use } from "./i18n";
 import { load, openPicker } from "./mcp";
@@ -68,10 +68,18 @@ function shown(label: string) {
   return item;
 }
 
+/// The item of the last opened menu that holds the keyboard selection, if the picker set one.
+function selected() {
+  const items = mocks.openAt.mock.lastCall![1] as Item[];
+  const index = mocks.selectAt.mock.lastCall?.[0] as number | undefined;
+  return index === undefined ? undefined : items[index];
+}
+
 beforeEach(() => {
   use("en");
   mocks.invoke.mockReset();
   mocks.openAt.mockReset().mockImplementation(() => panel());
+  mocks.selectAt.mockReset();
 });
 
 describe("provenance badges", () => {
@@ -164,6 +172,29 @@ describe("reopening after a choice", () => {
       expect(second.scrollTop).toBe(240);
     },
   );
+
+  it.each(["metabase", "Select none", "Inherit defaults"])(
+    "puts the keyboard selection back on %s after choosing it",
+    async (label) => {
+      backend([{ id: "metabase", provenance: "cli" }]);
+      const first = panel();
+      mocks.openAt.mockReturnValueOnce(first);
+      await open(pick(rows, { base: "inherit", add: [], remove: [] }));
+      expect(mocks.selectAt).not.toHaveBeenCalled();
+      first.click(label);
+      await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(2));
+      expect(selected()).toMatchObject({ label });
+    },
+  );
+
+  it("puts the keyboard selection back on the flat row just chosen", async () => {
+    const first = panel();
+    mocks.openAt.mockReturnValueOnce(first);
+    openFlat({ rows, current: () => null, set: vi.fn(), at: () => ({ x: 0, y: 0 }), noneLabel: "No MCP registered" });
+    first.click("metabase");
+    await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(2));
+    expect(selected()).toMatchObject({ label: "metabase" });
+  });
 
   it("keeps the flat list where the person scrolled after a choice", async () => {
     const first = panel();

@@ -45,8 +45,11 @@ function badgeFor(p: Provenance | undefined): string | undefined {
   return undefined;
 }
 
-/// `scroll` is the list offset to restore when a choice reopens the picker.
-export async function open(p: Pick, scroll = 0) {
+/// Where a picker reopened after a choice resumes: the list offset and the label of the chosen item.
+type Place = { scroll: number; chosen?: string };
+
+/// `place` restores the list offset and the keyboard selection when a choice reopens the picker.
+export async function open(p: Pick, place: Place = { scroll: 0 }) {
   let items0: EffectiveItem[] = [];
   let pending = false;
   try {
@@ -62,9 +65,9 @@ export async function open(p: Pick, scroll = 0) {
   const provenance = new Map(items0.map((e) => [e.id, e.provenance]));
   const current = p.current();
   // Each choice persists and reopens the picker where the person left the list.
-  let offset = scroll;
-  const choose = (sel: Selection | null) => {
-    void Promise.resolve(p.set(sel)).then(() => open(p, offset));
+  let offset = place.scroll;
+  const choose = (sel: Selection | null, chosen: string) => {
+    void Promise.resolve(p.set(sel)).then(() => open(p, { scroll: offset, chosen }));
   };
   const items: menu.Item[] = [];
   items.push({ label: t("tools.appliesNext"), disabled: true }, "sep");
@@ -91,7 +94,7 @@ export async function open(p: Pick, scroll = 0) {
       checked: on,
       // The header already names this provenance; repeating it on every row buries the exceptions.
       badge: grouped && seen === row.implied ? undefined : badgeFor(seen),
-      run: () => choose(toggleSelection(current, row.id, !on)),
+      run: () => choose(toggleSelection(current, row.id, !on), row.label),
     });
   }
   if (p.rows.length) {
@@ -101,12 +104,12 @@ export async function open(p: Pick, scroll = 0) {
     items.push("sep", {
       label: t("tools.selectNone"),
       checked: empty,
-      run: () => choose({ base: "none", add: [], remove: [] }),
+      run: () => choose({ base: "none", add: [], remove: [] }, t("tools.selectNone")),
     });
     if (current) {
       items.push({
         label: t("tools.reset"),
-        run: () => choose(null),
+        run: () => choose(null, t("tools.reset")),
       });
     }
   }
@@ -117,17 +120,18 @@ export async function open(p: Pick, scroll = 0) {
       run: () => p.trust!(),
     });
   }
-  show(p.at(), items, scroll, (top) => (offset = top));
+  show(p.at(), items, place, (top) => (offset = top));
 }
 
-/// Open the panel at `scroll` and report its offset when a choice is clicked, so a long list reopened
-/// after every choice stays where the person was instead of jumping back to its top. The capture phase
-/// reads it before the row's handler removes the panel, which resets the offset; a scroll listener
-/// would miss a scroll made in the same frame as the click.
-function show(at: menu.Where, items: menu.Item[], scroll: number, chosen: (top: number) => void) {
+/// Open the panel at `place` — the offset a choice left, with the chosen item as keyboard selection — so a
+/// long list reopened after every choice stays where the person was. The offset is read in the click's
+/// capture phase, before the row's handler removes the panel and resets it; a scroll listener would miss
+/// a scroll made in the same frame as the click.
+function show(at: menu.Where, items: menu.Item[], place: Place, scrolled: (top: number) => void) {
   const panel = menu.openAt(at, items, "tools");
-  panel.scrollTop = scroll;
-  panel.addEventListener("click", () => chosen(panel.scrollTop), true);
+  panel.scrollTop = place.scroll;
+  if (place.chosen !== undefined) menu.selectAt(items.findIndex((i) => i !== "sep" && i.label === place.chosen));
+  panel.addEventListener("click", () => scrolled(panel.scrollTop), true);
 }
 
 export type FlatPick = {
@@ -141,12 +145,12 @@ export type FlatPick = {
 
 /// Picker for the base layer (the board's global tools), which has nothing above it to inherit, so an
 /// item is on exactly when this layer adds it and does not remove it. No provenance fetch is needed.
-export function openFlat(p: FlatPick, scroll = 0) {
+export function openFlat(p: FlatPick, place: Place = { scroll: 0 }) {
   const current = p.current();
   const on = (id: string) => (current?.add.includes(id) ?? false) && !(current?.remove.includes(id) ?? false);
-  let offset = scroll;
-  const choose = (sel: Selection | null) => {
-    void Promise.resolve(p.set(sel)).then(() => openFlat(p, offset));
+  let offset = place.scroll;
+  const choose = (sel: Selection | null, chosen: string) => {
+    void Promise.resolve(p.set(sel)).then(() => openFlat(p, { scroll: offset, chosen }));
   };
   const items: menu.Item[] = [];
   if (!p.rows.length) items.push({ label: p.noneLabel, disabled: true });
@@ -156,14 +160,14 @@ export function openFlat(p: FlatPick, scroll = 0) {
       label: row.label,
       hint: row.hint,
       checked: isOn,
-      run: () => choose(toggleSelection(current, row.id, !isOn)),
+      run: () => choose(toggleSelection(current, row.id, !isOn), row.label),
     });
   }
   if (p.rows.length && current) {
     items.push("sep", {
       label: t("tools.reset"),
-      run: () => choose(null),
+      run: () => choose(null, t("tools.reset")),
     });
   }
-  show(p.at(), items, scroll, (top) => (offset = top));
+  show(p.at(), items, place, (top) => (offset = top));
 }

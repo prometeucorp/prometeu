@@ -139,6 +139,14 @@ export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => 
   return root;
 }
 
+/// Select the item at `index` of the open menu, as hovering it would, so a consumer that reopens the
+/// menu after a choice resumes arrow navigation from that item instead of the first one.
+export function selectAt(index: number) {
+  // Each item renders exactly one child of the panel, in order.
+  const row = root?.children[index];
+  if (row instanceof HTMLElement && row.matches(".mrow:not(.off)")) select(row);
+}
+
 /** Join the shared menu lifetime with a panel that owns its internal keyboard interaction. */
 export function openPanel(anchor: HTMLElement, panel: HTMLElement, key: (event: KeyboardEvent) => void, closed: () => void) {
   close();

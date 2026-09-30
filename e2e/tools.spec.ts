@@ -126,6 +126,13 @@ test("tools: the CLI base follows the tab’s provider, scrolls when long and bu
   await row(page, "claude.ai Linear").click();
   await expect(row(page, "claude.ai Linear")).toHaveAttribute("aria-checked", "false");
   await expect(row(page, "claude.ai Linear")).toBeInViewport();
+  // A keyboard choice keeps its place too: the next arrow moves on from the row just chosen.
+  await page.mouse.move(0, 0);
+  await page.keyboard.press("Enter");
+  await expect(row(page, "claude.ai Linear")).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("ArrowDown");
+  await expect(row(page, "Select none")).toHaveClass(/\bsel\b/);
+  await expect(row(page, "Select none")).toBeInViewport();
   await page.keyboard.press("Escape");
   await page.locator('#tabbar .tab[data-tab="t2"]').click();
   await button.click();
