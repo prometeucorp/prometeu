@@ -187,6 +187,72 @@ describe("reopening after a choice", () => {
     },
   );
 
+  it("keeps Select none selected when a CLI server has the same name", async () => {
+    const label = t("tools.selectNone");
+    backend([{ id: label, provenance: "cli" }]);
+    let current: Selection | null = null;
+    const p = pick([{ id: label, label, section: cli, implied: "cli" }]);
+    p.current = () => current;
+    p.set = vi.fn((sel) => { current = sel; });
+    await open(p);
+    const items = mocks.openAt.mock.lastCall![1] as Item[];
+    const footer = items.slice().reverse().find((i) => i !== "sep" && i.label === label)!;
+    if (footer === "sep") throw new Error("expected footer action");
+    footer.run!();
+    await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(2));
+    const restored = selected();
+    expect(restored).toMatchObject({ label });
+    if (!restored || restored === "sep") throw new Error("expected selected action");
+    restored.run!(); // Enter on the reopened menu must repeat the footer action.
+    expect(p.set).toHaveBeenLastCalledWith({ base: "none", add: [], remove: [] });
+    await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(3));
+  });
+
+  it.each(["workspace", "flat"])("restores duplicate row labels by identity in the %s picker", async (kind) => {
+    backend([]);
+    const p = pick([
+      { id: "first", label: "Shared label" },
+      { id: "second", label: "Shared label" },
+    ]);
+    let current: Selection | null = null;
+    p.current = () => current;
+    p.set = vi.fn((sel) => {
+      current = sel;
+      // Identity must survive changes in menu order too.
+      p.rows.unshift({ id: "new", label: "Shared label" });
+    });
+    if (kind === "workspace") await open(p);
+    else openFlat({ ...p, at: () => ({ x: 0, y: 0 }) });
+    const items = mocks.openAt.mock.lastCall![1] as Item[];
+    const row = items.filter((i) => i !== "sep" && i.label === "Shared label")[1];
+    if (row === "sep") throw new Error("expected tool row");
+    row.run!();
+    await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(2));
+    const restored = selected();
+    expect(restored).toMatchObject({ label: "Shared label", checked: true });
+    if (!restored || restored === "sep") throw new Error("expected selected row");
+    restored.run!();
+    expect(p.set).toHaveBeenLastCalledWith({ base: "inherit", add: [], remove: ["second"] });
+    await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(3));
+  });
+
+  it.each(["workspace", "flat"])("does not select a namesake when reset disappears in the %s picker", async (kind) => {
+    backend([]);
+    const label = t("tools.reset");
+    const p = pick([{ id: label, label }]);
+    let current: Selection | null = { base: "none", add: [], remove: [] };
+    p.current = () => current;
+    p.set = vi.fn((sel) => { current = sel; });
+    if (kind === "workspace") await open(p);
+    else openFlat({ ...p, at: () => ({ x: 0, y: 0 }) });
+    const items = mocks.openAt.mock.lastCall![1] as Item[];
+    const reset = items.slice().reverse().find((i) => i !== "sep" && i.label === label)!;
+    if (reset === "sep") throw new Error("expected reset action");
+    reset.run!();
+    await vi.waitFor(() => expect(mocks.openAt).toHaveBeenCalledTimes(2));
+    expect(selected()).toBeUndefined();
+  });
+
   it("puts the keyboard selection back on the flat row just chosen", async () => {
     const first = panel();
     mocks.openAt.mockReturnValueOnce(first);

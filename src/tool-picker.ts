@@ -45,8 +45,12 @@ function badgeFor(p: Provenance | undefined): string | undefined {
   return undefined;
 }
 
-/// Where a picker reopened after a choice resumes: the list offset and the label of the chosen item.
-type Place = { scroll: number; chosen?: string };
+// Tool identities and footer actions occupy separate namespaces, independent of display labels.
+type Key = `row:${string}` | "action:none" | "action:reset";
+type Item = "sep" | (Exclude<menu.Item, "sep"> & { key?: Key });
+
+/// Where a picker reopened after a choice resumes: the list offset and the chosen item identity.
+type Place = { scroll: number; chosen?: Key };
 
 /// `place` restores the list offset and the keyboard selection when a choice reopens the picker.
 export async function open(p: Pick, place: Place = { scroll: 0 }) {
@@ -66,10 +70,10 @@ export async function open(p: Pick, place: Place = { scroll: 0 }) {
   const current = p.current();
   // Each choice persists and reopens the picker where the person left the list.
   let offset = place.scroll;
-  const choose = (sel: Selection | null, chosen: string) => {
+  const choose = (sel: Selection | null, chosen: Key) => {
     void Promise.resolve(p.set(sel)).then(() => open(p, { scroll: offset, chosen }));
   };
-  const items: menu.Item[] = [];
+  const items: Item[] = [];
   items.push({ label: t("tools.appliesNext"), disabled: true }, "sep");
   if (!p.rows.length) items.push({ label: p.noneLabel, disabled: true });
   // Group headers appear only when the list spans more than one origin, so single-group menus stay flat.
@@ -89,12 +93,13 @@ export async function open(p: Pick, place: Place = { scroll: 0 }) {
     // Hub rows trust the resolved provenance; a row the hub no longer has falls back to the layer's add.
     const on = seen !== undefined ? isOn(seen) : (current?.add.includes(row.id) ?? false);
     items.push({
+      key: `row:${row.id}`,
       label: row.label,
       hint: row.hint,
       checked: on,
       // The header already names this provenance; repeating it on every row buries the exceptions.
       badge: grouped && seen === row.implied ? undefined : badgeFor(seen),
-      run: () => choose(toggleSelection(current, row.id, !on), row.label),
+      run: () => choose(toggleSelection(current, row.id, !on), `row:${row.id}`),
     });
   }
   if (p.rows.length) {
@@ -102,14 +107,16 @@ export async function open(p: Pick, place: Place = { scroll: 0 }) {
     // an empty `none` layer so the global, project and CLI contributions are all switched off.
     const empty = current?.base === "none" && !current.add.length;
     items.push("sep", {
+      key: "action:none",
       label: t("tools.selectNone"),
       checked: empty,
-      run: () => choose({ base: "none", add: [], remove: [] }, t("tools.selectNone")),
+      run: () => choose({ base: "none", add: [], remove: [] }, "action:none"),
     });
     if (current) {
       items.push({
+        key: "action:reset",
         label: t("tools.reset"),
-        run: () => choose(null, t("tools.reset")),
+        run: () => choose(null, "action:reset"),
       });
     }
   }
@@ -127,10 +134,10 @@ export async function open(p: Pick, place: Place = { scroll: 0 }) {
 /// long list reopened after every choice stays where the person was. The offset is read in the click's
 /// capture phase, before the row's handler removes the panel and resets it; a scroll listener would miss
 /// a scroll made in the same frame as the click.
-function show(at: menu.Where, items: menu.Item[], place: Place, scrolled: (top: number) => void) {
+function show(at: menu.Where, items: Item[], place: Place, scrolled: (top: number) => void) {
   const panel = menu.openAt(at, items, "tools");
   panel.scrollTop = place.scroll;
-  if (place.chosen !== undefined) menu.selectAt(items.findIndex((i) => i !== "sep" && i.label === place.chosen));
+  if (place.chosen !== undefined) menu.selectAt(items.findIndex((i) => i !== "sep" && i.key === place.chosen));
   panel.addEventListener("click", () => scrolled(panel.scrollTop), true);
 }
 
@@ -149,24 +156,26 @@ export function openFlat(p: FlatPick, place: Place = { scroll: 0 }) {
   const current = p.current();
   const on = (id: string) => (current?.add.includes(id) ?? false) && !(current?.remove.includes(id) ?? false);
   let offset = place.scroll;
-  const choose = (sel: Selection | null, chosen: string) => {
+  const choose = (sel: Selection | null, chosen: Key) => {
     void Promise.resolve(p.set(sel)).then(() => openFlat(p, { scroll: offset, chosen }));
   };
-  const items: menu.Item[] = [];
+  const items: Item[] = [];
   if (!p.rows.length) items.push({ label: p.noneLabel, disabled: true });
   for (const row of p.rows) {
     const isOn = on(row.id);
     items.push({
+      key: `row:${row.id}`,
       label: row.label,
       hint: row.hint,
       checked: isOn,
-      run: () => choose(toggleSelection(current, row.id, !isOn), row.label),
+      run: () => choose(toggleSelection(current, row.id, !isOn), `row:${row.id}`),
     });
   }
   if (p.rows.length && current) {
     items.push("sep", {
+      key: "action:reset",
       label: t("tools.reset"),
-      run: () => choose(null, t("tools.reset")),
+      run: () => choose(null, "action:reset"),
     });
   }
   show(p.at(), items, place, (top) => (offset = top));
