@@ -122,7 +122,8 @@ export type Where = {
 };
 
 /// Open at the click position, clamped to the viewport. `cls` allows a consumer-specific panel size.
-export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => void, focus = false) {
+/// Returns the panel so a consumer that reopens it after a choice can keep its scroll offset.
+export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => void, focus = false): HTMLElement {
   close();
   keyboardFocus = focus;
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -135,6 +136,7 @@ export function openAt(at: Where, items: Item[], cls?: string, onClosed?: () => 
   document.addEventListener("keydown", onKey, true);
   window.addEventListener("blur", close);
   if (focus) root.focus();
+  return root;
 }
 
 /** Join the shared menu lifetime with a panel that owns its internal keyboard interaction. */

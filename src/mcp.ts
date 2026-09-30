@@ -101,7 +101,7 @@ type Pick = {
   /// Persist the new layer, or null to return the axis to inherit.
   set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
-  at: () => { x: number; y: number };
+  at: () => menu.Where;
   /// Opens the project-trust prompt when the project layer has pending items.
   trust?: () => void;
 };
@@ -127,7 +127,7 @@ export async function openPicker(p: Pick) {
   }));
   for (const server of inheritedOf(p.workspace, p.agent)) {
     if (!rows.some((r) => r.id === server.id))
-      rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli") });
+      rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli"), implied: "cli" });
   }
   const current = p.current();
   // Retain ids the registry no longer has so they can still be dropped from the layer.

@@ -64,7 +64,7 @@ apresenta falhas sem perder dados e devolve o foco ao fechar. Não faz requests.
 | `select(value, options, attributes)` | seleção com menu, teclado, atualização de opções e campo nativo para submissão |
 | `dropdown(button, groups, get, set)` | comportamento de seleção sobre um botão existente |
 | `menuButton(label, items)` | menu de ações com foco, Escape, Home/End e submenus por teclado |
-| `menu.openAt`, `menu.close`, `menu.onClose` | menu contextual e lifecycle; `onClose` devolve função de cancelamento |
+| `menu.openAt`, `menu.close`, `menu.onClose` | menu contextual e lifecycle; `openAt` devolve o painel aberto; `onClose` devolve função de cancelamento |
 | `formDialog(options)` | formulário modal assíncrono, validação, foco, estado de envio e recuperação de erro |
 | `confirmDialog(options)` | confirmação acessível que resolve `Promise<boolean>` e aceita `AbortSignal` |
 | `disclosure(title, ...content)` | disclosure nativo sem controle de estado externo |
