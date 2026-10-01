@@ -188,13 +188,18 @@ function paintHead(head: HTMLElement, w: Workspace, tab: Tab) {
 }
 
 /// Listen for pointer movement and completion on document. Reordering DOM nodes can release element pointer capture; pointerup and pointercancel share cleanup.
+/// Cancelling pointerdown does not stop WebKit from starting a text selection, so block selectstart for the whole gesture.
 function gesture(move: (m: PointerEvent) => void, stop: () => void) {
+  const select = (e: Event) => e.preventDefault();
   const end = () => {
     document.removeEventListener("pointermove", move);
     document.removeEventListener("pointerup", end);
     document.removeEventListener("pointercancel", end);
+    document.removeEventListener("selectstart", select);
     stop();
   };
+  getSelection()?.removeAllRanges();
+  document.addEventListener("selectstart", select);
   document.addEventListener("pointermove", move);
   document.addEventListener("pointerup", end);
   document.addEventListener("pointercancel", end);
