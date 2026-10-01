@@ -68,7 +68,9 @@ optional for local work; model access comes from your own provider account.
   conversation. Each client controls only agents it created, including their
   setup, Run scripts and preview. See [external registration](docs/contracts/embedded-mcp.md#external-client-registration).
 - **Tools per workspace.** Select MCP servers, plugins, and skills. Reusable
-  actions include an editable code review profile.
+  actions include an editable code review profile that runs read-only, on
+  another provider family than the one that built the workspace when one is
+  installed and signed in.
 - **Optional collaboration.** Share live conversations and comment on them
   with your team, or continue from your own companion devices. Execution stays
   on the owner's computer.

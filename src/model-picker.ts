@@ -8,6 +8,8 @@ import type { ProviderId } from "./types";
 export type ModelPickerOptions = {
   current: ModelChoice;
   only?: ProviderId;
+  /** Hide providers the caller cannot use, such as those without a capability. */
+  accepts?: (provider: ProviderId) => boolean;
   select: (choice: ModelChoice) => void;
   terminal?: () => void;
   closed?: () => void;
@@ -17,7 +19,7 @@ export type ModelPickerOptions = {
 export function openModelPicker(at: HTMLElement, options: ModelPickerOptions): void {
   let additional = false;
   const choices = new Map<string, ModelChoice>();
-  const providers = () => installed().filter(p => !options.only || p.id === options.only);
+  const providers = () => installed().filter(p => (!options.only || p.id === options.only) && (!options.accepts || options.accepts(p.id)));
   const row = (choice: ModelChoice, group: string, favorite = false): SearchPickerItem => {
     const model = modelsOf(choice.agent).find(item => item.id === choice.model);
     const label = modelLabel(choice.model, choice.agent);

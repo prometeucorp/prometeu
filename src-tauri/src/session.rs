@@ -927,6 +927,9 @@ pub struct Draft {
 pub struct Launch {
     #[serde(default)]
     pub permission: Option<crate::actions::Permission>,
+    /// Read-only access removes write tools in the adapter; only task profiles set it.
+    #[serde(default)]
+    pub access: crate::actions::Access,
     #[serde(default)]
     pub instructions: String,
     #[serde(default)]
@@ -1328,6 +1331,7 @@ impl Workspace {
                 mcp: run.profile.mcp.clone(),
                 plugins: run.profile.plugins.clone(),
                 permission: Some(run.profile.permission),
+                access: run.profile.access,
                 instructions: crate::actions::instructions(&run.profile),
                 config_scope: Some(tab.to_string()),
                 ..Launch::from(run.profile.choice.clone())
@@ -1347,6 +1351,24 @@ impl Workspace {
             }
         }
         launch
+    }
+
+    /// Tasks already carry a frozen launch profile. Only ordinary tabs need workspace tool
+    /// resolution when their process is revived.
+    fn launch_for_revive(
+        &self,
+        tab: &str,
+        resolve: impl FnOnce(ProviderId) -> ResolvedTools,
+    ) -> Launch {
+        if self
+            .tabs
+            .iter()
+            .any(|candidate| candidate.id == tab && candidate.task.is_some())
+        {
+            return self.launch_of(tab, &ResolvedTools::default());
+        }
+        let agent = self.launch_of(tab, &ResolvedTools::default()).agent;
+        self.launch_of(tab, &resolve(agent))
     }
 
     /// Model overrides preserve the resolved tool selection for new and resumed tabs.
@@ -1955,9 +1977,9 @@ pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<boo
         let Some((ws, previous)) = snapshot else {
             return Err(i18n::t("err.session.noTab"));
         };
-        let agent = ws.launch_of(tab, &ResolvedTools::default()).agent;
-        let tools = resolve_workspace_tools(&global, &trust, &ws, agent);
-        let mut launch = ws.launch_of(tab, &tools);
+        let mut launch = ws.launch_for_revive(tab, |agent| {
+            resolve_workspace_tools(&global, &trust, &ws, agent)
+        });
         // A conversation started from a skill keeps that skill's package across resumes, validated
         // like at creation; a skill no longer installed never blocks the resume (ADR 0057).
         let kickoff_lost = ws
@@ -3571,6 +3593,51 @@ mod tests {
     }
 
     #[test]
+    fn task_launch_carries_the_frozen_access() {
+        let mut ws = bare();
+        let mut task = tab("task", None);
+        task.task = Some(
+            serde_json::from_value(serde_json::json!({
+                "command": "review", "profile": {
+                    "id": "review", "name": "Review", "prompt": "Review",
+                    "choice": {"agent": "codex", "model": "", "effort": ""},
+                    "access": "read_only", "mcp": [], "plugins": null,
+                    "skills": [], "permission": "ask", "watch": null
+                }, "paused": false, "done": false, "turns": 0,
+                "checked_at": 0, "error": null
+            }))
+            .unwrap(),
+        );
+        ws.tabs.push(task);
+        let launch = ws.launch_of("task", &ResolvedTools::default());
+        assert_eq!(launch.access, crate::actions::Access::ReadOnly);
+        assert_eq!(launch.mcp, Some(vec![]));
+        assert_eq!(
+            ws.launch(&ResolvedTools::default()).access,
+            crate::actions::Access::Default
+        );
+        let revived = ws.launch_for_revive("task", |_| {
+            panic!("a frozen task must not resolve workspace tools on resume")
+        });
+        assert_eq!(revived.access, crate::actions::Access::ReadOnly);
+        assert_eq!(revived.mcp, Some(vec![]));
+    }
+
+    #[test]
+    fn ordinary_tab_resolves_workspace_tools_on_resume() {
+        let mut ws = bare();
+        ws.tabs.push(tab("ordinary", None));
+        let launch = ws.launch_for_revive("ordinary", |agent| {
+            assert_eq!(agent, ws.agent);
+            ResolvedTools {
+                mcp: Some(vec!["ordinary-server".into()]),
+                ..Default::default()
+            }
+        });
+        assert_eq!(launch.mcp, Some(vec!["ordinary-server".into()]));
+    }
+
+    #[test]
     fn task_launch_uses_project_override_and_freezes_tools_and_model() {
         use crate::actions::{Catalog, Permission, Profile};
         use crate::selection::Selection;
@@ -3586,6 +3653,9 @@ mod tests {
                 model: "sonnet".into(),
                 ..Default::default()
             },
+            provider_rule: crate::actions::ProviderRule::Fixed,
+            candidates: vec![],
+            access: crate::actions::Access::Default,
             mcp: None,
             plugins: Some(vec![]),
             skills: vec!["review".into()],
@@ -3609,10 +3679,19 @@ mod tests {
             plugins: None,
             skills: None,
         };
-        let profile = crate::actions::resolve(&catalog, &ws.project, "review", |agent| {
-            assert_eq!(agent, ProviderId::Claude);
-            resolved
-        })
+        let (profile, _) = crate::actions::resolve(
+            &catalog,
+            &ws.project,
+            "review",
+            |p| crate::actions::Pick {
+                choice: p.choice.clone(),
+                same_family: false,
+            },
+            |agent| {
+                assert_eq!(agent, ProviderId::Claude);
+                resolved
+            },
+        )
         .unwrap();
         let mut task = tab("task", None);
         task.task = Some(

@@ -196,7 +196,8 @@ catalog. The order of `projects` is the sidebar order the person chose by
 dragging; older boards keep their registration order. `Tab.task` stores the resolved configuration and the tasks' cursors.
 The absence of those fields keeps previous sessions working. The catalog
 receives Code review exactly once, recorded in `actions.defaults_initialized`;
-see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
+later seed revisions, recorded in `actions.defaults_revision`, replace only a
+profile identical to an earlier seed; see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
 agent configuration, the MCP/plugins/skills selection, sharing and tabs.
 `preserve_branches` lists clone paths whose existing local or remote branches
 must survive worktree cleanup. Each repository is checked separately, so a

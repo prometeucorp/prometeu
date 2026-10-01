@@ -4,12 +4,16 @@ Status: implemented; decision in [ADR 0009](../decisions/0009-reusable-actions.m
 
 ## Registry and entries
 
-`Board.actions` contains `profiles`, `commands`, `overrides`, `pr_action` and
-`defaults_initialized`. On first open, earlier catalogs receive the editable
-**Code review** profile and the `/review` command. The profile reports bugs and
-risks without modifying files or publishing a PR. The initialization is recorded
-so later removals and customizations are respected; existing names or identities
-are not overwritten. The source JSON is in
+`Board.actions` contains `profiles`, `commands`, `overrides`, `pr_action`,
+`defaults_initialized` and `defaults_revision`. On first open, earlier catalogs
+receive the editable **Code review** profile and the `/review` command. The
+profile reports bugs and risks without modifying files or publishing a PR. It
+runs read-only on a provider other than the builder's when one is available.
+The initialization is recorded so later removals and customizations are
+respected; existing names or identities are not overwritten. A catalog whose
+bundled profile is still identical to an earlier seed receives the current seed
+once, at startup and whenever a Cloud catalog is applied; `defaults_revision`
+records it, so later edits stay. The source JSON is in
 [`action-defaults.json`](../../src/action-defaults.json). The registry is local,
 reusable across projects, and is not sent to the relay.
 
@@ -32,8 +36,10 @@ reusable across projects, and is not sent to the relay.
 
 ## Profile and execution
 
-A profile has identity, name, prompt, `choice` (provider/model/effort), MCP,
-plugins, skill names, `permission: ask | auto` and an optional `watch`.
+A profile has identity, name, prompt, `choice` (provider/model/effort),
+`provider_rule: fixed | different_from_builder`, ordered `candidates` (each with
+provider, model and effort), `access: default | read_only`, MCP, plugins, skill
+names, `permission: ask | auto` and an optional `watch`.
 `overrides[project][profile]` fully replaces a profile for that project. It does
 not change the global profile.
 
@@ -44,19 +50,15 @@ provider's external configuration remains. The catalog contains no secrets:
 credentials stay in the existing hubs.
 
 Changing the profile or the workspace selection does not change that copy.
-Resuming uses the same profile. Changing the model through a task's footer is
-refused; edit the profile for future executions. Codex plugins and MCP use a
-configuration derived per task session, so the selection of another conversation
-is not changed.
+Resuming uses the same profile without resolving workspace tools again.
+Changing the model through a task's footer is refused; edit the profile for
+future executions. Codex plugins and MCP use a configuration derived per task
+session, so the selection of another conversation is not changed.
 
 Skills are names instructed to the agent, available in the installation or in
 the selected plugins. That list is not an allowlist and does not disable the
 provider's other skills. If a skill is not available, the instruction is to stop
 and report. The app does not promise automatic detection of that textual result.
-
-Permissions are materialized by the adapter: Claude uses its normal approval
-mode under `ask`; Codex uses `approvalPolicy: untrusted`. `auto` keeps the
-existing bypass. These options do not constitute worktree isolation.
 
 An untracked task finishes when its turn finishes. Tracking is optional and does
 not change the workspace's manual stage. Repeating the same command with a task
@@ -64,6 +66,56 @@ still open returns the existing tab. If there is additional context, the app
 refuses and preserves the draft so it can be sent in the task's tab. Starting
 another task requires that no conversation is working, waiting for an answer or
 holding a pending message.
+
+### Provider rule
+
+`fixed` runs `choice`. `different_from_builder` has one to three candidates with
+distinct providers, and `choice` mirrors the first so an older app runs it as a
+fixed profile. Builders are the providers of the workspace's ordinary tabs, each
+tab's own choice or the workspace default it inherits; without ordinary tabs,
+the workspace default counts. At start the backend takes the first candidate
+that is installed, signed in and not a builder, then the first usable
+candidate, then the first candidate, whose spawn reports why it cannot run.
+Usable means the CLI is on the adopted PATH and the active account's last known
+identity is signed in; Antigravity needs its version check and an attached
+account. The provider is picked before tool resolution. `Tab.task.profile`
+freezes the picked candidate as a fixed choice and `Tab.task.same_family`
+records that no usable candidate outside the builders existed.
+
+### Access level
+
+Under `default`, `permission` applies: Claude uses its normal approval mode
+under `ask`; Codex uses `approvalPolicy: untrusted`; `auto` keeps the existing
+bypass. These options do not constitute worktree isolation.
+
+`read_only` requires every provider the profile can start with to advertise
+`readOnlyProfile`, MCP and plugin selections that are `null` or empty, and no
+skill names; the frozen task has no MCP servers, plugins or skills, whatever the
+workspace selects. MCP tools, plugin hooks and servers, and skill tool grants
+act outside the envelope. Adapters materialize it and refuse a launch that
+carries any of them:
+
+- Claude: `--restricted --permission-mode dontAsk --tools
+  Read,Grep,Glob,Bash --add-dir <worktree>` with
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` and an inline empty strict
+  MCP configuration. Settings files, CLI-enabled plugins and project skills are
+  ignored; write tools are absent; `Skill` is absent because skill grants,
+  bundled ones included, pre-approve commands; `Task` is absent because its
+  worktree isolation writes a git worktree; commands the CLI does not classify
+  as read-only are denied without a prompt; bypass is refused.
+- Codex: `sandbox: "read-only"` and `approvalPolicy: "never"` on start and
+  resume; `--disable` for `plugins`, `hooks`, `apps`, `computer_use` and
+  `browser_use`. Before opening the thread, the adapter reads Codex's effective
+  configuration for the worktree through `config/read` and passes
+  `config.mcp_servers.<name>.enabled: false` for every server on `thread/start`
+  or `thread/resume`. It refuses the task if that configuration cannot be read.
+  An empty `-c mcp_servers={}` would merge with configured servers instead of
+  removing them, so read-only launches do not pass an MCP CLI override.
+- Antigravity: refused before the spawn.
+
+Read-only access limits what injected repository content can do to the review
+text. It is not an operating-system sandbox for Claude's shell, and Git
+configuration left in the repository still runs for any Git read.
 
 ## PR tracking
 
@@ -124,12 +176,13 @@ CI queries cannot reuse the general listing's field set or freshness guarantee.
 
 - `actions_save({ catalog }) -> void`: validates references, names and limits;
   persists to the board and publishes the `board` event.
-- `action_start({ workspace, name, context }) -> Tab`: resolves the profile,
-  creates a local session and starts the request. A spawn error stays in the tab
+- `action_start({ workspace, name, context }) -> Tab`: resolves the profile and
+  its provider, creates a local session and starts the request. A spawn error stays in the tab
   for inspection.
 - `action_pause({ session, paused }) -> void`: pauses or resumes tracking.
 
-New fields are additive with defaults in persistence. Ordinary sessions do not
+New fields are additive with defaults in persistence. Profiles and tasks saved
+before the provider rule load as `fixed`, `default` and `same_family: false`. Ordinary sessions do not
 change their launch configuration. The web mock implements the registry and tab
 creation, but does not query GitHub and does not run models. Evidence:
 [`actions.test.ts`](../../src/actions.test.ts),

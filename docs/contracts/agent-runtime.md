@@ -115,12 +115,18 @@ type AgentCapabilities = {
   approvals: boolean;
   userQuestions: boolean;
   attachments: boolean;
+  readOnlyProfile: boolean;
 };
 ```
 
 This is the minimum set observed by the current interface. A capability only
 enters here when it changes behavior offered by the application. Protocol
 details, such as the name of a JSON-RPC method, are not capabilities.
+
+`readOnlyProfile` means the adapter can run a task profile whose `access` is
+`read_only` with write access removed by the CLI itself; see
+[actions](actions.md#access-level). Claude and Codex advertise it; Antigravity
+does not.
 
 Skills selection reuses the plugin pipeline, so the existing
 `workspacePluginSelection` also gates it. Resolving the global and project
@@ -153,6 +159,7 @@ type SessionLaunch = {
   mcp: string[] | null;
   plugins: string[] | null;
   skills: string[] | null;
+  access: "default" | "read_only";
   cwd: string;
   resume: string | null;
 };
@@ -168,6 +175,9 @@ Semantics of the optional values:
 - the three lists arrive already resolved: composing the global, project and
   workspace layers is a core concern, and an adapter never resolves layers or
   reads the board;
+- `read_only` access is materialized by adapters that advertise
+  `readOnlyProfile` and refused by the others before spawning; it excludes plan
+  mode, MCP servers, plugins and skills;
 - `resume` is an opaque identity accepted by the provider. It may have been
   chosen by Prometeu, as in Claude, or returned by the provider, as in Codex.
 
@@ -338,7 +348,8 @@ commands requiring approval may be soft-denied. Tool state `ERROR` is terminal.
 A result containing `denied_actions` is an error even if the native status is
 `SUCCESS`; the translated permission message is shown without leaking raw errors. Auto task profiles also use automatic execution. Initial plan mode, hub tool selection,
 compaction, context reports and structured questions are unavailable. Nonempty
-hub selections fail at the adapter boundary. Local attachment paths remain text.
+hub selections fail at the adapter boundary. Read-only launches fail there too.
+Local attachment paths remain text.
 
 Authentication methods remain descriptor data: Claude/Codex advertise browser;
 Antigravity advertises `external`, with `accountNotice` explaining limits. The

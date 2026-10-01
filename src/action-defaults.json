@@ -1,9 +1,16 @@
 {
+  "revision": 2,
   "profile": {
     "id": "prometeu-code-review",
     "name": "Code review",
     "prompt": "Review the changes in this workspace against each repository's base branch. Follow repository instructions and use an available code-review skill when applicable. Focus on correctness, regressions, security, and missing validation. Inspect the code and relevant tests before reporting findings. Report only actionable findings, with severity, file and line, a concrete failure scenario, and a suggested fix. If there are no findings, say so and identify any remaining validation gaps. Do not modify files, commit, push, open a PR, or merge. Finish after delivering the review. Respond in the language used by the person requesting the review.",
-    "choice": { "agent": "claude", "model": "", "effort": "" },
+    "choice": { "agent": "codex", "model": "", "effort": "" },
+    "provider_rule": "different_from_builder",
+    "candidates": [
+      { "agent": "codex", "model": "", "effort": "" },
+      { "agent": "claude", "model": "", "effort": "" }
+    ],
+    "access": "read_only",
     "mcp": null,
     "plugins": null,
     "skills": [],
@@ -16,5 +23,18 @@
     "kind": "agent",
     "prompt": "",
     "profile": "prometeu-code-review"
-  }
+  },
+  "previous": [
+    {
+      "id": "prometeu-code-review",
+      "name": "Code review",
+      "prompt": "Review the changes in this workspace against each repository's base branch. Follow repository instructions and use an available code-review skill when applicable. Focus on correctness, regressions, security, and missing validation. Inspect the code and relevant tests before reporting findings. Report only actionable findings, with severity, file and line, a concrete failure scenario, and a suggested fix. If there are no findings, say so and identify any remaining validation gaps. Do not modify files, commit, push, open a PR, or merge. Finish after delivering the review. Respond in the language used by the person requesting the review.",
+      "choice": { "agent": "claude", "model": "", "effort": "" },
+      "mcp": null,
+      "plugins": null,
+      "skills": [],
+      "permission": "ask",
+      "watch": null
+    }
+  ]
 }

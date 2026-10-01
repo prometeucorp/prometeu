@@ -61,8 +61,8 @@ pub fn device_name() -> String {
         .unwrap_or_else(|| fallback.into())
 }
 
-/// Find an executable on PATH without running it.
-#[cfg(not(target_os = "macos"))]
+/// Find an executable on PATH without running it. On macOS the process adopts the login-shell PATH
+/// at startup, so this sees the same CLIs as a terminal.
 pub fn has(program: &str) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::env::var_os("PATH").is_some_and(|path| {
@@ -88,7 +88,6 @@ mod tests {
         assert!(!device_name().is_empty());
     }
 
-    #[cfg(not(target_os = "macos"))]
     #[test]
     fn finds_programs_on_path_only() {
         assert!(has("sh"));

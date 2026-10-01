@@ -1519,6 +1519,9 @@ body.noside .side { display: none; }
 .action-shortcut { font: 11px var(--mono); color: var(--fg-2); padding: 3px 6px; border: 1px solid var(--line-raised); border-radius: 4px; }
 .action-caption { display: block; margin-top: 6px; font-size: 11px; color: var(--fg-3); }
 .action-badge { font-size: 10px; color: var(--tab-line); background: var(--bg-raised-2); padding: 2px 6px; border-radius: 4px; }
+.action-rule, .action-candidates { display: grid; gap: 6px; }
+.action-candidate { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.action-rule > .ui-button { justify-self: start; }
 .action-edit { font-size: 12px; }
 .action-scope .ui-label { display: none; }
 .action-scope .ui-select { height: 28px; width: auto; max-width: 170px; font-size: 12px; color: var(--fg-2); background: var(--bg); border-color: var(--line); }

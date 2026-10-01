@@ -190,6 +190,15 @@ impl Registry {
             .ok_or_else(|| i18n::t("err.account.missing"))
     }
 
+    /// The active account's last observed sign-in. Usage probes refresh it, so it can lag a login
+    /// or logout by one probe interval.
+    fn signed_in(&self, provider: ProviderId) -> bool {
+        self.active
+            .get(key(provider))
+            .and_then(|id| self.find(id).ok())
+            .is_some_and(|account| account.identity.connected)
+    }
+
     fn select(&mut self, id: &str) -> Result<(), String> {
         let account = self.find(id)?;
         if !account.identity.connected && account.id != key(account.provider) {
@@ -334,6 +343,12 @@ pub fn active(provider: ProviderId) -> Result<Profile, String> {
                 .ok_or_else(|| i18n::t("err.account.noActive"))?,
         )?,
     ))
+}
+
+pub fn signed_in(provider: ProviderId) -> bool {
+    lock(registry())
+        .as_ref()
+        .is_ok_and(|data| data.signed_in(provider))
 }
 
 pub fn profiles() -> Result<Vec<Profile>, String> {
@@ -760,6 +775,26 @@ impl Drop for AuthProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_in_reads_the_active_accounts_last_identity() {
+        let mut registry = Registry::default();
+        assert!(!registry.signed_in(ProviderId::Codex), "never probed");
+        let codex = registry
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == "codex")
+            .unwrap();
+        codex.identity.connected = true;
+        assert!(registry.signed_in(ProviderId::Codex));
+        assert!(!registry.signed_in(ProviderId::Claude));
+        assert!(
+            !registry.signed_in(ProviderId::Antigravity),
+            "no active account"
+        );
+        registry.active.insert("codex".into(), "missing".into());
+        assert!(!registry.signed_in(ProviderId::Codex));
+    }
 
     #[test]
     fn new_registration_preserves_cli_and_persists_independent_selection() {

@@ -72,9 +72,11 @@ Verification additions shared by the existing features:
 | isolated Desktop resource view and reusable components in Resources/Actions | same view and catalog rules | same view and catalog rules | same view; existing tool capabilities unchanged | `src/resources/adapters.test.ts`, `e2e/settings.spec.ts`, import-boundary fixtures; gallery runs without provider initialization |
 | Desktop component catalog, chat and Git extraction | same canonical chat blocks and existing capabilities | same canonical chat blocks and existing capabilities | same components; unsupported requests remain unsupported | `src/components/catalog.test.ts`, existing Git, critical-flow and Markdown tests; isolated chat/Git stories have no dedicated E2E scenario and use no providers |
 | the company's executable DS components | independent of the provider | independent of the provider | shared application behavior | `e2e/design-system.spec.ts`, menu, submenu, password, focus, validation and error on both engines |
-| Code review included and editable | the initial profile; the model/provider can be changed | can be chosen in the profile | Adapted; see verification boundary | `actions.rs`, `actions.test.ts` for defaults/removal; `e2e/actions.spec.ts` for profile editing |
+| Code review included and editable | second candidate; read-only through restricted `dontAsk` mode | first candidate; read-only through the `read-only` sandbox | may be a candidate of a default-access profile; cannot run read-only | `actions.rs`, `actions/reviewer.rs`, `actions.test.ts`; `e2e/actions.spec.ts` for profile editing |
 | prompt commands and tasks | adapted by the app | adapted by the app | Adapted; see verification boundary | `actions.test.ts`, `actions.rs`; `e2e/actions.spec.ts` retains prompt editing, not the task-monitoring form |
-| per-task profile | instructions and permissions through flags | instructions and permissions through JSON-RPC | Adapted; see verification boundary | `session.rs` and `codex.rs` tests |
+| per-task profile | instructions, permissions and access through flags | instructions, permissions and access through JSON-RPC | Adapted; see verification boundary | `session.rs` and `codex.rs` tests |
+| reviewer from a family other than the builder's | candidate chosen by the shared backend rule | same rule | same rule when access is default | `actions/reviewer.rs` pick/builders tests, `actions.test.ts` mirror |
+| read-only task profile | restricted `dontAsk`, only `Read`/`Grep`/`Glob`/`Bash`, worktree added for `CLAUDE.md`, empty strict MCP, no plugins or skills; recording from 2.1.283 | `read-only` sandbox, `approvalPolicy: never`, plugins, hooks, apps and computer/browser use off, effective MCP servers disabled through per-thread config; recording from 0.154.0 | Unavailable (`readOnlyProfile: false`) | `claude.rs` and `codex.rs` launch, feature and recording tests, `mcp.rs`, `antigravity.rs` refusal |
 | PR tracking | explicit local monitor at the saved interval; general discovery has a separate budget | same monitor and general discovery | Adapted; see verification boundary | `actions.rs`, `github.rs` concurrency/deadline tests, `src/pr-refresh.test.ts`; no real GitHub integration in tests |
 | detecting the installation | adapted | adapted | version checked (minimum 1.2.7) | `agents.rs` |
 | accounts and global selection in the footer | adapted through `CLAUDE_CONFIG_DIR` | adapted through `CODEX_HOME` | single external agy account, explicit attachment | `accounts.rs`, `e2e/accounts.spec.ts` |
@@ -162,13 +164,21 @@ under the [release contract](../contracts/releases.md).
 - plugins enabled outside Prometeu stay subject to each CLI's global registry
   and are not part of the workspace's selection;
 - the CLI-inherited MCP base (ADR 0046 and ADR 0063) covers Claude only;
-  servers configured for Codex in `~/.codex/config.toml` are not discovered and
-  stay invisible to the picker, a recorded follow-up;
+  servers configured for Codex in user or project config layers are not
+  discovered and stay invisible to the picker, a recorded follow-up; an explicit
+  selection does not turn them off, because Codex merges the `mcp_servers`
+  override into its table; read-only tasks read the effective worktree
+  configuration and disable every server in their per-thread config;
 - the account connectors are read from an endpoint Prometeu does not own and
   are cached per login for five minutes, so an edit made on claude.ai can take
   that long to reach the picker, and an unreachable account keeps that login's
   last known list; with no list ever read, the picker shows the file base and a
   spawn with a declared MCP selection fails instead of dropping connectors;
+- read-only tasks run without MCP servers, plugins, skills or subagents; Claude
+  needs `--restricted` and Codex the feature names of 0.154.0, and an older CLI
+  refuses to start;
+- Codex 0.154.0 does not report sandbox-denied commands and patches as items in
+  read-only tasks; the agent's text reports them;
 - attachments have UI tests over the mock and native validation of the saved
   destination; the real thumbnail gesture was confirmed in Prometeu Dev on
   2026-09-06. Actual reading by the CLI still requires manual verification.

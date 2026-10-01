@@ -101,3 +101,4 @@ Status: Proposed
 | [0061](0061-background-energy-policy.md) | Separate display sleep from agent work |
 | [0062](0062-local-diff-review.md) | Local review notes and explicit batch submission |
 | [0063](0063-account-connectors-in-the-mcp-base.md) | Account connectors in the inherited MCP base |
+| [0064](0064-cross-family-review.md) | Cross-family, read-only default review |

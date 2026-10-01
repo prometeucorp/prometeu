@@ -81,7 +81,7 @@ pub enum Note {
 
 /// Provider, model and effort for a conversation. A missing tab override inherits workspace
 /// defaults; an empty model explicitly selects the CLI default.
-#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Choice {
     #[serde(default)]
     pub agent: ProviderId,

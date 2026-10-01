@@ -161,6 +161,12 @@ export const stories: Record<string, Factory> = {
       const chip = attachmentChip({ name: "example.ts", title: "src/example.ts", removeLabel: t("chat.attachment.remove"), remove: () => { chip.remove(); report("remove"); } });
       view.files.append(chip);
     }
+    if (state === "task") {
+      view.withModel.hidden = false;
+      view.model.textContent = "Codex · Default";
+      view.badges.hidden = false;
+      view.badges.append(ui.badge(t("actions.readOnly")), ui.badge(t("actions.sameFamily")));
+    }
     return wrap(view.root);
   },
   markdown(state) {

@@ -556,8 +556,9 @@ fn config_body(
 
 /* Codex configuration */
 
-/// Override Codex's complete mcp_servers table for explicit selections, preserving its defaults for
-/// None. Remote headers reference process environment variables. Stdio secrets use a private 0600
+/// Pass the selected servers as Codex's mcp_servers for explicit selections, preserving its defaults
+/// for None. The override merges into the table from config.toml (codex-cli 0.154.0 keeps those
+/// servers), so read-only tasks also disable them by name in codex.rs. Remote headers reference process environment variables. Stdio secrets use a private 0600
 /// environment file sourced by a shell wrapper before exec. Commands without environment overrides
 /// run directly. Secrets must never appear in process arguments.
 pub type CodexMcp = (String, Vec<(String, String)>);
@@ -1554,6 +1555,13 @@ mod tests {
         let headers = &body["mcpServers"]["capisce"]["headers"];
         assert_eq!(headers["Authorization"], "Bearer abc123");
         assert_eq!(headers["X-Id"], "7");
+    }
+
+    #[test]
+    fn explicitly_empty_codex_selection_passes_an_empty_table() {
+        let (servers, env) = codex_config("id", Some(&vec![])).unwrap().unwrap();
+        assert_eq!(servers, "{}");
+        assert!(env.is_empty());
     }
 
     #[test]
