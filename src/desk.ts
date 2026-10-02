@@ -198,7 +198,6 @@ function gesture(move: (m: PointerEvent) => void, stop: () => void) {
     document.removeEventListener("selectstart", select);
     stop();
   };
-  getSelection()?.removeAllRanges();
   document.addEventListener("selectstart", select);
   document.addEventListener("pointermove", move);
   document.addEventListener("pointerup", end);
@@ -214,6 +213,7 @@ function drag(el: HTMLElement, head: HTMLElement) {
     const y0 = e.clientY;
     let ghost: HTMLElement | null = null;
     const start = () => {
+      getSelection()?.removeAllRanges();
       const box = el.getBoundingClientRect();
       ghost = h("div", "tile ghost");
       ghost.append(head.cloneNode(true));
@@ -265,9 +265,15 @@ function grip(el: HTMLElement, id: string) {
     const y0 = e.clientY;
     const w0 = el.offsetWidth;
     const h0 = el.offsetHeight;
+    let moved = false;
     el.classList.add("sizing");
     gesture(
       (m) => {
+        if (!moved) {
+          if (m.clientX === x0 && m.clientY === y0) return;
+          getSelection()?.removeAllRanges();
+          moved = true;
+        }
         el.style.width = `${w0 + m.clientX - x0}px`;
         el.style.height = `${h0 + m.clientY - y0}px`;
       },
