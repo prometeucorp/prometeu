@@ -1,4 +1,6 @@
 /** Content-free telemetry IPC. Usage totals include their cache/reasoning subsets. */
+import type { ConversationUsage as TelemetryMeasurement, UsageCounts as TelemetryUsage } from "./conversation";
+export type { ConversationUsage as TelemetryMeasurement, UsageCounts as TelemetryUsage, TurnMeasurement } from "./conversation";
 export type TelemetryFilter = { from?: number; to?: number; workspaceId?: string; repositoryId?: string; pullRequest?: number };
 export type TelemetryHealth = { failures: number; lastFailureAt: number | null; unavailable: boolean };
 export type TelemetrySummary = {
@@ -10,24 +12,18 @@ export type TelemetrySummary = {
   respondedWaits: number; cancelledWaits: number; incompleteWaits: number; humanWaitMs: number | null;
   workspaceIds: string[]; health: TelemetryHealth;
 };
-export type TelemetryUsage = {
-  inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null;
-  cacheWriteTokens: number | null; reasoningTokens: number | null; contextUsed: number | null;
-  contextWindow: number | null; peakContext: number | null; modelCalls: number | null;
-  compactions: number | null; cacheRebuilds: number | null; costUsd: number | null;
-};
-export type TelemetryMeasurement = {
-  usageScope: "mainAgent"; complete: boolean;
-  selectedModel: string | null; observedModels: string[] | null; usage: TelemetryUsage;
-  usageByModel: { model: string; usage: TelemetryUsage }[] | null;
-};
 export type TelemetryFact =
   | { type: "workspace.created"; payload: { mode: "worktree" | "repository" } }
   | { type: "workspace.archived" | "workspace.resumed" | "conversation.created"; payload: Record<string, never> }
   | { type: "provider.selected"; payload: { scope: "workspace" | "conversation" } }
   | { type: "pull_request.associated"; payload: { repositoryId: string; branchId: string | null; pullRequest: number } }
-  | { type: "turn.started" | "turn.usage.observed"; payload: { measurement: TelemetryMeasurement } }
-  | { type: "turn.completed"; payload: { outcome: "ok" | "error" | "interrupted"; elapsedMs: number; providerDurationMs: number | null; measurement: TelemetryMeasurement } }
+  | { type: "turn.started" | "turn.usage.observed"; payload: { measurement: TelemetryMeasurement; origin?: { actionId: string | null; delegatedBy: string | null; repositories: { repositoryId: string; branchId: string | null }[] } } }
+  | { type: "pull_request.observed"; payload: { repositoryId: string; branchId: string | null; pullRequest: number;
+      state: "open" | "closed" | "merged"; createdAt: number | null; closedAt: number | null; mergedAt: number | null;
+      historyComplete: boolean; historySize: number; observedAfter: number; snapshotId: string } }
+  | { type: "turn.completed"; payload: { outcome: "ok" | "error" | "interrupted"; elapsedMs: number; providerDurationMs: number | null; measurement: TelemetryMeasurement; messageKey?: string | null } }
+  | { type: "app.call.started"; payload: { callId: string; source: "naming" | "plugin-maker"; measurement: TelemetryMeasurement } }
+  | { type: "app.call.completed"; payload: { callId: string; source: "naming" | "plugin-maker"; outcome: "ok" | "error" | "interrupted"; elapsedMs: number; measurement: TelemetryMeasurement } }
   | { type: "agent.execution.started"; payload: { executionId: string } }
   | { type: "agent.execution.completed"; payload: { executionId: string; elapsedMs: number } }
   | { type: "human_input.requested"; payload: { requestId: string; kind: "approval" | "question" | "plan" } }
@@ -41,6 +37,21 @@ export type TelemetryEvent = TelemetryFact & {
   turnId: string | null; provider: string | null;
 };
 export type TelemetryPage = { events: TelemetryEvent[]; next: TelemetryCursor | null; health: TelemetryHealth };
+export type UsageGroup = { id: string; provider: string | null; turns: number; usage: TelemetryUsage };
+export type PullRequestUsage = { repositoryId: string; branchId: string | null; pullRequest: number;
+  turns: number | null; usage: TelemetryUsage; attribution: "tenure" | "related" };
+export type TelemetryInsights = { summary: TelemetrySummary; usage: TelemetryUsage; conversations: UsageGroup[];
+  models: UsageGroup[]; sources: UsageGroup[]; origins: UsageGroup[]; pullRequests: PullRequestUsage[] };
+
+const clearedListeners = new Set<() => void>();
+/** Invalidate local presentation caches after confirmed history deletion. */
+export function onTelemetryCleared(listener: () => void): () => void {
+  clearedListeners.add(listener);
+  return () => { clearedListeners.delete(listener); };
+}
+export function telemetryCleared(): void {
+  for (const listener of clearedListeners) listener();
+}
 
 /** Native date inputs represent local calendar days, including daylight-saving transitions. */
 export function telemetryPeriod(from: string, through: string): TelemetryFilter {

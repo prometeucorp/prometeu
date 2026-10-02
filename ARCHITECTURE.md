@@ -154,8 +154,11 @@ Formats and compatibility are in
 `telemetry.rs` owns the private local SQLite event store. Provider adapters
 normalize usage; accepted conversation input, live output, workspace use cases
 and PR discovery capture typed content-free facts. The store persists independent
-of transcript or board retention. Concrete queries reach the settings summary
-through typed IPC, with JSONL export and complete history deletion.
+of transcript or board retention. Concrete queries supply settings and workspace
+summaries, with JSONL export and complete history deletion. Canonical completion
+usage drives reply footers; a local hashed assistant association restores them
+for native transcript replay. App naming and plugin creation have separate
+source records. Context meters offer explicit conversation actions.
 
 A per-process capture gate preserves input/output order while commits run outside
 board, transcript and chat locks. Missing ends and ambiguous streaming-input
@@ -221,6 +224,7 @@ The detailed rules and the current state of each one are in
 | UI boot and coordination | `src/main.ts`, `src/workspace.ts`, `src/session.ts` |
 | conversation | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
+| local usage and context | `src/conversation.ts`, `src/usage-presentation.ts`, `src/workspace-usage.ts`, `src/components/chat/usage.ts`, `src-tauri/src/telemetry.rs`, `src-tauri/src/telemetry/` |
 | starting from a skill | `src/kickoff.ts`, `src/launcher.ts`, `src-tauri/src/kickoff.rs`, `[method]` in `src-tauri/src/scripts.rs`; see [ADR 0057](docs/decisions/0057-skill-kickoff-and-artifact-path.md) |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
 | workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |

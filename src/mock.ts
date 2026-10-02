@@ -228,6 +228,11 @@ const board: Board = {
 for (const w of board.workspaces as (Workspace & { pr?: Pr | null })[]) {
   if (w.pr) w.repos[0].pr = w.pr;
   delete w.pr;
+  for (const tab of w.tabs) {
+    const provider = tab.choice?.agent ?? w.agent;
+    tab.context_tokens = 24000;
+    tab.context_window = provider === "antigravity" ? null : 200000;
+  }
 }
 
 const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
@@ -726,6 +731,7 @@ const ISSUES: Issue[] = [
 /// Number conversation lines like the backend. Live events and snapshots share that sequence for real-relay browser tests.
 const scrolls = new Map<string, { text: string; seq: number }>();
 const conversationAdapters = new Map<string, LegacyConversationAdapter>();
+const lastMockReply = new Map<string, string>();
 const scrollOf = (tab: string) => {
   let s = scrolls.get(tab);
   if (!s) {
@@ -740,6 +746,26 @@ function pushLine(tab: string, o: unknown, keep = true) {
   if (!adapter) conversationAdapters.set(tab, (adapter = new LegacyConversationAdapter()));
   const canonical = parseConversationEvent(o);
   for (const event of canonical ? [canonical] : adapter.translate(o)) {
+    if (event.type === "user.message") lastMockReply.delete(tab);
+    if (event.type === "assistant.block" && event.block.kind === "text") lastMockReply.set(tab, event.messageId);
+    if (event.type === "turn.completed") {
+      const workspace = board.workspaces.find(workspace => workspace.tabs.some(candidate => candidate.id === tab));
+      const currentTab = workspace?.tabs.find(candidate => candidate.id === tab);
+      const messageId = lastMockReply.get(tab);
+      if (workspace && currentTab && messageId) {
+        const provider = currentTab.choice?.agent ?? workspace.agent;
+        event.usage ??= telemetry.sampleUsage(provider);
+        event.messageId ??= messageId;
+        currentTab.context_tokens = event.usage.usage.contextUsed;
+        currentTab.context_window = event.usage.usage.contextWindow;
+        void telemetry.recordTurn({ workspaceId: workspace.id, projectId: workspace.project, conversationId: tab, provider },
+          messageId, event.durationMs ?? 0, event.usage).then(() => {
+            emit("board", board);
+            emit("telemetry-changed", null);
+          });
+        lastMockReply.delete(tab);
+      }
+    }
     const text = line(event);
     if (keep) s.text += text + "\n";
     s.seq += 1;
@@ -1712,6 +1738,9 @@ const mockCommands: IpcHandlers = {
             resume: true,
             compact: true,
             contextReport: true,
+            usageTokens: true,
+            usageCost: true,
+            contextWindow: true,
             approvals: true,
             userQuestions: true,
             attachments: true,
@@ -1734,6 +1763,9 @@ const mockCommands: IpcHandlers = {
             resume: true,
             compact: true,
             contextReport: true,
+            usageTokens: true,
+            usageCost: false,
+            contextWindow: true,
             approvals: true,
             userQuestions: true,
             attachments: true,
@@ -1745,6 +1777,7 @@ const mockCommands: IpcHandlers = {
           accountNotice: t("account.external.notice"),
           models: [],
           capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
+            usageTokens: true, usageCost: false, contextWindow: false,
             workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
         },
       ],
@@ -2350,6 +2383,8 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
   },
   telemetry_summary({ filter }) { return telemetry.summary(filter); },
+  telemetry_insights({ filter }) { return telemetry.insights(filter); },
+  telemetry_turns({ conversation, messageIds }) { return telemetry.turns(conversation, messageIds); },
   telemetry_events({ filter, cursor }) { return telemetry.page(filter, cursor); },
   telemetry_export({ filter }) { localStorage.setItem("mock:telemetryExport", telemetry.exportData(filter)); return null; },
   telemetry_clear() { telemetry.clear(); return null; },

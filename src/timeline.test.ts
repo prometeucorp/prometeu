@@ -1,10 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { pieces, Timeline, summary, touched } from "./timeline";
+import { pieces, Timeline, summary, touched, turnMetadata } from "./timeline";
 
 const j = (o: unknown) => JSON.stringify(o);
 const assistant = (id: string, block: unknown, extra = {}) =>
   j({ type: "assistant", message: { id, role: "assistant", content: [block] }, uuid: `u-${Math.random()}`, ...extra });
 const ev = (event: unknown) => j({ type: "stream_event", event, parent_tool_use_id: null });
+
+describe("turn insights", () => {
+  const turn = (timeline: Timeline, id: string, at: number, completion = {}) => {
+    timeline.push(j({ v: 1, type: "user.message", at, content: [{ kind: "text", text: "Continue" }] }));
+    timeline.push(j({ v: 1, type: "assistant.block", at: at + 10, messageId: id, index: 0, block: { kind: "text", text: "First" } }));
+    timeline.push(j({ v: 1, type: "assistant.block", at: at + 20, messageId: id, index: 1, block: { kind: "text", text: "Final" } }));
+    timeline.push(j({ v: 1, type: "turn.completed", at: at + 50, outcome: "ok", message: "", durationMs: 4000, costUsd: 99, messageId: id, ...completion }));
+  };
+  it("prefers completion duration and attaches metadata only under the final reply", () => {
+    const timeline = new Timeline(); turn(timeline, "one", 100); turn(timeline, "two", 200);
+    const speech = pieces(timeline.items).filter(piece => piece.kind === "say");
+    expect(turnMetadata(timeline.items, speech[0])).toBeNull();
+    expect(turnMetadata(timeline.items, speech[1])).toEqual({ durationMs: 4000 });
+    expect(turnMetadata(timeline.items, speech[2])).toBeNull();
+    expect(turnMetadata(timeline.items, speech[3])).toEqual({ durationMs: 4000 });
+  });
+  it("restores usage by exact assistant identity and leaves unmatched replies unchanged", () => {
+    const timeline = new Timeline(); turn(timeline, "one", 100); turn(timeline, "two", 200);
+    const measurement = { usageScope: "mainAgent" as const, complete: false, selectedModel: null, observedModels: null,
+      usage: { inputTokens: 80, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null,
+        contextUsed: null, contextWindow: null, peakContext: null, modelCalls: null, compactions: null, cacheRebuilds: null, costUsd: null }, usageByModel: null };
+    expect(timeline.restoreUsage([{ messageId: "one", durationMs: 1234, usage: measurement }, { messageId: "missing", durationMs: 99, usage: measurement }])).toEqual([1]);
+    const speech = pieces(timeline.items).filter(piece => piece.kind === "say");
+    expect(turnMetadata(timeline.items, speech[1])).toEqual({ durationMs: 1234, usage: measurement });
+    expect(turnMetadata(timeline.items, speech[3])).toEqual({ durationMs: 4000 });
+    expect(timeline.clearRestoredUsage()).toEqual([1]);
+    expect(turnMetadata(timeline.items, speech[1])).toEqual({ durationMs: 4000 });
+    expect(turnMetadata(timeline.items, speech[3])).toEqual({ durationMs: 4000 });
+  });
+  it("retains context updates and lowers occupancy only on a reported compaction result", () => {
+    const timeline = new Timeline();
+    timeline.push(j({ v: 1, type: "context.updated", at: 1, used: 180000, window: 200000 }));
+    expect(timeline.context).toEqual({ used: 180000, window: 200000 });
+    timeline.push(j({ v: 1, type: "context.compacted", at: 2, before: 180000, after: 20000 }));
+    expect(timeline.context).toEqual({ used: 20000, window: 200000 });
+  });
+  it("restores the known context window from a canonical completion after replayed compaction", () => {
+    const timeline = new Timeline();
+    timeline.push(j({ v: 1, type: "context.compacted", at: 1, before: 180000, after: 20000 }));
+    turn(timeline, "one", 100, { usage: contextMeasurement });
+    expect(timeline.context).toEqual({ used: 24000, window: 200000 });
+  });
+  it("uses the latest restored context without overwriting a later compaction or retaining erased lookup data", () => {
+    const timeline = new Timeline(); turn(timeline, "one", 100);
+    const rows = [{ messageId: "one", durationMs: 1200, usage: contextMeasurement }];
+    timeline.restoreUsage(rows);
+    expect(timeline.context).toEqual({ used: 24000, window: 200000 });
+    timeline.clearRestoredUsage();
+    expect(timeline.context).toBeNull();
+    timeline.push(j({ v: 1, type: "context.compacted", at: 200, before: 24000, after: 2000 }));
+    timeline.restoreUsage(rows);
+    expect(timeline.context).toEqual({ used: 2000, window: null });
+  });
+});
+
+const contextMeasurement = { usageScope: "mainAgent" as const, complete: true, selectedModel: null, observedModels: null,
+  usage: { inputTokens: 24000, outputTokens: 1000, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null,
+    contextUsed: 24000, contextWindow: 200000, peakContext: 24000, modelCalls: null, compactions: null, cacheRebuilds: null, costUsd: null }, usageByModel: null };
 
 describe("Timeline", () => {
   it.each([

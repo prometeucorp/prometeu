@@ -2096,6 +2096,7 @@ fn spawn_tab_with_id(
         pending_prompt,
         tokens: None,
         context_tokens: None,
+        context_window: None,
         choice,
         kickoff: None,
     })
@@ -2968,6 +2969,7 @@ mod tests {
             pending_prompt: None,
             tokens: None,
             context_tokens: None,
+            context_window: None,
             choice,
             kickoff: None,
         }

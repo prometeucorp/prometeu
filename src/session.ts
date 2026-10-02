@@ -7,7 +7,7 @@ import { $ } from "./util";
 const view = new ChatView();
 let attachVersion = 0;
 
-export function init(onError: (m: string) => void, info: () => Info, comments: Pick<Ctx, "comment" | "thread"> = {}) {
+export function init(onError: (m: string) => void, info: () => Info, comments: Pick<Ctx, "comment" | "thread" | "newConversation"> = {}) {
   view.open($("chatwrap"), { say: onError, info, ...comments });
   team.setSink({
     live: (tab, bytes) => view.remoteWrite(tab, bytes),

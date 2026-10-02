@@ -112,6 +112,9 @@ type AgentCapabilities = {
   resume: boolean;
   compact: boolean;
   contextReport: boolean;
+  usageTokens: boolean;
+  usageCost: boolean;
+  contextWindow: boolean;
   approvals: boolean;
   userQuestions: boolean;
   attachments: boolean;
@@ -121,6 +124,14 @@ type AgentCapabilities = {
 This is the minimum set observed by the current interface. A capability only
 enters here when it changes behavior offered by the application. Protocol
 details, such as the name of a JSON-RPC method, are not capabilities.
+
+`usageTokens` enables measured turn consumption; `usageCost` enables only a
+normalized CLI-reported estimate, never pricing inferred by Prometeu.
+`contextWindow` enables the occupancy meter only when a usable current window
+has also been observed. Claude and Codex expose the meter; Antigravity supplies
+usage without a window or cost. Capability availability does not turn an
+unknown measurement into zero. The [provider matrix](../quality/provider-matrix.md)
+records normalization and regression evidence.
 
 Skills selection reuses the plugin pipeline, so the existing
 `workspacePluginSelection` also gates it. Resolving the global and project

@@ -4,7 +4,7 @@
 use crate::conversation::{event, now};
 use crate::{accounts, chat, i18n, paths};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command};
@@ -320,6 +320,108 @@ impl Link {
     }
 }
 
+/// Result model counters are cumulative and include children; missing/reset counters cannot
+/// establish a complete delta. Context capacity is metadata, never another consumed token count.
+fn model_usage(value: &Value) -> Option<BTreeMap<String, crate::telemetry::Usage>> {
+    let values = value.as_object().filter(|values| !values.is_empty())?;
+    values
+        .iter()
+        .map(|(model, value)| {
+            let read = value["cacheReadInputTokens"].as_u64()?;
+            let write = value["cacheCreationInputTokens"].as_u64()?;
+            Some((
+                model.clone(),
+                crate::telemetry::Usage {
+                    input_tokens: Some(
+                        value["inputTokens"]
+                            .as_u64()?
+                            .checked_add(read)?
+                            .checked_add(write)?,
+                    ),
+                    output_tokens: Some(value["outputTokens"].as_u64()?),
+                    cache_read_tokens: Some(read),
+                    cache_write_tokens: Some(write),
+                    cost_usd: value["costUSD"]
+                        .as_f64()
+                        .filter(|n| n.is_finite() && *n >= 0.),
+                    ..Default::default()
+                },
+            ))
+        })
+        .collect()
+}
+
+fn model_deltas(
+    current: &BTreeMap<String, crate::telemetry::Usage>,
+    baseline: Option<&BTreeMap<String, crate::telemetry::Usage>>,
+) -> Option<Vec<crate::telemetry::ModelUsage>> {
+    if baseline.is_some_and(|base| base.keys().any(|model| !current.contains_key(model))) {
+        return None;
+    }
+    current
+        .iter()
+        .map(|(model, usage)| {
+            let previous = baseline.and_then(|base| base.get(model));
+            let delta = |current: Option<u64>, before: Option<u64>| {
+                current?.checked_sub(before.unwrap_or(0))
+            };
+            let noncached = |usage: &crate::telemetry::Usage| {
+                usage
+                    .input_tokens?
+                    .checked_sub(usage.cache_read_tokens?)?
+                    .checked_sub(usage.cache_write_tokens?)
+            };
+            delta(noncached(usage), previous.and_then(noncached))?;
+            let cost = match (usage.cost_usd, previous) {
+                (Some(cost), Some(before)) => match before.cost_usd {
+                    Some(before) if cost >= before => Some(cost - before),
+                    Some(_) => return None,
+                    None => None,
+                },
+                (cost, None) => cost,
+                (None, _) => None,
+            };
+            Some(crate::telemetry::ModelUsage {
+                model: model.clone(),
+                usage: crate::telemetry::Usage {
+                    input_tokens: Some(delta(
+                        usage.input_tokens,
+                        previous.and_then(|u| u.input_tokens),
+                    )?),
+                    output_tokens: Some(delta(
+                        usage.output_tokens,
+                        previous.and_then(|u| u.output_tokens),
+                    )?),
+                    cache_read_tokens: Some(delta(
+                        usage.cache_read_tokens,
+                        previous.and_then(|u| u.cache_read_tokens),
+                    )?),
+                    cache_write_tokens: Some(delta(
+                        usage.cache_write_tokens,
+                        previous.and_then(|u| u.cache_write_tokens),
+                    )?),
+                    cost_usd: cost,
+                    ..Default::default()
+                },
+            })
+        })
+        .collect()
+}
+
+fn sum_model_usage(rows: &[crate::telemetry::ModelUsage]) -> crate::telemetry::Usage {
+    let sum = |field: fn(&crate::telemetry::Usage) -> Option<u64>| {
+        rows.iter()
+            .try_fold(0u64, |total, row| total.checked_add(field(&row.usage)?))
+    };
+    crate::telemetry::Usage {
+        input_tokens: sum(|usage| usage.input_tokens),
+        output_tokens: sum(|usage| usage.output_tokens),
+        cache_read_tokens: sum(|usage| usage.cache_read_tokens),
+        cache_write_tokens: sum(|usage| usage.cache_write_tokens),
+        ..Default::default()
+    }
+}
+
 #[derive(Default)]
 pub struct Adapter {
     message: String,
@@ -333,11 +435,25 @@ pub struct Adapter {
     cost_baseline: Option<(String, f64)>,
     observed_models: HashSet<String>,
     telemetry_steps: HashMap<String, (String, crate::telemetry::Usage)>,
+    telemetry_order: Vec<String>,
     telemetry_results: HashSet<String>,
     had_children: bool,
+    tree_baseline: Option<(String, BTreeMap<String, crate::telemetry::Usage>, bool)>,
+    previous_context: Option<u64>,
+    model_windows: HashMap<String, u64>,
+    last_reply: Option<String>,
+    compactions: Option<u64>,
 }
 
 impl Adapter {
+    /// A process started without resume has a verified zero cost/model baseline.
+    pub(crate) fn fresh() -> Self {
+        Self {
+            fresh: true,
+            ..Self::default()
+        }
+    }
+
     pub fn translate_line(&mut self, line: &str) -> Vec<String> {
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             return vec![];
@@ -354,6 +470,11 @@ impl Adapter {
         }
         if value["isSidechain"] == true || !value["parent_tool_use_id"].is_null() {
             self.had_children = true;
+            if self.telemetry_steps.is_empty() {
+                if let Some((_, _, clean)) = self.tree_baseline.as_mut() {
+                    *clean = false;
+                }
+            }
         }
         if value["prometheusV1Mirror"] == true
             || value["isSidechain"] == true
@@ -363,6 +484,23 @@ impl Adapter {
         }
         let at = value["ts"].as_u64().unwrap_or_else(now);
         match value["type"].as_str() {
+            Some("conversation_reset") => {
+                self.fresh = self.tasks.is_empty();
+                self.cost_baseline = None;
+                self.tree_baseline = None;
+                self.previous_context = None;
+                self.telemetry_steps.clear();
+                self.telemetry_order.clear();
+                self.observed_models.clear();
+                self.last_reply = None;
+                self.compactions = None;
+                self.had_children = !self.tasks.is_empty();
+                vec![event(
+                    "context.updated",
+                    at,
+                    json!({"used":0,"window":null}),
+                )]
+            }
             Some("user") => self.user(value, at),
             Some("assistant") => self.assistant(value, at),
             Some("stream_event") => self.stream(value, at),
@@ -497,7 +635,7 @@ impl Adapter {
         let cost = value["total_cost_usd"]
             .as_f64()
             .filter(|v| v.is_finite() && *v >= 0.);
-        let cost_usd = match (session, cost, &self.cost_baseline) {
+        let turn_cost = match (session, cost, &self.cost_baseline) {
             (Some(session), Some(current), Some((previous, baseline)))
                 if session == previous && current >= *baseline =>
             {
@@ -505,42 +643,140 @@ impl Adapter {
             }
             (Some(_), Some(current), None) if self.fresh => Some(current),
             _ => None,
-        }
-        .filter(|_| !self.had_children && self.tasks.is_empty());
-        self.cost_baseline = session.zip(cost).map(|(s, c)| (s.into(), c));
-        self.fresh = false;
-        self.had_children = !self.tasks.is_empty();
+        };
+        let cost_usd = turn_cost.filter(|_| !self.had_children && self.tasks.is_empty());
         let mut models: Vec<_> = self.observed_models.drain().collect();
         models.sort();
         let steps = self.telemetry_steps.len();
         let partial = self.partial_usage();
-        let output = raw["output_tokens"].as_u64();
-        let measurement = crate::telemetry::Measurement {
-            complete: total.is_some() && output.is_some(),
+        let crashed = value["is_error"] == true
+            && value["subtype"] == "error_during_execution"
+            && total == Some(0)
+            && raw["output_tokens"].as_u64() == Some(0);
+        let output = (!crashed).then(|| raw["output_tokens"].as_u64()).flatten();
+        let mut measurement = crate::telemetry::Measurement {
+            complete: !crashed && total.is_some() && output.is_some(),
             usage_by_model: partial.usage_by_model,
             observed_models: (!models.is_empty()).then_some(models),
             usage: crate::telemetry::Usage {
-                input_tokens: total.or(partial.usage.input_tokens),
+                input_tokens: if crashed {
+                    partial.usage.input_tokens
+                } else {
+                    total.or(partial.usage.input_tokens)
+                },
                 output_tokens: output,
-                cache_read_tokens: read,
-                cache_write_tokens: write,
-                cost_usd,
+                cache_read_tokens: if crashed {
+                    partial.usage.cache_read_tokens
+                } else {
+                    read
+                },
+                cache_write_tokens: if crashed {
+                    partial.usage.cache_write_tokens
+                } else {
+                    write
+                },
+                cost_usd: if crashed { None } else { cost_usd },
                 model_calls: (steps > 0).then_some(steps as u64),
+                context_used: partial.usage.context_used,
+                peak_context: partial.usage.peak_context,
+                cache_rebuilds: partial.usage.cache_rebuilds,
+                compactions: partial.usage.compactions,
                 ..Default::default()
             },
             ..Default::default()
         };
+        let current_models = model_usage(&value["modelUsage"]);
+        let baseline = self
+            .tree_baseline
+            .as_ref()
+            .filter(|(previous, _, clean)| session == Some(previous.as_str()) && *clean);
+        let tree = current_models.as_ref().and_then(|current| {
+            if !crashed && self.tasks.is_empty() && (baseline.is_some() || self.fresh) {
+                model_deltas(current, baseline.map(|(_, models, _)| models))
+            } else {
+                None
+            }
+        });
+        if let Some(rows) = tree {
+            let context = measurement.usage.clone();
+            measurement.usage_scope = crate::telemetry::UsageScope::WholeTree;
+            measurement.usage = sum_model_usage(&rows);
+            measurement.complete = measurement.usage.input_tokens.is_some()
+                && measurement.usage.output_tokens.is_some();
+            measurement.usage.cost_usd = turn_cost;
+            // These observations describe the main conversation, not the sum of child contexts.
+            measurement.usage.context_used = context.context_used;
+            measurement.usage.peak_context = context.peak_context;
+            measurement.usage.cache_rebuilds = context.cache_rebuilds;
+            measurement.usage.compactions = context.compactions;
+            measurement.usage.model_calls = None;
+            let rows: Vec<_> = rows
+                .into_iter()
+                .filter(|row| {
+                    row.usage.input_tokens.is_some_and(|tokens| tokens > 0)
+                        || row.usage.output_tokens.is_some_and(|tokens| tokens > 0)
+                        || row.usage.cost_usd.is_some_and(|cost| cost > 0.)
+                })
+                .collect();
+            measurement.observed_models =
+                (!rows.is_empty()).then(|| rows.iter().map(|row| row.model.clone()).collect());
+            measurement.usage_by_model = (!rows.is_empty()).then_some(rows);
+        }
+        let main_model = self
+            .telemetry_order
+            .last()
+            .and_then(|id| self.telemetry_steps.get(id))
+            .map(|(model, _)| model);
+        if let Some(model) = main_model {
+            if let Some(window) = value["modelUsage"][model]["contextWindow"]
+                .as_u64()
+                .filter(|window| *window > 0)
+            {
+                self.model_windows.insert(model.clone(), window);
+            }
+            measurement.usage.context_window = self.model_windows.get(model).copied();
+        }
+        self.previous_context = measurement.usage.context_used;
+        self.tree_baseline = if crashed {
+            None
+        } else {
+            session
+                .zip(current_models)
+                .map(|(session, models)| (session.into(), models, self.tasks.is_empty()))
+        };
+        self.cost_baseline = if crashed {
+            None
+        } else {
+            session.zip(cost).map(|(s, c)| (s.into(), c))
+        };
+        self.fresh = false;
+        self.had_children = !self.tasks.is_empty();
         self.telemetry_steps.clear();
-        vec![event(
+        self.telemetry_order.clear();
+        self.compactions = None;
+        let mut completion = event(
             "turn.completed",
             at,
             json!({
                 "outcome": if value["is_error"] == true { if turn_message(value).is_empty() { "interrupted" } else { "error" } } else { "ok" },
                 "message": turn_message(value), "durationMs": value["duration_ms"].as_u64(),
                 "providerDurationMs": value["duration_ms"].as_u64(),
-                "costUsd": cost_usd, "telemetry": measurement
+                "costUsd": measurement.usage.cost_usd, "telemetry": measurement,
+                "usage": measurement
             }),
-        )]
+        );
+        if let Some(message) = self.last_reply.take() {
+            completion["messageId"] = json!(message);
+        }
+        let mut out = vec![completion];
+        if let Some(used) = measurement.usage.context_used.filter(|used| *used > 0) {
+            out.push(event(
+                "context.updated",
+                at,
+                json!({"used":used,"window":measurement.usage.context_window}),
+            ));
+        }
+        out
     }
 
     fn assistant(&mut self, value: &Value, at: u64) -> Vec<Value> {
@@ -582,12 +818,18 @@ impl Adapter {
         };
         let model = message["model"].as_str().unwrap_or("").to_string();
         let changed = self.telemetry_steps.get(message_id) != Some(&(model.clone(), usage.clone()));
+        if !self.telemetry_steps.contains_key(message_id) {
+            self.telemetry_order.push(message_id.into());
+        }
         self.telemetry_steps
             .insert(message_id.into(), (model, usage));
         self.select_message(message_id);
         let mut out = vec![];
         for raw in message["content"].as_array().into_iter().flatten() {
             let Some(block) = block(raw) else { continue };
+            if block["kind"] == "text" {
+                self.last_reply = Some(message_id.into());
+            }
             if block["kind"] == "tool" {
                 if let (Some(id), Some(name)) = (block["id"].as_str(), block["name"].as_str()) {
                     if matches!(name, "Task" | "Agent") {
@@ -604,11 +846,19 @@ impl Adapter {
             self.next_block += 1;
         }
         if changed && raw.is_object() {
+            let measurement = self.partial_usage();
             out.push(event(
                 "telemetry.usage",
                 at,
-                json!({"measurement": self.partial_usage()}),
+                json!({"measurement": measurement}),
             ));
+            if let Some(used) = input.filter(|used| *used > 0) {
+                out.push(event(
+                    "context.updated",
+                    at,
+                    json!({"used":used,"window":measurement.usage.context_window}),
+                ));
+            }
         }
         out
     }
@@ -649,8 +899,31 @@ impl Adapter {
                 ),
             })
             .collect::<Vec<_>>();
+        let mut aggregate = usage(self.telemetry_steps.values().map(|(_, u)| u).collect());
+        let mut previous = self.previous_context;
+        let mut rebuilds = (!self.telemetry_order.is_empty()).then_some(0u64);
+        for (index, id) in self.telemetry_order.iter().enumerate() {
+            let (model, step) = &self.telemetry_steps[id];
+            if let (Some(before), Some(write)) =
+                (previous.filter(|n| *n > 0), step.cache_write_tokens)
+            {
+                if write >= 1000 && write >= before.div_ceil(2) {
+                    rebuilds = rebuilds.map(|n| n + 1);
+                }
+            } else if !(index == 0 && self.fresh && previous.is_none()) {
+                rebuilds = None;
+            }
+            previous = step.input_tokens;
+            aggregate.context_used = step.input_tokens;
+            aggregate.context_window = self.model_windows.get(model).copied();
+            if let Some(used) = step.input_tokens {
+                aggregate.peak_context = Some(aggregate.peak_context.unwrap_or(0).max(used));
+            }
+        }
+        aggregate.cache_rebuilds = rebuilds;
+        aggregate.compactions = self.compactions;
         crate::telemetry::Measurement {
-            usage: usage(self.telemetry_steps.values().map(|(_, u)| u).collect()),
+            usage: aggregate,
             observed_models: (!models.is_empty()).then_some(models),
             usage_by_model: (!rows.is_empty()).then_some(rows),
             ..Default::default()
@@ -794,20 +1067,34 @@ impl Adapter {
                     "detail": value["compact_error"].as_str().unwrap_or(""),
                 }),
             )],
-            Some("compact_boundary") => vec![event(
-                "context.compacted",
-                at,
-                json!({
-                    "before": value["compact_metadata"]["pre_tokens"].as_u64(),
-                    "after": value["compact_metadata"]["post_tokens"].as_u64(),
-                }),
-            )],
+            Some("compact_boundary") => {
+                self.compactions = Some(self.compactions.unwrap_or(0) + 1);
+                let mut compacted = event(
+                    "context.compacted",
+                    at,
+                    json!({
+                        "before": value["compact_metadata"]["pre_tokens"].as_u64(),
+                        "after": value["compact_metadata"]["post_tokens"].as_u64(),
+                    }),
+                );
+                if let Some(trigger @ ("auto" | "manual")) =
+                    value["compact_metadata"]["trigger"].as_str()
+                {
+                    compacted["trigger"] = json!(trigger);
+                }
+                vec![compacted]
+            }
             Some("task_started") => {
                 let id = value["task_id"].as_str().unwrap_or("");
                 if id.is_empty() {
                     return vec![];
                 }
                 self.had_children = true;
+                if self.telemetry_steps.is_empty() {
+                    if let Some((_, _, clean)) = self.tree_baseline.as_mut() {
+                        *clean = false;
+                    }
+                }
                 self.tasks.insert(
                     id.to_string(),
                     json!({
@@ -831,6 +1118,14 @@ impl Adapter {
                             json!({ "id": id, "description": raw["description"].as_str().unwrap_or(""), "toolId": null })
                         }),
                     );
+                }
+                if !next.is_empty() {
+                    self.had_children = true;
+                    if self.telemetry_steps.is_empty() {
+                        if let Some((_, _, clean)) = self.tree_baseline.as_mut() {
+                            *clean = false;
+                        }
+                    }
                 }
                 self.tasks = next;
                 vec![self.background(at)]
@@ -1081,6 +1376,145 @@ pub(crate) mod contract;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn insights_model_deltas_keep_resume_reset_and_crash_boundaries() {
+        let result = |id: &str, session: &str, input: u64, output: u64, cost: f64| {
+            json!({
+                "type":"result", "uuid":id, "session_id":session, "total_cost_usd":cost,
+                "usage":{"input_tokens":2,"cache_read_input_tokens":8,"cache_creation_input_tokens":0,"output_tokens":4},
+                "modelUsage":{"main":{"inputTokens":input,"cacheReadInputTokens":80,"cacheCreationInputTokens":20,"outputTokens":output,"costUSD":cost,"contextWindow":200000}}
+            })
+        };
+        let mut fresh = Adapter {
+            fresh: true,
+            ..Default::default()
+        };
+        let first = fresh.translate(&result("one", "s", 10, 5, 0.25));
+        assert_eq!(first[0]["usage"]["usageScope"], "wholeTree");
+        assert_eq!(first[0]["usage"]["usage"]["inputTokens"], 110);
+        assert_eq!(
+            first[0]["usage"]["usageByModel"][0]["usage"]["costUsd"],
+            0.25
+        );
+        let second = fresh.translate(&result("two", "s", 20, 9, 0.5));
+        assert_eq!(second[0]["usage"]["usage"]["inputTokens"], 10);
+        assert_eq!(second[0]["usage"]["usage"]["outputTokens"], 4);
+        assert_eq!(second[0]["usage"]["usage"]["costUsd"], 0.25);
+        assert!(fresh.translate(&result("two", "s", 20, 9, 0.5)).is_empty());
+        let reset = fresh.translate(&result("three", "new", 1, 1, 0.1));
+        assert_eq!(reset[0]["usage"]["usageScope"], "mainAgent");
+        assert!(reset[0]["usage"]["usage"]["costUsd"].is_null());
+
+        let mut resumed = Adapter::default();
+        let restored = resumed.translate(&result("restored", "s", 10000, 9000, 20.));
+        assert_eq!(restored[0]["usage"]["usageScope"], "mainAgent");
+        assert_eq!(restored[0]["usage"]["usage"]["inputTokens"], 10);
+        assert!(restored[0]["usage"]["usage"]["costUsd"].is_null());
+        resumed.translate(&json!({"type":"assistant","message":{"id":"last","model":"main","content":[{"type":"text","text":"answer"}],"usage":{"input_tokens":2,"cache_read_input_tokens":8,"cache_creation_input_tokens":0}}}));
+        let crash = resumed.translate(&json!({"type":"result","uuid":"crash","session_id":"s","is_error":true,"subtype":"error_during_execution","total_cost_usd":0,"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0},"modelUsage":{}}));
+        assert_eq!(crash[0]["usage"]["usage"]["inputTokens"], 10);
+        assert!(crash[0]["usage"]["usage"]["outputTokens"].is_null());
+        assert_eq!(crash[0]["usage"]["complete"], false);
+        assert_eq!(crash[0]["messageId"], "last");
+    }
+
+    #[test]
+    fn insights_context_and_rebuilds_deduplicate_calls_and_use_the_main_model_window() {
+        let mut adapter = Adapter {
+            fresh: true,
+            ..Default::default()
+        };
+        let call = |id: &str, read: u64, write: u64| json!({"type":"assistant","message":{"id":id,"model":"main","content":[],"usage":{"input_tokens":10,"cache_read_input_tokens":read,"cache_creation_input_tokens":write}}});
+        adapter.translate(&call("one", 0, 1990));
+        adapter.translate(&call("two", 1000, 1000));
+        adapter.translate(&call("two", 1000, 1000));
+        let events = adapter.translate(&json!({"type":"result","session_id":"s","usage":{"input_tokens":20,"cache_read_input_tokens":1000,"cache_creation_input_tokens":2990,"output_tokens":40},"modelUsage":{"main":{"contextWindow":200000},"child":{"contextWindow":1000000}}}));
+        let end = events
+            .iter()
+            .find(|e| e["type"] == "turn.completed")
+            .unwrap();
+        assert_eq!(end["usage"]["usage"]["contextUsed"], 2010);
+        assert_eq!(end["usage"]["usage"]["contextWindow"], 200000);
+        assert_eq!(end["usage"]["usage"]["peakContext"], 2010);
+        assert_eq!(end["usage"]["usage"]["cacheRebuilds"], 1);
+        assert_eq!(end["usage"]["usage"]["modelCalls"], 2);
+        assert!(events
+            .iter()
+            .any(|e| e["type"] == "context.updated" && e["used"] == 2010 && e["window"] == 200000));
+    }
+
+    #[test]
+    fn insights_children_crossing_results_do_not_become_next_turn_usage() {
+        let mut adapter = Adapter::fresh();
+        let result = |id: &str, tokens: u64| json!({"type":"result","uuid":id,"session_id":"s","total_cost_usd":tokens as f64,"usage":{"input_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":1},"modelUsage":{"main":{"inputTokens":tokens,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"outputTokens":tokens,"costUSD":tokens as f64}}});
+        adapter.translate(&result("one", 10));
+        adapter.translate(&json!({"type":"assistant","parent_tool_use_id":"old-child","message":{"id":"child","model":"child","content":[]}}));
+        let next = adapter.translate(&result("two", 20));
+        assert_eq!(next[0]["usage"]["usageScope"], "mainAgent");
+        assert_eq!(next[0]["usage"]["usage"]["inputTokens"], 1);
+        assert!(next[0]["usage"]["usage"]["costUsd"].is_null());
+    }
+
+    #[test]
+    fn insights_compaction_trigger_is_observed_and_counted_once_per_signal() {
+        let mut adapter = Adapter::fresh();
+        let compacted = adapter.translate(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":120000,"post_tokens":20000,"trigger":"auto"}}));
+        assert_eq!(compacted[0]["trigger"], "auto");
+        let end = adapter.translate(&json!({"type":"result","session_id":"s"}));
+        assert_eq!(end[0]["usage"]["usage"]["compactions"], 1);
+        let unknown = adapter.translate(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"future-trigger"}}));
+        assert!(unknown[0].get("trigger").is_none());
+    }
+
+    #[test]
+    fn insights_fixture_counts_new_child_model_deltas_without_growing_main_context() {
+        let mut adapter = Adapter::fresh();
+        let events: Vec<Value> = include_str!("claude/fixtures/usage.ndjson")
+            .lines()
+            .flat_map(|line| adapter.translate(&serde_json::from_str::<Value>(line).unwrap()))
+            .collect();
+        let completions: Vec<_> = events
+            .iter()
+            .filter(|event| event["type"] == "turn.completed")
+            .collect();
+        let usage = &completions[1]["usage"];
+        assert_eq!(usage["usageScope"], "wholeTree");
+        assert_eq!(usage["usage"]["inputTokens"], 130);
+        assert_eq!(usage["usage"]["outputTokens"], 7);
+        assert_eq!(usage["usage"]["costUsd"], 0.25);
+        assert_eq!(usage["usageByModel"][0]["model"], "child");
+        assert_eq!(usage["usageByModel"][0]["usage"]["inputTokens"], 20);
+        assert_eq!(usage["usage"]["contextUsed"], 110);
+        assert_eq!(usage["usage"]["contextWindow"], 200000);
+        assert_eq!(completions[1]["messageId"], "main-two");
+    }
+
+    #[test]
+    fn insights_explicit_reset_starts_a_new_verified_segment() {
+        let mut adapter = Adapter::fresh();
+        adapter.translate(
+            &json!({"type":"result","uuid":"old","session_id":"old","total_cost_usd":10}),
+        );
+        let reset = adapter.translate(&json!({"type":"conversation_reset","new_conversation_id":"new","session_id":"old","trigger":"clear"}));
+        assert!(reset
+            .iter()
+            .any(|event| event["type"] == "context.updated" && event["used"] == 0));
+        adapter.translate(&json!({"type":"assistant","message":{"id":"new-answer","model":"main","content":[],"usage":{"input_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":1000}}}));
+        let end = adapter.translate(&json!({"type":"result","session_id":"new","total_cost_usd":0.25,"usage":{"input_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":1000,"output_tokens":5}}));
+        assert_eq!(end[0]["usage"]["usage"]["costUsd"], 0.25);
+        assert_eq!(end[0]["usage"]["usage"]["cacheRebuilds"], 0);
+    }
+
+    #[test]
+    fn insights_model_reset_cannot_hide_behind_growth_in_cache_counters() {
+        let mut adapter = Adapter::fresh();
+        let result = |id: &str, input: u64, read: u64| json!({"type":"result","uuid":id,"session_id":"s","usage":{"input_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":2},"modelUsage":{"main":{"inputTokens":input,"cacheReadInputTokens":read,"cacheCreationInputTokens":0,"outputTokens":100}}});
+        adapter.translate(&result("one", 100, 0));
+        let reset = adapter.translate(&result("two", 10, 200));
+        assert_eq!(reset[0]["usage"]["usageScope"], "mainAgent");
+        assert_eq!(reset[0]["usage"]["usage"]["inputTokens"], 1);
+    }
 
     #[test]
     fn telemetry_main_usage_deduplicates_steps_and_excludes_restored_cost() {

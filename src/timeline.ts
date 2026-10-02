@@ -8,6 +8,10 @@ import {
   type SlashCommand,
 } from "./conversation";
 import { LegacyConversationAdapter } from "./conversation-legacy";
+import type { ConversationUsage as TelemetryMeasurement, TurnMeasurement } from "./conversation";
+
+export type TurnMetadata = { durationMs: number | null; usage?: TelemetryMeasurement };
+type ContextState = { used: number; window: number | null };
 
 export type ToolBlock = {
   kind: "tool";
@@ -37,10 +41,10 @@ export type Ask = {
 
 export type Item =
   | { kind: "user"; ts: number; text: string }
-  | { kind: "assistant"; ts: number; msg: string; blocks: Block[]; streaming: boolean; next: number }
+  | { kind: "assistant"; ts: number; msg: string; blocks: Block[]; streaming: boolean; next: number; completion?: TurnMetadata }
   | Ask
   | { kind: "result"; ts: number; error: boolean; text: string; cost: number | null; ms: number | null }
-  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary" | "stderr" | "background"; tokens?: [number, number] }
+  | { kind: "system"; ts: number; text: string; error: boolean; what?: "compacted" | "summary" | "stderr" | "background"; tokens?: [number, number]; trigger?: "auto" | "manual" }
   | { kind: "context"; ts: number; report: Report };
 
 export type Command = SlashCommand;
@@ -52,6 +56,7 @@ export class Timeline {
   compacting = false;
   tasks = new Map<string, Task>();
   commands: Command[] = [];
+  context: ContextState | null = null;
 
   /// `busy` is the primary turn; background tasks can outlive it. The conversation is only idle
   /// when both have finished, so the person can still interrupt work started by a finished turn.
@@ -62,6 +67,9 @@ export class Timeline {
   private legacy = new LegacyConversationAdapter();
   private tools = new Map<string, { item: number; block: number }>();
   private settled: number[] = [];
+  private restored = new Map<number, { before: TurnMetadata | undefined; current: TurnMetadata }>();
+  private contextPosition = -1;
+  private restoredContext?: { before: ContextState | null; position: number; current: ContextState };
 
   get pending(): Ask[] {
     return this.items.filter((item): item is Ask => item.kind === "ask" && !item.answered);
@@ -71,6 +79,53 @@ export class Timeline {
     for (const line of text.split("\n")) {
       if (line.trim()) this.push(line, now);
     }
+  }
+
+  /** Replay lookups use the provider's final assistant identity, never turn position or time. */
+  restoreUsage(rows: TurnMeasurement[]): number[] {
+    const touched: number[] = [];
+    const locations = new Map<string, number>();
+    this.items.forEach((item, index) => {
+      if (item.kind === "assistant") locations.set(item.msg, locations.has(item.msg) ? -1 : index);
+    });
+    for (const row of rows) {
+      const at = locations.get(row.messageId) ?? -1;
+      const item = this.items[at];
+      if (item?.kind !== "assistant" || item.streaming || item.completion?.usage) continue;
+      const before = item.completion;
+      item.completion = { durationMs: row.durationMs ?? before?.durationMs ?? null, usage: row.usage };
+      this.restored.set(at, { before, current: item.completion });
+      this.measuredContext(row.usage, at, true);
+      touched.push(at);
+    }
+    return touched;
+  }
+
+  /** History deletion removes only the values restored from the local ledger. */
+  clearRestoredUsage(): number[] {
+    const touched: number[] = [];
+    for (const [at, restored] of this.restored) {
+      const item = this.items[at];
+      if (item?.kind !== "assistant" || item.completion !== restored.current) continue;
+      item.completion = restored.before; touched.push(at);
+    }
+    this.restored.clear();
+    if (this.restoredContext && this.context === this.restoredContext.current) {
+      this.context = this.restoredContext.before; this.contextPosition = this.restoredContext.position;
+    }
+    this.restoredContext = undefined;
+    return touched;
+  }
+
+  private measuredContext(measurement: TelemetryMeasurement, at: number, restored = false) {
+    const { contextUsed: used, contextWindow: capacity } = measurement.usage;
+    if (used === null || (restored && at < this.contextPosition)) return;
+    const current = { used, window: capacity };
+    if (restored) {
+      const previous = this.restoredContext && this.context === this.restoredContext.current ? this.restoredContext : { before: this.context, position: this.contextPosition };
+      this.restoredContext = { ...previous, current };
+    } else this.restoredContext = undefined;
+    this.context = current; this.contextPosition = at;
   }
 
   push(line: string, now = Date.now()): number[] {
@@ -132,6 +187,10 @@ export class Timeline {
           : [];
       case "context.compacted": {
         this.compacting = false;
+        if (event.after !== null) {
+          this.context = { used: event.after, window: this.context?.window ?? null };
+          this.contextPosition = this.items.length; this.restoredContext = undefined;
+        }
         const tokens: [number, number] | undefined =
           event.before !== null && event.after !== null ? [event.before, event.after] : undefined;
         return [
@@ -142,6 +201,7 @@ export class Timeline {
             error: false,
             what: "compacted",
             tokens,
+            ...(event.trigger ? { trigger: event.trigger } : {}),
           }),
         ];
       }
@@ -184,6 +244,9 @@ export class Timeline {
         this.commands = event.commands;
         return [];
       case "context.updated":
+        this.context = { used: event.used, window: event.window };
+        this.contextPosition = this.items.length; this.restoredContext = undefined;
+        return [];
       case "session.identity":
       case "usage.updated":
         return [];
@@ -349,8 +412,17 @@ export class Timeline {
     this.compacting = false;
     // An interruption ends the children the turn started, whether or not the provider reports it.
     const touched: number[] = event.outcome === "interrupted" ? this.changeBackground([]) : [];
+    let finalAssistant = false;
     for (let index = this.items.length - 1; index >= 0; index--) {
       const item = this.items[index];
+      if (item.kind === "assistant" && !finalAssistant) {
+        finalAssistant = true;
+        if (!event.messageId || event.messageId === item.msg) {
+          item.completion = { durationMs: event.durationMs, ...(event.usage ? { usage: event.usage } : {}) };
+          if (event.usage) this.measuredContext(event.usage, index);
+          touched.push(index);
+        }
+      }
       if (item.kind === "assistant" && item.streaming) {
         item.streaming = false;
         touched.push(index);
@@ -485,6 +557,21 @@ export type Piece =
   | { kind: "item"; key: string; at: number }
   | { kind: "say"; key: string; at: number; block: number }
   | { kind: "work"; key: string; refs: BlockRef[] };
+
+/** Only the final speech of a settled turn owns its usage and copy footer. */
+export function turnMetadata(items: Item[], piece: Extract<Piece, { kind: "say" }>): TurnMetadata | null {
+  const item = items[piece.at];
+  if (item?.kind !== "assistant" || item.streaming || piece.block !== item.blocks.length - 1) return null;
+  for (let i = piece.at + 1; i < items.length; i++) {
+    if (items[i].kind === "assistant") return null;
+    if (items[i].kind === "user") break;
+  }
+  if (item.completion?.durationMs !== null && item.completion?.durationMs !== undefined) return item.completion;
+  for (let i = piece.at - 1; i >= 0; i--) {
+    if (items[i].kind === "user") return { ...item.completion, durationMs: Math.max(0, item.ts - items[i].ts) };
+  }
+  return item.completion ?? null;
+}
 
 export function pieces(items: Item[]): Piece[] {
   const out: Piece[] = [];

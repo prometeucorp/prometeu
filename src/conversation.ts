@@ -1,5 +1,19 @@
 /// Application-owned conversation contract. Providers translate at the boundary so timeline, transcript, and relay do not depend on provider protocols.
 
+/** Inclusive consumption counts; cache and reasoning are subsets, never additional tokens. */
+export type UsageCounts = {
+  inputTokens: number | null; outputTokens: number | null; cacheReadTokens: number | null;
+  cacheWriteTokens: number | null; reasoningTokens: number | null; contextUsed: number | null;
+  contextWindow: number | null; peakContext: number | null; modelCalls: number | null;
+  compactions: number | null; cacheRebuilds: number | null; costUsd: number | null;
+};
+export type ConversationUsage = {
+  usageScope: "mainAgent" | "wholeTree"; complete: boolean;
+  selectedModel: string | null; observedModels: string[] | null; usage: UsageCounts;
+  usageByModel: { model: string; usage: UsageCounts }[] | null;
+};
+export type TurnMeasurement = { messageId: string; durationMs: number | null; usage: ConversationUsage };
+
 export type InputContent =
   | { kind: "text"; text: string }
   | { kind: "image"; name: string; mediaType: string }
@@ -51,10 +65,13 @@ export type ConversationEventV1 =
       message: string;
       durationMs: number | null;
       costUsd: number | null;
+      usage?: ConversationUsage;
+      messageId?: string;
     })
   | (EventBase<"context.compacted"> & {
       before: number | null;
       after: number | null;
+      trigger?: "auto" | "manual";
     })
   | (EventBase<"background.changed"> & {
       tasks: BackgroundTask[];
@@ -217,7 +234,38 @@ export function parseConversationEvent(value: unknown): AnyConversationEventV1 |
         return false;
     }
   })();
-  return valid ? (event as AnyConversationEventV1) : null;
+  if (!valid) return null;
+  if (event.type === "turn.completed") {
+    const normalized = { ...event };
+    // Optional insights must not prevent an otherwise valid terminal from settling the turn.
+    if ("usage" in normalized && !isTurnUsage(normalized.usage)) delete normalized.usage;
+    if ("messageId" in normalized && !isString(normalized.messageId)) delete normalized.messageId;
+    return normalized as AnyConversationEventV1;
+  }
+  if (event.type === "context.compacted" && "trigger" in event && event.trigger !== "auto" && event.trigger !== "manual") {
+    const normalized = { ...event };
+    delete normalized.trigger;
+    return normalized as AnyConversationEventV1;
+  }
+  return event as AnyConversationEventV1;
+}
+
+export function isTurnUsage(value: unknown): value is ConversationUsage {
+  if (!isObject(value) || !["mainAgent", "wholeTree"].includes(String(value.usageScope))
+    || !isBoolean(value.complete) || !nullableString(value.selectedModel) || !isTokenUsage(value.usage)) return false;
+  if (value.observedModels !== null && (!Array.isArray(value.observedModels) || !value.observedModels.every(isString))) return false;
+  return value.usageByModel === null || (Array.isArray(value.usageByModel)
+    && value.usageByModel.every(row => isObject(row) && isString(row.model) && isTokenUsage(row.usage)));
+}
+
+function isTokenUsage(value: unknown): value is UsageCounts {
+  if (!isObject(value)) return false;
+  const counts = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens",
+    "contextUsed", "contextWindow", "peakContext", "modelCalls", "compactions", "cacheRebuilds"];
+  if (!counts.every(key => value[key] === null || (Number.isSafeInteger(value[key]) && Number(value[key]) >= 0))) return false;
+  if (value.costUsd !== null && (!isNumber(value.costUsd) || value.costUsd < 0)) return false;
+  return [["cacheReadTokens", "inputTokens"], ["cacheWriteTokens", "inputTokens"], ["reasoningTokens", "outputTokens"]]
+    .every(([part, total]) => value[part] === null || value[total] === null || Number(value[part]) <= Number(value[total]));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

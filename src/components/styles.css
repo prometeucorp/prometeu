@@ -5,6 +5,7 @@
 @import "./compositions.css";
 @import "./resource-view.css";
 @import "./chat/chat.css";
+@import "./chat/usage.css";
 @import "./chat/markdown.css";
 @import "./git/diff.css";
 @import "./git/git.css";

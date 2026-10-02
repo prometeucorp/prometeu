@@ -30,6 +30,7 @@ export type Tab = {
   tokens: number | null;
   /// Last observed context and the backend's persisted counting cursor.
   context_tokens?: number | null;
+  context_window?: number | null;
   /// A prompt queued until worktree setup finishes.
   pending_prompt?: string | null;
   /// An optional tab-specific model choice; absent choices inherit workspace defaults.
