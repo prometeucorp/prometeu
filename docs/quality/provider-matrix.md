@@ -19,10 +19,14 @@ from the conversation settlement rule in ADR 0056.
 | --- | --- | --- | --- |
 | Main execution and accepted message turns | Captured | Captured | Captured |
 | Independent child execution and explicit human waits | When canonical signals expose them | When canonical signals expose them | Unavailable |
-| Main-agent input/output | Turn result; deduplicated message inputs provide partial coverage | Delta of verified thread totals; resume/reset without a baseline stays partial/unknown | Unknown |
-| Cache/reasoning | Cache read/write are input subsets; reasoning unknown | Cache is an input subset; reasoning is an output subset | Unknown |
-| Observed models/calls | Main assistant model IDs, partial per-model input, distinct message calls | Unknown without verified actual-model/call evidence | Unknown |
+| Main-agent input/output | Turn result; verified `modelUsage` deltas can additionally cover the whole tree | Delta of verified thread totals; resume/reset without a baseline stays partial/unknown | Deduplicated current steps; verified cumulative deltas complete the turn |
+| Cache/reasoning | Cache read/write are input subsets; reasoning unknown | Cache is an input subset; reasoning is an output subset | Reported cache/thinking subsets, otherwise unknown |
+| Observed models/calls | Main assistant IDs and verified cumulative model rows; distinct message calls | Unknown without verified actual-model/call evidence | Distinct observed step IDs; model breakdown unknown |
 | Per-turn cost | Same-session cumulative delta; restored/reset/overlapping-child spend excluded | Unknown | Unknown |
+| Context meter/actions | Observed main-call input and reported model window; explicit compact/report/new conversation | Last input and model window; explicit compact/report/new conversation | Hidden without a reported window |
+| Cache rebuild signal | Deduplicated calls with known preceding context and cache-write evidence | Unknown without reliable distinct-call evidence | Only if distinct-step cache-write evidence exists; otherwise unknown |
+| Reply footers/workspace summaries | Canonical usage; local hashed lookup restores native transcript footer | Canonical usage; no invented price | Canonical observed usage; no invented price |
+| App-call source | Naming and plugin maker, separately measured | Naming, separately measured | No app-initiated model call |
 
 `telemetry/tests.rs`, the adapters' `telemetry_*` tests and
 `src/telemetry.test.ts` cover normalization, incomplete coverage, local query and
@@ -33,6 +37,20 @@ and response ordering. Streaming input without a correlatable native terminal
 retains unknown turn attribution; capture health exposes that limit. These are
 fixture-based guarantees, not live certification of every installed provider
 version. Full semantics are in the [contract](../contracts/telemetry.md).
+
+Issue 131's presentation is covered by `src/usage-presentation.test.ts`,
+`src/workspace-usage.test.ts`, `src/timeline.test.ts`, `src/conversation.test.ts`, `src/telemetry.test.ts` and
+`e2e/usage-insights.spec.ts`. The browser scenario protects keyboard/Escape focus
+and preservation of the typed draft when a context action uses the shared
+popover; pure tests cannot establish browser focus after DOM updates. It does
+not multiply provider or locale variants, and it does not exercise a native CLI.
+Adapter fixture tests cover consecutive counters, restored/reset/error results
+and duplicate observations; synthetic Claude fixtures explicitly declare their
+provenance. Telemetry tests cover reply privacy/lookup, grouping, sources and PR
+evidence. Unsupported measurements remain unknown, never a billing estimate.
+The native telemetry producer test verifies commit visibility and lock release
+before `telemetry-changed`; the workspace consumer test covers a refresh without
+a board change, coalescing, navigation and history-deletion invalidation.
 
 Verification additions shared by the existing features:
 

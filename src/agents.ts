@@ -15,6 +15,9 @@ export type AgentCapabilities = {
   resume: boolean;
   compact: boolean;
   contextReport: boolean;
+  usageTokens: boolean;
+  usageCost: boolean;
+  contextWindow: boolean;
   approvals: boolean;
   userQuestions: boolean;
   attachments: boolean;
@@ -51,6 +54,9 @@ const NO_CAPABILITIES: AgentCapabilities = {
   resume: false,
   compact: false,
   contextReport: false,
+  usageTokens: false,
+  usageCost: false,
+  contextWindow: false,
   approvals: false,
   userQuestions: false,
   attachments: false,

@@ -419,3 +419,17 @@ identities without placing names or paths in the event store. Existing UUID
 workspace/tab IDs are reused. These aliases remain domain state after telemetry
 is erased. Old boards/transcripts require no event backfill; compatibility is
 covered by existing board tests and `telemetry/tests.rs`.
+
+Turn completions may include a nullable SHA-256 `messageKey` derived from the
+opaque conversation identity and final assistant ID. It supports exact local
+lookup for native Claude transcript replay without retaining reply text or the
+raw provider identifier. Older facts omit it and remain readable. Additive
+origin, app-call and PR-observation facts use the same SQLite store and erasure
+boundary; no second usage ledger or provider transcript backfill is introduced.
+
+`Tab.context_window` is optional and defaults to unknown in old boards. It
+accompanies current `context_tokens`; the historical `tokens` growth estimate
+is not repurposed as consumption or current occupancy. New canonical transcript
+completions can retain optional usage independently of the local history store.
+Clearing telemetry removes local queries and restored footer caches, not the
+conversation transcript or existing exports.

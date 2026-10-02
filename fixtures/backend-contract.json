@@ -90,6 +90,7 @@
               "model": "model"
             },
             "context_tokens": null,
+            "context_window": null,
             "id": "running",
             "kickoff": "package/skill",
             "note": "Testing",
@@ -105,6 +106,7 @@
             "agent_session": null,
             "choice": null,
             "context_tokens": null,
+            "context_window": null,
             "id": "waiting",
             "note": null,
             "pending_prompt": null,
@@ -119,6 +121,7 @@
             "agent_session": null,
             "choice": null,
             "context_tokens": null,
+            "context_window": null,
             "id": "ready",
             "note": null,
             "pending_prompt": null,
@@ -133,6 +136,7 @@
             "agent_session": "native-thread",
             "choice": null,
             "context_tokens": null,
+            "context_window": null,
             "id": "stopped",
             "note": null,
             "pending_prompt": "Continue",
@@ -188,8 +192,11 @@
       "attachments": true,
       "compact": false,
       "contextReport": false,
+      "contextWindow": false,
       "initialPlanMode": false,
       "resume": true,
+      "usageCost": false,
+      "usageTokens": true,
       "userQuestions": false,
       "workspaceMcpSelection": false,
       "workspacePluginSelection": false
@@ -199,8 +206,11 @@
       "attachments": true,
       "compact": true,
       "contextReport": true,
+      "contextWindow": true,
       "initialPlanMode": true,
       "resume": true,
+      "usageCost": true,
+      "usageTokens": true,
       "userQuestions": true,
       "workspaceMcpSelection": true,
       "workspacePluginSelection": true
@@ -210,8 +220,11 @@
       "attachments": true,
       "compact": true,
       "contextReport": true,
+      "contextWindow": true,
       "initialPlanMode": false,
       "resume": true,
+      "usageCost": false,
+      "usageTokens": true,
       "userQuestions": true,
       "workspaceMcpSelection": true,
       "workspacePluginSelection": true
@@ -221,8 +234,11 @@
       "attachments": true,
       "compact": false,
       "contextReport": false,
+      "contextWindow": false,
       "initialPlanMode": false,
       "resume": true,
+      "usageCost": false,
+      "usageTokens": false,
       "userQuestions": false,
       "workspaceMcpSelection": false,
       "workspacePluginSelection": false
@@ -325,8 +341,30 @@
         "costUsd": null,
         "durationMs": 0,
         "message": "",
+        "messageId": "answer",
         "outcome": "ok",
         "type": "turn.completed",
+        "usage": {
+          "complete": false,
+          "observedModels": null,
+          "selectedModel": null,
+          "usage": {
+            "cacheReadTokens": null,
+            "cacheRebuilds": null,
+            "cacheWriteTokens": null,
+            "compactions": null,
+            "contextUsed": null,
+            "contextWindow": null,
+            "costUsd": null,
+            "inputTokens": null,
+            "modelCalls": 1,
+            "outputTokens": null,
+            "peakContext": null,
+            "reasoningTokens": null
+          },
+          "usageByModel": null,
+          "usageScope": "mainAgent"
+        },
         "v": 1
       }
     ],
@@ -385,8 +423,30 @@
         "costUsd": null,
         "durationMs": null,
         "message": "",
+        "messageId": "turn",
         "outcome": "ok",
         "type": "turn.completed",
+        "usage": {
+          "complete": false,
+          "observedModels": null,
+          "selectedModel": null,
+          "usage": {
+            "cacheReadTokens": null,
+            "cacheRebuilds": null,
+            "cacheWriteTokens": null,
+            "compactions": null,
+            "contextUsed": null,
+            "contextWindow": null,
+            "costUsd": null,
+            "inputTokens": null,
+            "modelCalls": null,
+            "outputTokens": null,
+            "peakContext": null,
+            "reasoningTokens": null
+          },
+          "usageByModel": null,
+          "usageScope": "mainAgent"
+        },
         "v": 1
       }
     ]
@@ -418,6 +478,6 @@
   ],
   "snapshot": {
     "seq": 10,
-    "text": "{\"at\":0,\"content\":[{\"kind\":\"text\",\"text\":\"Review the patch\"}],\"type\":\"user.message\",\"v\":1}\n{\"at\":0,\"messageId\":\"answer\",\"type\":\"assistant.started\",\"v\":1}\n{\"at\":0,\"block\":{\"kind\":\"text\",\"text\":\"\"},\"index\":0,\"messageId\":\"answer\",\"type\":\"assistant.block.started\",\"v\":1}\n{\"at\":0,\"delta\":\"Reviewed\",\"index\":0,\"kind\":\"text\",\"messageId\":\"answer\",\"type\":\"assistant.delta\",\"v\":1}\n{\"at\":0,\"block\":{\"kind\":\"text\",\"text\":\"Reviewed\"},\"index\":0,\"messageId\":\"answer\",\"type\":\"assistant.block\",\"v\":1}\n{\"at\":0,\"block\":{\"id\":\"read\",\"input\":{\"file_path\":\"README.md\"},\"kind\":\"tool\",\"name\":\"Read\"},\"index\":1,\"messageId\":\"answer\",\"type\":\"assistant.block\",\"v\":1}\n{\"at\":0,\"input\":{\"file_path\":\"README.md\"},\"kind\":\"approval\",\"requestId\":\"approval\",\"tool\":\"Read\",\"toolId\":\"read\",\"type\":\"request.opened\",\"v\":1}\n{\"at\":0,\"background\":false,\"error\":false,\"output\":\"Project guide\",\"toolId\":\"read\",\"type\":\"tool.completed\",\"v\":1}\n{\"at\":0,\"tasks\":[],\"type\":\"background.changed\",\"v\":1}\n{\"at\":0,\"costUsd\":null,\"durationMs\":0,\"message\":\"\",\"outcome\":\"ok\",\"type\":\"turn.completed\",\"v\":1}\n"
+    "text": "{\"at\":0,\"content\":[{\"kind\":\"text\",\"text\":\"Review the patch\"}],\"type\":\"user.message\",\"v\":1}\n{\"at\":0,\"messageId\":\"answer\",\"type\":\"assistant.started\",\"v\":1}\n{\"at\":0,\"block\":{\"kind\":\"text\",\"text\":\"\"},\"index\":0,\"messageId\":\"answer\",\"type\":\"assistant.block.started\",\"v\":1}\n{\"at\":0,\"delta\":\"Reviewed\",\"index\":0,\"kind\":\"text\",\"messageId\":\"answer\",\"type\":\"assistant.delta\",\"v\":1}\n{\"at\":0,\"block\":{\"kind\":\"text\",\"text\":\"Reviewed\"},\"index\":0,\"messageId\":\"answer\",\"type\":\"assistant.block\",\"v\":1}\n{\"at\":0,\"block\":{\"id\":\"read\",\"input\":{\"file_path\":\"README.md\"},\"kind\":\"tool\",\"name\":\"Read\"},\"index\":1,\"messageId\":\"answer\",\"type\":\"assistant.block\",\"v\":1}\n{\"at\":0,\"input\":{\"file_path\":\"README.md\"},\"kind\":\"approval\",\"requestId\":\"approval\",\"tool\":\"Read\",\"toolId\":\"read\",\"type\":\"request.opened\",\"v\":1}\n{\"at\":0,\"background\":false,\"error\":false,\"output\":\"Project guide\",\"toolId\":\"read\",\"type\":\"tool.completed\",\"v\":1}\n{\"at\":0,\"tasks\":[],\"type\":\"background.changed\",\"v\":1}\n{\"at\":0,\"costUsd\":null,\"durationMs\":0,\"message\":\"\",\"messageId\":\"answer\",\"outcome\":\"ok\",\"type\":\"turn.completed\",\"usage\":{\"complete\":false,\"observedModels\":null,\"selectedModel\":null,\"usage\":{\"cacheReadTokens\":null,\"cacheRebuilds\":null,\"cacheWriteTokens\":null,\"compactions\":null,\"contextUsed\":null,\"contextWindow\":null,\"costUsd\":null,\"inputTokens\":null,\"modelCalls\":1,\"outputTokens\":null,\"peakContext\":null,\"reasoningTokens\":null},\"usageByModel\":null,\"usageScope\":\"mainAgent\"},\"v\":1}\n"
   }
 }

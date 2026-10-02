@@ -16,6 +16,7 @@ export type Ctx = {
   open: (ws: Workspace, tab: string) => void;
   /// The empty desk offers the launcher.
   create: () => void;
+  newConversation: (workspace: string) => void;
   looked: () => void;
 };
 
@@ -171,7 +172,7 @@ function mount(id: string): Tile {
     el.style.height = `${size[1]}px`;
   }
   const view = new ChatView();
-  view.open(el.querySelector<HTMLElement>(".chatwrap")!, { say: ctx.say, info: () => ctx.info(id) });
+  view.open(el.querySelector<HTMLElement>(".chatwrap")!, { say: ctx.say, info: () => ctx.info(id), newConversation: ctx.newConversation });
   drag(el, head);
   grip(el, id);
   $("tiles").append(el);

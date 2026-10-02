@@ -53,6 +53,9 @@ pub struct AgentCapabilities {
     pub resume: bool,
     pub compact: bool,
     pub context_report: bool,
+    pub usage_tokens: bool,
+    pub usage_cost: bool,
+    pub context_window: bool,
     pub approvals: bool,
     pub user_questions: bool,
     pub attachments: bool,
@@ -93,6 +96,9 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
         resume: true,
         compact: true,
         context_report: true,
+        usage_tokens: true,
+        usage_cost: false,
+        context_window: true,
         approvals: true,
         user_questions: true,
         // The app injects local file paths into messages. Both runtimes can read the same worktree;
@@ -102,6 +108,7 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
     match id {
         ProviderId::Claude => AgentCapabilities {
             initial_plan_mode: true,
+            usage_cost: true,
             ..common
         },
         ProviderId::Codex => common,
@@ -112,6 +119,8 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
             workspace_plugin_selection: false,
             compact: false,
             context_report: false,
+            context_window: false,
+            usage_tokens: id == ProviderId::Antigravity,
             user_questions: false,
             ..common
         },

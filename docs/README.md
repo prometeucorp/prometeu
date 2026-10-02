@@ -161,6 +161,8 @@ current system until the corresponding implementation is accepted.
 
 ## Implementation records
 
+- [Local usage and context insights implementation plan](superpowers/plans/2026-10-01-issue-131-usage-insights.md).
+
 - [Diff review design](superpowers/specs/2026-09-26-diff-review-design.md).
 - [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).
 - [Review calibration implementation plan](superpowers/plans/2026-09-27-review-calibration.md).

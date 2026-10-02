@@ -1,0 +1,28 @@
+.context-gauge.ui-button {
+  min-width: 0; height: var(--button-height); padding: 0 var(--space-2);
+  margin-left: auto; gap: var(--space-2); font-size: var(--text-sm); color: var(--fg-3);
+}
+.context-gauge-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-gauge .meter { flex: none; }
+.usage-popover.menu {
+  width: min(430px, calc(100vw - 16px)); min-width: 0; max-height: calc(100vh - 24px);
+  overflow-y: auto; padding: var(--space-4); gap: var(--space-3); cursor: auto;
+}
+.usage-title, .usage-group h4 { margin: 0; color: var(--fg); font-size: var(--text-base); font-weight: 600; }
+.usage-description { margin: 0; color: var(--fg-3); font-size: var(--text-sm); line-height: 1.5; }
+.usage-metrics { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-4); margin: 0; font-size: var(--text-sm); }
+.usage-metrics dt { color: var(--fg-2); }
+.usage-metrics dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.usage-group { display: flex; flex-direction: column; gap: var(--space-2); border-top: 1px solid var(--line); padding-top: var(--space-3); }
+.usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); font-size: var(--text-sm); }
+.usage-row-label { min-width: 0; overflow-wrap: anywhere; }
+.usage-row-label small { display: block; margin-top: 2px; color: var(--fg-3); font-size: var(--hint-size); }
+.usage-row-value { flex: 0 0 auto; max-width: 62%; text-align: right; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+.usage-actions { display: flex; flex-direction: column; gap: var(--space-1); border-top: 1px solid var(--line); padding-top: var(--space-2); }
+.usage-actions .ui-button { justify-content: flex-start; }
+.workspace-usage.ui-button { max-width: 190px; height: var(--button-height); font-size: var(--text-sm); padding: 0 var(--space-2); color: var(--fg-2); }
+.workspace-usage-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top:has(.workspace-usage:not([hidden])) .crumb .branch { flex-shrink: 1; min-width: 0; }
+.meta .took { white-space: normal; }
+.composer .composer-meta { flex-wrap: wrap; }
+@media (max-width: 700px) { .workspace-usage.ui-button { max-width: 110px; } }

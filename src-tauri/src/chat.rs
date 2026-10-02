@@ -287,7 +287,7 @@ impl Pump {
         let Ok(frame) = serde_json::from_str::<Value>(text) else {
             return;
         };
-        {
+        let capture = || {
             let mut capture = lock(&self.telemetry);
             {
                 let mut lines = lock(&self.sink);
@@ -296,6 +296,13 @@ impl Pump {
             if !self.gone.load(Ordering::Relaxed) {
                 capture.observe(&mut lock(&self.app.state::<AppState>().telemetry), &frame);
             }
+        };
+        // A main turn can finish while children keep the tab busy. Refresh committed insights
+        // independently of that status, after the closure releases all publication/capture locks.
+        if frame["type"] == "turn.completed" {
+            crate::telemetry::notify_changed(&self.app, capture);
+        } else {
+            capture();
         }
         self.react(&frame);
     }
@@ -346,8 +353,8 @@ impl Pump {
     }
 }
 
-/// Local measurements stop before conversation persistence and sharing. The original frame still
-/// reaches telemetry capture after publication; existing public completion fields stay intact.
+/// Internal capture fields stop before persistence and sharing. Canonical per-turn usage is an
+/// explicit conversation field; the original frame still reaches local capture after publication.
 fn public_text<'a>(text: &'a str, frame: &Value) -> std::borrow::Cow<'a, str> {
     if frame.get("telemetry").is_none() && frame.get("providerDurationMs").is_none() {
         return std::borrow::Cow::Borrowed(text);
@@ -694,6 +701,16 @@ fn react(
         }
         // Codex reports context size and its external conversation identity.
         Some("context.updated") => {
+            {
+                let state = app.state::<AppState>();
+                let mut board = lock(&state.board);
+                if let Some(tab) = board.tab_mut(id) {
+                    tab.context_window = frame["window"].as_u64().filter(|window| *window > 0);
+                    if frame["used"].as_u64() == Some(0) {
+                        tab.context_tokens = Some(0);
+                    }
+                }
+            }
             update(app, id, None, Note::Keep, frame["used"].as_u64());
         }
         Some("session.identity") => {
@@ -967,6 +984,11 @@ fn write_mode(
     } else {
         vec![]
     };
+    let origin = if scope.is_some() {
+        crate::telemetry::conversation_attribution(&pump.app, session)
+    } else {
+        Default::default()
+    };
     let mut capture = lock(&pump.telemetry);
     let generation = lock(&state.telemetry).generation;
     let events = {
@@ -1004,7 +1026,7 @@ fn write_mode(
         let mut telemetry = lock(&state.telemetry);
         if generation == telemetry.generation {
             if let Some((scope, model)) = scope {
-                capture.accepted(&mut telemetry, scope, model);
+                capture.accepted_with_origin(&mut telemetry, scope, model, origin);
                 for event in &relations {
                     telemetry.capture(generation, event);
                 }
@@ -1453,8 +1475,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn telemetry_measurements_never_enter_transcripts_or_shared_conversation_lines() {
+    fn canonical_usage_survives_while_internal_capture_fields_stay_private() {
         let frame = json!({"v":1,"type":"turn.completed","at":1,"outcome":"ok","message":"answer","durationMs":10,"costUsd":null,
+            "messageId":"reply","usage":{"usage":{"inputTokens":123}},
             "providerDurationMs":10,"telemetry":{"usage":{"inputTokens":123}}});
         let serialized = frame.to_string();
         let public: Value = serde_json::from_str(&public_text(&serialized, &frame)).unwrap();
@@ -1462,6 +1485,8 @@ mod tests {
         assert!(public.get("providerDurationMs").is_none());
         assert_eq!(public["message"], "answer");
         assert_eq!(public["durationMs"], 10);
+        assert_eq!(public["usage"]["usage"]["inputTokens"], 123);
+        assert_eq!(public["messageId"], "reply");
         assert_eq!(frame["telemetry"]["usage"]["inputTokens"], 123);
     }
 

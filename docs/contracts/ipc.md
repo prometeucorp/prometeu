@@ -153,6 +153,7 @@ IPC to authenticate the WebSocket.
 | `pty` | `pty.rs` | `[session, bytes, seq]` |
 | `pty-closed` | `pty.rs` | `[session, exitCode]` |
 | `usage` | `usage.rs` | usage snapshot per local account ID |
+| `telemetry-changed` | `telemetry.rs` | `null`; local completed-turn, app-call or PR-history capture finished |
 | `accounts` | `accounts.rs` | registry, per-provider selection and pending login |
 | `account-error` | `chat.rs` | a translatable error from a switch while sending the pending message |
 | `machine` | `machine.rs` | machine state |
@@ -524,10 +525,30 @@ It contains no URL or arbitrary action and does not cross the relay.
 
 ## Local telemetry
 
-`telemetry_summary`, `telemetry_events`, `telemetry_export` and `telemetry_clear`
+`telemetry_summary`, `telemetry_insights`, `telemetry_turns`, `telemetry_events`,
+`telemetry_export` and `telemetry_clear`
 are local-only queries/export/erasure commands. Filters, cursor, coverage and
 return values are typed in `src/telemetry.ts`; Rust handlers and the browser mock
 share command names. No arbitrary SQL or native provider objects cross this
 boundary. The export destination comes from the native save dialog and is a
 `.jsonl` file. Erasure always clears the entire telemetry dataset. See the
 [telemetry contract](telemetry.md) for query cohorts and privacy guarantees.
+
+`telemetry_insights({ filter })` returns the existing summary plus consumption
+and groups by conversation, observed model and source, with separately qualified
+PR attribution. Context occupancy/window are not summed; peak occupancy is a
+maximum. `telemetry_turns({ conversation, messageIds })` looks up at most 500
+requested assistant IDs and returns only exact completed matches, with duration
+and canonical usage. Unknown/legacy replies have no fabricated measurement.
+The native query hashes the conversation/reply pair; raw provider identifiers
+are not persisted as telemetry content. Frontend consumers ignore stale results
+after navigation or confirmed history deletion.
+
+`telemetry-changed` is a content-free local invalidation event. Conversation
+completion emits it even when child activity keeps the tab running. Naming and
+plugin maker emit it after capture finishes, including failed calls; PR discovery emits
+it once after committing the entire observed snapshot and releasing the capture
+mutex. Workspace consumers coalesce invalidations and query their current scope.
+It is not a relay event and does not carry records or identifiers. Turn capture
+commits before its existing board publication; refresh does not depend on a
+visible status change.

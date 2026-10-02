@@ -165,6 +165,8 @@ fn main() {
             usage::usage,
             usage::usage_refresh,
             telemetry::telemetry_summary,
+            telemetry::telemetry_insights,
+            telemetry::telemetry_turns,
             telemetry::telemetry_events,
             telemetry::telemetry_export,
             telemetry::telemetry_clear,

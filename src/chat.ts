@@ -4,6 +4,9 @@ import { encodeReviewContext, reviewContext } from "./review-context";
 import { reviews } from "./review-store";
 import { reviewError } from "./components/git/review-note";
 import { composer, attachmentChip } from "./components/chat/composer";
+import { contextGauge } from "./components/chat/usage";
+import { contextBand, contextForGauge, replayIsCurrent, turnUsageText } from "./usage-presentation";
+import { onTelemetryCleared } from "./telemetry";
 import { conversationBlock, errorCard, noticeCard, workCard, paintWorkHead } from "./components/chat/blocks";
 import { requestCard } from "./components/chat/requests";
 import * as actions from "./actions";
@@ -23,7 +26,6 @@ import {
   firstLine,
   peek,
   renderUserMessage,
-  took,
   wantsCard,
 } from "./chat-presentation";
 import { effortStep, fitsEffort, modelLabel } from "./model-choice";
@@ -40,7 +42,7 @@ import * as paths from "./paths";
 import { pasteFiles } from "./paste";
 import * as voice from "./voice";
 import * as team from "./team";
-import { pieces, Timeline, touched, type Ask, type Block, type Command, type Item, type Piece } from "./timeline";
+import { pieces, Timeline, touched, turnMetadata, type Ask, type Block, type Command, type Item, type Piece } from "./timeline";
 import type { Choice, ProviderId, Selection, Status } from "./types";
 import { h, template } from "./util";
 
@@ -72,6 +74,10 @@ export type Info = {
   plugins: Selection | null;
   /// Workspace standalone-skill layer, its own axis since ADR 0045.
   skills: Selection | null;
+  /// Stable local ledger identity; remote views never query this Mac's private history.
+  telemetryConversation?: string | null;
+  context?: { used: number; window: number | null } | null;
+  canCreateConversation?: boolean;
 };
 
 export type Ctx = {
@@ -79,6 +85,7 @@ export type Ctx = {
   info: () => Info;
   comment?: (target: notes.Target) => void;
   thread?: (id: string) => void;
+  newConversation?: (workspace: string) => void;
 };
 
 /* Conversation-owned transient state. */
@@ -127,6 +134,8 @@ export class ChatView {
   private dirty = new Set<number>();
   private raf = 0;
   private composerDirty = false;
+  private gauge!: ReturnType<typeof contextGauge>;
+  private usageRevision = 0;
   private fullRenderPending = false;
   private working = template("div", "working", "<i></i><i></i><i></i><span class=\"wlabel\"></span>");
   /// Hold live events during snapshot loading to remove overlap by sequence number.
@@ -164,7 +173,17 @@ export class ChatView {
       this.paintComposer();
     };
     this.cleanup.push(team.onChange(teamChanged));
-    this.cleanup.push(onCatalogChange(() => this.paintComposer()));
+    this.cleanup.push(onCatalogChange(() => {
+      this.paintComposer();
+      this.shown.forEach((piece, at) => { if (piece.kind === "say") this.paintMeta(this.drawn[at], piece); });
+    }));
+    this.cleanup.push(onTelemetryCleared(() => {
+      this.usageRevision++;
+      const context = this.tl.context;
+      for (const at of this.tl.clearRestoredUsage()) this.dirty.add(at);
+      this.composerDirty ||= context !== this.tl.context;
+      if ((this.dirty.size || this.composerDirty) && !this.nativeHidden()) this.flush();
+    }));
     this.cleanup.push(background.subscribe((context) => {
       if (this.disposed || !context.visible) return;
       if (this.fullRenderPending) this.renderAll();
@@ -198,6 +217,26 @@ export class ChatView {
     // Discard held events already included in the snapshot sequence, including initial prompts emitted while the view opens.
     for (const { seq, line } of held) if (seq > snapshot.seq) this.tl.push(line);
     this.renderAll();
+    void this.restoreTurnUsage(key, version);
+  }
+
+  private async restoreTurnUsage(key: string, version: number) {
+    const conversation = this.ctx.info().telemetryConversation;
+    if (!conversation || this.remote) return;
+    const revision = this.usageRevision;
+    const ids = [...new Set(this.tl.items.flatMap(item => item.kind === "assistant" && !item.completion?.usage ? [item.msg] : []))];
+    // Keep each request bounded even when a long native transcript is reopened.
+    for (let start = 0; start < ids.length; start += 500) {
+      try {
+        const rows = await invoke("telemetry_turns", { conversation, messageIds: ids.slice(start, start + 500) });
+        if (!replayIsCurrent({ key, version }, { key: this.key, version: this.attachVersion }, this.disposed)
+          || revision !== this.usageRevision || this.remote) return;
+        const context = this.tl.context;
+        for (const at of this.tl.restoreUsage(rows)) this.dirty.add(at);
+        this.composerDirty ||= context !== this.tl.context;
+        if (!this.nativeHidden()) this.flush();
+      } catch { return; } // A private history failure must not prevent reading the conversation.
+    }
   }
 
   /// Attach a remote snapshot; subsequent bytes arrive through remoteWrite.
@@ -249,6 +288,7 @@ export class ChatView {
   }
 
   private reset() {
+    this.gauge?.close();
     this.tl = new Timeline();
     this.held = null;
     this.shown = [];
@@ -347,8 +387,9 @@ export class ChatView {
   private absorb(line: string) {
     const working = this.tl.working;
     const compacting = this.tl.compacting;
+    const context = this.tl.context;
     for (const i of this.tl.push(line)) this.dirty.add(i);
-    this.composerDirty ||= working !== this.tl.working || compacting !== this.tl.compacting;
+    this.composerDirty ||= working !== this.tl.working || compacting !== this.tl.compacting || context !== this.tl.context;
     if (this.nativeHidden()) return;
     if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
   }
@@ -489,20 +530,24 @@ export class ChatView {
     return this.workCard(piece);
   }
 
-  /// Show duration and copy controls only beneath the final speech of a completed turn.
+  /// Show measured usage and copy controls only beneath the final speech of a completed turn.
   private paintMeta(el: HTMLElement, piece: Extract<Piece, { kind: "say" }>) {
-    const ms = this.turnMs(piece);
+    const turn = turnMetadata(this.tl.items, piece);
     const old = el.querySelector(".meta");
-    if (ms === null) return void old?.remove();
-    // Durations below a tenth of a second lack meaningful historical timing; show only copy.
-    const label = ms < 100 ? "" : took(ms);
+    if (turn === null) return void old?.remove();
+    const { label, title } = turnUsageText(turn, capabilitiesOf(this.ctx.info().agent));
+    const paint = (meta: Element) => {
+      const value = meta.querySelector<HTMLElement>(".took")!;
+      value.textContent = label; value.title = title;
+      if (title) value.setAttribute("aria-label", `${label}. ${title}`); else value.removeAttribute("aria-label");
+    };
     if (old) {
-      old.querySelector(".took")!.textContent = label;
+      paint(old);
       this.paintCommentAction(old, piece);
       return;
     }
     const meta = template("div", "meta", `<span class="took"></span><button class="ico sm cp"></button><button class="ghost sm cm"></button>`);
-    meta.querySelector(".took")!.textContent = label;
+    paint(meta);
     const cp = meta.querySelector<HTMLButtonElement>(".cp")!;
     cp.innerHTML = icon("copy", 13);
     cp.title = t("chat.copy");
@@ -537,23 +582,6 @@ export class ChatView {
       const quote = at?.block.kind === "text" ? at.block.text : null;
       if (this.key) this.ctx.comment?.({ tab: this.key, anchor: piece.key, quote });
     };
-  }
-
-  /// Find duration only for the final completed assistant block before control returns to the user.
-  private turnMs(piece: Extract<Piece, { kind: "say" }>): number | null {
-    const item = this.tl.items[piece.at];
-    if (item?.kind !== "assistant" || item.streaming) return null;
-    if (piece.block !== item.blocks.length - 1) return null;
-    for (let i = piece.at + 1; i < this.tl.items.length; i++) {
-      const next = this.tl.items[i];
-      if (next.kind === "assistant") return null;
-      if (next.kind === "user") break;
-    }
-    for (let i = piece.at - 1; i >= 0; i--) {
-      const before = this.tl.items[i];
-      if (before.kind === "user") return Math.max(0, item.ts - before.ts);
-    }
-    return null;
   }
 
   /// Only the final block of a streaming message is still receiving content.
@@ -594,6 +622,7 @@ export class ChatView {
         el.textContent = item.tokens
           ? t("chat.compacted.tokens", { pre: kilo(item.tokens[0]), post: kilo(item.tokens[1]) })
           : t("chat.compacted");
+        if (item.trigger) el.textContent += ` · ${t(item.trigger === "auto" ? "usage.compaction.auto" : "usage.compaction.manual")}`;
         return el;
       }
     }
@@ -716,6 +745,9 @@ export class ChatView {
       voiceAvailable: voice.available(),
     });
     this.box.replaceWith(view.root); this.box = view.root; this.area = view.area;
+    this.gauge = contextGauge();
+    this.box.querySelector(".composer-meta")!.append(this.gauge.root);
+    this.cleanup.push(() => this.gauge.close());
     this.cleanup.push(actions.onChange(() => this.paintComposer()));
     this.cleanup.push(mcp.onChange(() => this.paintComposer()));
     this.cleanup.push(() => this.stopVoice?.());
@@ -983,7 +1015,8 @@ export class ChatView {
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
     this.box.hidden = !hasKey;
-    if (!hasKey) return;
+    if (!hasKey) { this.gauge.update(null); return; }
+    this.paintContext(info);
     // Local file attachment is unavailable for agents running on another Mac.
     q(".addfile").hidden =
       this.remote || !info.workspace || !capabilitiesOf(info.agent).attachments;
@@ -1014,6 +1047,36 @@ export class ChatView {
     send.innerHTML = icon("arrow-up", 16);
     this.paintQuoteButton();
     this.paintFiles();
+  }
+
+  private paintContext(info: Info) {
+    const capabilities = capabilitiesOf(info.agent);
+    const context = contextForGauge(this.tl.context, info.context);
+    const band = context && contextBand(context.used, context.window);
+    if (this.remote || !capabilities.contextWindow || !context || !band || context.window === null || !this.key) {
+      this.gauge.update(null); return;
+    }
+    const key = this.key;
+    const actions = [];
+    if (capabilities.compact) actions.push({ label: t("usage.compact"), disabled: this.tl.working, run: () => this.contextCommand("compact", key) });
+    if (capabilities.contextReport) actions.push({ label: t("usage.contextReport"), disabled: this.tl.working, run: () => this.contextCommand("context", key) });
+    const workspace = info.workspace;
+    if (workspace && this.ctx.newConversation && info.canCreateConversation !== false) {
+      actions.push({ label: t("usage.newConversation"), disabled: false, run: () => this.ctx.newConversation?.(workspace) });
+    }
+    this.gauge.update({
+      label: t("usage.context", { used: kilo(context.used), window: kilo(context.window) }),
+      percent: context.used / context.window * 100, band,
+      panel: { title: t("usage.contextTitle"), description: t(band === "normal" ? "usage.contextHint" : "usage.freshContext"),
+        metrics: [{ label: t("usage.contextTitle"), value: `${context.used.toLocaleString()} / ${context.window.toLocaleString()}` }], actions },
+    });
+  }
+
+  /** Send only the explicit context command; the person's draft and attachments stay untouched. */
+  private contextCommand(name: "compact" | "context", key: string) {
+    const capabilities = capabilitiesOf(this.ctx.info().agent);
+    if (this.key !== key || this.remote || this.tl.working || !(name === "compact" ? capabilities.compact : capabilities.contextReport)) return;
+    void invoke("chat_send", { session: key, text: `/${name}` }).catch(error => this.ctx.say(fromBack(error), true));
   }
 
   /// Show one removable chip per attachment with its full path in the tooltip.

@@ -41,6 +41,7 @@ import { $ } from "./util";
 import { mac } from "./platform";
 import * as viewer from "./viewer";
 import * as ws from "./workspace";
+import { announceWorkspaceUsage } from "./workspace-usage";
 
 // Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
@@ -86,6 +87,7 @@ const hooks: sidebar.Hooks = {
     if (archived && ws.id() === id) showDesk();
     invoke("archive_workspace", { id, archived })
       .then(() => {
+        if (archived && target) void announceWorkspaceUsage(target, state, say, false);
         if (archived && target && !target.cleaned && target.worktree !== target.repo) openCleanup(say, id);
       })
       .catch((e) => say(fromBack(e), true));
@@ -153,6 +155,7 @@ const DESK = sidebar.DESK;
 const pages = new Set([SETTINGS, ISSUES, ARCHIVED, DESK]);
 const hist: string[] = [];
 let at = -1;
+let navigationVersion = 0;
 function visit(to: string) {
   if (hist[at] === to) return;
   hist.splice(at + 1);
@@ -190,6 +193,7 @@ $("fwd").addEventListener("click", () => travel(1));
 
 /// Show one non-workspace page at a time.
 function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskView" | null) {
+  navigationVersion++;
   $("deskView").hidden = view !== "deskView";
   $("settingsView").hidden = view !== "settingsView";
   $("issuesView").hidden = view !== "issuesView";
@@ -716,7 +720,26 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
   model: tab?.choice ? tab.choice.model : (w?.model ?? ""),
   effort: tab?.choice ? tab.choice.effort : (w?.effort ?? ""),
+  telemetryConversation: w && tab && !w.remote ? state.telemetry_ids?.[`conversation:${tab.id}`] ?? tab.id : null,
+  context: tab?.context_tokens !== null && tab?.context_tokens !== undefined
+    ? { used: tab.context_tokens, window: tab.context_window ?? null } : null,
+  canCreateConversation: !!w && !w.remote && !w.cleaned && !w.archived && !w.preparing && !w.failed,
 });
+
+/** Both desk and workspace controls capture the workspace owning the clicked conversation. */
+async function newConversation(workspace: string) {
+  const target = state.workspaces.find(item => item.id === workspace);
+  if (!target || target.remote || target.cleaned || target.archived || target.preparing || target.failed) return;
+  const navigation = navigationVersion;
+  try {
+    const tab = await invoke("new_tab", { workspace, prompt: "" });
+    if (navigation !== navigationVersion) return;
+    const current = state.workspaces.find(item => item.id === workspace);
+    if (!current || current.archived || current.cleaned) return;
+    if (!current.tabs.some(item => item.id === tab.id)) current.tabs.push(tab);
+    await openWorkspace(current, true, tab.id);
+  } catch (error) { say(fromBack(error), true); }
+}
 session.init(
   (m) => say(m, true),
   () => {
@@ -724,7 +747,7 @@ session.init(
     const w = open ? view().workspaces.find((x) => x.id === open) : undefined;
     return infoOf(w, w?.tabs.find((t) => t.id === session.currentSession()));
   },
-  { comment: ws.comment, thread: ws.showNote },
+  { comment: ws.comment, thread: ws.showNote, newConversation },
 );
 desk.init({
   say,
@@ -739,6 +762,7 @@ desk.init({
     openWorkspace({ ...w, active: tab });
   },
   create: () => launch(),
+  newConversation,
   looked: alert.looked,
 });
 viewer.init((m) => say(m, true), ws.fileSaved);

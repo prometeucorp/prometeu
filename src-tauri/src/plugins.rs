@@ -17,7 +17,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// A persisted hub plugin.
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -1454,10 +1454,11 @@ pub fn plugin_make(app: AppHandle, name: String, ask: String) -> Result<Make, St
     std::fs::create_dir_all(&dir)
         .map_err(|e| i18n::ta("err.plugin.make", &[("cause", e.to_string())]))?;
     let run = next_run();
+    let generation = lock(&app.state::<crate::AppState>().telemetry).generation;
     let (slug, place) = (slug, dir.clone());
     let mine = slug.clone();
     std::thread::spawn(move || {
-        let end = make(&app, run, &place, &mine, &ask);
+        let end = make(&app, run, &place, &mine, &ask, generation);
         // Remove incomplete package directories that cannot appear as valid hub entries.
         if end.is_err() {
             std::fs::remove_dir_all(&place).ok();
@@ -1484,7 +1485,14 @@ fn stop(run: u64) {
 /// Create with claude -p inside the new directory, allowing only file tools and disabling user
 /// hooks, plugins, MCP, and shell execution. Outside-directory writes remain subject to CLI
 /// approval, unavailable in this headless flow.
-fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<(), String> {
+fn make(
+    app: &AppHandle,
+    run: u64,
+    dir: &Path,
+    slug: &str,
+    ask: &str,
+    generation: u64,
+) -> Result<(), String> {
     let mut cmd = Command::new("claude");
     cmd.args([
         "-p",
@@ -1523,11 +1531,28 @@ fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<
     let mut child = cmd
         .spawn()
         .map_err(|e| i18n::ta("err.plugin.make", &[("cause", e.to_string())]))?;
+    let state = app.state::<crate::AppState>();
+    let mut capture = crate::telemetry::AppCapture::start(
+        &state.telemetry,
+        generation,
+        crate::telemetry::Scope {
+            provider: Some("claude".into()),
+            ..Default::default()
+        },
+        crate::telemetry::AppSource::PluginMaker,
+        Some(MAKER_MODEL.into()),
+    );
+    let mut adapter = crate::claude::Adapter::fresh();
     let out = child.stdout.take();
     lock(running()).insert(run, child);
     watch(run);
     if let Some(out) = out {
         for line in BufReader::new(out).lines().map_while(Result::ok) {
+            if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                for frame in adapter.translate(&value) {
+                    capture.observe(&frame);
+                }
+            }
             if let Some(step) = step(dir, &line) {
                 let _ = app.emit("plugin-make", (run, step));
             }
@@ -1538,6 +1563,7 @@ fn make(app: &AppHandle, run: u64, dir: &Path, slug: &str, ask: &str) -> Result<
         .and_then(|mut child| child.wait().ok())
         .map(|status| status.success())
         .unwrap_or(false);
+    crate::telemetry::notify_changed(app, || capture.finish(&state.telemetry, ended));
     if !ended {
         return Err(i18n::t("err.plugin.make.failed"));
     }

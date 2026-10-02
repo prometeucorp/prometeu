@@ -101,10 +101,13 @@ type ConversationEventV1 =
       message: string;
       durationMs: number | null;
       costUsd: number | null;
+      usage?: ConversationUsage;
+      messageId?: string;
     })
   | (EventBase<"context.compacted"> & {
       before: number | null;
       after: number | null;
+      trigger?: "auto" | "manual";
     })
   | (EventBase<"background.changed"> & { tasks: BackgroundTask[] })
   | (EventBase<"system.notice"> & {
@@ -139,6 +142,31 @@ ended and `background.changed` reports no task; only `interrupted` ends both at
 once. A terminal that arrives with tasks still running is held, never dropped. Cost stays in the common event as an optional number: Claude
 may fill it in and Codex may use `null` without introducing a provider extension
 into the history.
+
+The optional `usage` extension uses the application-owned measurement shape
+from the [telemetry contract](telemetry.md#usage-and-model-attribution): nullable
+inclusive input/output counts, their cache/reasoning subsets, observed model
+rows, explicit coverage/scope, current context and a normalized per-turn cost.
+`messageId` identifies the final assistant message when the adapter can prove it.
+The presentation attaches this metadata only to the completed turn's last text
+block. Old completions without either field retain their existing behavior.
+Malformed optional usage is ignored without discarding a valid completion.
+`context.compacted.trigger` is optional and reports automatic/manual compaction
+only when the provider supplies that distinction; absent or unknown triggers do
+not acquire a label by inference.
+
+The existing top-level `costUsd` remains a legacy provider-reported value whose
+scope can be cumulative. It is preserved for compatibility and never summed or
+used as a fallback for the new footer. Only `usage.usage.costUsd` is a turn
+estimate; unknown is null, including unverifiable restored spend. There is no
+Prometeu price table or billing guarantee. `usage.updated` remains ephemeral
+account quota information and is unrelated to persisted turn consumption.
+
+Canonical completion usage follows the conversation's existing encrypted
+sharing boundary, including the CLI estimate already permitted by the legacy
+event. The local SQLite history, app-call origins and reply lookup are never
+published to the relay or Cloud. Clearing local history does not rewrite
+transcripts or copies of conversation events already shared.
 
 ## Ephemeral events
 

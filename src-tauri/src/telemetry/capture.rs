@@ -18,6 +18,9 @@ impl Board {
             self.telemetry_ids.ensure("project", &w.project);
             for t in &w.tabs {
                 self.telemetry_ids.ensure("conversation", &t.id);
+                if let Some(action) = &t.task {
+                    self.telemetry_ids.ensure("action", &action.command);
+                }
             }
             for r in &w.repos {
                 self.telemetry_ids.ensure("repository", &r.path);
@@ -31,6 +34,146 @@ impl Board {
                 }
             }
         }
+        for delegation in &self.delegations {
+            self.telemetry_ids.ensure("mcp-client", &delegation.owner);
+        }
+    }
+}
+/// Resolve live Git branches without holding board, chat or capture locks. The board alone keeps
+/// the names that supply opaque aliases; events contain only those aliases.
+pub fn conversation_attribution(app: &tauri::AppHandle, conversation: &str) -> Origin {
+    let state = app.state::<AppState>();
+    let workspace = { lock(&state.board).workspace_of(conversation).cloned() };
+    let Some(workspace) = workspace else {
+        return Origin::default();
+    };
+    let branches: Vec<_> = workspace
+        .repos
+        .iter()
+        .filter_map(|repo| {
+            crate::github::head_branch(Path::new(&repo.worktree))
+                .map(|branch| (repo.path.clone(), branch))
+        })
+        .collect();
+    let (origin, changed) = {
+        let mut board = lock(&state.board);
+        let old = board.telemetry_ids.0.len();
+        let action = board
+            .tab_mut(conversation)
+            .and_then(|t| t.task.as_ref())
+            .map(|r| r.command.clone());
+        let owner = board
+            .delegations
+            .iter()
+            .find(|d| d.id == conversation)
+            .map(|d| d.owner.clone());
+        let origin = Origin {
+            action_id: action.map(|action| board.telemetry_ids.ensure("action", &action)),
+            delegated_by: owner.map(|owner| board.telemetry_ids.ensure("mcp-client", &owner)),
+            repositories: branches
+                .into_iter()
+                .map(|(path, branch)| RepositoryBranch {
+                    repository_id: board.telemetry_ids.ensure("repository", &path),
+                    branch_id: board
+                        .telemetry_ids
+                        .ensure("branch", &format!("{path}\0{branch}")),
+                })
+                .collect(),
+        };
+        (origin, old != board.telemetry_ids.0.len())
+    };
+    if changed && crate::state::persist_now(app).is_err() {
+        lock(&state.telemetry).failed();
+        return Origin::default();
+    }
+    origin
+}
+
+/// A separate call lifecycle keeps app overhead visible without inventing conversation messages.
+pub struct AppCapture {
+    generation: u64,
+    call_id: String,
+    scope: Scope,
+    source: AppSource,
+    start: Instant,
+    measurement: Measurement,
+    outcome: Option<Outcome>,
+}
+impl AppCapture {
+    pub fn start(
+        service: &Mutex<Service>,
+        generation: u64,
+        scope: Scope,
+        source: AppSource,
+        selected: Option<String>,
+    ) -> Self {
+        let capture = Self {
+            generation,
+            call_id: id(),
+            scope,
+            source,
+            start: Instant::now(),
+            measurement: Measurement {
+                selected_model: selected,
+                ..Measurement::default()
+            },
+            outcome: None,
+        };
+        record(
+            service,
+            generation,
+            capture.scope.clone(),
+            Fact::AppCallStarted {
+                call_id: capture.call_id.clone(),
+                source: capture.source.clone(),
+                measurement: capture.measurement.clone(),
+            },
+        );
+        capture
+    }
+    pub fn observe(&mut self, frame: &Value) {
+        let value = if frame["type"] == "telemetry.usage" {
+            frame.get("measurement")
+        } else {
+            frame.get("telemetry").or_else(|| frame.get("usage"))
+        };
+        if let Some(mut measurement) =
+            value.and_then(|value| serde_json::from_value::<Measurement>(value.clone()).ok())
+        {
+            measurement.selected_model = self.measurement.selected_model.clone();
+            self.measurement = measurement;
+        }
+        if frame["type"] == "turn.completed" {
+            self.outcome = match frame["outcome"].as_str() {
+                Some("ok") => Some(Outcome::Ok),
+                Some("error") => Some(Outcome::Error),
+                Some("interrupted") => Some(Outcome::Interrupted),
+                _ => None,
+            };
+        }
+    }
+    pub fn measurement(&mut self, mut measurement: Measurement) {
+        measurement.selected_model = self.measurement.selected_model.clone();
+        self.measurement = measurement;
+    }
+    pub fn finish(self, service: &Mutex<Service>, succeeded: bool) {
+        let outcome = self.outcome.unwrap_or(if succeeded {
+            Outcome::Ok
+        } else {
+            Outcome::Interrupted
+        });
+        record(
+            service,
+            self.generation,
+            self.scope,
+            Fact::AppCallCompleted {
+                call_id: self.call_id,
+                source: self.source,
+                outcome,
+                elapsed_ms: self.start.elapsed().as_millis() as u64,
+                measurement: self.measurement,
+            },
+        );
     }
 }
 pub fn workspace_scope(board: &Board, workspace: &str) -> Option<Scope> {
@@ -157,6 +300,102 @@ pub fn associate(
     }
 }
 
+pub fn associate_history(
+    app: &tauri::AppHandle,
+    generation: u64,
+    workspace: &str,
+    path: &str,
+    branch: &str,
+    observations: &[crate::github::PrObservation],
+    complete: bool,
+) {
+    let state = app.state::<AppState>();
+    if lock(&state.telemetry).generation != generation {
+        return;
+    }
+    let (scope, repository_id, branch_id, changed) = {
+        let mut board = lock(&state.board);
+        let Some(scope) = workspace_scope(&board, workspace) else {
+            return;
+        };
+        let old = board.telemetry_ids.0.len();
+        let repository_id = board.telemetry_ids.ensure("repository", path);
+        let branch_id = board
+            .telemetry_ids
+            .ensure("branch", &format!("{path}\0{branch}"));
+        (
+            scope,
+            repository_id,
+            branch_id,
+            old != board.telemetry_ids.0.len(),
+        )
+    };
+    if changed && crate::state::persist_now(app).is_err() {
+        let mut service = lock(&state.telemetry);
+        if service.generation == generation {
+            service.failed();
+        }
+        return;
+    }
+    let snapshot_id = id();
+    let at = now();
+    let timestamp = |value: &Option<String>| crate::github::lifecycle_timestamp(value.as_deref());
+    notify_changed(app, || {
+        let mut service = lock(&state.telemetry);
+        let candidates: Vec<_> = observations
+            .iter()
+            .filter(|observation| observation.pr.head_ref_name == branch)
+            .collect();
+        for observation in &candidates {
+            let pr = &observation.pr;
+            let state = match pr.state.as_str() {
+                "OPEN" => PullRequestState::Open,
+                "CLOSED" => PullRequestState::Closed,
+                "MERGED" => PullRequestState::Merged,
+                _ => continue,
+            };
+            let mut event = Event::new(
+                scope.clone(),
+                id(),
+                Fact::PullRequestObserved {
+                    repository_id: repository_id.clone(),
+                    branch_id: branch_id.clone(),
+                    pull_request: pr.number,
+                    state,
+                    created_at: timestamp(&observation.created_at),
+                    closed_at: timestamp(&observation.closed_at),
+                    merged_at: timestamp(&observation.merged_at),
+                    history_complete: complete
+                        && [
+                            &observation.created_at,
+                            &observation.closed_at,
+                            &observation.merged_at,
+                        ]
+                        .iter()
+                        .all(|value| value.is_none() || timestamp(value).is_some()),
+                    snapshot_id: snapshot_id.clone(),
+                    history_size: candidates.len() as u64,
+                    observed_after: observation.observed_after,
+                },
+            );
+            event.occurred_at = at;
+            service.capture(generation, &event);
+            service.capture(
+                generation,
+                &Event::new(
+                    scope.clone(),
+                    id(),
+                    Fact::PullRequestAssociated {
+                        repository_id: repository_id.clone(),
+                        branch_id: Some(branch_id.clone()),
+                        pull_request: pr.number,
+                    },
+                ),
+            );
+        }
+    });
+}
+
 struct Span {
     id: String,
     start: Instant,
@@ -193,7 +432,17 @@ impl Capture {
     pub fn initialized(&self) -> bool {
         self.scope.is_some()
     }
+    #[cfg(test)]
     pub fn accepted(&mut self, service: &mut Service, scope: Scope, selected: Option<String>) {
+        self.accepted_with_origin(service, scope, selected, Origin::default());
+    }
+    pub fn accepted_with_origin(
+        &mut self,
+        service: &mut Service,
+        scope: Scope,
+        selected: Option<String>,
+        origin: Origin,
+    ) {
         if self.generation != service.generation {
             self.erased_main |= self.main.take().is_some();
             self.retired_children.extend(self.children.keys().cloned());
@@ -218,6 +467,7 @@ impl Capture {
             scope.clone(),
             Fact::TurnStarted {
                 measurement: self.measurement.clone(),
+                origin,
             },
             "start",
         );
@@ -299,6 +549,7 @@ impl Capture {
                 if let Some(turn) = self.turn.take() {
                     if let Some(m) = frame
                         .get("telemetry")
+                        .or_else(|| frame.get("usage"))
                         .and_then(|v| serde_json::from_value::<Measurement>(v.clone()).ok())
                     {
                         self.merge(m);
@@ -314,12 +565,17 @@ impl Capture {
                     scope.turn_id = Some(turn);
                     self.emit(
                         service,
-                        scope,
+                        scope.clone(),
                         Fact::TurnCompleted {
                             outcome,
                             elapsed_ms: elapsed,
                             provider_duration_ms: frame["providerDurationMs"].as_u64(),
                             measurement: self.measurement.clone(),
+                            message_key: scope
+                                .conversation_id
+                                .as_deref()
+                                .zip(frame["messageId"].as_str())
+                                .map(|(conversation, message)| message_key(conversation, message)),
                         },
                         "completed",
                     );
