@@ -189,13 +189,17 @@ function paintHead(head: HTMLElement, w: Workspace, tab: Tab) {
 }
 
 /// Listen for pointer movement and completion on document. Reordering DOM nodes can release element pointer capture; pointerup and pointercancel share cleanup.
+/// Cancelling pointerdown does not stop WebKit from starting a text selection, so block selectstart for the whole gesture.
 function gesture(move: (m: PointerEvent) => void, stop: () => void) {
+  const select = (e: Event) => e.preventDefault();
   const end = () => {
     document.removeEventListener("pointermove", move);
     document.removeEventListener("pointerup", end);
     document.removeEventListener("pointercancel", end);
+    document.removeEventListener("selectstart", select);
     stop();
   };
+  document.addEventListener("selectstart", select);
   document.addEventListener("pointermove", move);
   document.addEventListener("pointerup", end);
   document.addEventListener("pointercancel", end);
@@ -210,6 +214,7 @@ function drag(el: HTMLElement, head: HTMLElement) {
     const y0 = e.clientY;
     let ghost: HTMLElement | null = null;
     const start = () => {
+      getSelection()?.removeAllRanges();
       const box = el.getBoundingClientRect();
       ghost = h("div", "tile ghost");
       ghost.append(head.cloneNode(true));
@@ -261,9 +266,15 @@ function grip(el: HTMLElement, id: string) {
     const y0 = e.clientY;
     const w0 = el.offsetWidth;
     const h0 = el.offsetHeight;
+    let moved = false;
     el.classList.add("sizing");
     gesture(
       (m) => {
+        if (!moved) {
+          if (m.clientX === x0 && m.clientY === y0) return;
+          getSelection()?.removeAllRanges();
+          moved = true;
+        }
         el.style.width = `${w0 + m.clientX - x0}px`;
         el.style.height = `${h0 + m.clientY - y0}px`;
       },
