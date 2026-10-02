@@ -4,6 +4,21 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.22.0] - 2026-10-02
+
+### New
+
+- **usage:** Show local token usage and context insights
+
+### Fixes
+
+- **mcp:** Let the MCP picker scroll when your account has many connectors
+- **mcp:** Resume arrow keys from the row you just chose in the tool picker
+- **mcp:** Keep the chosen action selected when labels collide
+- **usage:** Distinguish providers and refresh context actions
+- **desk:** Stop selecting text while dragging a conversation
+- **desk:** Preserve selected text when clicking conversation handles
+
 ## [0.21.0] - 2026-09-29
 
 ### New
