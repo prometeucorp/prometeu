@@ -240,11 +240,16 @@ hypotheses, not quality guarantees. Compact, Context report and New conversation
 are explicit capability-driven actions; invoking a context command preserves
 the draft. Desktop desk frames use the same ChatView controls. Unknown windows
 hide the gauge. Compaction labels include automatic/manual only when reported.
+An open context panel follows current action availability. Updates retain focus
+on an available action, or return it to the panel if that action becomes disabled.
 
 Workspace headers show one total and a panel with token subsets, known cost,
 coverage, execution/wait clocks, observed models, conversations, app-call sources
 and PR evidence. Finish/archive include the read-only total without an extra
 approval flow. Missing or removed names use localized opaque-ID fallbacks.
+Observed model rows retain their provider label when known, so identical model
+IDs from different providers remain distinguishable. Providers absent from the
+current catalog retain their recorded identifier; a missing provider is not inferred.
 
 Local `telemetry-changed` invalidations refresh the current workspace after
 turn completion, app-call capture or a complete PR-history capture attempt,

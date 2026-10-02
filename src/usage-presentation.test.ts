@@ -87,5 +87,18 @@ describe("usage presentation", () => {
     });
     const partial = workspaceUsageData({ ...insight, usage: { ...measured, cacheReadTokens: 200 } }, { conversations: new Map(), repositories: new Map() });
     expect(partial.metrics?.some(row => row.label === t("usage.cacheShare"))).toBe(false);
+
+    const providers = workspaceUsageData({ ...insight, models: [
+      { id: "shared-model", provider: "claude", turns: 1, usage: measured },
+      { id: "shared-model", provider: "codex", turns: 1, usage: usage({ inputTokens: 50, outputTokens: 10 }) },
+      { id: "historical-model", provider: "old-provider", turns: 1, usage: measured },
+      { id: "unattributed-model", provider: null, turns: 1, usage: measured },
+    ] }, { conversations: new Map(), repositories: new Map(), providers: new Map([["claude", "Claude"], ["codex", "Codex"]]) });
+    expect(providers.groups?.find(group => group.title === t("usage.models"))?.rows.map(({ label, value }) => ({ label, value }))).toEqual([
+      { label: "shared-model · Claude", value: "120 tokens" },
+      { label: "shared-model · Codex", value: "60 tokens" },
+      { label: "historical-model · old-provider", value: "120 tokens" },
+      { label: "unattributed-model", value: "120 tokens" },
+    ]);
   });
 });

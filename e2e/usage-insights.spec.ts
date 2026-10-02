@@ -19,6 +19,24 @@ test("context actions preserve the draft and return keyboard focus", { tag: "@we
   await expect(panel).toBeVisible();
   await panel.press("Tab");
   await expect(panel.getByRole("button", { name: "Compact", exact: true })).toBeFocused();
+
+  // Background turn changes must refresh open controls without losing the keyboard position.
+  await page.evaluate(() => {
+    const w = window as unknown as { mock: { line: (tab: string, event: unknown) => void } };
+    w.mock.line("t1", { v: 1, type: "session.state", at: Date.now(), state: "busy" });
+  });
+  await expect(panel.getByRole("button", { name: "Compact", exact: true })).toBeDisabled();
+  await expect(panel.getByRole("button", { name: "Context report", exact: true })).toBeDisabled();
+  await expect(panel).toBeFocused();
+  await panel.press("Tab");
+  await expect(panel.getByRole("button", { name: "New conversation", exact: true })).toBeFocused();
+  await page.evaluate(() => {
+    const w = window as unknown as { mock: { line: (tab: string, event: unknown) => void } };
+    w.mock.line("t1", { v: 1, type: "session.state", at: Date.now(), state: "ready" });
+  });
+  await expect(panel.getByRole("button", { name: "Compact", exact: true })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "Context report", exact: true })).toBeEnabled();
+  await expect(panel.getByRole("button", { name: "New conversation", exact: true })).toBeFocused();
   await panel.press("Escape");
   await expect(gauge).toBeFocused();
   await gauge.press("Enter");

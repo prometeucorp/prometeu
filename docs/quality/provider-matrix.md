@@ -42,7 +42,10 @@ Issue 131's presentation is covered by `src/usage-presentation.test.ts`,
 `src/workspace-usage.test.ts`, `src/timeline.test.ts`, `src/conversation.test.ts`, `src/telemetry.test.ts` and
 `e2e/usage-insights.spec.ts`. The browser scenario protects keyboard/Escape focus
 and preservation of the typed draft when a context action uses the shared
-popover; pure tests cannot establish browser focus after DOM updates. It does
+popover, including a turn starting and ending while the panel stays open. The
+disabled-action transition must preserve Tab/Escape focus in Chromium and WebKit;
+pure tests cannot establish browser focus after DOM replacement. Model/provider
+label disambiguation stays in the pure presentation tests. The browser case does
 not multiply provider or locale variants, and it does not exercise a native CLI.
 Adapter fixture tests cover consecutive counters, restored/reset/error results
 and duplicate observations; synthetic Claude fixtures explicitly declare their

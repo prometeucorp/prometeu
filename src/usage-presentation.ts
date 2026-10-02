@@ -75,7 +75,7 @@ export function workspaceUsageLabel(insights: TelemetryInsights): string {
 }
 
 /** Names remain in the current board, outside the private measurement store. */
-export function workspaceUsageData(insights: TelemetryInsights, names: { conversations: Map<string, string>; repositories: Map<string, string> }): UsagePanel {
+export function workspaceUsageData(insights: TelemetryInsights, names: { conversations: Map<string, string>; repositories: Map<string, string>; providers?: ReadonlyMap<string, string> }): UsagePanel {
   const { summary, usage } = insights;
   const metrics = usageMetrics(usage);
   if (usage.inputTokens !== null && usage.inputTokens > 0 && usage.cacheReadTokens !== null && usage.cacheReadTokens <= usage.inputTokens) {
@@ -108,7 +108,8 @@ export function workspaceUsageData(insights: TelemetryInsights, names: { convers
         label: `${names.repositories.get(pr.repositoryId) ?? t("usage.repositoryMissing", { id: pr.repositoryId.slice(0, 8) })} · ${t("usage.pr", { n: pr.pullRequest })}`,
         ...(pr.attribution === "tenure" ? amount(pr.usage, t("usage.prTenure")) : { value: "" }),
       })) },
-      { title: t("usage.models"), rows: insights.models.map(group => row(group, group.id)) },
+      { title: t("usage.models"), rows: insights.models.map(group => row(group,
+        group.provider ? `${group.id} · ${names.providers?.get(group.provider) ?? group.provider}` : group.id)) },
       { title: t("usage.conversations"), rows: insights.conversations.map(group => row(group, names.conversations.get(group.id) ?? t("usage.conversationMissing", { id: group.id.slice(0, 8) }))) },
       { title: t("usage.sources"), rows: insights.sources.filter(group => group.id !== "conversation").map(group => ({ label: sourceLabel(group.id), ...amount(group.usage) })) },
       { title: t("usage.automations"), description: t("usage.originsHint"), rows: insights.origins.map(group => row(group, sourceLabel(group.id))) },

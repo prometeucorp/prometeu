@@ -1,5 +1,6 @@
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
+import { descriptors } from "./agents";
 import { t, tn } from "./i18n";
 import { onTelemetryCleared, type TelemetryInsights } from "./telemetry";
 import { pending, tabLabel, type Board, type Workspace } from "./types";
@@ -60,6 +61,7 @@ export class WorkspaceUsage {
     const names = {
       conversations: new Map(this.workspace.tabs.map(tab => [identity(this.board, "conversation", tab.id), tabLabel(this.workspace!, tab)])),
       repositories: new Map(this.workspace.repos.map(repo => [identity(this.board, "repository", repo.path), repo.name])),
+      providers: new Map(descriptors().map(provider => [provider.id, provider.label])),
     };
     return workspaceUsageData(this.snapshot, names);
   }

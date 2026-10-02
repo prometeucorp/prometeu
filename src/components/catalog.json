@@ -5,7 +5,7 @@
     "source": "src/components/chat/usage.ts",
     "exports": ["contextGauge"],
     "consumers": ["src/chat.ts"],
-    "states": ["normal", "warn", "hot", "unknown"]
+    "states": ["normal", "warn", "hot", "busy", "unknown"]
   },
   {
     "id": "usage-summary",

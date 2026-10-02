@@ -176,3 +176,21 @@ based on the documented CLI contract. Existing Antigravity recordings and Codex
 protocol fixtures remain covered. No live installed-CLI or native webview
 conformance is claimed. Unknown cost/model/call measurements stay null rather
 than being extrapolated from another provider.
+
+### PR 170 review follow-up
+
+Both Greptile presentation findings were reproduced before correction. Model rows
+now retain provider labels supplied by the host catalog, with recorded-identifier
+fallbacks and no inferred attribution. The pure presentation regression covers
+identical model IDs across providers and missing catalog/provider values.
+
+The open context panel now updates its actions and callbacks, preserving scroll
+and available action focus. A disabled or removed focused action returns focus to
+the panel. The existing browser interaction was extended to cover a turn starting
+and ending with the panel open, Tab navigation and Escape restoration; DOM focus
+after replacement requires browser evidence. The gallery includes the busy state.
+
+Validation after both fixes: the focused presentation tests and Chromium/WebKit
+interaction passed, followed by the complete `npm run check` (635 web tests,
+523 native tests with 8 existing ignored integrations, 181 browser scenarios,
+builds, contracts, documentation, architecture, formatting and Clippy).

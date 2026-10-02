@@ -43,12 +43,13 @@ export const stories: Record<string, Factory> = {
   "context-gauge"(state, report) {
     const gauge = contextGauge();
     const used = state === "hot" ? "180k" : state === "warn" ? "140k" : "24k";
+    const band = state === "hot" ? "hot" : state === "warn" ? "warn" : "normal";
     gauge.update(state === "unknown" ? null : {
       label: t("usage.context", { used, window: "200k" }), percent: state === "hot" ? 90 : state === "warn" ? 70 : 12,
-      band: state === "hot" ? "hot" : state === "warn" ? "warn" : "normal",
-      panel: { title: t("usage.contextTitle"), description: t(state === "normal" ? "usage.contextHint" : "usage.freshContext"), actions: [
-        { label: t("usage.compact"), run: () => report("compact") },
-        { label: t("usage.contextReport"), run: () => report("context") },
+      band,
+      panel: { title: t("usage.contextTitle"), description: t(band === "normal" ? "usage.contextHint" : "usage.freshContext"), actions: [
+        { label: t("usage.compact"), disabled: state === "busy", run: () => report("compact") },
+        { label: t("usage.contextReport"), disabled: state === "busy", run: () => report("context") },
         { label: t("usage.newConversation"), run: () => report("new conversation") },
       ] },
     });

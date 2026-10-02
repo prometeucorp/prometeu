@@ -87,6 +87,18 @@ export function contextGauge() {
       label.textContent = next.label;
       meter.className = `meter${next.band === "normal" ? "" : ` ${next.band}`}`;
       fill.style.width = `${Math.max(0, Math.min(100, next.percent))}%`;
+      if (panel?.isConnected) {
+        const focused = panel.contains(document.activeElement) ? document.activeElement : null;
+        const action = focused?.closest("button")?.textContent;
+        const scroll = panel.scrollTop;
+        panel.replaceChildren(...usagePanel(next.panel).childNodes);
+        panel.setAttribute("aria-label", next.panel.title);
+        if (focused) {
+          const control = [...panel.querySelectorAll<HTMLButtonElement>("button:enabled")].find(button => button.textContent === action);
+          (control ?? panel).focus({ preventScroll: true });
+        }
+        panel.scrollTop = scroll;
+      }
     },
   };
 }
