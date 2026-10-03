@@ -1,10 +1,10 @@
 # Workspace Git
 
-Status: implemented. Production desktop Git runs on the Mac that owns the
-workspace. The shared native Windows application now uses the same repository
-implementation in WSL for review, index actions, history, branches and conflicts.
-Worktree preparation has its [workspace contract](wsl-workspaces.md); cleanup
-remains desktop-only in the current Windows integration.
+Status: implemented. Desktop Git runs on the machine that owns the workspace.
+The native Windows application runs the same `prometeu-git` implementation in
+WSL; its worktree creation and cleanup are described in the
+[WSL runtime](wsl-runtime.md#workspace-methods) and
+[Windows](windows-application.md#workspace-lifecycle) contracts.
 
 ## Responsibilities
 
@@ -314,16 +314,11 @@ nonzero exits still allow use of a valid local ref. A timeout retains the existi
 error code and now kills/reaps the owned group. Other repository Git commands
 retain their existing adapters. Real-repository preparation tests and injected
 `fetch_port_tests` in `session.rs` cover this boundary; see
-[bounded commands](application-core.md#bounded-commands-and-queries).
+[bounded commands](application-core.md#processes-terminals-and-commands).
 
 ## Windows application verification
 
-`runtime/tests/resident.rs` exercises these commands over the actual application
-transport: literal paths, per-repository admission, status/tree marks, diff, stale
-commit-token rejection, staged-only commit, history, branches and deleted-file
-restoration. The native Windows journey uses the original editor and Changes
-panel to stage and commit, verifying Git and unstaged content on WSL disk.
-Native process behavior (including Git configuration, hooks and authentication)
-is preserved by this extraction. Git commands still have their original process
-lifetime; slow hooks/network operations can occupy the runtime request handler.
-Asynchronous/bounded execution remains an integration concern, not a new guarantee.
+`runtime/tests/resident.rs` runs these commands over the application transport,
+including deferred execution with real hooks; the opt-in native journey stages and
+commits through the original Changes panel. Git keeps its original process
+lifetime, without a new timeout or hook cancellation.

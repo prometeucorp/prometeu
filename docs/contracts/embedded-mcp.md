@@ -206,7 +206,7 @@ ANSI escapes and uses lossy UTF-8 decoding at byte boundaries. `seq` belongs to
 the current PTY and is not a durable cursor. The existing 512 KiB scrollback
 limit still applies. Missing logs return `script_not_started`. The core terminal
 buffer and injected native factory preserve these fields; see the
-[terminal boundary](application-core.md#terminals-and-private-subprocesses).
+[terminal boundary](application-core.md#processes-terminals-and-commands).
 
 Preview opening emits a local `workspace-preview` event to the main webview,
 with the owned workspace and conversation IDs. The desktop rechecks their

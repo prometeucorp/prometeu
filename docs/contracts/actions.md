@@ -146,4 +146,4 @@ without blocking each other; timeout/overflow cleans up the owned process group.
 A descendant retaining a pipe cannot hold the monitor indefinitely. Existing
 JSON parsing and timeout/response error codes stay in `github.rs`; oversized
 stderr now returns the response error instead of a truncated diagnostic.
-See [bounded commands](application-core.md#bounded-commands-and-queries).
+See [bounded commands](application-core.md#processes-terminals-and-commands).

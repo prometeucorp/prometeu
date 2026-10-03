@@ -445,25 +445,15 @@ conversation transcript or existing exports.
 
 ## Pending session input
 
-`prometeu-core::session::SessionService` owns pending-input updates through an
-explicit board reference. It preserves the existing `pending_prompt` field and
-append order across setup, account changes and process loss. Failed sends put
-the original prompt before any subsequently queued text. Publication precedes
-revival but keeps the ordinary asynchronous save semantics above. No format
-migration is introduced. Recovery and sibling/stage preservation are covered by
-`crates/core/src/session/tests.rs`; desktop adapters supply real process and
-account effects. See [session coordination](application-core.md#session-coordination).
+`SessionService` keeps the existing `pending_prompt` field and its append order
+across setup, account changes and process loss; a failed send puts the original
+prompt before later text. No format migration is introduced. See
+[sessions](application-core.md#sessions-launch-and-workers).
 
-## Experimental headless root
+## WSL runtime root
 
-The development runtime uses a separate, exclusively leased directory with
-versioned `runtime.json` and canonical `transcript.jsonl`. It rejects desktop
-root adoption. Formats, private permissions and recovery limits are defined in
-the [headless contract](headless-runtime.md#storage-and-ownership).
-
-WSL lifecycle changes preserve the existing catalog and transcript formats.
-Cleanup deletes the worktree, not its private conversation store. An existing
-`runtime.json` may reopen with a missing working directory only when its saved
-version, provider and directory still match; a new store requires a real directory.
-The host binds stores for all tabs before deleting a worktree, including tabs whose
-initial launch was cancelled during Setup.
+On Windows, execution state lives in a separate, exclusively leased WSL root that
+reuses these board, transcript, account and tool formats and never adopts a
+desktop root. Its layout, the `workspaces.json` catalog and recovery limits are
+in the [WSL runtime protocol](wsl-runtime.md#storage-and-ownership). Worktree
+cleanup deletes the checkout, not its conversation store.

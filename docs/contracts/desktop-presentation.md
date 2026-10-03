@@ -168,5 +168,4 @@ See the [agent composition recipe](../architecture/desktop-composition.md).
 The request card's `allowAlways` callback is optional. Hosts that cannot change
 permission policy omit it; the card then omits permanent approval and plan-bypass
 actions while retaining one-request approval, denial and question responses.
-The native WSL preview uses this narrower contract. Existing Desktop consumers
-continue to supply the callback and retain their behavior.
+Existing Desktop consumers supply the callback and retain their behavior.

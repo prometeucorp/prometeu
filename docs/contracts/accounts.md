@@ -37,20 +37,12 @@ attempt must be completed or cancelled.
 
 ## Registry ownership
 
-`prometeu-core::accounts::AccountRegistry` owns registration, selection, revision
-lookup and serialized updates through an injected `AccountStore`. Each instance
-has independent state. `prometeu-files::accounts` supplies shared private file storage with an explicit
-root; `account_store.rs` reexports it for desktop composition. `accounts.rs` retains the desktop singleton facade, profile paths,
-the blocking executor, quota effects and events; provider adapters retain credentials.
-`LoginState` and `LoginService` in the core own login admission, cancellation,
-registration and revision commits. Authentication is injected from
-`account_login.rs`, and host observations/publication use `LoginEffects`.
-The [core contract](application-core.md#account-registry) specifies failure and
-concurrency semantics. This extraction changes no login, selection or IPC behavior.
-
-The [login lifecycle contract](application-core.md#account-login-lifecycle)
-specifies effect ordering and host cleanup obligations. Native protocol output
-remains private; only identity metadata returns through authentication.
+Registry, selection and login rules live in `prometeu-core::accounts`, with
+storage (`prometeu-files::accounts`) and native authentication (`account_login.rs`)
+injected. `accounts.rs` keeps the desktop facade, executor, quota effects and
+events; provider adapters keep credentials, and only identity metadata returns
+from authentication. Failure, concurrency and cleanup obligations are in the
+[core contract](application-core.md#accounts-and-profiles).
 
 ## Registry and IPC
 
@@ -127,12 +119,8 @@ terminal account.
 
 ## Profiles and credentials
 
-`prometeu-profiles` implements Unix profile resolution, preparation and child
-environments without Tauri. The desktop injects `ProfileBackend` into provider
-startup and native authentication, with explicit roots and a `ProfileFiles`
-adapter for private atomic writes. Existing secondary features use the account
-facade over that same implementation. See the
-[native profile contract](application-core.md#native-account-profiles).
+`prometeu-profiles` implements the profiles below; the desktop injects it into
+provider startup and native authentication.
 
 Managed profiles live in `<root>/accounts/<uuid>/`, with a `0700` directory.
 They explicitly share history, skills and plugins; they never share inference
@@ -218,15 +206,13 @@ selection are discarded.
 - `crates/core/src/accounts/login/tests.rs`: login and reconnection ordering,
   active-turn refusal, cancellation, authentication/persistence failures, busy
   restrictions, external attachment and independent hosts through injected effects.
-
 - `crates/core/src/accounts/tests.rs`: registry failures, concurrent updates,
   host isolation, empty selection and opaque-provider compatibility through
   injected storage; `account_store.rs` checks private files and corrupt storage.
-
 - `crates/core/src/auxiliary.rs` and `crates/process/src/auxiliary/tests.rs`: private
   authentication transport, cancellation/deadline policies and native cleanup;
   provider edges inject the Unix launcher. See the
-  [core contract](application-core.md#terminals-and-private-subprocesses).
+  [core contract](application-core.md#processes-terminals-and-commands).
 - `accounts.rs`: compatibility with old registries, removal of every account,
   persistence of the empty selection and cancellation with process termination.
 - `claude.rs`, `codex/account.rs`: native authentication and identity fixtures.

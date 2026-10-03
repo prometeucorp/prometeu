@@ -6,20 +6,11 @@ This contract defines how a single Prometeu catalog feeds Claude Code and Codex
 sessions. The hub is product state; each CLI's manifests, arguments and caches
 are adapter details.
 
-Provider startup accesses materialization through the injected
-`prometeu-tools::StartupTools` interface. The shared `NativeTools` implementation receives a
-`PackageBackend` from the Tauri-free tools crate, with injected catalog,
-private-file and installer dependencies; MCP encoding also uses injected
-sources/private writes. The captured profile, configuration
-scope, canonical IDs and hook IDs retain their existing meaning. Plugin repository
-import/update, registration and removal use the shared `PluginLibrary` with
-injected roots, catalog, private writes and bounded commands. Local skill mutation
-also uses injected file and package-registry ports. WSL Codex composes these
-services with its private local hubs and installed executable; agent-generated
-plugin creation and Cloud remain desktop use cases. Core `tool_resolution`
-shares selection, provenance and exact-hash trust with both hosts. See
-[ADR 0077](../decisions/0077-injected-startup-tools.md) and
-[ADR 0078](../decisions/0078-injected-native-packages.md).
+Materialization, registration, Git import and skill authoring live in the
+Tauri-free `prometeu-tools` crate behind injected ports, shared by the desktop
+and the WSL runtime; the captured profile, configuration scope, canonical IDs and
+hook IDs keep their meaning. See
+[tools and packages](application-core.md#tools-and-packages).
 
 ## Hub
 
