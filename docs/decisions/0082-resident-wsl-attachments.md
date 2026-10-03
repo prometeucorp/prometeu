@@ -22,6 +22,9 @@ unattached live delivery and detaches slow consumers rather than blocking or
 failing transcript persistence. Only one client can attach at a time. The root
 lease reserves execution ownership; transport attachment never takes it over.
 Launch configuration must match before requests can be admitted.
+The listener uses nonblocking acceptance; each accepted stream explicitly uses
+blocking worker I/O and the contract's read/write deadlines. Socket mode is set
+at the Unix adapter boundary rather than relying on platform-specific inheritance.
 
 `AttachmentClient::disconnect` releases only the connection. Explicit shutdown
 stops both children and the host; Stop remains scoped to the conversation.

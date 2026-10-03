@@ -322,6 +322,7 @@ impl Client {
         if client.input.is_none() {
             return Err("launcher did not provide stdin".into());
         }
+        let (diagnostics_done, drained) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let mut stderr = stderr;
             let mut bytes = [0; 1024];
@@ -336,10 +337,13 @@ impl Client {
                     text.remove(0);
                 }
             }
+            let _ = diagnostics_done.send(());
         });
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
-            let result = read_frames(stdout, &shared, ready_tx);
+            // Retain the sender until failure publication, so an early EOF cannot
+            // disconnect the handshake channel before its reason is available.
+            let result = read_frames(stdout, &shared, &ready_tx);
             shared.fail(
                 result
                     .err()
@@ -366,6 +370,9 @@ impl Client {
             }
             result => {
                 client.close();
+                // Process exit and the stderr reader complete independently. Bound
+                // this wait in case a descendant retained the diagnostic pipe.
+                let _ = drained.recv_timeout(Duration::from_secs(1));
                 let reason = match result {
                     Ok(Err(e)) => e,
                     _ => client
@@ -576,7 +583,7 @@ impl Drop for Client {
 fn read_frames(
     stdout: impl Read,
     shared: &Shared,
-    ready: mpsc::SyncSender<Result<Ready, String>>,
+    ready: &mpsc::SyncSender<Result<Ready, String>>,
 ) -> Result<(), String> {
     let mut reader = BufReader::new(stdout);
     let hello = read_frame(&mut reader)?;
@@ -687,7 +694,7 @@ mod tests {
             .iter()
             .map(|frame| format!("{frame}\n"))
             .collect::<String>();
-        assert!(read_frames(wire.as_bytes(), &shared, ready).is_err());
+        assert!(read_frames(wire.as_bytes(), &shared, &ready).is_err());
         assert!(ready_rx.recv().unwrap().unwrap().capabilities.is_empty());
         assert_eq!(rx.recv().unwrap().unwrap()["accepted"], true);
         assert_eq!(events.0.lock().unwrap().len(), 1);
@@ -716,7 +723,7 @@ mod tests {
                 .iter()
                 .map(|frame| format!("{frame}\n"))
                 .collect::<String>();
-            assert!(read_frames(wire.as_bytes(), &shared, ready).is_err());
+            assert!(read_frames(wire.as_bytes(), &shared, &ready).is_err());
         }
     }
     #[test]
@@ -735,7 +742,7 @@ mod tests {
             "{}\n",
             json!({"v":1,"lifecycle":"ready","provider":"codex","capabilities":["terminal.v1","future"]})
         );
-        assert!(read_frames(hello.as_bytes(), &shared, ready).is_err());
+        assert!(read_frames(hello.as_bytes(), &shared, &ready).is_err());
         assert_eq!(
             rx.recv().unwrap().unwrap().capabilities,
             ["terminal.v1", "future"]

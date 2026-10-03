@@ -45,6 +45,9 @@ canonical `workdir`, `codex`, `model` and resolved `shell`. These must match the
 resident configuration exactly. The host rejects mismatches without executing a
 command. The internal attachment line has a two-second timeout for each socket read and the
 same 1 MiB bound as requests. Rejected connections never receive a ready frame.
+The listener is nonblocking, but each accepted stream is explicitly switched to
+blocking mode before the handshake and dedicated reader/writer workers use it.
+This does not depend on the host's socket-flag inheritance behavior.
 The provider's inherited environment is fixed at host creation; matching paths
 do not reload credentials, environment, executable contents or configuration.
 `--catalog` selects initialization only when spawning a resident; it is not part

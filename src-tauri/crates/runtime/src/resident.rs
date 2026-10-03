@@ -148,6 +148,9 @@ pub fn serve(
         host.poll_launches()?;
         match listener.accept() {
             Ok((mut socket, _)) => {
+                // Accepted sockets inherit nonblocking mode on some Unix hosts.
+                // Attachment and worker reads use blocking I/O with explicit deadlines.
+                socket.set_nonblocking(false).map_err(|e| e.to_string())?;
                 socket
                     .set_write_timeout(Some(Duration::from_secs(2)))
                     .map_err(|e| e.to_string())?;

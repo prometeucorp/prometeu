@@ -34,6 +34,12 @@ replace the eventual production service bridge. The development envelope and
 headless private metadata remain compatible with ADR 0079; desktop IPC and
 existing state formats are untouched.
 
+Bootstrap failure publication precedes handshake-channel closure. After stopping
+the child, failure reporting waits at most one second for the bounded stderr tail:
+this preserves diagnostics despite reader scheduling without trusting descendants
+to close inherited pipes. The runtime/bridge startup-failure integration test
+checks that native error details reach the caller.
+
 The isolated composition now selects the resident launcher under
 [ADR 0082](0082-resident-wsl-attachments.md). Disconnect detaches the client;
 the live conversation and supporting terminal remain owned by the host.

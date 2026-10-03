@@ -140,6 +140,10 @@ payloads are at most 1 MiB, incoming JSON lines at most 8 MiB, and bootstrap
 stderr retains only its final 4 KiB. A larger transcript snapshot fails explicitly;
 chunked replay remains future work. Startup and reply waits expire after 30 seconds.
 The underlying synchronous pipe write is not an interruptible deadline.
+After a failed handshake, the bridge closes the child and gives the stderr drain
+up to one additional second to finish before reporting its bounded diagnostic tail.
+An early stdout EOF publishes its failure before releasing the handshake waiter;
+it must not race into a misleading startup timeout.
 
 A wrong version, malformed/truncated/oversized frame, unexpected reply, EOF or
 reply timeout invalidates the connection and disables sending. Diagnostic errors
