@@ -272,6 +272,45 @@ struct Step {
     tool: bool,
     block: Option<Value>,
 }
+
+fn measured_usage(raw: &Value) -> crate::telemetry::Usage {
+    let read = raw["cache_read_tokens"].as_u64();
+    let output = raw["output_tokens"].as_u64();
+    crate::telemetry::Usage {
+        input_tokens: raw["input_tokens"]
+            .as_u64()
+            .zip(read)
+            .and_then(|(input, read)| input.checked_add(read)),
+        output_tokens: output,
+        cache_read_tokens: read,
+        reasoning_tokens: raw["thinking_tokens"]
+            .as_u64()
+            .filter(|thinking| output.is_some_and(|output| *thinking <= output)),
+        ..Default::default()
+    }
+}
+
+fn usage_delta(
+    current: &crate::telemetry::Usage,
+    previous: &crate::telemetry::Usage,
+) -> Option<crate::telemetry::Usage> {
+    let diff = |current: Option<u64>, previous: Option<u64>| current?.checked_sub(previous?);
+    let input = diff(current.input_tokens, previous.input_tokens)?;
+    let output = diff(current.output_tokens, previous.output_tokens)?;
+    let read = diff(current.cache_read_tokens, previous.cache_read_tokens)?;
+    let noncached =
+        |usage: &crate::telemetry::Usage| usage.input_tokens?.checked_sub(usage.cache_read_tokens?);
+    diff(noncached(current), noncached(previous))?;
+    Some(crate::telemetry::Usage {
+        input_tokens: Some(input),
+        output_tokens: Some(output),
+        cache_read_tokens: Some(read),
+        reasoning_tokens: diff(current.reasoning_tokens, previous.reasoning_tokens)
+            .filter(|reasoning| *reasoning <= output),
+        ..Default::default()
+    })
+}
+
 pub struct Link {
     out: Option<Box<dyn Write + Send>>,
     session: Option<String>,
@@ -283,11 +322,16 @@ pub struct Link {
     steps: BTreeMap<u64, Step>,
     started: Instant,
     turn_id: String,
+    fresh: bool,
+    baseline: Option<(String, crate::telemetry::Usage)>,
+    measurements: BTreeMap<u64, crate::telemetry::Usage>,
+    completed: bool,
 }
 impl Link {
     fn new(out: Box<dyn Write + Send>, session: Option<String>, instructions: String) -> Self {
         Self {
             out: Some(out),
+            fresh: session.is_none(),
             session,
             identity_sent: false,
             instructions,
@@ -297,6 +341,9 @@ impl Link {
             steps: BTreeMap::new(),
             started: Instant::now(),
             turn_id: String::new(),
+            baseline: None,
+            measurements: BTreeMap::new(),
+            completed: false,
         }
     }
     pub fn close(&mut self) {
@@ -349,6 +396,7 @@ impl Link {
         self.busy = true;
         self.user_interrupted = false;
         self.steps.clear();
+        self.measurements.clear();
         self.started = Instant::now();
         self.turn_id = uuid::Uuid::new_v4().to_string();
         Ok(())
@@ -395,6 +443,16 @@ impl Link {
             return vec![];
         }
         let mut out = self.identity(v);
+        if v["step_type"] == "agent_response" && v["usage"].is_object() {
+            let usage = measured_usage(&v["usage"]);
+            if self.measurements.get(&index) != Some(&usage) {
+                self.measurements.insert(index, usage);
+                out.push(event(
+                    "telemetry.usage",
+                    json!({"measurement":self.partial_usage()}),
+                ));
+            }
+        }
         if v["step_type"] == "agent_response"
             && v["text_delta"].as_str().is_none_or(str::is_empty)
             && !self.steps.contains_key(&index)
@@ -470,7 +528,7 @@ impl Link {
         let mut out = self.identity(v);
         let status = v["status"].as_str().unwrap_or("INVALID");
         // A failed startup can produce a result before any prompt is accepted.
-        if !self.busy && status == "SUCCESS" {
+        if !self.busy && (status == "SUCCESS" || self.completed) {
             return out;
         }
         for (index, step) in &self.steps {
@@ -499,14 +557,96 @@ impl Link {
         } else {
             "error"
         };
-        // Native duration and token totals are cumulative, so measure the accepted turn locally.
-        out.push(event("turn.completed", json!({"outcome":outcome,"message":if outcome == "error" {if denied {i18n::t("err.antigravity.permission")} else {failure_message(v["error"].as_str().unwrap_or(""))}} else {String::new()},"durationMs":self.started.elapsed().as_millis() as u64,"costUsd":null})));
+        let mut measurement = self.partial_usage();
+        let current = measured_usage(&v["usage"]);
+        let session = v["conversation_id"].as_str();
+        // Failed results can zero session counters after live usage was observed. These sentinels
+        // neither replace partial steps nor establish a baseline for later restored totals.
+        let zeroed_failure =
+            outcome != "ok" && current.input_tokens == Some(0) && current.output_tokens == Some(0);
+        let delta = match (&self.baseline, session) {
+            _ if zeroed_failure => None,
+            (Some((previous_session, previous)), Some(session)) if previous_session == session => {
+                usage_delta(&current, previous)
+            }
+            (None, Some(_))
+                if self.fresh
+                    && current.input_tokens.is_some()
+                    && current.output_tokens.is_some() =>
+            {
+                Some(current.clone())
+            }
+            _ => None,
+        };
+        if let Some(mut usage) = delta {
+            usage.context_used = measurement.usage.context_used;
+            usage.peak_context = measurement.usage.peak_context;
+            usage.model_calls = measurement.usage.model_calls;
+            measurement.usage = usage;
+            measurement.complete = true;
+        }
+        self.baseline = session
+            .filter(|_| {
+                !zeroed_failure && current.input_tokens.is_some() && current.output_tokens.is_some()
+            })
+            .map(|session| (session.into(), current));
+        self.fresh = false;
+        // Native duration and totals are cumulative; elapsed time belongs to this accepted turn.
+        let mut completion = event(
+            "turn.completed",
+            json!({"outcome":outcome,"message":if outcome == "error" {if denied {i18n::t("err.antigravity.permission")} else {failure_message(v["error"].as_str().unwrap_or(""))}} else {String::new()},"durationMs":self.started.elapsed().as_millis() as u64,"costUsd":null,"telemetry":measurement,"usage":measurement}),
+        );
+        if let Some((index, _)) = self
+            .steps
+            .iter()
+            .rev()
+            .find(|(_, step)| !step.tool && !step.text.is_empty())
+        {
+            completion["messageId"] = json!(self.message_id(*index));
+        } else if v["response"].as_str().is_some_and(|text| !text.is_empty()) {
+            completion["messageId"] = json!(format!("antigravity:result:{}", self.turn_id));
+        }
+        out.push(completion);
         self.busy = false;
+        self.completed = true;
         if outcome == "error" {
             self.failed = true;
             self.close();
         }
         out
+    }
+
+    fn partial_usage(&self) -> crate::telemetry::Measurement {
+        let sum = |field: fn(&crate::telemetry::Usage) -> Option<u64>| {
+            (!self.measurements.is_empty())
+                .then(|| {
+                    self.measurements
+                        .values()
+                        .try_fold(0u64, |sum, usage| sum.checked_add(field(usage)?))
+                })
+                .flatten()
+        };
+        crate::telemetry::Measurement {
+            usage: crate::telemetry::Usage {
+                input_tokens: sum(|u| u.input_tokens),
+                output_tokens: sum(|u| u.output_tokens),
+                cache_read_tokens: sum(|u| u.cache_read_tokens),
+                reasoning_tokens: sum(|u| u.reasoning_tokens),
+                context_used: self
+                    .measurements
+                    .last_key_value()
+                    .and_then(|(_, usage)| usage.input_tokens),
+                peak_context: self
+                    .measurements
+                    .values()
+                    .filter_map(|usage| usage.input_tokens)
+                    .max(),
+                model_calls: (!self.measurements.is_empty())
+                    .then_some(self.measurements.len() as u64),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
     }
 }
 
@@ -660,6 +800,153 @@ mod tests {
             json!({"event":"result","result":{"conversation_id":"native","status":status,"response":text,"duration_seconds":900,"usage":{"input_tokens":90000},"error":"secret-token"}}),
         )
     }
+    #[test]
+    fn insights_recorded_calls_include_cache_and_resumed_turn_stays_partial() {
+        let mut fresh = Link::new(Box::new(std::io::sink()), None, String::new());
+        send(&mut fresh, "first");
+        let events: Vec<_> = include_str!("antigravity/fixtures/tool.ndjson")
+            .lines()
+            .flat_map(|line| fresh.on_line(line))
+            .collect();
+        let end = events
+            .iter()
+            .find(|e| e["type"] == "turn.completed")
+            .unwrap();
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 35193);
+        assert_eq!(end["usage"]["usage"]["outputTokens"], 169);
+        assert_eq!(end["usage"]["usage"]["modelCalls"], 2);
+        assert_eq!(end["usage"]["complete"], true);
+        assert_eq!(end["messageId"], "antigravity:fixture-session:3");
+        send(&mut fresh, "second");
+        let events: Vec<_> = include_str!("antigravity/fixtures/resume.ndjson")
+            .lines()
+            .flat_map(|line| fresh.on_line(line))
+            .collect();
+        let end = events
+            .iter()
+            .find(|e| e["type"] == "turn.completed")
+            .unwrap();
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 17944);
+        assert_eq!(end["usage"]["usage"]["outputTokens"], 32);
+        assert_eq!(end["usage"]["complete"], true);
+
+        let mut resumed = Link::new(
+            Box::new(std::io::sink()),
+            Some("fixture-session".into()),
+            String::new(),
+        );
+        send(&mut resumed, "second");
+        let events: Vec<_> = include_str!("antigravity/fixtures/resume.ndjson")
+            .lines()
+            .flat_map(|line| resumed.on_line(line))
+            .collect();
+        let end = events
+            .iter()
+            .find(|e| e["type"] == "turn.completed")
+            .unwrap();
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 17944);
+        assert_eq!(end["usage"]["usage"]["outputTokens"], 32);
+        assert_eq!(end["usage"]["complete"], false);
+        assert!(end["usage"]["usage"]["costUsd"].is_null());
+    }
+
+    #[test]
+    fn insights_reset_and_duplicate_steps_preserve_observed_usage() {
+        let mut link = Link::new(Box::new(std::io::sink()), None, String::new());
+        send(&mut link, "first");
+        frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"SUCCESS","usage":{"input_tokens":100,"cache_read_tokens":900,"output_tokens":20,"thinking_tokens":10}}}),
+        );
+        send(&mut link, "second");
+        let update = json!({"event":"step_update","step_update":{"conversation_id":"s","step_index":2,"step_type":"agent_response","state":"DONE","usage":{"input_tokens":10,"cache_read_tokens":90,"output_tokens":5,"thinking_tokens":2}}});
+        frame(&mut link, update.clone());
+        assert!(frame(&mut link, update).is_empty());
+        let events = frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"ERROR","error":"interrupted","usage":{"input_tokens":0,"cache_read_tokens":0,"output_tokens":0,"thinking_tokens":0}}}),
+        );
+        let end = events.last().unwrap();
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 100);
+        assert_eq!(end["usage"]["usage"]["outputTokens"], 5);
+        assert_eq!(end["usage"]["usage"]["reasoningTokens"], 2);
+        assert_eq!(end["usage"]["usage"]["modelCalls"], 1);
+        assert_eq!(end["usage"]["complete"], false);
+        assert!(frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"ERROR"}})
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn insights_fresh_zeroed_failure_preserves_observed_steps() {
+        for (status, error) in [
+            ("ERROR", "interrupted"),
+            ("CANCELED", ""),
+            ("ERROR", "process crashed"),
+        ] {
+            let mut link = Link::new(Box::new(std::io::sink()), None, String::new());
+            send(&mut link, "first");
+            frame(
+                &mut link,
+                json!({"event":"step_update","step_update":{"conversation_id":"s","step_index":1,"step_type":"agent_response","state":"DONE","usage":{"input_tokens":10,"cache_read_tokens":90,"output_tokens":5,"thinking_tokens":2}}}),
+            );
+            let events = frame(
+                &mut link,
+                json!({"event":"result","result":{"conversation_id":"s","status":status,"error":error,"usage":{"input_tokens":0,"cache_read_tokens":0,"output_tokens":0,"thinking_tokens":0}}}),
+            );
+            let end = events.last().unwrap();
+            assert_eq!(
+                end["usage"]["usage"]["inputTokens"], 100,
+                "{status}: {error}"
+            );
+            assert_eq!(
+                end["usage"]["usage"]["outputTokens"], 5,
+                "{status}: {error}"
+            );
+            assert_eq!(end["usage"]["complete"], false, "{status}: {error}");
+        }
+    }
+
+    #[test]
+    fn insights_zeroed_interruption_cannot_seed_restored_cumulative_usage() {
+        let mut link = Link::new(Box::new(std::io::sink()), None, String::new());
+        send(&mut link, "first");
+        frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"SUCCESS","usage":{"input_tokens":100,"cache_read_tokens":900,"output_tokens":20,"thinking_tokens":10}}}),
+        );
+        send(&mut link, "interrupted");
+        frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"ERROR","error":"interrupted","usage":{"input_tokens":0,"cache_read_tokens":0,"output_tokens":0,"thinking_tokens":0}}}),
+        );
+        send(&mut link, "after interruption");
+        frame(
+            &mut link,
+            json!({"event":"step_update","step_update":{"conversation_id":"s","step_index":3,"step_type":"agent_response","state":"DONE","usage":{"input_tokens":10,"cache_read_tokens":90,"output_tokens":7,"thinking_tokens":2}}}),
+        );
+        let events = frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"SUCCESS","usage":{"input_tokens":120,"cache_read_tokens":1080,"output_tokens":32,"thinking_tokens":14}}}),
+        );
+        let end = events.last().unwrap();
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 100);
+        assert_eq!(end["usage"]["usage"]["outputTokens"], 7);
+        assert_eq!(end["usage"]["complete"], false);
+
+        send(&mut link, "verified baseline restored");
+        let events = frame(
+            &mut link,
+            json!({"event":"result","result":{"conversation_id":"s","status":"SUCCESS","usage":{"input_tokens":125,"cache_read_tokens":1125,"output_tokens":35,"thinking_tokens":15}}}),
+        );
+        let end = events.last().unwrap();
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 50);
+        assert_eq!(end["usage"]["usage"]["outputTokens"], 3);
+        assert_eq!(end["usage"]["complete"], true);
+    }
+
     #[test]
     fn model_catalog_distinguishes_empty_and_invalid_output() {
         assert!(parse_catalog("").unwrap().is_empty());
@@ -873,12 +1160,7 @@ mod tests {
                 events.extend(link.on_line(&native.to_string()));
             }
         }
-        for event in &mut events {
-            event["at"] = json!(0);
-            if event["type"] == "turn.completed" {
-                event["durationMs"] = json!(0);
-            }
-        }
+        let events = crate::chat::contract_public_events(events);
         let fixture = json!({"provenance":"Canonical V1 conversion of the recorded Antigravity CLI 1.2.7 tool, native resume, and SIGINT NDJSON fixtures. Timestamps and turn durations are zeroed; the independent interrupted conversation has a distinct fixture identity.","events":events});
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/antigravity/fixtures/canonical-events.json");

@@ -192,7 +192,8 @@ changes. Tests: `src/model-choice.test.ts`, `src/agents.test.ts`, and
 ## Board
 
 `Board` contains projects, stages, workspaces and the optional `actions`
-catalog. `Tab.task` stores the resolved configuration and the tasks' cursors.
+catalog. The order of `projects` is the sidebar order the person chose by
+dragging; older boards keep their registration order. `Tab.task` stores the resolved configuration and the tasks' cursors.
 The absence of those fields keeps previous sessions working. The catalog
 receives Code review exactly once, recorded in `actions.defaults_initialized`;
 see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
@@ -427,6 +428,20 @@ identities without placing names or paths in the event store. Existing UUID
 workspace/tab IDs are reused. These aliases remain domain state after telemetry
 is erased. Old boards/transcripts require no event backfill; compatibility is
 covered by existing board tests and `telemetry/tests.rs`.
+
+Turn completions may include a nullable SHA-256 `messageKey` derived from the
+opaque conversation identity and final assistant ID. It supports exact local
+lookup for native Claude transcript replay without retaining reply text or the
+raw provider identifier. Older facts omit it and remain readable. Additive
+origin, app-call and PR-observation facts use the same SQLite store and erasure
+boundary; no second usage ledger or provider transcript backfill is introduced.
+
+`Tab.context_window` is optional and defaults to unknown in old boards. It
+accompanies current `context_tokens`; the historical `tokens` growth estimate
+is not repurposed as consumption or current occupancy. New canonical transcript
+completions can retain optional usage independently of the local history store.
+Clearing telemetry removes local queries and restored footer caches, not the
+conversation transcript or existing exports.
 
 ## Pending session input
 

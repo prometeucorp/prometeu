@@ -96,8 +96,30 @@
       "costUsd": null,
       "durationMs": 0,
       "message": "",
+      "messageId": "antigravity:fixture-session:3",
       "outcome": "ok",
       "type": "turn.completed",
+      "usage": {
+        "complete": false,
+        "observedModels": null,
+        "selectedModel": null,
+        "usage": {
+          "cacheReadTokens": 16978,
+          "cacheRebuilds": null,
+          "cacheWriteTokens": null,
+          "compactions": null,
+          "contextUsed": 17721,
+          "contextWindow": null,
+          "costUsd": null,
+          "inputTokens": 35193,
+          "modelCalls": 2,
+          "outputTokens": 169,
+          "peakContext": 17721,
+          "reasoningTokens": 0
+        },
+        "usageByModel": null,
+        "usageScope": "mainAgent"
+      },
       "v": 1
     },
     {
@@ -163,8 +185,30 @@
       "costUsd": null,
       "durationMs": 0,
       "message": "",
+      "messageId": "antigravity:fixture-session:6",
       "outcome": "ok",
       "type": "turn.completed",
+      "usage": {
+        "complete": false,
+        "observedModels": null,
+        "selectedModel": null,
+        "usage": {
+          "cacheReadTokens": 17631,
+          "cacheRebuilds": null,
+          "cacheWriteTokens": null,
+          "compactions": null,
+          "contextUsed": 17944,
+          "contextWindow": null,
+          "costUsd": null,
+          "inputTokens": 17944,
+          "modelCalls": 1,
+          "outputTokens": 32,
+          "peakContext": 17944,
+          "reasoningTokens": 0
+        },
+        "usageByModel": null,
+        "usageScope": "mainAgent"
+      },
       "v": 1
     },
     {
@@ -186,6 +230,27 @@
       "message": "",
       "outcome": "interrupted",
       "type": "turn.completed",
+      "usage": {
+        "complete": false,
+        "observedModels": null,
+        "selectedModel": null,
+        "usage": {
+          "cacheReadTokens": null,
+          "cacheRebuilds": null,
+          "cacheWriteTokens": null,
+          "compactions": null,
+          "contextUsed": null,
+          "contextWindow": null,
+          "costUsd": null,
+          "inputTokens": null,
+          "modelCalls": null,
+          "outputTokens": null,
+          "peakContext": null,
+          "reasoningTokens": null
+        },
+        "usageByModel": null,
+        "usageScope": "mainAgent"
+      },
       "v": 1
     },
     {
@@ -231,6 +296,27 @@
       "message": "i18n:{\"code\":\"err.antigravity.permission\"}",
       "outcome": "error",
       "type": "turn.completed",
+      "usage": {
+        "complete": false,
+        "observedModels": null,
+        "selectedModel": null,
+        "usage": {
+          "cacheReadTokens": null,
+          "cacheRebuilds": null,
+          "cacheWriteTokens": null,
+          "compactions": null,
+          "contextUsed": null,
+          "contextWindow": null,
+          "costUsd": null,
+          "inputTokens": null,
+          "modelCalls": null,
+          "outputTokens": null,
+          "peakContext": null,
+          "reasoningTokens": null
+        },
+        "usageByModel": null,
+        "usageScope": "mainAgent"
+      },
       "v": 1
     }
   ],

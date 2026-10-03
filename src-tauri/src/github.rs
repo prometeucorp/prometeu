@@ -14,6 +14,71 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, State};
 
+/// Lifecycle evidence stays at the discovery boundary; the board's PR presentation is unchanged.
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrObservation {
+    #[serde(flatten)]
+    pub pr: Pr,
+    pub created_at: Option<String>,
+    pub closed_at: Option<String>,
+    pub merged_at: Option<String>,
+    #[serde(skip)]
+    pub observed_after: u64,
+}
+
+/// GitHub's lifecycle fields use whole-second UTC. Validate that bounded wire shape before the
+/// shared conversion so malformed dates cannot become plausible tenure evidence.
+pub(crate) fn lifecycle_timestamp(value: Option<&str>) -> Option<u64> {
+    let value = value?;
+    let bytes = value.as_bytes();
+    if bytes.len() != 20
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes[10] != b'T'
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+        || bytes[19] != b'Z'
+        || !bytes.iter().enumerate().all(|(index, byte)| {
+            matches!(index, 4 | 7 | 10 | 13 | 16 | 19) || byte.is_ascii_digit()
+        })
+    {
+        return None;
+    }
+    let year = value[0..4].parse::<u32>().ok()?;
+    let month = value[5..7].parse::<usize>().ok()?;
+    let day = value[8..10].parse::<u32>().ok()?;
+    let hour = value[11..13].parse::<u32>().ok()?;
+    let minute = value[14..16].parse::<u32>().ok()?;
+    let second = value[17..19].parse::<u32>().ok()?;
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1970..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || day == 0
+        || day > days[month - 1]
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    crate::usage::rfc3339(value)?.checked_mul(1000)
+}
+
 #[derive(Default)]
 struct ScanProgress {
     running: bool,
@@ -54,15 +119,33 @@ fn scan_gate() -> &'static ScanGate {
 #[tauri::command(async)]
 pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
     let generation = lock(&state.telemetry).generation;
+    let mut histories = Vec::new();
     let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
         .iter()
         .map(|repo| {
             let worktree = Path::new(&repo.worktree);
-            let pr = head_branch(worktree).and_then(|branch| pr_for_branch(worktree, &branch));
+            let pr = head_branch(worktree).and_then(|branch| {
+                let observations = list(worktree, &["--head", &branch, "--limit", "100"]).ok()?;
+                let selected = pick_observed(&observations, &branch);
+                let complete = observations.len() < 100;
+                histories.push((repo.path.clone(), branch, observations, complete));
+                selected
+            });
             (repo.name.clone(), pr)
         })
         .collect();
     remember(&app, &state, &id, found, generation);
+    for (path, branch, observations, complete) in histories {
+        crate::telemetry::associate_history(
+            &app,
+            generation,
+            &id,
+            &path,
+            &branch,
+            &observations,
+            complete,
+        );
+    }
 }
 
 /// Query gh once per clone, covering all its workspaces. Network failures and incomplete responses
@@ -98,12 +181,25 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
     }
 
     let mut found: Vec<(String, String, Option<Pr>)> = Vec::new();
+    let mut histories = Vec::new();
     for (clone, list) in by_clone {
         let Ok(prs) = list_repo(Path::new(&clone)) else {
             continue;
         };
         for (id, name, branch) in list {
-            found.push((id, name, pick(&prs, &branch)));
+            let (observations, complete) = if prs.len() < 60 {
+                (prs.clone(), true)
+            } else {
+                match self::list(Path::new(&clone), &["--head", &branch, "--limit", "100"]) {
+                    Ok(observations) => {
+                        let complete = observations.len() < 100;
+                        (observations, complete)
+                    }
+                    Err(_) => (prs.clone(), false),
+                }
+            };
+            found.push((id.clone(), name, pick_observed(&observations, &branch)));
+            histories.push((id, clone.clone(), branch, observations, complete));
         }
     }
 
@@ -131,6 +227,17 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
         for (workspace, path, number) in associated {
             crate::telemetry::associate(app, generation, &workspace, &[(path, number)]);
         }
+    }
+    for (workspace, path, branch, observations, complete) in histories {
+        crate::telemetry::associate_history(
+            app,
+            generation,
+            &workspace,
+            &path,
+            &branch,
+            &observations,
+            complete,
+        );
     }
 }
 
@@ -171,8 +278,16 @@ pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), S
 }
 
 pub(crate) fn pr_for_branch(worktree: &Path, branch: &str) -> Option<Pr> {
-    pick(
+    pick_observed(
         &list(worktree, &["--head", branch, "--limit", "5"]).ok()?,
+        branch,
+    )
+}
+fn pick_observed(prs: &[PrObservation], branch: &str) -> Option<Pr> {
+    pick(
+        &prs.iter()
+            .map(|observation| observation.pr.clone())
+            .collect::<Vec<_>>(),
         branch,
     )
 }
@@ -187,11 +302,12 @@ pub(crate) fn pick(prs: &[Pr], branch: &str) -> Option<Pr> {
         .cloned()
 }
 
-fn list_repo(repo: &Path) -> Result<Vec<Pr>, ()> {
+fn list_repo(repo: &Path) -> Result<Vec<PrObservation>, ()> {
     list(repo, &["--limit", "60"])
 }
 
-fn list(dir: &Path, extra: &[&str]) -> Result<Vec<Pr>, ()> {
+fn list(dir: &Path, extra: &[&str]) -> Result<Vec<PrObservation>, ()> {
+    let observed_after = crate::conversation::now();
     let mut command = Command::new("gh");
     command
         .current_dir(dir)
@@ -201,11 +317,15 @@ fn list(dir: &Path, extra: &[&str]) -> Result<Vec<Pr>, ()> {
             "--state",
             "all",
             "--json",
-            "number,title,isDraft,state,headRefName",
+            "number,title,isDraft,state,headRefName,createdAt,closedAt,mergedAt",
         ])
         .args(extra);
     let bytes = bounded_output(command, Duration::from_secs(15)).ok_or(())?;
-    serde_json::from_slice::<Vec<Pr>>(&bytes).map_err(|_| ())
+    let mut observations = serde_json::from_slice::<Vec<PrObservation>>(&bytes).map_err(|_| ())?;
+    for observation in &mut observations {
+        observation.observed_after = observed_after;
+    }
+    Ok(observations)
 }
 
 /// A slow or abandoned CLI cannot hold the general scan indefinitely. The process group also
@@ -312,7 +432,7 @@ fn same(left: Option<&Pr>, right: Option<&Pr>) -> bool {
     }
 }
 
-fn head_branch(repo: &Path) -> Option<String> {
+pub(crate) fn head_branch(repo: &Path) -> Option<String> {
     let output = Command::new("git")
         .current_dir(repo)
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -343,7 +463,7 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_output, pick, scannable, write, ScanGate};
+    use super::{bounded_output, lifecycle_timestamp, pick, scannable, write, ScanGate};
     use crate::domain::Pr;
     use crate::state::Repo;
     use std::sync::{
@@ -406,6 +526,28 @@ mod tests {
             is_draft: false,
             state: state.into(),
             head_ref_name: branch.into(),
+        }
+    }
+
+    #[test]
+    fn lifecycle_timestamps_require_valid_calendar_evidence() {
+        assert_eq!(
+            lifecycle_timestamp(Some("2024-02-29T00:00:00Z")),
+            Some(1709164800000)
+        );
+        for value in [
+            "2023-02-29T00:00:00Z",
+            "2024-02-30T00:00:00Z",
+            "2024-00-10T00:00:00Z",
+            "2024-13-10T00:00:00Z",
+            "2024-01-00T00:00:00Z",
+            "2024-01-01T24:00:00Z",
+            "2024-01-01T00:60:00Z",
+            "2024-01-01T00:00:60Z",
+            "999999999999999999999-01-01T00:00:00Z",
+            "PRIVATE",
+        ] {
+            assert_eq!(lifecycle_timestamp(Some(value)), None, "{value}");
         }
     }
 

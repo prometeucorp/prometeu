@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -67,6 +68,152 @@ pub struct Summary {
     pub human_wait_ms: Option<u64>,
     pub workspace_ids: Vec<String>,
     pub health: Health,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Insights {
+    pub summary: Summary,
+    pub usage: Usage,
+    pub conversations: Vec<UsageGroup>,
+    pub models: Vec<UsageGroup>,
+    pub sources: Vec<UsageGroup>,
+    pub origins: Vec<UsageGroup>,
+    pub pull_requests: Vec<PullRequestUsage>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageGroup {
+    pub id: String,
+    pub provider: Option<String>,
+    pub turns: u64,
+    pub usage: Usage,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestUsage {
+    pub repository_id: String,
+    pub branch_id: Option<String>,
+    pub pull_request: u64,
+    pub turns: Option<u64>,
+    pub usage: Usage,
+    pub attribution: &'static str,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnMeasurement {
+    pub message_id: String,
+    pub duration_ms: Option<u64>,
+    pub usage: Measurement,
+}
+
+fn accumulate(total: &mut Usage, usage: &Usage) {
+    add(&mut total.input_tokens, usage.input_tokens);
+    add(&mut total.output_tokens, usage.output_tokens);
+    add(&mut total.cache_read_tokens, usage.cache_read_tokens);
+    add(&mut total.cache_write_tokens, usage.cache_write_tokens);
+    add(&mut total.reasoning_tokens, usage.reasoning_tokens);
+    add(&mut total.model_calls, usage.model_calls);
+    add(&mut total.compactions, usage.compactions);
+    add(&mut total.cache_rebuilds, usage.cache_rebuilds);
+    if let Some(peak) = usage.peak_context {
+        total.peak_context = Some(total.peak_context.unwrap_or(0).max(peak));
+    }
+    if let Some(cost) = usage.cost_usd {
+        total.cost_usd = Some(total.cost_usd.unwrap_or(0.) + cost);
+    }
+}
+
+fn group(
+    groups: &mut BTreeMap<String, UsageGroup>,
+    key: String,
+    id: &str,
+    provider: &Option<String>,
+    usage: &Usage,
+) {
+    use std::collections::btree_map::Entry;
+    let group = match groups.entry(key) {
+        Entry::Vacant(entry) => entry.insert(UsageGroup {
+            id: id.into(),
+            provider: provider.clone(),
+            turns: 0,
+            usage: Usage::default(),
+        }),
+        Entry::Occupied(entry) => {
+            let group = entry.into_mut();
+            if group.provider != *provider {
+                group.provider = None;
+            }
+            group
+        }
+    };
+    group.turns += 1;
+    accumulate(&mut group.usage, usage);
+}
+
+fn fact(kind: &str, payload: &str) -> Result<Fact> {
+    serde_json::from_value(serde_json::json!({"type":kind,"payload":serde_json::from_str::<serde_json::Value>(payload).map_err(|_| FAILURE)?})).map_err(|_| FAILURE.into())
+}
+fn model_groups(
+    groups: &mut BTreeMap<String, UsageGroup>,
+    provider: &Option<String>,
+    measurement: &Measurement,
+) {
+    for model in measurement.usage_by_model.as_deref().unwrap_or_default() {
+        group(
+            groups,
+            format!("{}\0{}", provider.as_deref().unwrap_or(""), model.model),
+            &model.model,
+            provider,
+            &model.usage,
+        );
+    }
+}
+
+#[derive(Default)]
+struct PrHistory {
+    snapshot: String,
+    observed_at: u64,
+    complete: bool,
+    size: u64,
+    candidates: BTreeMap<u64, PrCandidate>,
+}
+struct PrCandidate {
+    number: u64,
+    created: Option<u64>,
+    closed: Option<u64>,
+    merged: Option<u64>,
+    state: PullRequestState,
+}
+impl PrCandidate {
+    fn ended(&self) -> Option<Option<u64>> {
+        match self.state {
+            PullRequestState::Open if self.closed.is_none() && self.merged.is_none() => Some(None),
+            PullRequestState::Closed => self.closed.map(Some),
+            PullRequestState::Merged => self.merged.map(Some),
+            _ => None,
+        }
+    }
+}
+impl PrHistory {
+    fn assign(&self, at: u64) -> Option<u64> {
+        // Cached open state does not prove that a turn after the observation preceded closure.
+        if !self.complete
+            || self.candidates.len() as u64 != self.size
+            || self.observed_at < at
+            || self
+                .candidates
+                .values()
+                .any(|pr| pr.created.is_none() || pr.ended().is_none())
+        {
+            return None;
+        }
+        self.candidates
+            .values()
+            .filter(|pr| pr.ended().flatten().is_none_or(|end| at < end))
+            .min_by_key(|pr| (pr.created, pr.number))
+            .map(|pr| pr.number)
+    }
 }
 pub(super) fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Event> {
     let kind: String = r.get(7)?;
@@ -138,6 +285,37 @@ impl Queries {
         }
         self.read(|store| store.summary(filter, self.health.clone()))
     }
+    pub fn insights(&self, filter: &Filter) -> Result<Insights> {
+        filter.validate()?;
+        if self.health.unavailable {
+            return Ok(Insights {
+                summary: Summary {
+                    health: self.health.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+        }
+        self.read(|store| store.insights(filter, self.health.clone()))
+    }
+    pub fn turns(
+        &self,
+        conversation: &str,
+        message_ids: &[String],
+    ) -> Result<Vec<TurnMeasurement>> {
+        if uuid::Uuid::parse_str(conversation).is_err()
+            || message_ids.len() > 500
+            || message_ids
+                .iter()
+                .any(|id| id.is_empty() || id.len() > 1024)
+        {
+            return Err("err.telemetry.filter".into());
+        }
+        if self.health.unavailable {
+            return Ok(vec![]);
+        }
+        self.read(|store| store.turns(conversation, message_ids))
+    }
     pub fn page(&self, filter: &Filter, cursor: Option<Cursor>) -> Result<Page> {
         self.read(|store| store.page(filter, cursor, self.health.clone()))
     }
@@ -178,6 +356,260 @@ fn interval(
     Ok((b > a || (start == end && filter.includes(start))).then_some((a, b)))
 }
 impl Store {
+    fn turns(&self, conversation: &str, message_ids: &[String]) -> Result<Vec<TurnMeasurement>> {
+        let mut statement = self.db.prepare("SELECT payload FROM events WHERE type='turn.completed' AND conversation_id=?1 AND json_extract(payload,'$.messageKey')=?2 ORDER BY sequence DESC LIMIT 2").map_err(|_| FAILURE)?;
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        for message in message_ids {
+            if !seen.insert(message) {
+                continue;
+            }
+            let key = message_key(conversation, message);
+            let mut rows = statement
+                .query(params![conversation, key])
+                .map_err(|_| FAILURE)?;
+            let payload = rows
+                .next()
+                .map_err(|_| FAILURE)?
+                .map(|row| row.get::<_, String>(0))
+                .transpose()
+                .map_err(|_| FAILURE)?;
+            // Reused native identities cannot prove which turn owns the replayed reply.
+            if rows.next().map_err(|_| FAILURE)?.is_some() {
+                continue;
+            }
+            if let Some(payload) = payload {
+                if let Fact::TurnCompleted {
+                    elapsed_ms,
+                    provider_duration_ms,
+                    measurement,
+                    ..
+                } = fact("turn.completed", &payload)?
+                {
+                    result.push(TurnMeasurement {
+                        message_id: message.clone(),
+                        duration_ms: Some(provider_duration_ms.unwrap_or(elapsed_ms)),
+                        usage: measurement,
+                    });
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    fn insights(&self, filter: &Filter, health: Health) -> Result<Insights> {
+        let mut result = Insights {
+            summary: self.summary(filter, health)?,
+            ..Default::default()
+        };
+        let mut conversations = BTreeMap::new();
+        let mut models = BTreeMap::new();
+        let mut sources = BTreeMap::new();
+        let mut origins = BTreeMap::new();
+        let mut pull_requests: BTreeMap<(String, u64), PullRequestUsage> = BTreeMap::new();
+        let mut histories: BTreeMap<(String, String), PrHistory> = BTreeMap::new();
+        let parameters = params![
+            filter.workspace_id,
+            filter.repository_id,
+            filter.pull_request.map(|n| n as i64),
+            filter.from.unwrap_or(0) as i64,
+            filter.to.unwrap_or(i64::MAX as u64) as i64
+        ];
+        // Relations and complete branch observations may arrive after the work they explain.
+        let mut statement = self.db.prepare(&format!("{SELECTED} SELECT * FROM selected WHERE type IN ('pull_request.associated','pull_request.observed') ORDER BY sequence")).map_err(|_| FAILURE)?;
+        let mut rows = statement
+            .query(params![
+                filter.workspace_id,
+                filter.repository_id,
+                filter.pull_request.map(|n| n as i64)
+            ])
+            .map_err(|_| FAILURE)?;
+        while let Some(row) = rows.next().map_err(|_| FAILURE)? {
+            let event = self::row(row).map_err(|_| FAILURE)?;
+            let (repository, branch, number) = match &event.fact {
+                Fact::PullRequestAssociated {
+                    repository_id,
+                    branch_id,
+                    pull_request,
+                } => (repository_id, branch_id.clone(), *pull_request),
+                Fact::PullRequestObserved {
+                    repository_id,
+                    branch_id,
+                    pull_request,
+                    state,
+                    created_at,
+                    closed_at,
+                    merged_at,
+                    history_complete,
+                    snapshot_id,
+                    history_size,
+                    observed_after,
+                } => {
+                    let history = histories
+                        .entry((repository_id.clone(), branch_id.clone()))
+                        .or_default();
+                    if history.snapshot != *snapshot_id {
+                        *history = PrHistory {
+                            snapshot: snapshot_id.clone(),
+                            observed_at: *observed_after,
+                            complete: *history_complete,
+                            size: *history_size,
+                            candidates: BTreeMap::new(),
+                        };
+                    }
+                    history.complete &= *history_complete && history.size == *history_size;
+                    history.observed_at = history.observed_at.min(*observed_after);
+                    history.candidates.insert(
+                        *pull_request,
+                        PrCandidate {
+                            number: *pull_request,
+                            created: *created_at,
+                            closed: *closed_at,
+                            merged: *merged_at,
+                            state: state.clone(),
+                        },
+                    );
+                    (repository_id, Some(branch_id.clone()), *pull_request)
+                }
+                _ => continue,
+            };
+            let entry = pull_requests
+                .entry((repository.clone(), number))
+                .or_insert_with(|| PullRequestUsage {
+                    repository_id: repository.clone(),
+                    branch_id: branch.clone(),
+                    pull_request: number,
+                    turns: None,
+                    usage: Usage::default(),
+                    attribution: "related",
+                });
+            if branch.is_some() {
+                entry.branch_id = branch;
+            }
+        }
+        drop(rows);
+        drop(statement);
+
+        let mut statement = self.db.prepare(&format!("{SELECTED}
+            SELECT start.occurred_at,start.conversation_id,start.provider,start.payload,m.type,m.payload
+            FROM selected AS start LEFT JOIN events AS m ON m.sequence=COALESCE(
+                (SELECT sequence FROM events WHERE turn_id=start.turn_id AND type='turn.completed' ORDER BY sequence DESC LIMIT 1),
+                (SELECT sequence FROM events WHERE turn_id=start.turn_id AND type='turn.usage.observed' ORDER BY sequence DESC LIMIT 1),start.sequence)
+            WHERE start.type='turn.started' AND start.occurred_at>=?4 AND start.occurred_at<?5")).map_err(|_| FAILURE)?;
+        let mut rows = statement.query(parameters).map_err(|_| FAILURE)?;
+        while let Some(row) = rows.next().map_err(|_| FAILURE)? {
+            let at = row.get::<_, i64>(0).map_err(|_| FAILURE)? as u64;
+            let conversation: Option<String> = row.get(1).map_err(|_| FAILURE)?;
+            let provider: Option<String> = row.get(2).map_err(|_| FAILURE)?;
+            let start = fact(
+                "turn.started",
+                &row.get::<_, String>(3).map_err(|_| FAILURE)?,
+            )?;
+            let selected = fact(
+                &row.get::<_, String>(4).map_err(|_| FAILURE)?,
+                &row.get::<_, String>(5).map_err(|_| FAILURE)?,
+            )?;
+            let measurement = selected.measurement().ok_or(FAILURE)?;
+            accumulate(&mut result.usage, &measurement.usage);
+            group(
+                &mut sources,
+                "conversation".into(),
+                "conversation",
+                &provider,
+                &measurement.usage,
+            );
+            if let Some(conversation) = conversation {
+                group(
+                    &mut conversations,
+                    conversation.clone(),
+                    &conversation,
+                    &provider,
+                    &measurement.usage,
+                );
+            }
+            model_groups(&mut models, &provider, measurement);
+            if let Fact::TurnStarted { origin, .. } = start {
+                if origin.action_id.is_some() {
+                    group(
+                        &mut origins,
+                        "action".into(),
+                        "action",
+                        &provider,
+                        &measurement.usage,
+                    );
+                }
+                if origin.delegated_by.is_some() {
+                    group(
+                        &mut origins,
+                        "delegation".into(),
+                        "delegation",
+                        &provider,
+                        &measurement.usage,
+                    );
+                }
+                let mut attributed = HashSet::new();
+                for repo in origin.repositories {
+                    let key = (repo.repository_id.clone(), repo.branch_id);
+                    let Some(number) = histories.get(&key).and_then(|history| history.assign(at))
+                    else {
+                        continue;
+                    };
+                    if !attributed.insert((repo.repository_id.clone(), number)) {
+                        continue;
+                    }
+                    if let Some(pr) = pull_requests.get_mut(&(repo.repository_id, number)) {
+                        pr.attribution = "tenure";
+                        pr.turns = Some(pr.turns.unwrap_or(0) + 1);
+                        accumulate(&mut pr.usage, &measurement.usage);
+                    }
+                }
+            }
+        }
+        drop(rows);
+        drop(statement);
+        let mut statement = self.db.prepare(&format!("{SELECTED}
+            SELECT start.provider,m.type,m.payload FROM selected AS start
+            JOIN events AS m ON m.sequence=COALESCE((SELECT sequence FROM events WHERE type='app.call.completed'
+                AND json_extract(payload,'$.callId')=json_extract(start.payload,'$.callId') ORDER BY sequence DESC LIMIT 1),start.sequence)
+            WHERE start.type='app.call.started' AND start.occurred_at>=?4 AND start.occurred_at<?5")).map_err(|_| FAILURE)?;
+        let mut rows = statement.query(parameters).map_err(|_| FAILURE)?;
+        while let Some(row) = rows.next().map_err(|_| FAILURE)? {
+            let provider: Option<String> = row.get(0).map_err(|_| FAILURE)?;
+            let selected = fact(
+                &row.get::<_, String>(1).map_err(|_| FAILURE)?,
+                &row.get::<_, String>(2).map_err(|_| FAILURE)?,
+            )?;
+            let (source, measurement) = match &selected {
+                Fact::AppCallStarted {
+                    source,
+                    measurement,
+                    ..
+                }
+                | Fact::AppCallCompleted {
+                    source,
+                    measurement,
+                    ..
+                } => (source, measurement),
+                _ => return Err(FAILURE.into()),
+            };
+            accumulate(&mut result.usage, &measurement.usage);
+            group(
+                &mut sources,
+                source.id().into(),
+                source.id(),
+                &provider,
+                &measurement.usage,
+            );
+            model_groups(&mut models, &provider, measurement);
+        }
+        result.conversations = conversations.into_values().collect();
+        result.models = models.into_values().collect();
+        result.sources = sources.into_values().collect();
+        result.origins = origins.into_values().collect();
+        result.pull_requests = pull_requests.into_values().collect();
+        Ok(result)
+    }
+
     pub(super) fn summary(&self, filter: &Filter, health: Health) -> Result<Summary> {
         filter.validate()?;
         let parameters = params![

@@ -1,4 +1,4 @@
-# ADR 0063 — Portable board models and injected publication effects
+# ADR 0085 — Portable board models and injected publication effects
 
 Date: 2026-09-27
 Status: Accepted

@@ -5,9 +5,11 @@ import { anchorSelection, type ReviewNote } from "../review-comments";
 import * as ui from "./primitives";
 import { icon, iconNames, fileIcon, stageIcon, brand, avatar, avatars } from "./icons";
 import { iconButton } from "./icon-button";
-import { conversationBlock, workCard, errorCard } from "./chat/blocks";
+import { conversationBlock, workCard, errorCard, noticeCard } from "./chat/blocks";
 import { requestCard } from "./chat/requests";
 import { composer, attachmentChip } from "./chat/composer";
+import { contextGauge, openUsagePanel } from "./chat/usage";
+import * as menu from "./menu";
 import { renderUserMessage, browserContextChip, inputView, contextPanel } from "./chat/content";
 import { gitFileRow } from "./git/file-row";
 import { gitGroup } from "./git/group";
@@ -38,6 +40,31 @@ const reviewSample = (): ReviewNote => ({ id: "example-note", revision: 1,
   body: "Use the configured value and preserve the current behavior.", state: "draft", sent: null, created: 1, updated: 1 });
 
 export const stories: Record<string, Factory> = {
+  "context-gauge"(state, report) {
+    const gauge = contextGauge();
+    const used = state === "hot" ? "180k" : state === "warn" ? "140k" : "24k";
+    const band = state === "hot" ? "hot" : state === "warn" ? "warn" : "normal";
+    gauge.update(state === "unknown" ? null : {
+      label: t("usage.context", { used, window: "200k" }), percent: state === "hot" ? 90 : state === "warn" ? 70 : 12,
+      band,
+      panel: { title: t("usage.contextTitle"), description: t(band === "normal" ? "usage.contextHint" : "usage.freshContext"), actions: [
+        { label: t("usage.compact"), disabled: state === "busy", run: () => report("compact") },
+        { label: t("usage.contextReport"), disabled: state === "busy", run: () => report("context") },
+        { label: t("usage.newConversation"), run: () => report("new conversation") },
+      ] },
+    });
+    return { ...wrap(gauge.root), destroy: gauge.close };
+  },
+  "usage-summary"(state) {
+    let panel: HTMLElement | null = null;
+    const trigger = ui.button(t("usage.title"), () => {
+      panel = openUsagePanel(trigger, { title: t("usage.title"), description: t(state === "empty" ? "usage.noHistory" : "usage.known"),
+        metrics: state === "empty" ? [] : [{ label: t("telemetry.input"), value: "48,000" }, { label: t("telemetry.output"), value: state === "partial" ? t("telemetry.unknown") : "2,000" }],
+        groups: state === "empty" ? [] : [{ title: t("usage.conversations"), rows: [{ label: "Review", value: t("usage.tokens", { n: "50k" }) }] }],
+      }, () => { panel = null; });
+    }, "ghost");
+    return { ...wrap(trigger), destroy: () => { if (panel?.isConnected) menu.close(); } };
+  },
   "review-note"(state, report) {
     const note = reviewSample();
     if (state === "editor") return wrap(reviewEditor(note.anchor, note.body, report, () => report("cancel")).root);
@@ -139,6 +166,7 @@ export const stories: Record<string, Factory> = {
     { block: { ...tool(state), id: "story-tool-2" }, live: state === "running" },
   ], false, open => report(String(open)))),
   "chat-error": state => wrap(errorCard(state === "short" ? "Example operation failed" : "Example operation failed\nProcess exited with code 1\nThe original input remains available.")),
+  "chat-notice": state => wrap(noticeCard(state === "short" ? 'Agent "explore" finished' : "## Findings\n\nThe renderer lives in `src/chat.ts` and the styles in `src/components/chat/chat.css`.\n\n- Short notices stay on one line.\n- Long reports fold behind their first line.", t("chat.notice.background"))),
   "chat-request"(state, report) {
     const ask: Ask = { kind: "ask", id: "story-request", ts: 0, toolUseId: null, answered: state === "answered",
       requestKind: state === "plan" ? "plan" : state === "permission" ? "approval" : "question", tool: "Example tool",

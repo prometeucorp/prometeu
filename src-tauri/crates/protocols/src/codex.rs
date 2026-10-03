@@ -108,6 +108,32 @@ fn token_delta(
     }
 }
 
+/// The separate `codex exec --json` protocol reports turn usage directly. This is used only by
+/// app-initiated one-shot calls; it is not a thread-cumulative app-server observation.
+pub fn exec_usage(event: &Value) -> Option<prometeu_core::conversation::usage::Measurement> {
+    if event["type"] != "turn.completed" || !event["usage"].is_object() {
+        return None;
+    }
+    let raw = &event["usage"];
+    let input = raw["input_tokens"].as_u64();
+    let output = raw["output_tokens"].as_u64();
+    let within = |value: Option<u64>, total: Option<u64>| {
+        value.filter(|value| total.is_none_or(|total| *value <= total))
+    };
+    Some(prometeu_core::conversation::usage::Measurement {
+        complete: input.is_some() && output.is_some(),
+        usage: prometeu_core::conversation::usage::Usage {
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: within(raw["cached_input_tokens"].as_u64(), input),
+            cache_write_tokens: within(raw["cache_write_input_tokens"].as_u64(), input),
+            reasoning_tokens: within(raw["reasoning_output_tokens"].as_u64(), output),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
 pub struct Link {
     pick: fn(&str, &str) -> String,
     out: Box<dyn Write + Send>,
@@ -123,6 +149,9 @@ pub struct Link {
     window: Option<u64>,
     /// Current conversation size from the latest tokenUsage update.
     ctx: Option<u64>,
+    peak_context: Option<u64>,
+    last_reply: Option<String>,
+    compactions: Option<u64>,
     turn: Option<String>,
     asks: HashMap<String, Ask>,
     /// Keep known identities after completion so child restarts cannot change the primary turn.
@@ -160,6 +189,9 @@ impl Link {
             model: String::new(),
             window: None,
             ctx: None,
+            peak_context: None,
+            last_reply: None,
+            compactions: None,
             turn: None,
             asks: HashMap::new(),
             subagents: HashMap::new(),
@@ -736,6 +768,9 @@ impl Link {
                 if self.turn.as_deref() != p["turn"]["id"].as_str() {
                     self.telemetry_baseline = self.telemetry_total.clone();
                     self.telemetry_usage = Default::default();
+                    self.peak_context = None;
+                    self.last_reply = None;
+                    self.compactions = None;
                 }
                 self.turn = p["turn"]["id"].as_str().map(str::to_string);
                 self.block = 0;
@@ -785,8 +820,9 @@ impl Link {
                     }
                     self.telemetry_total = Some(current);
                 }
-                if let Some(n) = usage["last"]["totalTokens"].as_u64().filter(|n| *n > 0) {
+                if let Some(n) = usage["last"]["inputTokens"].as_u64().filter(|n| *n > 0) {
                     self.ctx = Some(n);
+                    self.peak_context = Some(self.peak_context.unwrap_or(0).max(n));
                     out.push(canonical(
                         "context.updated",
                         json!({ "used": n, "window": self.window }),
@@ -815,14 +851,23 @@ impl Link {
                     _ => turn_completed("ok", "", ms),
                 });
                 if let Some(completion) = out.last_mut() {
-                    completion["telemetry"] =
-                        json!(prometeu_core::conversation::usage::Measurement {
-                            complete: self.telemetry_baseline.is_some()
-                                && self.telemetry_usage.input_tokens.is_some()
-                                && self.telemetry_usage.output_tokens.is_some(),
-                            usage: self.telemetry_usage.clone(),
-                            ..Default::default()
-                        });
+                    let mut usage = self.telemetry_usage.clone();
+                    usage.context_used = self.ctx;
+                    usage.context_window = self.window;
+                    usage.peak_context = self.peak_context;
+                    usage.compactions = self.compactions;
+                    let measurement = prometeu_core::conversation::usage::Measurement {
+                        complete: self.telemetry_baseline.is_some()
+                            && self.telemetry_usage.input_tokens.is_some()
+                            && self.telemetry_usage.output_tokens.is_some(),
+                        usage,
+                        ..Default::default()
+                    };
+                    completion["telemetry"] = json!(measurement);
+                    completion["usage"] = json!(measurement);
+                    if let Some(message) = self.last_reply.take() {
+                        completion["messageId"] = json!(message);
+                    }
                 }
                 out
             }
@@ -906,6 +951,7 @@ impl Link {
         let id = item["id"].as_str().unwrap_or("").to_string();
         match item["type"].as_str() {
             Some("agentMessage" | "plan") => {
+                self.last_reply = Some(self.msg());
                 let text = item["text"].as_str().unwrap_or("").to_string();
                 self.close_text(&id, text, false)
             }
@@ -1003,6 +1049,7 @@ impl Link {
             }
             Some("contextCompaction") => {
                 let post = self.ctx;
+                self.compactions = Some(self.compactions.unwrap_or(0) + 1);
                 vec![
                     canonical(
                         "context.compaction",
@@ -1411,6 +1458,44 @@ mod tests {
         // Late reader activity retains protocol state but cannot write to the released pipe.
         lock(&reader).write(&user("reader retained")).unwrap();
         assert!(out.take().is_empty());
+    }
+
+    #[test]
+    fn insights_completion_keeps_input_context_and_final_reply_identity() {
+        let (mut link, out) = link(None);
+        opened(&mut link, &out);
+        link.on_line(
+            r#"{"method":"turn/started","params":{"threadId":"t-1","turn":{"id":"one"}}}"#,
+        );
+        link.on_line(r#"{"method":"item/completed","params":{"threadId":"t-1","item":{"id":"reply","type":"agentMessage","text":"Done"}}}"#);
+        let updates = link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"threadId":"t-1","turnId":"one","tokenUsage":{"total":{"inputTokens":100,"outputTokens":20,"cachedInputTokens":80,"reasoningOutputTokens":10},"last":{"inputTokens":90,"totalTokens":110},"modelContextWindow":200000}}}"#);
+        assert!(updates
+            .iter()
+            .any(|e| e["type"] == "context.updated" && e["used"] == 90));
+        let end = link.on_line(r#"{"method":"turn/completed","params":{"threadId":"t-1","turn":{"id":"one","status":"completed"}}}"#);
+        let end = end.last().unwrap();
+        assert_eq!(end["messageId"], "one");
+        assert_eq!(end["usage"]["usage"]["inputTokens"], 100);
+        assert_eq!(end["usage"]["usage"]["contextUsed"], 90);
+        assert_eq!(end["usage"]["usage"]["contextWindow"], 200000);
+        assert_eq!(end["usage"]["usage"]["peakContext"], 90);
+    }
+
+    #[test]
+    fn insights_exec_usage_is_turn_scoped_and_preserves_missing_fields() {
+        let usage = exec_usage(&json!({"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":80,"output_tokens":20,"reasoning_output_tokens":12}})).unwrap();
+        assert_eq!(usage.usage.input_tokens, Some(100));
+        assert_eq!(usage.usage.reasoning_tokens, Some(12));
+        assert_eq!(usage.usage.cache_write_tokens, None);
+        assert!(usage.complete);
+        let partial = exec_usage(
+            &json!({"type":"turn.completed","usage":{"input_tokens":-1,"output_tokens":0}}),
+        )
+        .unwrap();
+        assert_eq!(partial.usage.input_tokens, None);
+        assert_eq!(partial.usage.output_tokens, Some(0));
+        assert!(!partial.complete);
+        assert!(exec_usage(&json!({"type":"turn.failed"})).is_none());
     }
 
     #[test]
@@ -2001,7 +2086,7 @@ mod tests {
     fn compact_command_and_compaction_report_before_and_after_sizes() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":20000},"modelContextWindow":258400}}}"#);
+        link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":20000,"totalTokens":20100},"modelContextWindow":258400}}}"#);
         let f = link.write(&user("/compact")).unwrap();
         assert_eq!(f[0]["type"], "context.compaction");
         assert_eq!(f[0]["state"], "started");
@@ -2010,7 +2095,7 @@ mod tests {
         link.on_line(
             r#"{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"k1"}}}"#,
         );
-        link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":4000},"modelContextWindow":258400}}}"#);
+        link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":4000,"totalTokens":4100},"modelContextWindow":258400}}}"#);
         let f = link.on_line(r#"{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"k1"}}}"#);
         assert_eq!(f[0]["type"], "context.compaction");
         assert_eq!(f[0]["state"], "stopped");
@@ -2023,7 +2108,7 @@ mod tests {
     fn context_becomes_the_report_rendered_by_the_view() {
         let (mut link, out) = link(None);
         opened(&mut link, &out);
-        let f = link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":12300},"modelContextWindow":258400}}}"#);
+        let f = link.on_line(r#"{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":12300,"totalTokens":12400},"modelContextWindow":258400}}}"#);
         assert_eq!(f[0]["type"], "context.updated");
         assert_eq!(f[0]["used"], 12300);
         assert_eq!(f[0]["window"], 258400);

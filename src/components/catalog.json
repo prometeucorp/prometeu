@@ -1,5 +1,21 @@
 [
   {
+    "id": "context-gauge",
+    "name": "contextGauge",
+    "source": "src/components/chat/usage.ts",
+    "exports": ["contextGauge"],
+    "consumers": ["src/chat.ts"],
+    "states": ["normal", "warn", "hot", "busy", "unknown"]
+  },
+  {
+    "id": "usage-summary",
+    "name": "usagePanel · openUsagePanel",
+    "source": "src/components/chat/usage.ts",
+    "exports": ["usagePanel", "openUsagePanel"],
+    "consumers": ["src/workspace-usage.ts"],
+    "states": ["ready", "empty", "partial"]
+  },
+  {
     "id": "button",
     "name": "button",
     "source": "src/components/primitives.ts",
@@ -239,6 +255,21 @@
     "source": "src/components/chat/blocks.ts",
     "exports": [
       "errorCard"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "short",
+      "details"
+    ]
+  },
+  {
+    "id": "chat-notice",
+    "name": "noticeCard",
+    "source": "src/components/chat/blocks.ts",
+    "exports": [
+      "noticeCard"
     ],
     "consumers": [
       "src/chat.ts"

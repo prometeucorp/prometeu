@@ -114,3 +114,9 @@ pub fn tree_restore(state: State<AppState>, id: String, rel: String) -> Result<(
         tree_repos(&state, &id).ok_or_else(|| crate::i18n::t("err.session.noWorkspace"))?;
     state.repository_git.restore(Path::new(&root), &repos, &rel)
 }
+
+#[tauri::command(async)]
+pub fn file_base(state: State<AppState>, id: String, rel: String) -> Option<String> {
+    let (root, repos) = tree_repos(&state, &id)?;
+    state.repository_git.file_base(&root, &repos, &rel)
+}

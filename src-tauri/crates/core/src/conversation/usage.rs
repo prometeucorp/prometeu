@@ -49,6 +49,7 @@ pub struct Measurement {
 pub enum UsageScope {
     #[default]
     MainAgent,
+    WholeTree,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

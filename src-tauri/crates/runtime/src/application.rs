@@ -357,6 +357,13 @@ pub(crate) enum Request {
         was: String,
         text: String,
     },
+    FileBase {
+        id: String,
+        rel: String,
+    },
+    ReorderProjects {
+        ids: Vec<String>,
+    },
     TreeGitStatus {
         id: String,
     },
@@ -681,6 +688,11 @@ impl Host {
                     .publish_board(self.catalog.snapshot().board)?;
                 serde_json::to_value(project).map_err(|e| e.to_string())
             }
+            Request::ReorderProjects { ids } => {
+                let catalog = self.catalog.reorder_projects(&ids)?;
+                self.application_events.publish_board(catalog.board)?;
+                Ok(Value::Null)
+            }
             Request::RemoveProject { id } => {
                 let catalog = self.catalog.remove_project(&id)?;
                 self.application_events.publish_board(catalog.board)?;
@@ -693,6 +705,7 @@ impl Host {
             | Request::WorkspaceGitBranches { .. }
             | Request::WorkspaceGitConflict { .. }
             | Request::WorkspaceGitResolve { .. }
+            | Request::FileBase { .. }
             | Request::TreeGitStatus { .. }
             | Request::TreeRestore { .. }
             | Request::CreateWorkspace { .. }

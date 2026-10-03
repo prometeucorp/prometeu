@@ -111,6 +111,9 @@ pub struct Tab {
     /// compaction.
     #[serde(default)]
     pub context_tokens: Option<u64>,
+    /// Last provider-reported capacity; absent in older boards and unsupported providers.
+    #[serde(default)]
+    pub context_window: Option<u64>,
     /// An optional model override selected when opening or retuning a tab. `None` inherits the
     /// workspace; selecting its model again removes the override. Resume preserves the tab's
     /// choice.
@@ -516,6 +519,7 @@ impl Board {
                     pending_prompt: None,
                     tokens: None,
                     context_tokens: None,
+                    context_window: None,
                     choice: None,
                     kickoff: None,
                 });
@@ -859,10 +863,22 @@ mod tests {
         );
         let tab = &mut board.workspaces[0].tabs[0];
 
+        assert_eq!(tab.context_window, None);
         tab.observe_tokens(24_000);
         assert_eq!(tab.tokens, Some(24_000));
         tab.observe_tokens(3_000);
         assert_eq!(tab.tokens, Some(27_000));
+    }
+
+    #[test]
+    fn context_capacity_round_trips_separately_from_accumulated_tokens() {
+        let board = board_json(
+            r#","tabs":[{"id":"t1","title":"Conversation","status":"pronta","note":null,"pending_prompt":null,"tokens":30000,"context_tokens":5000,"context_window":200000}]"#,
+        );
+        let encoded = serde_json::to_value(&board.workspaces[0].tabs[0]).unwrap();
+        assert_eq!(encoded["context_window"], 200000);
+        assert_eq!(encoded["context_tokens"], 5000);
+        assert_eq!(encoded["tokens"], 30000);
     }
 
     /// Legacy tool axes (`Option<Vec<String>>`) migrate to the layered `Selection` form on load.

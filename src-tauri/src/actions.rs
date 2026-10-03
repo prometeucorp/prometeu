@@ -214,6 +214,7 @@ pub fn action_start(
             note: None,
             tokens: None,
             context_tokens: None,
+            context_window: None,
             pending_prompt: Some(if prompt.is_empty() {
                 profile.prompt.clone()
             } else {

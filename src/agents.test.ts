@@ -3,7 +3,7 @@ import { capabilitiesOf, catalogOf, effortsOf, installed, isKnownModel, loadAgen
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("./ipc", () => ({ invoke: mocks.invoke }));
-const common: AgentCapabilities = { initialPlanMode: false, workspaceMcpSelection: true, workspacePluginSelection: true, resume: true, compact: true, contextReport: true, approvals: true, userQuestions: true, attachments: true };
+const common: AgentCapabilities = { initialPlanMode: false, workspaceMcpSelection: true, workspacePluginSelection: true, resume: true, compact: true, contextReport: true, approvals: true, userQuestions: true, attachments: true, usageTokens: true, usageCost: false, contextWindow: true };
 let models: Record<string, AgentModel[]>;
 beforeEach(() => {
   models = { claude: [{ id: "opus", label: "Live Opus", efforts: ["high", "xhigh"] }], codex: [{ id: "shared", label: "GPT", efforts: ["none", "low", "ultra", "future"] }], antigravity: [{ id: "shared", label: "Gemini", efforts: [] }] };
@@ -12,6 +12,11 @@ beforeEach(() => {
 async function loaded() { await loadAgents(); await Promise.all(installed().map(p => refreshModels(p.id))); }
 
 describe("live model catalogs", () => {
+  it("hides usage and context capabilities when discovery fails", async () => {
+    mocks.invoke.mockRejectedValue(new Error("unavailable"));
+    await loadAgents();
+    expect(capabilitiesOf("claude")).toMatchObject({ usageTokens: false, usageCost: false, contextWindow: false });
+  });
   it("uses advertised labels and does not resurrect retired aliases or synthesize efforts", async () => {
     await loaded();
     expect(modelLabelOf("opus", "claude")).toBe("Live Opus");

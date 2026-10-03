@@ -243,6 +243,11 @@ impl Workspaces {
         self.commit(next)?;
         Ok(project)
     }
+    pub fn reorder_projects(&mut self, ids: &[String]) -> Result<Catalog, String> {
+        let mut next = self.catalog.clone();
+        crate::projects::reorder(&mut next.board.projects, ids);
+        self.commit(next)
+    }
     pub fn remove_project(&mut self, id: &str) -> Result<Catalog, String> {
         let mut next = self.catalog.clone();
         crate::projects::remove(&mut next.board, id);
@@ -486,6 +491,7 @@ impl Workspaces {
             agent_session: None,
             tokens: None,
             context_tokens: None,
+            context_window: None,
             choice,
             kickoff: None,
         };
@@ -585,6 +591,7 @@ fn in_place(
             agent_session: None,
             tokens: None,
             context_tokens: None,
+            context_window: None,
             choice: None,
             kickoff: None,
         }],
@@ -745,6 +752,30 @@ mod tests {
         assert_eq!(restored.board.projects[0].id, project.id);
         assert_eq!(restored.board.workspaces.len(), 1);
         assert_eq!(restored.board.workspaces[0].project, "/project");
+    }
+    #[test]
+    fn project_reordering_persists_and_failed_saves_preserve_the_previous_order() {
+        let store = Arc::new(Memory::default());
+        let mut service = Workspaces::open(
+            store.clone(),
+            Arc::new(Folders),
+            "/project",
+            ProviderId::Codex,
+        )
+        .unwrap();
+        let second = service.add_project("/another").unwrap();
+        service
+            .reorder_projects(std::slice::from_ref(&second.id))
+            .unwrap();
+        assert_eq!(service.snapshot().board.projects[0].id, second.id);
+        store.fail.store(true, Ordering::SeqCst);
+        assert!(service.reorder_projects(&["/project".into()]).is_err());
+        assert_eq!(service.snapshot().board.projects[0].id, second.id);
+        store.fail.store(false, Ordering::SeqCst);
+        let restored =
+            Workspaces::open(store, Arc::new(Folders), "/project", ProviderId::Codex).unwrap();
+        assert_eq!(restored.snapshot().board.projects[0].id, second.id);
+        assert_eq!(restored.snapshot().board.projects[1].id, "/project");
     }
     #[test]
     fn tool_selection_and_trust_publish_only_after_catalog_persistence() {

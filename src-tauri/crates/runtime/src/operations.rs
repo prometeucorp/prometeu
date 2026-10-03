@@ -72,6 +72,7 @@ impl Host {
             | Request::WorkspaceGitHistory { .. }
             | Request::WorkspaceGitBranches { .. }
             | Request::WorkspaceGitConflict { .. }
+            | Request::FileBase { .. }
             | Request::TreeGitStatus { .. }
             | Request::WorkspaceBranch { .. }
             | Request::ListBranches { .. }
@@ -149,9 +150,9 @@ impl Host {
             });
         }
         let tree = match &request {
-            Request::TreeGitStatus { id } | Request::TreeRestore { id, .. } => {
-                self.git_tree(id).ok()
-            }
+            Request::FileBase { id, .. }
+            | Request::TreeGitStatus { id }
+            | Request::TreeRestore { id, .. } => self.git_tree(id).ok(),
             _ => None,
         };
         let root = match &request {
@@ -241,6 +242,11 @@ impl Host {
                         git.resolve(repo, &path, &was, &text)?;
                         Ok(Value::Null)
                     }
+                    Request::FileBase { rel, .. } => serde_json::to_value(
+                        tree.as_ref()
+                            .and_then(|(root, repos)| git.file_base(root, repos, &rel)),
+                    )
+                    .map_err(|e| e.to_string()),
                     Request::TreeGitStatus { .. } => {
                         let marks = tree
                             .map(|(root, repos)| git.tree(&root, &repos))

@@ -47,7 +47,9 @@ are:
 - Input totals include cache tokens; output totals include reasoning tokens.
   The breakdowns are subsets, not additional consumption. Unknown is null.
 - Keep the selected model separate from observed models. Attribute usage per
-  model only when the provider reports a trustworthy breakdown.
+  model only when the provider reports a trustworthy breakdown. A verified
+  whole-tree delta carries explicit `wholeTree` scope; otherwise retain the
+  main-agent scope and useful partial evidence.
 - Associate workspaces with multiple repositories and PRs without allocating
   consumption automatically. Related PR totals are not additive across PRs.
 - Store opaque work identifiers, not project names, branch names, titles,
@@ -64,6 +66,32 @@ are:
   end time or outcome to make aggregates look complete.
 - Put the first user-facing summary in settings, with period/workspace
   filters, coverage, export and complete deletion. Reuse i18n and shared UI.
+- Extend this store for issue 131's reply footers and workspace insights, rather
+  than creating an independent usage ledger. New canonical completions may carry
+  normalized usage; historical top-level `costUsd` remains legacy scope and is
+  never summed or used as a footer fallback.
+- Use cumulative deltas only with a verified fresh or same-process baseline.
+  A previous persisted terminal cannot prove whether external resumed work
+  changed the counter. Resets and unverified resumed baselines retain partial
+  evidence instead of inventing consumption or treating missing values as zero.
+- Restore native-transcript reply metadata through exact local lookup of a
+  conversation-scoped assistant-ID hash. Do not join by timestamp or turn order,
+  and do not backfill transcripts. Missing historical anchors remain unknown.
+- Keep app calls as separate paired facts with a closed source vocabulary.
+  Workspace naming has workspace scope; global plugin creation does not.
+  Action/delegation provenance uses opaque aliases and never copies commands.
+- Retain existing related-PR query semantics. More precise tenure requires
+  actual branch identity, lifecycle timestamps and a complete retained candidate
+  snapshot; incomplete evidence is related-only. Never sum PR shares across
+  repositories as independent workspace consumption.
+- Show context occupancy separately from consumption. Warning thresholds are
+  advisory; compact, report and new-conversation actions remain explicit.
+
+Canonical usage follows the existing encrypted conversation sharing contract;
+local app-call history, origins and lookup queries do not cross that boundary.
+The legacy conversation event already permits a CLI estimate. Erasing local
+history invalidates restored UI caches without rewriting conversation
+transcripts, shared copies or exported files.
 
 ## Consequences
 
@@ -99,14 +127,21 @@ taxonomy. A later Cloud design must address consent, deletion and recipients.
   privacy, retries, incomplete execution, overlap, query cohorts and erasure.
 - [Claude](../../src-tauri/src/claude.rs) and
   [Codex](../../src-tauri/src/codex.rs) test native normalization and counter scope.
-  Antigravity retains unknown usage rather than reusing cumulative totals.
+  [Antigravity](../../src-tauri/src/antigravity.rs) tests observed step usage and
+  cumulative boundaries against its recorded fixtures.
 - [Settings](../../src/telemetry-settings.ts), [IPC types](../../src/telemetry.ts)
   and [mock tests](../../src/telemetry.test.ts) cover the first consumer.
   The existing IPC parity test checks native registration and browser handlers.
+- [Usage presentation tests](../../src/usage-presentation.test.ts),
+  [workspace refresh tests](../../src/workspace-usage.test.ts),
+  [timeline tests](../../src/timeline.test.ts) and
+  [browser focus/draft coverage](../../e2e/usage-insights.spec.ts) protect the
+  conversation and workspace consumers. Synthetic Claude fixtures declare
+  their provenance rather than claiming a recorded CLI run.
 
 The [contract](../contracts/telemetry.md) records the implemented payloads and
-coverage limits. Usage currently describes the main agent. Child time is
-observed independently, without invented child token allocation. Streaming input
+coverage limits. Usage scope is explicit; child time remains independently
+observed, without invented child token allocation. Streaming input
 whose terminal cannot be correlated to an accepted message remains incomplete;
 normalization never guesses its owner. Cost remains a provider-client estimate.
 These limits are visible in measurement/capture coverage.

@@ -2,7 +2,8 @@
 
 Date: 2026-09-15
 Status: Accepted — Discovery is superseded by
-[ADR 0047](0047-tool-selection-boundaries.md).
+[ADR 0047](0047-tool-selection-boundaries.md) and extended by
+[ADR 0063](0063-account-connectors-in-the-mcp-base.md).
 
 Amends the "Authority" section of
 [ADR 0045](0045-layered-tool-selection.md); the rest of that decision stands.
@@ -53,7 +54,9 @@ configuration form a **visible inherited base**, and the picker's universe is
   directory, and the directory's `.mcp.json` plus every ancestor directory's,
   nearest first, as Claude Code walks the tree upward. The first occurrence of
   an ID wins; a hub server shadows a discovered one with the same ID. Discovery
-  is read-only and requires no import.
+  is read-only and requires no import. The CLI later added a source that lives
+  in no file — the account's claude.ai connectors — which
+  [ADR 0063](0063-account-connectors-in-the-mcp-base.md) adds to this base.
 - **Resolution.** `selection.rs` gains `resolve_with_base`, which seeds the
   chain with an implicit `{ base: "inherit", add: <base> }` layer below
   global. `base: "none"` at any layer therefore also replaces the CLI base.
@@ -68,7 +71,9 @@ configuration form a **visible inherited base**, and the picker's universe is
   CLI-inherited servers, so the resolved list is exactly what Claude Code
   loads. When no layer declares it, nothing changes: no strict flag, and the
   CLI loads its own defaults — now the same set the picker shows.
-- **Interface.** The picker lists base rows with the `cli` badge, and the
+- **Interface.** The picker lists base rows under their own header, which
+  states the `cli` provenance once; a row repeats it as a badge only when the
+  list has no headers, and a removal keeps its own badge so it stands out. The
   composer's MCP button no longer hides when the hub is empty but a base
   exists. The button label for a null workspace layer keeps reading
   "MCP do CLI", which is now literally true.
@@ -119,6 +124,10 @@ Negative:
   the workspace directory.
 - Web: `src/mcp.test.ts` for the per-workspace inherited cache; the mock
   mirror (`composeAxis`, `resolveWithBase`, `axisProvenance`) stays identical
-  to the Rust rules.
-- E2E: the picker shows the base badged as inherited from the CLI and a
-  removal persists as a workspace-layer delta.
+  to the Rust rules. `src/tool-picker.test.ts` covers the header stating the
+  `cli` provenance, the removal badge, and reopening at the scroll offset
+  and keyboard selection after each choice.
+- E2E: the picker shows the base under its header, stays inside the window
+  and scrolls when account connectors make the list long, keeps its place
+  after pointer and keyboard choices, and a removal persists as a
+  workspace-layer delta.

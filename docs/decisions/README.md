@@ -100,7 +100,7 @@ Status: Proposed
 | [0060](0060-isolated-desktop-presentation.md) | Isolated Desktop presentation and executable compositions |
 | [0061](0061-background-energy-policy.md) | Separate display sleep from agent work |
 | [0062](0062-local-diff-review.md) | Local review notes and explicit batch submission |
-| [0063](0063-portable-board-core.md) | Portable board models and injected publication effects |
+| [0063](0063-account-connectors-in-the-mcp-base.md) | Account connectors in the inherited MCP base |
 | [0064](0064-portable-conversation-stream.md) | Portable conversation ordering with injected effects |
 | [0065](0065-injected-process-supervision.md) | Injected process supervision and a reusable Unix adapter |
 | [0066](0066-injected-session-coordination.md) | Session coordination through injected effects |
@@ -120,3 +120,4 @@ Status: Proposed
 | [0080](0080-native-wsl-conversation-preview.md) | Native WSL conversation preview with injected transport |
 | [0081](0081-wsl-supporting-terminal.md) | Supporting WSL terminal with injected ports and output credits |
 | [0082](0082-resident-wsl-attachments.md) | Resident WSL execution and disposable attachments |
+| [0085](0085-portable-board-core.md) | Portable board models and injected publication effects |

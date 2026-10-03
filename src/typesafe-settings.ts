@@ -1,8 +1,11 @@
 import { fromBack, t } from "./i18n";
 import { icon } from "./icons";
 import * as typesafe from "./typesafe";
-import { button, field, notice, password, toggle } from "./ui";
+import { button, confirmDialog, field, notice, password, toggle } from "./ui";
 import { h, template } from "./util";
+import { save as saveFile } from "@tauri-apps/plugin-dialog";
+import { invoke } from "./ipc";
+import { CALIBRATED_MODEL } from "./review-policy";
 
 /// Settings for the optional TypeSafe integration. The key field is write-only: after saving, the
 /// screen shows only whether a key exists. Saving a key never enables review by itself.
@@ -54,7 +57,49 @@ export function typesafeRows(say: (text: string, isError?: boolean) => void, red
 
   row.append(enabled.label);
   const rows: HTMLElement[] = [row, keyField, h("p", "ui-hint typesafe-flow", t("typesafe.flow"))];
+  rows.push(h("p", "ui-hint", t("typesafe.model", { model: CALIBRATED_MODEL })));
+  const observed = typesafe.lastModel();
+  if (observed !== undefined) {
+    rows.push(h("p", "ui-hint", t("review.model", { model: observed ?? t("review.model.unknown") })));
+    if (observed !== CALIBRATED_MODEL) rows.push(notice(t("typesafe.model.changed"), "warning"));
+  }
   if (status.problem) rows.push(notice(fromBack(status.problem), "warning"));
+  const calibration = typesafe.calibrationStatus();
+  const collect = toggle(t("calibration.enabled"), calibration.enabled);
+  collect.control.dataset.focus = "calibration-enabled";
+  collect.control.onchange = () => {
+    const on = collect.control.checked;
+    collect.control.disabled = true;
+    void typesafe.setCalibrationEnabled(on).catch(error => {
+      collect.control.checked = !on;
+      collect.control.disabled = false;
+      say(fromBack(error), true);
+    });
+  };
+  rows.push(field(t("calibration.title"), collect.label, t("calibration.hint")));
+  rows.push(h("p", "ui-hint", t("calibration.summary", { records: calibration.records, created: calibration.created,
+    answered: calibration.actions.answered, handed: calibration.actions.handed_to_agent, dismissed: calibration.actions.dismissed, none: calibration.actions.none })));
+  const exportCsv = button(t("calibration.export"), async () => {
+    exportCsv.disabled = true;
+    try {
+      const path = await saveFile({ defaultPath: "prometeu-review-calibration.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
+      if (path) { await invoke("review_calibration_export", { path }); say(t("calibration.exported")); }
+    } catch (error) { say(fromBack(error), true); }
+    finally { exportCsv.disabled = !typesafe.calibrationStatus().records; }
+  }, "ghost");
+  exportCsv.disabled = !calibration.records;
+  exportCsv.dataset.focus = "calibration-export";
+  const clear = button(t("calibration.clear"), async () => {
+    if (!await confirmDialog({ title: t("calibration.clear"), message: t("calibration.clearConfirm"), accept: t("calibration.clear"), cancel: t("account.cancel") })) return;
+    clear.disabled = true;
+    try { await typesafe.clearCalibration(); say(t("calibration.cleared")); }
+    catch (error) { clear.disabled = false; say(fromBack(error), true); }
+  }, "ghost");
+  clear.dataset.focus = "calibration-clear";
+  const actions = h("div", "typesafe-key");
+  actions.append(exportCsv, clear);
+  rows.push(actions);
+  if (typesafe.calibrationError()) rows.push(notice(fromBack(typesafe.calibrationError()), "warning"));
   if (feedback) {
     const saved = h("p", "ui-hint", feedback);
     saved.setAttribute("role", "status");

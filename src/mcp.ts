@@ -48,9 +48,10 @@ export async function load() {
 /// Deleted registry entries remain in persisted workspace choices. Show unavailable selections explicitly so users can remove them.
 export const known = (id: string) => hub.some((s) => s.id === id);
 
-/// Servers discovered from the person's CLI configuration that the hub lacks (ADR 0046). They form
-/// the visible inherited base of the workspace picker, cached per workspace and provider because discovery
-/// reads files under the workspace directory.
+/// Servers the CLI itself loads and the hub lacks: the person's CLI configuration (ADR 0046) plus
+/// the connectors of their Claude account (ADR 0063). They form the visible inherited base of the
+/// workspace picker, cached per workspace and provider because discovery reads files under the
+/// workspace directory.
 const inherited = new Map<string, McpServer[]>();
 /// Workspaces with a discovery in flight, so repeated paints do not stack fetches.
 const inflight = new Set<string>();
@@ -100,15 +101,16 @@ type Pick = {
   /// Persist the new layer, or null to return the axis to inherit.
   set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
-  at: () => { x: number; y: number };
+  at: () => menu.Where;
   /// Opens the project-trust prompt when the project layer has pending items.
   trust?: () => void;
 };
 
 /// Provenance-aware MCP picker (ADR 0045): it shows the resolved effective set and writes the
 /// workspace layer as deltas over what the global and project layers already contribute. Rows come
-/// from the hub plus the CLI-inherited base (ADR 0046), so servers Claude Code loads on its own are
-/// visible and removable without importing them first.
+/// from the hub plus the CLI-inherited base — configuration files (ADR 0046) and account connectors
+/// (ADR 0063) — so servers Claude Code loads on its own are visible and removable without importing
+/// them first.
 export async function openPicker(p: Pick) {
   try {
     inherited.set(inheritedKey(p.workspace, p.agent), await invoke("mcp_inherited", { id: p.workspace, agent: p.agent }));
@@ -125,7 +127,7 @@ export async function openPicker(p: Pick) {
   }));
   for (const server of inheritedOf(p.workspace, p.agent)) {
     if (!rows.some((r) => r.id === server.id))
-      rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli") });
+      rows.push({ id: server.id, label: server.id, hint: subtitle(server), section: t("tools.section.cli"), implied: "cli" });
   }
   const current = p.current();
   // Retain ids the registry no longer has so they can still be dropped from the layer.

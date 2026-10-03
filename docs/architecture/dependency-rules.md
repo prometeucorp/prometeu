@@ -59,7 +59,7 @@ file storage and desktop delivery stay in adapters. Core dependencies and known
 native API/OS-dispatch tokens have conservative guards, and CI builds/tests the
 core on Linux and Windows without GUI libraries. See the limits in the
 [core contract](../contracts/application-core.md) and
-[ADR 0063](../decisions/0063-portable-board-core.md).
+[ADR 0085](../decisions/0085-portable-board-core.md).
 
 The WSL workspace catalog reuses those models through injected `CatalogStore` and
 `WorkspaceFolders`; provider selection is supplied by composition. Its native
@@ -98,9 +98,9 @@ selection lives in `main.rs`, private launcher selection at the provider edge.
 Catalog and finite commands use the separate ports below. See
 [ADR 0067](../decisions/0067-injected-terminal-and-private-processes.md).
 
-`QueryLauncher`/`QueryProcess` expose bounded private lines for model discovery;
-`CommandRunner` exposes bounded finite command results for naming, preparation
-fetches and action-monitor GitHub queries. The desktop composition root injects
+`QueryLauncher`/`QueryProcess` expose bounded private lines for model discovery and
+naming usage capture; `CommandRunner` exposes bounded finite command results for
+preparation fetches and action-monitor GitHub queries. The desktop composition root injects
 both Unix implementations. Feature adapters retain native command construction,
 protocols, output policy and error interpretation. Generic request types are
 local interfaces, not serialized arbitrary-command APIs. See
@@ -203,6 +203,14 @@ It has no Tauri dependency and uses an isolated leased root. This executable
 validates execution; it is not the production WSL transport or complete backend.
 See [ADR 0079](../decisions/0079-headless-conversation-slice.md).
 
+`prometeu-core::workspace_lifecycle` receives a mutable board for finish/archive/restore.
+It preserves the person's stage on archive, returns the tab IDs to stop, and
+reports whether the archived flag changed. `session.rs` still runs archive
+scripts before mutation, stops processes after releasing the board lock, and
+owns publication and telemetry. Restoring never starts a process. These rules
+are tested without Tauri state or effects; board types live in `prometeu-core::board`
+and the desktop `state.rs` reexports them.
+
 ## Rules in force for agents
 
 1. Claude, Codex or any other vendor protocol appears only in the corresponding
@@ -232,7 +240,8 @@ Separates TypeScript and Rust. Name, arguments, return value, error and events
 form a single contract. The web mock is another adapter of that same contract.
 `src/ipc.ts` owns the command argument/result map consumed by frontend callers
 and `IpcHandlers` in the mock. Exact command-name parity with Rust is tested;
-Rust payload shapes remain manually synchronized. See the
+Rust payload shapes remain manually synchronized; serialization fixtures check
+representative payloads against the actual TypeScript types and reducers. See the
 [IPC contract](../contracts/ipc.md).
 
 ### Collaboration

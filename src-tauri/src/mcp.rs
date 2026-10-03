@@ -8,12 +8,13 @@
 use crate::i18n;
 use crate::mcp_auth;
 use crate::paths;
-#[cfg(test)]
 use serde_json::json;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 #[cfg(test)]
 use prometeu_tools::mcp::config_body;
@@ -115,13 +116,148 @@ pub fn mcp_found() -> Vec<Server> {
     )
 }
 
+/* Account connectors */
+
+/// The note that marks a connector's origin in the picker, mirroring the CLI's own label.
+const CONNECTOR_NOTE: &str = "claude.ai";
+/// The connector list changes when the person edits it on claude.ai, not while a session runs, so a
+/// few minutes of staleness costs nothing and keeps the picker and the spawn off the network.
+const CONNECTOR_TTL: Duration = Duration::from_secs(300);
+/// The account API this endpoint requires; see ADR 0063.
+const CONNECTOR_BETA: &str = "mcp-servers-2025-12-04";
+
+/// A list belongs to the login that produced it: the connectors of one account say nothing about
+/// another, and a new login on the same account bumps its revision.
+struct Cached {
+    account: String,
+    revision: u64,
+    at: Instant,
+    servers: Vec<Server>,
+}
+
+fn connector_cache() -> &'static Mutex<Option<Cached>> {
+    static CACHE: OnceLock<Mutex<Option<Cached>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// The connectors of the person's Claude account (ADR 0063). Claude Code keeps them in no
+/// configuration file: it fetches them from the account at every start and loads them under its own
+/// `claudeai` scope. Discovery has to ask the same endpoint, or the picker would hide what the CLI
+/// shows and a strict spawn would drop every connector without saying so.
+///
+/// `None` means the list of a logged-in account is unknown — asked and failed, with nothing cached
+/// for that login — which is not the same as an account with no connectors: the picker degrades to
+/// the file base, while a spawn that materializes a selection refuses to start rather than drop
+/// connectors in silence. A failure after a successful fetch keeps the last known list, so a network
+/// blip changes nothing.
+pub fn connectors() -> Option<Vec<Server>> {
+    // Without an account, or without its credential, there is nothing to ask and the CLI loads no
+    // connector either: an empty list is the whole truth, not a gap.
+    let Some((profile, token)) = crate::accounts::active(crate::state::ProviderId::Claude)
+        .ok()
+        .and_then(|profile| Some((profile.clone(), crate::usage::claude_token(&profile)?)))
+    else {
+        return Some(Vec::new());
+    };
+    let mine =
+        |cached: &Cached| cached.account == profile.id && cached.revision == profile.revision;
+    {
+        let cache = crate::lock::lock(connector_cache());
+        if let Some(cached) = cache.as_ref().filter(|cached| mine(cached)) {
+            if cached.at.elapsed() < CONNECTOR_TTL {
+                return Some(cached.servers.clone());
+            }
+        }
+    }
+    let Some(fetched) = fetch_connectors(&token).map(|body| connectors_from(&body)) else {
+        return crate::lock::lock(connector_cache())
+            .as_ref()
+            .filter(|cached| mine(cached))
+            .map(|cached| cached.servers.clone());
+    };
+    *crate::lock::lock(connector_cache()) = Some(Cached {
+        account: profile.id.clone(),
+        revision: profile.revision,
+        at: Instant::now(),
+        servers: fetched.clone(),
+    });
+    Some(fetched)
+}
+
+/// Warm the cache off the interface thread so the first picker or spawn finds the list ready.
+pub fn warm_connectors() {
+    std::thread::spawn(|| {
+        connectors();
+    });
+}
+
+/// Ask the account API with the active Claude login's own credential, the same one the CLI uses.
+/// The failure is silent here and answered by the caller, which knows whether an absent list may be
+/// tolerated.
+fn fetch_connectors(token: &str) -> Option<Value> {
+    let base = std::env::var("ANTHROPIC_BASE_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "https://api.anthropic.com".into());
+    reqwest::blocking::Client::new()
+        .get(format!(
+            "{}/v1/mcp_servers?limit=1000",
+            base.trim_end_matches('/')
+        ))
+        .bearer_auth(token)
+        .header("anthropic-version", "2023-06-01")
+        .header("anthropic-beta", CONNECTOR_BETA)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .ok()
+}
+
+/// Name each connector the way Claude Code does — `claude.ai <display name>`, with a numeric suffix
+/// on a repeated name — so a persisted layer keeps referring to the same server, and materialize the
+/// `claudeai-proxy` entry the CLI itself would create, which a strict configuration accepts as a
+/// dynamic server. Pure, so the naming and the entry shape are tested without the network.
+fn connectors_from(body: &Value) -> Vec<Server> {
+    let mut out: Vec<Server> = Vec::new();
+    for item in body
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(id), Some(url), Some(name)) = (
+            item.get("id").and_then(Value::as_str),
+            item.get("url").and_then(Value::as_str),
+            item.get("display_name").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        let mut server_id = format!("{CONNECTOR_NOTE} {name}");
+        let mut repeat = 1;
+        while out.iter().any(|s| s.id == server_id) {
+            repeat += 1;
+            server_id = format!("{CONNECTOR_NOTE} {name} ({repeat})");
+        }
+        out.push(Server {
+            id: server_id,
+            config: json!({ "type": "claudeai-proxy", "url": url, "id": id }),
+            note: CONNECTOR_NOTE.into(),
+        });
+    }
+    out
+}
+
 /// The servers the CLI itself loads for one working directory (ADR 0046): the user-scope
-/// `mcpServers` of `~/.claude.json`, the project-scope entry keyed by the directory, and the
+/// `mcpServers` of `~/.claude.json`, the project-scope entry keyed by the directory, the
 /// directory's `.mcp.json` plus every ancestor directory's, as the CLI walks the tree upward from
-/// the working directory (ADR 0045). They form the inherited base of the mcp axis, visible in the
-/// picker without importing. IDs keep their original names; the first occurrence of a repeated
-/// name wins: local scope precedes project scope, then user scope. Within project scope the
-/// nearest repository file precedes its ancestors (ADR 0047).
+/// the working directory (ADR 0045), and the account connectors of the active login (ADR 0063).
+/// They form the inherited base of the mcp axis, visible in the picker without importing. IDs keep
+/// their original names; the first occurrence of a repeated name wins: local scope precedes project
+/// scope, then user scope, then the account. Within project scope the nearest repository file
+/// precedes its ancestors (ADR 0047).
 pub fn inherited(workdir: &Path) -> Vec<Server> {
     let claude = read_json(&crate::claude::config_file(&crate::claude::user_home()));
     let mut files: Vec<(String, Value)> = Vec::new();
@@ -136,16 +272,25 @@ pub fn inherited(workdir: &Path) -> Vec<Server> {
         }
         dir = current.parent();
     }
-    inherited_from(claude.as_ref(), workdir, &files)
+    // The picker and the button gating survive an unknown account: they show the file base, and the
+    // spawn is the one that refuses to materialize a selection without the connectors.
+    inherited_from(
+        claude.as_ref(),
+        workdir,
+        &files,
+        &connectors().unwrap_or_default(),
+    )
 }
 
-/// The pure core of `inherited`, injectable so tests need no home directory or file tree. `files`
-/// holds the repository `.mcp.json` values nearest first; the note carries the origin: empty for
-/// user scope, the directory name otherwise, mirroring `from_claude_json`.
+/// The pure core of `inherited`, injectable so tests need no home directory, file tree or account.
+/// `files` holds the repository `.mcp.json` values nearest first; the note carries the origin: empty
+/// for user scope, the directory name for a repository, `claude.ai` for an account connector,
+/// mirroring `from_claude_json` and `connectors_from`.
 fn inherited_from(
     claude: Option<&Value>,
     workdir: &Path,
     files: &[(String, Value)],
+    connectors: &[Server],
 ) -> Vec<Server> {
     let origin = workdir
         .file_name()
@@ -175,6 +320,9 @@ fn inherited_from(
     if let Some(root) = claude {
         out.extend(servers_in(root, ""));
     }
+    // The account comes last: a file the person controls shadows a connector of the same name, the
+    // same precedence the local scopes already have over the user scope.
+    out.extend(connectors.iter().cloned());
     let mut unique: Vec<Server> = Vec::new();
     for server in out {
         if !unique.iter().any(|s| s.id == server.id) {
@@ -210,6 +358,16 @@ pub fn inherited_missing_hub(workdir: &Path) -> Vec<Server> {
         .collect()
 }
 
+/// The strict flag stops the CLI from fetching the account connectors, so materializing a selection
+/// while their list is unknown would drop every one of them in silence. A preparation error prevents
+/// the spawn instead (ADR 0063 and docs/contracts/agent-runtime.md). Pure, so the policy is tested
+/// without an account or the network.
+fn requires_connectors(known: bool) -> Result<(), String> {
+    known
+        .then_some(())
+        .ok_or_else(|| i18n::t("err.mcp.connectors"))
+}
+
 pub(crate) struct Sources;
 impl prometeu_tools::mcp::McpSources for Sources {
     fn claude_servers(
@@ -218,6 +376,7 @@ impl prometeu_tools::mcp::McpSources for Sources {
         chosen: &[String],
         workdir: &Path,
     ) -> Result<Vec<Server>, String> {
+        requires_connectors(connectors().is_some())?;
         for_session(universe(workdir), session, chosen)
     }
     fn codex_servers(&self, session: &str, chosen: &[String]) -> Result<Vec<Server>, String> {
@@ -340,6 +499,20 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, "notion");
         assert_eq!(found[0].note, "origem");
+    }
+
+    /// Ignored, like the server probe: it reaches the real account of the active Claude login and
+    /// prints what the picker will show, so a change in the endpoint or in its naming is caught by
+    /// hand: cargo test -- --ignored lists_real_account_connectors --nocapture.
+    #[test]
+    #[ignore]
+    fn lists_real_account_connectors() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let got = connectors().expect("the account list must be readable in this run");
+        for server in &got {
+            println!("{} -> {}", server.id, server.config);
+        }
+        assert!(got.iter().all(|s| s.config["type"] == "claudeai-proxy"));
     }
 
     /// Ignored integration tests contact real MCP servers and may download packages: cargo test --
@@ -552,7 +725,7 @@ mod tests {
                 }),
             ),
         ];
-        let got = inherited_from(Some(&claude), workdir, &files);
+        let got = inherited_from(Some(&claude), workdir, &files, &[]);
         let get = |id: &str| got.iter().find(|s| s.id == id).unwrap();
         assert_eq!(got.len(), 4);
         assert_eq!(get("do-projeto").config["command"], "p");
@@ -561,7 +734,45 @@ mod tests {
         assert_eq!(get("do-repo").config["command"], "r");
         assert_eq!(get("do-ancestral").note, "dev");
         // Without configuration files the base is empty.
-        assert!(inherited_from(None, workdir, &[]).is_empty());
+        assert!(inherited_from(None, workdir, &[], &[]).is_empty());
+    }
+
+    /// The account connectors join the base with the CLI's own naming, and a configuration file the
+    /// person controls shadows a connector of the same name (ADR 0063).
+    #[test]
+    fn account_connectors_join_the_inherited_base() {
+        let body = json!({ "data": [
+            { "type": "mcp_server", "id": "mcpsrv_1", "display_name": "Linear", "url": "https://linear/mcp" },
+            { "type": "mcp_server", "id": "mcpsrv_2", "display_name": "Linear", "url": "https://other/mcp" },
+            { "type": "mcp_server", "id": "mcpsrv_3", "display_name": "Notion" },
+        ]});
+        let connectors = connectors_from(&body);
+        // A repeated display name is numbered, and an entry without a URL cannot be materialized.
+        assert_eq!(
+            connectors.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            ["claude.ai Linear", "claude.ai Linear (2)"]
+        );
+        assert_eq!(connectors[0].note, "claude.ai");
+        assert_eq!(
+            connectors[0].config,
+            json!({ "type": "claudeai-proxy", "url": "https://linear/mcp", "id": "mcpsrv_1" })
+        );
+
+        let workdir = Path::new("/dev/project");
+        let claude = json!({ "mcpServers": { "claude.ai Linear": { "command": "own" } } });
+        let base = inherited_from(Some(&claude), workdir, &[], &connectors);
+        let get = |id: &str| base.iter().find(|s| s.id == id).unwrap();
+        assert_eq!(base.len(), 2);
+        assert_eq!(get("claude.ai Linear").config["command"], "own");
+        assert_eq!(get("claude.ai Linear (2)").note, "claude.ai");
+
+        // The strict configuration materializes the proxy entry the CLI would have created.
+        let body = config_body(&base, &["claude.ai Linear (2)".into()], |_| None).unwrap();
+        assert_eq!(
+            body["mcpServers"]["claude.ai Linear (2)"]["type"],
+            "claudeai-proxy"
+        );
+        assert_eq!(body["mcpServers"]["claude.ai Linear (2)"]["id"], "mcpsrv_2");
     }
 
     #[test]
@@ -575,7 +786,7 @@ mod tests {
             "project".into(),
             json!({"mcpServers":{"db":{"command":"project"}}}),
         )];
-        let hub = inherited_from(Some(&claude), workdir, &files);
+        let hub = inherited_from(Some(&claude), workdir, &files, &[]);
         let body = config_body(&hub, &["db".into(), "user-only".into()], |_| None).unwrap();
         assert_eq!(body["mcpServers"]["db"]["command"], "local");
         assert_eq!(body["mcpServers"]["user-only"]["command"], "user-only");
@@ -625,6 +836,15 @@ mod tests {
         let servers = body["mcpServers"].as_object().expect("objeto");
         assert_eq!(servers.len(), 1);
         assert!(servers.contains_key("notion"));
+    }
+
+    /// An unknown account list fails the spawn too: under the strict flag the CLI no longer fetches
+    /// the connectors, so materializing without them would drop what the person kept (ADR 0063).
+    #[test]
+    fn unknown_account_connectors_prevent_materialization() {
+        assert!(requires_connectors(true).is_ok());
+        let err = requires_connectors(false).expect_err("failure");
+        assert!(err.contains("err.mcp.connectors"), "{err}");
     }
 
     /// A chosen id the universe no longer has fails the spawn instead of silently shrinking the

@@ -158,6 +158,8 @@ test("accounts: removing the last account without a CLI preserves focus on the g
     ], active: {}, login: null }));
   });
   await page.goto("/");
+  // Initial navigation must finish before Settings can remain the active screen.
+  await expect(page.locator("#deskView")).toBeVisible();
   await page.locator("#settings").click();
   await page.locator("#settingsView").getByRole("button", { name: "Agents", exact: true }).click();
   const group = page.locator('#settingsView [data-provider-accounts="antigravity"]');

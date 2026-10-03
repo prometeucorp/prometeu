@@ -86,6 +86,11 @@ loading a transcript cannot supersede the person's later tab selection. The
 native Windows journey delays that snapshot deliberately and checks focus before
 typing, protecting a retained composer draft from unintended submission.
 
+`contextGauge` updates its open panel from the host's latest snapshot, including
+action availability and callbacks. It preserves scroll and focus on an enabled
+action; if that action is disabled or removed, focus returns to the panel so
+Tab and Escape continue working. It does not own conversation status or commands.
+
 Git file rows and groups receive display data, selected/collapsed state and
 callbacks. `commitForm` only handles message input and empty-message validation;
 the host supplies availability and validates the actual operation. Staging,

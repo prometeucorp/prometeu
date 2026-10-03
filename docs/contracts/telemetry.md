@@ -1,14 +1,15 @@
 # Local telemetry and insights
 
-Status: implemented local data foundation; decision in
+Status: implemented local usage and context insights; decision in
 [ADR 0059](../decisions/0059-local-telemetry-foundation.md).
 
 ## Scope and ownership
 
 The Rust backend captures product transitions and observed execution locally.
 The feature includes indexed event pages, period/workspace summaries, PR-related
-queries, JSONL export and complete history deletion. Settings exposes the first
-summary under **Work and team / Local history**. Cloud sync, billing, pricing,
+queries, exact reply lookup, workspace/model/source breakdowns, JSONL export and
+complete history deletion. Completed replies and workspace headers expose usage;
+Settings retains **Work and team / Local history**. Cloud sync, billing, pricing,
 organization analytics, transcript backfill and a full Insights page are absent.
 
 - Adapters normalize measurements. Native usage objects do not cross the store
@@ -17,7 +18,9 @@ organization analytics, transcript backfill and a full Insights page are absent.
 - `chat.rs` captures only live local process output and successfully written
   application commands. Replay, remote mirrors and snapshots do not recapture.
   Remote control executes through the owner's same backend command path. Internal
-  measurement fields are stripped before conversation persistence and sharing.
+  capture fields are stripped before conversation persistence and sharing. The
+  additive canonical `turn.completed.usage` is an explicit conversation payload;
+  it can be persisted/shared under that conversation’s existing consent.
 - `telemetry.rs` owns typed facts, validation, SQLite, capture health and erasure.
   `telemetry/capture.rs` owns logical turns, execution/request intervals and scope.
   `telemetry/query.rs` owns queries. Consumers do not issue SQL.
@@ -95,7 +98,9 @@ There is no atomic transaction across the JSON board, provider process and SQLit
 | journey | `conversation.created` | Empty payload; a new logical tab was published |
 | journey | `provider.selected` | `scope: workspace | conversation`; initial launch choice or explicit committed tab choice |
 | work | `pull_request.associated` | `repositoryId`, nullable `branchId`, `pullRequest`; a newly captured relation |
-| work | `turn.started` | Initial `measurement`; a message successfully written to the ready process |
+| work | `pull_request.observed` | Repository/branch IDs, PR number and lifecycle timestamps/state, snapshot ID, candidate count, query-start bound and completeness; no title or branch name |
+| work | `app.call.started`, `app.call.completed` | Opaque `callId`, closed source and measurement; completion adds outcome and elapsed duration |
+| work | `turn.started` | Initial `measurement` and defaulted `origin`; a message successfully written to the ready process |
 | work | `turn.completed` | `outcome: ok | error | interrupted`, `elapsedMs`, nullable `providerDurationMs`, `measurement` |
 | work | `turn.usage.observed` | `measurement`; a snapshot, not a counter increment |
 | work | `agent.execution.started` | Opaque `executionId`; observed main or child execution |
@@ -105,10 +110,15 @@ There is no atomic transaction across the JSON board, provider process and SQLit
 | work | `context.compacted` | Nullable `before` and `after`; only an explicit provider observation |
 
 Workspace creation is not proof that preparation succeeded. No generic
-`work.completed` is inferred. PR opened/merged/closed timestamps remain a later
-extension. PR association is not PR creation, archive is not completion and merge
-is not deployment. Branch identity is included only when the observed PR names
-its head branch; stale workspace labels are not evidence of the PR's branch.
+`work.completed` is inferred. PR association is not PR creation, archive is not
+completion and merge is not deployment. Separate `pull_request.observed` facts
+record provider lifecycle evidence and complete branch-history snapshots for
+tenure; missing or incomplete evidence remains a related-only association.
+Branch identity comes from the actual worktree head or the observed PR head,
+never a stale workspace label.
+
+`turn.completed.messageKey` is an optional conversation-scoped reply hash for
+exact footer restoration. Older completions default to no key.
 
 ## Turns and time
 
@@ -157,9 +167,11 @@ incomplete after crashes, stop/process loss or restart; no guessed end is added.
 
 ## Usage and model attribution
 
-All measurements carry `usageScope: mainAgent`. Child consumption is not allocated
-to a message turn. `complete` indicates known complete input/output totals for
-that main turn; false preserves useful partial observations. A measurement has
+Measurements carry `usageScope: mainAgent` or `wholeTree`. The latter requires
+verified provider totals for the main agent and children within that turn; it
+is not inferred from the existence of children. `complete` indicates known
+complete input/output totals for the stated scope; false preserves useful partial
+observations. Resumed counters alone cannot prove a new turn’s starting baseline. A measurement has
 nullable `selectedModel`, nullable `observedModels`, `usage` and nullable
 `usageByModel` rows (`model`, `usage`). Selection alone never proves observation.
 
@@ -172,7 +184,11 @@ nullable `selectedModel`, nullable `observedModels`, `usage` and nullable
 - Unknown stays null. Validation rejects negative/non-finite costs, impossible
   subsets, invalid IDs/providers and unrecognized payload fields.
 - `modelCalls` counts observed distinct model messages, not blocks or tools.
-  Compactions require explicit signals. Cache rebuilds remain unknown.
+  Compactions require explicit signals. A cache rebuild requires an observed
+  previous call with context, at least 1,000 cache-write tokens and writes of at
+  least half the previous call’s input context. The first observed call is not
+  a rebuild, and repeated blocks do not create additional calls. Unsupported
+  per-call evidence leaves the rebuild count unknown.
 - Usage observations are snapshots. Queries use the final measurement, or the
   latest partial one when no terminal exists; they never sum both.
 - Per-model input rows can be partial. They are not added to the aggregate and
@@ -180,9 +196,9 @@ nullable `selectedModel`, nullable `observedModels`, `usage` and nullable
 
 | Provider | Normalization and limits |
 | --- | --- |
-| Claude | Result `usage` covers the current main turn. Input combines noncached input, cache read and cache creation only when all are known. Distinct assistant message IDs provide partial input, observed models, call counts and per-model input; output placeholders are ignored until result. Session-cumulative cost uses a verified same-session baseline, or zero only for a known fresh process. Restored/reset/overlapping-child spend remains unattributed. Duplicate result UUIDs are ignored. |
-| Codex | Thread totals are cumulative; subtract a known start baseline. New threads establish zero; resumed threads need a prior observation before a turn can have a verified baseline. Reset invalidates complete attribution and retains previously known partial usage. `last.totalTokens` is context only. Cache/reasoning remain subsets. Native duplicate terminals are ignored. Cost, call counts and observed model breakdown remain null without verified evidence. |
-| Antigravity | Lifecycle and local elapsed time are captured. Native cumulative token/cost fields remain unknown. Interactive request and independent child visibility remain unavailable. |
+| Claude | Result `usage` covers the main turn. Input includes noncached input, cache read and cache creation. Verified cumulative `modelUsage` deltas can cover the whole tree and observed models; missing/reset/resumed baselines or crossing child activity retain conservative main-turn coverage. Distinct assistant IDs provide partial input and call/rebuild observations; placeholder output is not summed. Cost uses a verified same-session baseline or known fresh zero. Duplicate result UUIDs are ignored. |
+| Codex | Thread totals are cumulative; subtract a known start baseline. New threads establish zero; resumed threads need a prior observation before a turn can have a verified baseline. Reset invalidates complete attribution and retains previously known partial usage. `last.inputTokens` is current input context, not consumption. Cache/reasoning remain subsets. Native duplicate terminals are ignored. Cost, call counts and observed model breakdown remain null without verified evidence. |
+| Antigravity | Deduplicated current-step usage gives partial input/output, including no-text tool steps; known fresh or same-process cumulative result deltas can complete it. A resumed cumulative result is not counted as a new turn. Cost, window and model breakdown remain unknown. Interactive requests and independent child visibility remain unavailable. |
 
 Provider semantics were checked against the official
 [Claude cost/usage contract](https://code.claude.com/docs/en/agent-sdk/cost-tracking)
@@ -190,6 +206,59 @@ and [Codex token protocol](https://github.com/openai/codex/blob/main/codex-rs/pr
 Claude's cost is a provider-client estimate, not authoritative billing.
 Adapter fixtures are deterministic regression evidence; they do not claim a live
 CLI conformance run for every installed version.
+
+## Application calls and provenance
+
+`app.call.started` and `app.call.completed` pair an opaque `callId` and closed
+`source: naming | plugin-maker`, with measurements and observed outcome/duration.
+They contribute to usage and source groups but do not inflate message-turn or
+conversation counts. Naming belongs to its workspace; global plugin creation has
+no fabricated workspace. Capture generation is taken before launching the work,
+so completion after history deletion cannot restore the old call.
+
+`turn.started.origin` contains nullable opaque `actionId`/`delegatedBy` and observed
+repository/branch pairs. This is conversation provenance: a manual follow-up in
+an action-created conversation retains that provenance. It does not claim to
+identify who initiated each queued message. No prompt or command is inspected
+to infer origin.
+
+Source groups partition conversation, naming and plugin-maker measurements.
+Action and delegation origin groups are overlapping views of conversation usage,
+not additional consumption. A turn with both origins appears in both groups;
+neither is added again to the workspace total.
+
+## Conversation and workspace presentation
+
+The completed reply footer uses provider duration where available and shows
+known consumption and normalized CLI cost, with an inclusive token breakdown
+and measurement-scope/coverage information. Legacy top-level `costUsd` is not a
+safe cost fallback. Native Claude replay restores exact reply metadata from
+local history; remote mirrors do not query another machine’s local history.
+
+Current context uses `context.updated` or the latest completion measurement,
+with the optional persisted tab window for attachment. The meter warns at 60%
+or 220,000 tokens (whichever comes first), and is high at 80%. These are advisory
+hypotheses, not quality guarantees. Compact, Context report and New conversation
+are explicit capability-driven actions; invoking a context command preserves
+the draft. Desktop desk frames use the same ChatView controls. Unknown windows
+hide the gauge. Compaction labels include automatic/manual only when reported.
+An open context panel follows current action availability. Updates retain focus
+on an available action, or return it to the panel if that action becomes disabled.
+
+Workspace headers show one total and a panel with token subsets, known cost,
+coverage, execution/wait clocks, observed models, conversations, app-call sources
+and PR evidence. Finish/archive include the read-only total without an extra
+approval flow. Missing or removed names use localized opaque-ID fallbacks.
+Observed model rows retain their provider label when known, so identical model
+IDs from different providers remain distinguishable. Providers absent from the
+current catalog retain their recorded identifier; a missing provider is not inferred.
+
+Local `telemetry-changed` invalidations refresh the current workspace after
+turn completion, app-call capture or a complete PR-history capture attempt,
+independently of board changes. Main completion can change usage while child
+activity keeps the tab running. These events carry no content. In-flight responses
+are rejected after navigation or history deletion. Turn capture precedes the
+existing board update.
 
 ## Relations and queries
 
@@ -199,10 +268,30 @@ existing workspace history queryable without rewriting events. A PR query return
 contributes once within a query; different PR query totals can overlap.
 Archive, worktree cleanup and removal from the board do not remove event history.
 
+Insights additionally qualify each PR row as `tenure` or `related`. Tenure requires
+an observed repository/branch on the turn, valid PR lifecycle dates, and a complete
+branch-history snapshot whose query started after the turn. All candidates in
+the snapshot must be retained before it is usable. A capped or partially captured
+history stays related-only. The first PR whose tenure has not ended at the turn
+start receives that turn, including work before the PR opened; closed/merged PRs
+use their observed end time. Unknown or conflicting evidence is not apportioned.
+Multi-repository associations may overlap and are never added to the workspace
+total as separate consumption.
+
 Typed IPC and the browser mock expose:
 
 - `telemetry_summary({ filter })`: counts, known sums, interval clocks, workspace
   IDs and capture/measurement coverage.
+- `telemetry_insights({ filter })`: the summary, known consumption and groups by
+  conversation, observed model and source, overlapping origin groups, and
+  qualified PR rows. Counts are
+  summed once; aggregate context occupancy/window are null and peak context is
+  a maximum. A conversation changing provider remains one conversation.
+- `telemetry_turns({ conversation, messageIds })`: at most 500 requested assistant
+  IDs, returning only exact completed matches with duration and usage. The store
+  contains SHA-256 of conversation UUID, a NUL separator and assistant ID, not
+  the raw native identifier. Old events without a key have no reconstructed
+  footer. Reads do not capture or backfill history.
 - `telemetry_events({ filter, cursor? })`: at most 500 events, nullable next cursor
   and health. Cursor is `(occurredAt, sequence)`.
 - `telemetry_export({ filter, path })`: writes a private `.jsonl` file selected by
@@ -228,7 +317,9 @@ before the period's upper bound contribute only to incomplete counts.
 Summary fields distinguish null from measured zero, complete from partial token
 coverage, starts from completions, received from cancelled waits and clock
 anomalies. Settings resolves current workspace names from the board, with a
-localized fallback for missing entries. It offers period/workspace filters,
+localized fallback for missing entries. It reads one insights snapshot so its
+known consumption includes app calls, including global plugin-maker calls when
+no workspace filter is selected. It offers period/workspace filters,
 refresh, export and confirmed deletion without a large dashboard. `workspaceIds`
 contains every retained workspace matching the PR relation, independent of the
 period and workspace selection. Refresh reloads names and options while keeping
@@ -241,6 +332,9 @@ measurements and closed enums. They exclude prompts, replies, source, diffs,
 file contents, commands, arguments, answers, raw errors, task descriptions,
 paths, repository URLs and branch/project/workspace/conversation names.
 Native request/child IDs are mapped to UUIDs; raw IDs stay only in process memory.
+Reply lookup stores only a conversation-scoped hash. Action and delegation
+provenance uses UUID aliases, with names and MCP client details left in the
+existing domain boundary.
 No Cloud, relay or analytics upload is added.
 
 Retention is indefinite until deletion. JSONL starts with versioned metadata
@@ -270,7 +364,9 @@ leave an older snapshot still exporting erased history. Old generation
 callbacks cannot restore events; known old child/request identities remain only
 as in-memory suppression markers. Journey/preparation/PR-discovery operations
 also carry their originating generation. New accepted activity can start fresh
-history; replay never backfills it. If a message arrives before an erased main
+history; replay never backfills it. Confirmed deletion also invalidates pending
+frontend history reads and restored footer caches. Persisted canonical
+conversation usage is transcript data and is not removed by this command. If a message arrives before an erased main
 run ends, its start remains incomplete and old usage/terminal observations are
 discarded until that run ends; no erased execution end is republished.
 If erasure fails, report failure rather than claim success. Board state and

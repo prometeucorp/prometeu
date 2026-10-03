@@ -1,7 +1,7 @@
 # Portable application core
 
 Status: implemented board, conversation, process, session, terminal and private subprocess boundaries.
-Decisions: [ADR 0063](../decisions/0063-portable-board-core.md),
+Decisions: [ADR 0085](../decisions/0085-portable-board-core.md),
 [ADR 0064](../decisions/0064-portable-conversation-stream.md),
 [ADR 0065](../decisions/0065-injected-process-supervision.md),
 [ADR 0066](../decisions/0066-injected-session-coordination.md),
@@ -301,8 +301,10 @@ UTF-8 lines. A cleanup owner exists immediately after spawn. Only that owner
 polls/reaps/signals; retained exit status prevents signals after PID retirement.
 Detached descendants are outside the owned-group guarantee.
 
-Claude naming captures at most 1 MiB in 60 seconds; Codex keeps its final-answer
-file and discarded streams. Errors retain the fallback title. Background `gh`
+Naming uses the query port to drain structured usage incrementally, bounded to
+1 MiB in 60 seconds for either provider. Codex keeps its final-answer file; Claude
+reads its result envelope. Partial measurements survive failed calls while errors
+retain the fallback title. Background `gh`
 action queries use 30 seconds and 8 MiB per stream; either overflow is a response
 error. Preparation fetch uses 10 seconds, closed stdin and inherited output;
 a completed nonzero exit still permits the existing-ref fallback. These policies

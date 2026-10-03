@@ -26,6 +26,25 @@ export function errorCard(text: string): HTMLElement {
   return el;
 }
 
+/// Short notices stay one quiet line; longer ones, such as a subagent report, fold behind their first line and render as Markdown.
+export function noticeCard(text: string, title: string): HTMLElement {
+  const value = text.trim();
+  if (!value.includes("\n") && value.length <= 180) {
+    const el = h("div", "sys");
+    el.textContent = value;
+    return el;
+  }
+  const el = template(
+    "details",
+    "sysnote",
+    `<summary><span class="nic">${icon("check", 12)}</span><b></b><span class="prev"></span></summary><div class="md"></div>`,
+  );
+  el.querySelector("b")!.textContent = title;
+  el.querySelector(".prev")!.textContent = peek(value).replace(/^\s*#+\s+/, "");
+  (el.lastElementChild as HTMLElement).innerHTML = md(value);
+  return el;
+}
+
 export function workCard(parts: BlockPart[], opened: boolean, changed: (open: boolean) => void): HTMLElement {
   if (!wantsCard(parts)) {
     const el = h("div", "turn bot");

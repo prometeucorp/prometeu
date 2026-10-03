@@ -53,7 +53,7 @@ type Pick = {
   /// Persist the new layer, or null to return the axis to inherit.
   set: (sel: Selection | null) => Promise<void> | void;
   /// Menu anchor position.
-  at: () => { x: number; y: number };
+  at: () => menu.Where;
   /// Opens the project-trust prompt when the project layer has pending items.
   trust?: () => void;
 };

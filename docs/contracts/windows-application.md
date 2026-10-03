@@ -33,10 +33,10 @@ The current command coverage is:
 | Board/session | `load_board`, `set_stage`, `focus_tab`, `look_at`, `set_lang`, `rename_workspace`, `rename_tab`, `pin_workspace`, `set_unread`, `set_tab_choice` |
 | Workspace lifecycle | `archive_workspace`, `finish_workspace`, `remove_workspace`, `cleanup_list`, `cleanup_worktree` |
 | Conversation | `chat_snapshot`, `chat_send`, `chat_control`, `new_tab`, `close_tab` |
-| Projects | `add_project`, `remove_project` through the existing native directory picker |
+| Projects | `add_project`, `remove_project`, `reorder_projects` through the existing sidebar and native directory picker |
 | Project files | `list_dir`, `read_file`, `read_bytes`, `file_stamp`, `write_file`, `create_path`, `rename_path`, `trash_path`, `find_paths`, `reveal_path` |
 | Shell, Setup and Run | `open_dock`, `close_dock`, `dock_state`, `pty_buffer`, `pty_write`, `pty_resize` |
-| Git | `workspace_git_status`, `workspace_git_diff`, `workspace_git_action`, `workspace_git_history`, `workspace_git_branches`, `workspace_git_conflict`, `workspace_git_resolve`, `tree_git_status`, `tree_restore` |
+| Git | `workspace_git_status`, `workspace_git_diff`, `workspace_git_action`, `workspace_git_history`, `workspace_git_branches`, `workspace_git_conflict`, `workspace_git_resolve`, `tree_git_status`, `tree_restore`, `file_base` |
 | Plugin library | `plugin_look`, `plugin_save`, `plugin_install`, `plugin_update`, `plugin_remove`, `plugin_scrap` |
 | Local resources | `mcp_hub`, `mcp_save`, `mcp_remove`, `mcp_logins`, `plugin_hub`, `skill_hub`, `skill_save`, `skill_remove`, local-only `catalog_state` |
 | Tool selection | `set_tools_global`, `set_workspace_mcp`, `set_workspace_plugins`, `set_workspace_skills`, `workspace_tools`, `mcp_inherited`, `project_tools`, `project_tools_trust` |
@@ -63,6 +63,10 @@ The WSL folder adapter verifies and canonicalizes the existing directory before
 saving. Core project registration is shared with desktop; duplicates return the
 existing project. Registration does not create a workspace or launch an agent;
 removal unregisters the project without deleting files or existing workspaces.
+`reorder_projects` persists the shared project order before publishing the board;
+a failed save preserves the prior order. The editor's `file_base` query uses the
+injected Git port and the same committed-text/null semantics as desktop. Both
+commands are covered across the application transport in `runtime/tests/resident.rs`.
 Project-only views support the same file editor and terminal tabs; Setup/Run
 remain workspace operations. Board and persisted project models are unchanged.
 

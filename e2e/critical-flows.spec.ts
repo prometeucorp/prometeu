@@ -1080,20 +1080,64 @@ test("the desk shows each conversation in a tile, accepts replies and preserves 
   await expect(first.locator(".feed")).toContainText("Understood: Hello from the desk");
   await expect(page.locator('#tiles .tile[data-tab="t3"] .feed')).not.toContainText("Hello from the desk");
 
+  // Real Selection and pointer defaults differ in WebKit. Protect existing feed selections on
+  // clicks, block selectstart while pressed, and restore it on release or cancellation.
+  const selection = () => page.evaluate(() => getSelection()?.toString());
+  const selectFeed = () => first.locator(".feed .turn").first().evaluate((el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+    return getSelection()!.toString();
+  });
+  const canSelect = () => first.locator(".feed").evaluate((el) =>
+    el.dispatchEvent(new Event("selectstart", { bubbles: true, cancelable: true })),
+  );
+  for (const control of [first.locator(".tile-head"), first.locator(".tile-grip")]) {
+    const selected = await selectFeed();
+    expect(selected.length).toBeGreaterThan(0);
+    const rect = (await control.boundingBox())!;
+    const x = rect.x + 5;
+    const y = rect.y + rect.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    expect(await selection()).toBe(selected);
+    expect(await canSelect()).toBe(false);
+    await page.mouse.up();
+    expect(await selection()).toBe(selected);
+    expect(await canSelect()).toBe(true);
+
+    await page.mouse.down();
+    await page.mouse.move(x + 12, y + 12);
+    expect(await selection()).toBe("");
+    expect(await canSelect()).toBe(false);
+    await control.dispatchEvent("pointercancel", { bubbles: true });
+    expect(await canSelect()).toBe(true);
+    await expect(first).not.toHaveClass(/\b(dragging|sizing)\b/);
+    await expect(page.locator(".tile.ghost")).toHaveCount(0);
+    await page.mouse.up();
+  }
+
   // Dragging reorders panels while a ghost follows the pointer and the original reserves its
   // destination.
   const head = first.locator(".tile-head");
   const target = page.locator('#tiles .tile[data-tab="t2"]');
   const from = (await head.boundingBox())!;
   const to = (await target.boundingBox())!;
+  const selected = await selectFeed();
   await page.mouse.move(from.x + 40, from.y + from.height / 2);
   await page.mouse.down();
+  await page.mouse.move(from.x + 42, from.y + from.height / 2);
+  expect(await selection()).toBe(selected);
   await page.mouse.move(to.x + to.width * 0.75, to.y + 20, { steps: 8 });
   await expect(page.locator(".tile.ghost")).toHaveCount(1);
   await expect(first).toHaveClass(/\bdragging\b/);
+  expect(await selection()).toBe("");
+  expect(await canSelect()).toBe(false);
   await page.mouse.up();
   await expect(page.locator(".tile.ghost")).toHaveCount(0);
   await expect(first).not.toHaveClass(/\bdragging\b/);
+  expect(await canSelect()).toBe(true);
   await expect(tiles.nth(0)).toHaveAttribute("data-tab", "t2");
   await expect(tiles.nth(1)).toHaveAttribute("data-tab", "t1");
 
@@ -1102,12 +1146,16 @@ test("the desk shows each conversation in a tile, accepts replies and preserves 
 
   // The corner handle resizes the panel and persists its dimensions.
   const tile = page.locator('#tiles .tile[data-tab="t1"]');
+  await selectFeed();
   const box = (await tile.boundingBox())!;
   const grip = (await tile.locator(".tile-grip").boundingBox())!;
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
   await page.mouse.move(grip.x + grip.width / 2 - 120, grip.y + grip.height / 2 - 60, { steps: 6 });
+  expect(await selection()).toBe("");
+  expect(await canSelect()).toBe(false);
   await page.mouse.up();
+  expect(await canSelect()).toBe(true);
   const width = () => page.locator('#tiles .tile[data-tab="t1"]').evaluate((el) => el.offsetWidth);
   expect(await width()).toBeLessThan(box.width - 100);
   await page.reload();

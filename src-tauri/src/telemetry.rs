@@ -4,23 +4,87 @@ mod query;
 #[cfg(test)]
 mod tests;
 use crate::{conversation::now, lock::lock, paths, AppState};
-pub use capture::{associate, conversation_relations, conversation_scope, journey, Capture};
-pub use query::{Filter, Page, Summary};
+pub use capture::{
+    associate, associate_history, conversation_attribution, conversation_relations,
+    conversation_scope, journey, workspace_scope, AppCapture, Capture,
+};
+pub use query::{Filter, Insights, Page, Summary, TurnMeasurement};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
 };
-use tauri::State;
+use tauri::{Emitter, State};
+
+/// The capture closure owns its lock guards, so a local view can immediately query committed
+/// changes on notification. Neither the result nor any scope enters the event payload.
+pub fn notify_changed<T>(app: &tauri::AppHandle, capture: impl FnOnce() -> T) -> T {
+    after_capture(capture, |name, payload| {
+        let _ = app.emit(name, payload);
+    })
+}
+
+fn after_capture<T>(capture: impl FnOnce() -> T, emit: impl FnOnce(&str, ())) -> T {
+    let result = capture();
+    emit("telemetry-changed", ());
+    result
+}
 
 pub fn id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
+fn message_key(conversation: &str, message: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(conversation.as_bytes());
+    hash.update([0]);
+    hash.update(message.as_bytes());
+    format!("{:x}", hash.finalize())
+}
 const FAILURE: &str = "err.telemetry.storage";
 type Result<T> = std::result::Result<T, String>;
 
-pub use prometeu_core::conversation::usage::{Measurement, ModelUsage, Usage};
+pub use prometeu_core::conversation::usage::{Measurement, ModelUsage, Usage, UsageScope};
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Origin {
+    pub action_id: Option<String>,
+    pub delegated_by: Option<String>,
+    #[serde(default)]
+    pub repositories: Vec<RepositoryBranch>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepositoryBranch {
+    pub repository_id: String,
+    pub branch_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum AppSource {
+    #[serde(rename = "naming")]
+    Naming,
+    #[serde(rename = "plugin-maker")]
+    PluginMaker,
+}
+impl AppSource {
+    fn id(&self) -> &'static str {
+        match self {
+            Self::Naming => "naming",
+            Self::PluginMaker => "plugin-maker",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PullRequestState {
+    Open,
+    Closed,
+    Merged,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Outcome {
@@ -66,13 +130,47 @@ pub enum Fact {
         branch_id: Option<String>,
         pull_request: u64,
     },
+    #[serde(rename = "pull_request.observed", rename_all = "camelCase")]
+    PullRequestObserved {
+        repository_id: String,
+        branch_id: String,
+        pull_request: u64,
+        state: PullRequestState,
+        created_at: Option<u64>,
+        closed_at: Option<u64>,
+        merged_at: Option<u64>,
+        history_complete: bool,
+        snapshot_id: String,
+        history_size: u64,
+        observed_after: u64,
+    },
     #[serde(rename = "turn.started")]
-    TurnStarted { measurement: Measurement },
+    TurnStarted {
+        measurement: Measurement,
+        #[serde(default)]
+        origin: Origin,
+    },
     #[serde(rename = "turn.completed", rename_all = "camelCase")]
     TurnCompleted {
         outcome: Outcome,
         elapsed_ms: u64,
         provider_duration_ms: Option<u64>,
+        measurement: Measurement,
+        #[serde(default)]
+        message_key: Option<String>,
+    },
+    #[serde(rename = "app.call.started", rename_all = "camelCase")]
+    AppCallStarted {
+        call_id: String,
+        source: AppSource,
+        measurement: Measurement,
+    },
+    #[serde(rename = "app.call.completed", rename_all = "camelCase")]
+    AppCallCompleted {
+        call_id: String,
+        source: AppSource,
+        outcome: Outcome,
+        elapsed_ms: u64,
         measurement: Measurement,
     },
     #[serde(rename = "turn.usage.observed")]
@@ -112,8 +210,10 @@ impl Fact {
     }
     fn measurement(&self) -> Option<&Measurement> {
         match self {
-            Self::TurnStarted { measurement }
+            Self::TurnStarted { measurement, .. }
             | Self::TurnCompleted { measurement, .. }
+            | Self::AppCallStarted { measurement, .. }
+            | Self::AppCallCompleted { measurement, .. }
             | Self::UsageObserved { measurement } => Some(measurement),
             _ => None,
         }
@@ -182,6 +282,50 @@ impl Event {
                     .is_none_or(|v| v.iter().all(|r| identifier(&r.model) && r.usage.valid()))
         };
         let fact_valid = match &self.fact {
+            Fact::TurnStarted { origin, .. } => {
+                origin.action_id.as_deref().is_none_or(uuid)
+                    && origin.delegated_by.as_deref().is_none_or(uuid)
+                    && origin
+                        .repositories
+                        .iter()
+                        .all(|r| uuid(&r.repository_id) && uuid(&r.branch_id))
+            }
+            Fact::TurnCompleted { message_key, .. } => message_key
+                .as_deref()
+                .is_none_or(|s| s.len() == 64 && s.bytes().all(|c| c.is_ascii_hexdigit())),
+            Fact::AppCallStarted { call_id, .. } | Fact::AppCallCompleted { call_id, .. } => {
+                uuid(call_id)
+            }
+            Fact::PullRequestObserved {
+                repository_id,
+                branch_id,
+                pull_request,
+                created_at,
+                closed_at,
+                merged_at,
+                snapshot_id,
+                history_size,
+                observed_after,
+                ..
+            } => {
+                uuid(repository_id)
+                    && uuid(branch_id)
+                    && uuid(snapshot_id)
+                    && *pull_request > 0
+                    && *pull_request <= i64::MAX as u64
+                    && *history_size > 0
+                    && *history_size <= 100
+                    && *observed_after <= self.occurred_at
+                    && [created_at, closed_at, merged_at]
+                        .iter()
+                        .all(|v| v.is_none_or(|n| n <= i64::MAX as u64))
+                    && closed_at
+                        .zip(*created_at)
+                        .is_none_or(|(end, start)| end >= start)
+                    && merged_at
+                        .zip(*created_at)
+                        .is_none_or(|(end, start)| end >= start)
+            }
             Fact::PullRequestAssociated {
                 repository_id,
                 branch_id,
@@ -209,7 +353,11 @@ impl Event {
             || !identifier(&self.occurrence_key)
             || self.occurred_at > i64::MAX as u64
             || !scopes.iter().all(|s| s.as_deref().is_none_or(uuid))
-            || self.scope.workspace_id.is_none()
+            || (self.scope.workspace_id.is_none()
+                && !matches!(
+                    self.fact,
+                    Fact::AppCallStarted { .. } | Fact::AppCallCompleted { .. }
+                ))
             || (turn_required
                 && (self.scope.turn_id.is_none() || self.scope.conversation_id.is_none()))
             || !self
@@ -266,7 +414,9 @@ impl Store {
                 tx.commit()?;
             }
             db.execute_batch("CREATE INDEX IF NOT EXISTS events_execution ON events(type, json_extract(payload,'$.executionId'), sequence);
-                CREATE INDEX IF NOT EXISTS events_request ON events(type, json_extract(payload,'$.requestId'), sequence);")?;
+                CREATE INDEX IF NOT EXISTS events_request ON events(type, json_extract(payload,'$.requestId'), sequence);
+                CREATE INDEX IF NOT EXISTS events_reply ON events(conversation_id,json_extract(payload,'$.messageKey'),sequence) WHERE type='turn.completed';
+                CREATE INDEX IF NOT EXISTS events_call ON events(type,json_extract(payload,'$.callId'),sequence);")?;
             Ok(Self { db })
         };
         work().map_err(|_| FAILURE.into())
@@ -412,6 +562,32 @@ impl Service {
 pub fn telemetry_summary(state: State<AppState>, filter: Filter) -> Result<Summary> {
     let queries = lock(&state.telemetry).queries();
     queries.summary(&filter)
+}
+#[tauri::command(async)]
+pub fn telemetry_insights(state: State<AppState>, filter: Filter) -> Result<Insights> {
+    let queries = lock(&state.telemetry).queries();
+    queries.insights(&filter)
+}
+#[tauri::command(async)]
+pub fn telemetry_turns(
+    state: State<AppState>,
+    conversation: String,
+    message_ids: Vec<String>,
+) -> Result<Vec<TurnMeasurement>> {
+    let conversation = {
+        let board = lock(&state.board);
+        board
+            .telemetry_ids
+            .get("conversation", &conversation)
+            .or_else(|| {
+                uuid::Uuid::parse_str(&conversation)
+                    .ok()
+                    .map(|_| conversation.clone())
+            })
+            .ok_or("err.telemetry.filter")?
+    };
+    let queries = lock(&state.telemetry).queries();
+    queries.turns(&conversation, &message_ids)
 }
 #[tauri::command(async)]
 pub fn telemetry_events(

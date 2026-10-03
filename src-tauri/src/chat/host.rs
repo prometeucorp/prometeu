@@ -162,18 +162,25 @@ impl CommandTelemetry for TelemetryCapture {
     type Prepared = (
         Option<(crate::telemetry::Scope, Option<String>)>,
         Vec<crate::telemetry::Event>,
+        crate::telemetry::Origin,
     );
     fn generation(&self) -> u64 {
         lock(&self.app.state::<AppState>().telemetry).generation
     }
-    fn accepted(&mut self, (scope, relations): Self::Prepared, generation: u64, events: &[Value]) {
+    fn accepted(
+        &mut self,
+        (scope, relations, origin): Self::Prepared,
+        generation: u64,
+        events: &[Value],
+    ) {
         let state = self.app.state::<AppState>();
         let mut telemetry = lock(&state.telemetry);
         if generation != telemetry.generation {
             return;
         }
         if let Some((scope, model)) = scope {
-            self.capture.accepted(&mut telemetry, scope, model);
+            self.capture
+                .accepted_with_origin(&mut telemetry, scope, model, origin);
             for event in &relations {
                 telemetry.capture(generation, event);
             }
@@ -198,6 +205,10 @@ impl ConversationHost {
 }
 impl prometeu_core::session::pump::PumpReactions for ConversationHost {
     fn react(&self, frame: &Value, ready: &AtomicBool) -> bool {
+        // The portable pump released capture/publication locks before calling this effect.
+        if frame["type"] == "turn.completed" {
+            crate::telemetry::notify_changed(&self.app, || ());
+        }
         react(&self.app, &self.id, frame, ready, &self.profile)
     }
 }

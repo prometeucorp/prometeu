@@ -43,6 +43,14 @@ It does not receive `AppHandle` or `AppState`, access processes, translate error
 or publish events. The Tauri commands adapt those responsibilities at the edge
 and preserve the distinction between an absent argument and explicit null.
 
+The same boundary applies to finish/archive/restore in `workspace_lifecycle.rs`:
+it receives a mutable board and returns stop IDs and the archive transition
+flag. It does not execute scripts or stop processes. `session.rs` preserves the
+existing sequence: finish chooses the final stage, archive scripts run before
+the archive mutation, processes stop outside the board lock, then publication
+and transition telemetry run. Repeated archive still requests shutdown without
+emitting another transition fact; restore leaves sessions stopped.
+
 The application rule follows [ADR 0045](0045-layered-tool-selection.md) and
 [ADR 0047](0047-tool-selection-boundaries.md): saving a selection is allowed
 during a turn and never retires an existing process, even an idle one. A change
@@ -57,7 +65,7 @@ application, saver thread or installed agent CLI.
 Other use cases can adopt the same approach when a change needs that boundary;
 there is no requirement to wrap every function in an interface.
 
-[ADR 0063](0063-portable-board-core.md) moves board models and this use case
+[ADR 0085](0085-portable-board-core.md) moves board models and this use case
 into an independently tested library with injected storage and publication. The
 production desktop deployment remains local and in-process.
 [ADR 0079](0079-headless-conversation-slice.md) permits an isolated experimental
@@ -79,5 +87,6 @@ the earlier format migration remains governed by
 - [Frontend composition](../../src/main.ts) and
   [settings coordination](../../src/settings.ts).
 - [Workspace tool use case and validation tests](../../src-tauri/crates/core/src/workspace_tools.rs).
+- [Workspace lifecycle rules and preservation tests](../../src-tauri/crates/core/src/workspace_lifecycle.rs).
 - [Architecture check](../../scripts/check-architecture.mjs).
 - [Agent runtime contract](../contracts/agent-runtime.md).

@@ -2,7 +2,7 @@
 
 Date: 2026-09-27
 Status: In progress. The portable board foundation is implemented in
-[ADR 0063](../../decisions/0063-portable-board-core.md), and conversation ordering,
+[ADR 0085](../../decisions/0085-portable-board-core.md), and conversation ordering,
 replay, snapshots and background settlement now use injected ports under
 [ADR 0064](../../decisions/0064-portable-conversation-stream.md). Process supervision
 now uses core ports and the Tauri-free Unix adapter under

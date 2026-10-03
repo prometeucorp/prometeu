@@ -16,6 +16,8 @@ use std::time::{Duration, Instant};
 // operations on separate repositories are needed.
 static MUTATION: Mutex<()> = Mutex::new(());
 const TEXT_LIMIT: usize = 400_000;
+/// Matches `read_file`'s limit: a larger file never reaches the editor.
+const BASE_LIMIT: usize = 2 * 1024 * 1024;
 const STATUS_TTL: Duration = Duration::from_secs(2);
 const PORCELAIN_TTL: Duration = Duration::from_secs(1);
 
@@ -414,22 +416,60 @@ fn tree_marks(root: &Path, repos: &[PathBuf]) -> Vec<GitFile> {
 /// edits were staged before it left the disk comes back with that staged content, still staged, and
 /// only a path whose deletion was staged too comes back from `HEAD`, in the index and on disk. A
 /// folder mixes both, file by file.
+/// The repository directory holding the tree path `rel`, and `rel` relative to it.
+fn repo_of<'a>(root: &Path, repos: &'a [PathBuf], rel: &'a str) -> Option<(&'a PathBuf, &'a str)> {
+    repos.iter().find_map(|dir| {
+        let place = dir
+            .strip_prefix(root)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let inner = match place.is_empty() {
+            true => rel,
+            false => rel.strip_prefix(&place)?.strip_prefix('/')?,
+        };
+        Some((dir, inner))
+    })
+}
+
+/// The committed text the editor compares a file with. A file Git does not know yet, untracked or
+/// only staged, compares with an empty text, so every line reads as new. `None` means there is no
+/// comparison to draw: outside Git, ignored, binary, or too large.
+fn file_base_text(root: &Path, repos: &[PathBuf], rel: &str) -> Option<String> {
+    let (dir, inner) = repo_of(root, repos, rel)?;
+    valid_path(dir, inner).ok()?;
+    // `./` resolves the path from `dir`, which may sit below the repository top level.
+    let spec = format!("HEAD:./{inner}");
+    if let Ok(oid) = run(dir, &["rev-parse", "--verify", "-q", &spec]) {
+        let oid = oid.trim();
+        let size: usize = run(dir, &["cat-file", "-s", oid])
+            .ok()?
+            .trim()
+            .parse()
+            .ok()?;
+        if size > BASE_LIMIT {
+            return None;
+        }
+        return run(dir, &["cat-file", "blob", oid]).ok();
+    }
+    let known = run(
+        dir,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            inner,
+        ],
+    )
+    .ok()?;
+    (!known.is_empty()).then(String::new)
+}
+
 fn restore_deleted(root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), String> {
-    let (dir, inner) = repos
-        .iter()
-        .filter_map(|dir| {
-            let place = dir
-                .strip_prefix(root)
-                .ok()?
-                .to_string_lossy()
-                .replace('\\', "/");
-            let inner = match place.is_empty() {
-                true => rel,
-                false => rel.strip_prefix(&place)?.strip_prefix('/')?,
-            };
-            Some((dir, inner))
-        })
-        .next()
+    let (dir, inner) = repo_of(root, repos, rel)
         .ok_or_else(|| prometeu_core::error::code("err.session.outside"))?;
     let path = valid_path(dir, inner)?;
     if path.symlink_metadata().is_ok() {
@@ -938,6 +978,9 @@ fn same_path(a: &Path, b: &Path) -> bool {
 /// behind the repository port; caches retain their canonical-worktree keys and mutation lock.
 pub struct NativeGit;
 impl RepositoryGit for NativeGit {
+    fn file_base(&self, root: &Path, repos: &[PathBuf], rel: &str) -> Option<String> {
+        file_base_text(root, repos, rel)
+    }
     fn status(&self, repos: &[Repo]) -> Vec<GitStatus> {
         repos
             .iter()

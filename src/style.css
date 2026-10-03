@@ -150,6 +150,9 @@ body.norail .top .nav { margin-left: 0; }
 .group:hover .gc, .group:focus-within .gc { opacity: 1; }
 .group .ico { opacity: 0; }
 .group:hover .ico, .group:focus-within .ico { opacity: 1; }
+/* Dragging a project heading moves the whole group; the original stays in place, dimmed. */
+.railproject.dragging { opacity: .5; }
+body.reordering, body.reordering * { cursor: grabbing !important; user-select: none; }
 
 .railagents-toggle {
   display: flex; width: calc(100% - 24px); height: 22px; margin-left: 24px; padding: 0 5px;
@@ -336,6 +339,16 @@ main { flex: 1; min-height: 0; position: relative; }
   flex: none; position: sticky; left: 0; z-index: 2; background: var(--bg);
   min-width: var(--gutter); padding: 0 16px 0 12px; text-align: right; color: var(--fg-3);
   white-space: pre; user-select: none; cursor: default;
+}
+/* Change gutter against the committed file, in the Files tree's colors: bars for added and modified
+   lines, a notch at the boundary where lines were removed. The sticky gutter positions the layer. */
+#vchanges { position: absolute; top: 0; right: 6px; width: 3px; pointer-events: none; }
+#vchanges > div { position: absolute; left: 0; width: 3px; top: calc(var(--row) * 20px); height: calc(var(--rows) * 20px); }
+#vchanges > .A { background: var(--done); }
+#vchanges > .M { background: var(--wait); }
+#vchanges > .D {
+  top: calc(var(--row) * 20px - 4px); left: -1px; width: 0; height: 0;
+  border-left: 6px solid var(--err); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
 }
 /* The transparent textarea overlays the highlighted pre element. Font, line height, padding, and white-space: pre must match exactly. The pre element sizes the layer; vcode owns scrolling. */
 .vstack { position: relative; flex: 1; }
@@ -1126,10 +1139,15 @@ body.noside .side { display: none; }
 .menu.cmds .ml { flex: none; max-width: 240px; }
 .menu.cmds .mh { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 /* Tool picker: ids stay readable while long command lines and URLs ellipsize instead of stretching the menu. */
-.menu.tools { max-width: min(420px, calc(100vw - 16px)); }
+/* Account connectors make the list long, so it scrolls inside the window like the searchable pickers. */
+.menu.tools { max-width: min(420px, calc(100vw - 16px)); max-height: min(480px, calc(100dvh - 16px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .menu.tools .mrow { flex: none; }
 .menu.tools .ml { flex: none; max-width: 200px; }
 .menu.tools .mh { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* The application note and section headers wrap instead of cutting off what they explain. */
+.menu.tools .mrow.off { height: auto; min-height: 30px; padding-block: 4px; }
+.menu.tools .mrow.off .ml { flex: 1; max-width: none; white-space: normal; }
+.menu.tools .mrow.off .mh { flex: none; }
 
 /* External file drop. */
 

@@ -46,6 +46,12 @@ optional for local work; model access comes from your own provider account.
 - **Local notifications.** Opt into completion, approval/input and error alerts
   in Settings. Choose a macOS banner, a notch overlay or sound alone.
   Notifications and sound start disabled; phone push is not included.
+- **Local usage and context.** Completed replies show measured tokens, duration
+  and the CLI's cost estimate when available. Context meters offer explicit
+  compact, report and new-conversation actions. Workspace summaries combine
+  conversations and app calls, with model breakdowns and PR attribution where
+  evidence supports it. History stays local and can be cleared in Settings.
+  See [usage semantics and coverage](docs/contracts/telemetry.md).
 - **Optional request review.** Bring your own TypeSafe API key and turn the
   review on in Settings to add **Review request** to new workspaces. It looks
   for a missing decision, such as an undefined rule for existing records, and

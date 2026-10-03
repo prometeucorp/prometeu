@@ -20,6 +20,562 @@ fn scope() -> Scope {
         ..Scope::default()
     }
 }
+
+#[test]
+fn change_notification_follows_committed_capture_and_releases_its_locks() {
+    let dir = Temp::new();
+    let service = Mutex::new(Service::new(dir.0.clone()));
+    for (index, answer) in [Some("PRIVATE GENERATED TITLE"), None]
+        .into_iter()
+        .enumerate()
+    {
+        let mut notifications = 0;
+        let returned = after_capture(
+            || {
+                let mut service = lock(&service);
+                for _ in 0..2 {
+                    service.capture(0, &event(&scope(), 1, Fact::ConversationCreated {}));
+                }
+                answer
+            },
+            |name, payload| {
+                notifications += 1;
+                assert_eq!(name, "telemetry-changed");
+                assert_eq!(
+                    serde_json::to_value(payload).unwrap(),
+                    serde_json::Value::Null
+                );
+                let queries = service
+                    .try_lock()
+                    .expect("capture lock must be released before notification")
+                    .queries();
+                // The callback may immediately reopen SQLite, just as a view refresh does.
+                assert_eq!(
+                    queries.summary(&Filter::default()).unwrap().events,
+                    ((index + 1) * 2) as u64
+                );
+            },
+        );
+        assert_eq!(returned, answer);
+        assert_eq!(
+            notifications, 1,
+            "one notification follows the whole capture, including a missing title"
+        );
+    }
+}
+
+#[test]
+fn completed_replies_keep_a_private_lookup_anchor() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let mut capture = Capture::default();
+    let scope = scope();
+    let conversation = scope.conversation_id.clone().unwrap();
+    capture.accepted(&mut service, scope, None);
+    capture.observe(
+        &mut service,
+        &json!({
+            "type":"turn.completed", "outcome":"ok", "messageId":"PRIVATE NATIVE REPLY",
+            "message":"PRIVATE RESPONSE", "providerDurationMs":123,
+            "telemetry":{"usageScope":"mainAgent","complete":true,
+                "selectedModel":null,"observedModels":null,"usageByModel":null,
+                "usage":{"inputTokens":100,"outputTokens":20}}
+        }),
+    );
+    let exported = service.queries().export(&Filter::default()).unwrap();
+    let completion = exported
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|event| event["type"] == "turn.completed")
+        .unwrap();
+    assert_eq!(
+        completion["payload"]["messageKey"].as_str().map(str::len),
+        Some(64)
+    );
+    assert!(!exported.contains("PRIVATE"));
+    let rows = service
+        .queries()
+        .turns(
+            &conversation,
+            &[
+                "unknown".into(),
+                "PRIVATE NATIVE REPLY".into(),
+                "PRIVATE NATIVE REPLY".into(),
+            ],
+        )
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].duration_ms, Some(123));
+    assert_eq!(rows[0].usage.usage.input_tokens, Some(100));
+    assert!(service
+        .queries()
+        .turns(&id(), &["PRIVATE NATIVE REPLY".into()])
+        .unwrap()
+        .is_empty());
+    assert!(service
+        .queries()
+        .turns(&conversation, &vec!["id".into(); 501])
+        .is_err());
+    service.clear().unwrap();
+    assert!(service
+        .queries()
+        .turns(&conversation, &["PRIVATE NATIVE REPLY".into()])
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn insights_group_final_measurements_without_inventing_models_or_context_totals() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let store = service.store.as_mut().unwrap();
+    let mut scope = scope();
+    let conversation = scope.conversation_id.clone().unwrap();
+    for (index, provider, input, output) in [
+        (0, "claude", Some(100), Some(20)),
+        (1, "codex", None, Some(30)),
+    ] {
+        scope.turn_id = Some(id());
+        scope.provider = Some(provider.into());
+        let at = 10 + index * 10;
+        append(
+            store,
+            &scope,
+            at,
+            Fact::TurnStarted {
+                origin: Origin {
+                    action_id: (index == 0).then(id),
+                    delegated_by: (index == 0).then(id),
+                    ..Default::default()
+                },
+                measurement: Measurement {
+                    selected_model: Some("selected-only".into()),
+                    ..Default::default()
+                },
+            },
+        );
+        append(
+            store,
+            &scope,
+            at + 1,
+            Fact::UsageObserved {
+                measurement: Measurement {
+                    usage: Usage {
+                        input_tokens: Some(10),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            },
+        );
+        append(
+            store,
+            &scope,
+            at + 2,
+            Fact::TurnCompleted {
+                outcome: Outcome::Ok,
+                elapsed_ms: 2,
+                provider_duration_ms: None,
+                message_key: None,
+                measurement: Measurement {
+                    complete: input.is_some(),
+                    selected_model: Some("selected-only".into()),
+                    usage: Usage {
+                        input_tokens: input,
+                        output_tokens: output,
+                        cache_read_tokens: input.map(|_| 80),
+                        context_used: Some(800),
+                        context_window: Some(1000),
+                        peak_context: Some(90 + index * 30),
+                        cost_usd: input.map(|_| 0.25),
+                        ..Default::default()
+                    },
+                    usage_by_model: input.map(|_| {
+                        vec![ModelUsage {
+                            model: "observed".into(),
+                            usage: Usage {
+                                input_tokens: Some(100),
+                                ..Default::default()
+                            },
+                        }]
+                    }),
+                    ..Default::default()
+                },
+            },
+        );
+    }
+    scope.turn_id = None;
+    scope.conversation_id = None;
+    scope.provider = Some("claude".into());
+    let call = id();
+    append(
+        store,
+        &scope,
+        15,
+        Fact::AppCallStarted {
+            call_id: call.clone(),
+            source: AppSource::Naming,
+            measurement: Measurement::default(),
+        },
+    );
+    append(
+        store,
+        &scope,
+        100,
+        Fact::AppCallCompleted {
+            call_id: call,
+            source: AppSource::Naming,
+            outcome: Outcome::Ok,
+            elapsed_ms: 85,
+            measurement: Measurement {
+                usage: Usage {
+                    input_tokens: Some(4),
+                    output_tokens: Some(2),
+                    cost_usd: Some(0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        },
+    );
+    let result = service
+        .queries()
+        .insights(&Filter {
+            workspace_id: scope.workspace_id.clone(),
+            from: Some(0),
+            to: Some(30),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(result.summary.turns, 2);
+    assert_eq!(result.summary.input_tokens, Some(100));
+    assert_eq!(
+        (
+            result.usage.input_tokens,
+            result.usage.output_tokens,
+            result.usage.cache_read_tokens
+        ),
+        (Some(104), Some(52), Some(80))
+    );
+    assert_eq!(result.usage.cost_usd, Some(0.25));
+    assert_eq!(
+        (
+            result.usage.context_used,
+            result.usage.context_window,
+            result.usage.peak_context
+        ),
+        (None, None, Some(120))
+    );
+    assert_eq!(result.conversations.len(), 1);
+    assert_eq!(result.conversations[0].id, conversation);
+    assert_eq!(result.conversations[0].provider, None);
+    assert_eq!(result.conversations[0].turns, 2);
+    assert_eq!(result.models.len(), 1);
+    assert_eq!(result.models[0].id, "observed");
+    assert_eq!(result.models[0].usage.output_tokens, None);
+    assert_eq!(
+        result
+            .sources
+            .iter()
+            .find(|g| g.id == "naming")
+            .unwrap()
+            .turns,
+        1
+    );
+    assert_eq!(result.origins.len(), 2);
+    assert!(result
+        .origins
+        .iter()
+        .all(|group| group.turns == 1 && group.usage.input_tokens == Some(100)));
+    assert_eq!(
+        service
+            .queries()
+            .insights(&Filter {
+                from: Some(200),
+                ..Default::default()
+            })
+            .unwrap()
+            .usage
+            .input_tokens,
+        None
+    );
+}
+
+#[test]
+fn app_overhead_is_global_or_scoped_and_late_callbacks_cannot_restore_erased_history() {
+    let dir = Temp::new();
+    let service = Mutex::new(Service::new(dir.0.clone()));
+    let mut capture = AppCapture::start(
+        &service,
+        0,
+        Scope {
+            provider: Some("claude".into()),
+            ..Default::default()
+        },
+        AppSource::PluginMaker,
+        Some("sonnet".into()),
+    );
+    let mut adapter = crate::claude::Adapter::fresh();
+    for frame in adapter.translate(&json!({"type":"result","uuid":"PRIVATE RESULT","session_id":"PRIVATE SESSION", "result":"PRIVATE REPLY", "total_cost_usd":0.02,
+        "usage":{"input_tokens":2,"cache_read_input_tokens":8,"cache_creation_input_tokens":0,"output_tokens":4}})) { capture.observe(&frame); }
+    capture.finish(&service, true);
+    let queries = lock(&service).queries();
+    let result = queries.insights(&Filter::default()).unwrap();
+    assert_eq!(result.summary.turns, 0);
+    assert_eq!(result.usage.input_tokens, Some(10));
+    assert_eq!(result.usage.cost_usd, Some(0.02));
+    assert_eq!(result.sources[0].id, "plugin-maker");
+    assert!(result.conversations.is_empty());
+    assert!(!queries
+        .export(&Filter::default())
+        .unwrap()
+        .contains("PRIVATE"));
+    assert_eq!(
+        queries
+            .insights(&Filter {
+                workspace_id: Some(id()),
+                ..Default::default()
+            })
+            .unwrap()
+            .usage
+            .input_tokens,
+        None
+    );
+    let pending = AppCapture::start(&service, 0, Scope::default(), AppSource::Naming, None);
+    lock(&service).clear().unwrap();
+    pending.finish(&service, true);
+    assert_eq!(
+        lock(&service)
+            .queries()
+            .insights(&Filter::default())
+            .unwrap()
+            .summary
+            .events,
+        0
+    );
+}
+
+#[test]
+fn old_turn_payloads_default_new_attribution_and_reply_fields() {
+    let start:Fact=serde_json::from_value(json!({"type":"turn.started","payload":{"measurement":{"usageScope":"mainAgent","usage":{}}}})).unwrap();
+    assert!(
+        matches!(start,Fact::TurnStarted{origin:Origin{action_id:None,delegated_by:None,repositories},..} if repositories.is_empty())
+    );
+    let end:Fact=serde_json::from_value(json!({"type":"turn.completed","payload":{"outcome":"ok","elapsedMs":0,"measurement":{"usageScope":"mainAgent","usage":{}}}})).unwrap();
+    assert!(matches!(
+        end,
+        Fact::TurnCompleted {
+            message_key: None,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn tenure_uses_complete_lifecycle_evidence_and_keeps_unknown_relations_unallocated() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let store = service.store.as_mut().unwrap();
+    let mut scope = scope();
+    let repository = id();
+    let branch = id();
+    for at in [10, 50, 100] {
+        scope.turn_id = Some(id());
+        append(
+            store,
+            &scope,
+            at,
+            Fact::TurnStarted {
+                measurement: Measurement::default(),
+                origin: Origin {
+                    repositories: vec![RepositoryBranch {
+                        repository_id: repository.clone(),
+                        branch_id: branch.clone(),
+                    }],
+                    ..Default::default()
+                },
+            },
+        );
+        append(
+            store,
+            &scope,
+            at + 1,
+            Fact::TurnCompleted {
+                outcome: Outcome::Ok,
+                elapsed_ms: 1,
+                provider_duration_ms: None,
+                message_key: None,
+                measurement: Measurement {
+                    usage: Usage {
+                        input_tokens: Some(10),
+                        output_tokens: Some(0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            },
+        );
+    }
+    let snapshot = id();
+    for (number, created, closed, state) in [
+        (1, 20, Some(50), PullRequestState::Closed),
+        (2, 80, None, PullRequestState::Open),
+    ] {
+        append(
+            store,
+            &scope,
+            200,
+            Fact::PullRequestObserved {
+                repository_id: repository.clone(),
+                branch_id: branch.clone(),
+                pull_request: number,
+                state,
+                created_at: Some(created),
+                closed_at: closed,
+                merged_at: None,
+                history_complete: true,
+                snapshot_id: snapshot.clone(),
+                history_size: 2,
+                observed_after: 150,
+            },
+        );
+    }
+    let result = service.queries().insights(&Filter::default()).unwrap();
+    assert_eq!(result.pull_requests[0].turns, Some(1));
+    assert_eq!(result.pull_requests[1].turns, Some(2));
+    assert_eq!(result.pull_requests[1].usage.input_tokens, Some(20));
+    // One persisted row of a two-candidate snapshot cannot make a partial write authoritative.
+    let store = service.store.as_mut().unwrap();
+    append(
+        store,
+        &scope,
+        300,
+        Fact::PullRequestObserved {
+            repository_id: repository.clone(),
+            branch_id: branch.clone(),
+            pull_request: 2,
+            state: PullRequestState::Open,
+            created_at: Some(80),
+            closed_at: None,
+            merged_at: None,
+            history_complete: true,
+            snapshot_id: id(),
+            history_size: 2,
+            observed_after: 250,
+        },
+    );
+    let result = service.queries().insights(&Filter::default()).unwrap();
+    assert!(result
+        .pull_requests
+        .iter()
+        .all(|pr| pr.attribution == "related"
+            && pr.turns.is_none()
+            && pr.usage.input_tokens.is_none()));
+}
+
+#[test]
+fn tenure_never_extrapolates_open_state_or_missing_branch_history() {
+    for (label, complete, created, closed, observed_after, correct_branch, state) in [
+        (
+            "truncated",
+            false,
+            Some(20),
+            None,
+            100,
+            true,
+            PullRequestState::Open,
+        ),
+        (
+            "missing creation",
+            true,
+            None,
+            None,
+            100,
+            true,
+            PullRequestState::Open,
+        ),
+        (
+            "missing closure",
+            true,
+            Some(20),
+            None,
+            100,
+            true,
+            PullRequestState::Closed,
+        ),
+        (
+            "stale open state",
+            true,
+            Some(20),
+            None,
+            49,
+            true,
+            PullRequestState::Open,
+        ),
+        (
+            "different branch",
+            true,
+            Some(20),
+            None,
+            100,
+            false,
+            PullRequestState::Open,
+        ),
+        (
+            "closed at start",
+            true,
+            Some(20),
+            Some(50),
+            100,
+            true,
+            PullRequestState::Closed,
+        ),
+    ] {
+        let dir = Temp::new();
+        let mut service = Service::new(dir.0.clone());
+        let store = service.store.as_mut().unwrap();
+        let mut scope = scope();
+        scope.turn_id = Some(id());
+        let repository = id();
+        let branch = id();
+        append(
+            store,
+            &scope,
+            50,
+            Fact::TurnStarted {
+                measurement: Measurement::default(),
+                origin: Origin {
+                    repositories: vec![RepositoryBranch {
+                        repository_id: repository.clone(),
+                        branch_id: branch.clone(),
+                    }],
+                    ..Default::default()
+                },
+            },
+        );
+        append(
+            store,
+            &scope,
+            200,
+            Fact::PullRequestObserved {
+                repository_id: repository,
+                branch_id: if correct_branch { branch } else { id() },
+                pull_request: 1,
+                state,
+                created_at: created,
+                closed_at: closed,
+                merged_at: None,
+                history_complete: complete,
+                snapshot_id: id(),
+                history_size: 1,
+                observed_after,
+            },
+        );
+        let result = service.queries().insights(&Filter::default()).unwrap();
+        assert_eq!(result.pull_requests[0].attribution, "related", "{label}");
+        assert_eq!(result.pull_requests[0].turns, None, "{label}");
+    }
+}
 fn event(scope: &Scope, at: u64, fact: Fact) -> Event {
     let mut e = Event::new(scope.clone(), id(), fact);
     e.occurred_at = at;
@@ -82,6 +638,7 @@ fn cohort_usage_overlap_and_incomplete_time_have_explicit_coverage() {
         &scope,
         1000,
         Fact::TurnStarted {
+            origin: Origin::default(),
             measurement: Measurement::default(),
         },
     );
@@ -109,6 +666,7 @@ fn cohort_usage_overlap_and_incomplete_time_have_explicit_coverage() {
         &scope,
         11000,
         Fact::TurnCompleted {
+            message_key: None,
             outcome: Outcome::Ok,
             elapsed_ms: 10000,
             provider_duration_ms: None,
@@ -271,6 +829,7 @@ fn late_pr_relations_deduplicate_workspaces_and_do_not_allocate_cost() {
         &scope,
         1,
         Fact::TurnStarted {
+            origin: Origin::default(),
             measurement: Measurement::default(),
         },
     );
@@ -434,6 +993,7 @@ fn latest_snapshot_and_final_measurement_never_add_together_and_clear_removes_pa
         &scope,
         1,
         Fact::TurnStarted {
+            origin: Origin::default(),
             measurement: Measurement::default(),
         },
     );
@@ -459,6 +1019,7 @@ fn latest_snapshot_and_final_measurement_never_add_together_and_clear_removes_pa
         &scope,
         4,
         Fact::TurnCompleted {
+            message_key: None,
             outcome: Outcome::Ok,
             elapsed_ms: 3,
             provider_duration_ms: None,

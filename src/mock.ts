@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import * as telemetry from "./mock-telemetry";
+import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
@@ -227,6 +228,11 @@ const board: Board = {
 for (const w of board.workspaces as (Workspace & { pr?: Pr | null })[]) {
   if (w.pr) w.repos[0].pr = w.pr;
   delete w.pr;
+  for (const tab of w.tabs) {
+    const provider = tab.choice?.agent ?? w.agent;
+    tab.context_tokens = 24000;
+    tab.context_window = provider === "antigravity" ? null : 200000;
+  }
 }
 
 const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
@@ -293,6 +299,16 @@ end
   "src/style.css": ".card {\n  display: flex;\n  gap: 8px;\n  padding: 12px;\n}\n",
   Dockerfile: "# syntax=docker/dockerfile:1\nFROM ruby:3.4-slim AS base\nWORKDIR /rails\nENV RAILS_ENV=production\nRUN apt-get update -qq && apt-get install -y curl\nCMD [\"bin/rails\", \"server\"]\n",
   ".rubocop.yml": "# Omakase Ruby styling for Rails\ninherit_gem: { rubocop-rails-omakase: rubocop.yml }\n\nAllCops:\n  TargetRubyVersion: 3.4\n  NewCops: enable\n",
+};
+
+/// Committed versions for the editor's change gutter: the sample files as they start, so edits and
+/// files created later read as changes, with one file already edited since HEAD.
+const committed: Record<string, string> = {
+  ...files,
+  "app/adapters/transcriber.rb": files["app/adapters/transcriber.rb"]
+    .replace('"gemini-3.6-flash"', '"gemini-3.5-flash"')
+    .replace("        file.flush\n", "")
+    .replace("  end\nend\n", "  end\n\n  def self.version = MODEL\nend\n"),
 };
 
 /// Changes in the second repository exercise independent history for the same feature.
@@ -622,7 +638,7 @@ function toolLayers(ws: Workspace, agent = ws.agent) {
   const own = workspaceTools(ws);
   const mcpIds = mcpHub.map((s) => s.id);
   // The Claude CLI base joins the universe below the hub; other agents have no inherited servers.
-  const base = agent === "claude" ? cliServers.map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
+  const base = agent === "claude" ? cliBase().map((s) => s.id).filter((id) => !mcpIds.includes(id)) : [];
   const pluginIds = pluginHub.map((p) => p.id);
   return { gate, declaredTools, global, own, base, mcpUniverse: [...mcpIds, ...base], pluginIds };
 }
@@ -715,6 +731,7 @@ const ISSUES: Issue[] = [
 /// Number conversation lines like the backend. Live events and snapshots share that sequence for real-relay browser tests.
 const scrolls = new Map<string, { text: string; seq: number }>();
 const conversationAdapters = new Map<string, LegacyConversationAdapter>();
+const lastMockReply = new Map<string, string>();
 const scrollOf = (tab: string) => {
   let s = scrolls.get(tab);
   if (!s) {
@@ -729,6 +746,26 @@ function pushLine(tab: string, o: unknown, keep = true) {
   if (!adapter) conversationAdapters.set(tab, (adapter = new LegacyConversationAdapter()));
   const canonical = parseConversationEvent(o);
   for (const event of canonical ? [canonical] : adapter.translate(o)) {
+    if (event.type === "user.message") lastMockReply.delete(tab);
+    if (event.type === "assistant.block" && event.block.kind === "text") lastMockReply.set(tab, event.messageId);
+    if (event.type === "turn.completed") {
+      const workspace = board.workspaces.find(workspace => workspace.tabs.some(candidate => candidate.id === tab));
+      const currentTab = workspace?.tabs.find(candidate => candidate.id === tab);
+      const messageId = lastMockReply.get(tab);
+      if (workspace && currentTab && messageId) {
+        const provider = currentTab.choice?.agent ?? workspace.agent;
+        event.usage ??= telemetry.sampleUsage(provider);
+        event.messageId ??= messageId;
+        currentTab.context_tokens = event.usage.usage.contextUsed;
+        currentTab.context_window = event.usage.usage.contextWindow;
+        void telemetry.recordTurn({ workspaceId: workspace.id, projectId: workspace.project, conversationId: tab, provider },
+          messageId, event.durationMs ?? 0, event.usage).then(() => {
+            emit("board", board);
+            emit("telemetry-changed", null);
+          });
+        lastMockReply.delete(tab);
+      }
+    }
     const text = line(event);
     if (keep) s.text += text + "\n";
     s.seq += 1;
@@ -746,12 +783,25 @@ let mcpHub: McpServer[] = [
   { id: "linear-server", config: { type: "http", url: "https://mcp.linear.app/mcp" }, note: "capim-backend" },
 ];
 
-/// Servers discoverable from the user's Claude configuration; they form the CLI-inherited base of
-/// the workspace picker (ADR 0046) and the import menu.
+/// Servers discoverable from the user's Claude configuration files; they are importable into the
+/// hub and, with the account connectors, form the CLI-inherited base of the picker (ADR 0046).
 const cliServers: McpServer[] = [
   { id: "metabase", config: { type: "http", url: "https://metabase.example/mcp" }, note: "capim-backend" },
   { id: "n8n", config: { type: "stdio", command: "npx", args: ["-y", "n8n-mcp"], env: {} }, note: "" },
 ];
+
+/// Connectors of the person's Claude account (ADR 0063). They live in no configuration file, so
+/// they join the inherited base but never the import menu.
+const accountConnectors: McpServer[] = [
+  {
+    id: "claude.ai Linear",
+    config: { type: "claudeai-proxy", url: "https://mcp.linear.app/mcp", id: "mcpsrv_mock" },
+    note: "claude.ai",
+  },
+];
+
+/// The whole inherited base of a Claude workspace: configuration files first, account last.
+const cliBase = (): McpServer[] => [...cliServers, ...accountConnectors];
 
 /// Count tool-selection writes so tests can verify that each axis persists independently.
 let writes = 0;
@@ -922,8 +972,10 @@ const saveMockTypeSafe = (value: MockTypeSafe) => {
   return { ...mockTypeSafe(), problem: null };
 };
 function fakeEvaluation(request: import("./evaluation").EvaluationRequest): import("./evaluation").EvaluationAnswer[] {
-  const text = request.context;
-  const draft = /Request draft:\n([\s\S]*?)\n\n/.exec(text)?.[1] ?? "";
+  const text = typeof request.context === "string" ? request.context : JSON.stringify(request.context);
+  const requester = typeof request.context === "object" ? request.context.requester : null;
+  const draft = requester && typeof requester === "object" && !Array.isArray(requester) && typeof requester.draft === "string"
+    ? requester.draft : /Request draft:\n([\s\S]*?)\n\n/.exec(text)?.[1] ?? "";
   const kind = /investigat|investig|diagnos/i.test(text) ? "investigation" : /\b(bug|fix|error|erro|corrig|falha|crash)/i.test(text) ? "bug_fix" : "feature";
   const rule = /\b(existing|existente)/i.test(text) && !/\b(skip|update|ignore|atualiz|ignor|pular)/i.test(text);
   const outcome: Record<string, [string, number]> = {
@@ -931,7 +983,7 @@ function fakeEvaluation(request: import("./evaluation").EvaluationRequest): impo
     business_rule: rule ? ["absent", 0.9] : ["present", 0.9],
     business_rule_resolver: ["person", 0.9],
     business_rule_kind: ["existing_records", 0.85],
-    expected_behavior: draft.trim().length < 25 && !/Description:\n/.test(text) ? ["ambiguous", 0.85] : ["present", 0.9],
+    expected_behavior: draft.trim().length < 25 && !/Description:\n|"description":"[^"]+/.test(text) ? ["ambiguous", 0.85] : ["present", 0.9],
     expected_behavior_resolver: ["person", 0.8],
     reproduction: ["present", 0.9],
     reproduction_resolver: ["agent", 0.8],
@@ -1303,6 +1355,15 @@ const mockCommands: IpcHandlers = {
     localStorage.removeItem("mock:cloud");
     return emptyCloud();
   },
+  reorder_projects(args) {
+    const at = (id: string) => {
+      const i = args.ids.indexOf(id);
+      return i < 0 ? args.ids.length : i;
+    };
+    board.projects = [...board.projects].sort((a, b) => at(a.id) - at(b.id));
+    emit("board", board);
+    return;
+  },
   remove_project(args) {
     board.projects = board.projects.filter((project) => project.id !== args.id);
     emit("board", board);
@@ -1567,6 +1628,10 @@ const mockCommands: IpcHandlers = {
       )
       .slice(0, 40);
   },
+  file_base(args) {
+    // A file created after startup is new to Git, like an untracked file in the backend.
+    return committed[args.rel] ?? (args.rel in files ? "" : null);
+  },
   file_stamp() {
     return "0";
   },
@@ -1673,6 +1738,9 @@ const mockCommands: IpcHandlers = {
             resume: true,
             compact: true,
             contextReport: true,
+            usageTokens: true,
+            usageCost: true,
+            contextWindow: true,
             approvals: true,
             userQuestions: true,
             attachments: true,
@@ -1695,6 +1763,9 @@ const mockCommands: IpcHandlers = {
             resume: true,
             compact: true,
             contextReport: true,
+            usageTokens: true,
+            usageCost: false,
+            contextWindow: true,
             approvals: true,
             userQuestions: true,
             attachments: true,
@@ -1706,6 +1777,7 @@ const mockCommands: IpcHandlers = {
           accountNotice: t("account.external.notice"),
           models: [],
           capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
+            usageTokens: true, usageCost: false, contextWindow: false,
             workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
         },
       ],
@@ -1846,7 +1918,7 @@ const mockCommands: IpcHandlers = {
   mcp_inherited(args) {
     const ws = board.workspaces.find((x) => x.id === args.id);
     if (!ws || (args.agent ?? ws.agent) !== "claude") return [];
-    return cliServers.filter((s) => !mcpHub.some((h) => h.id === s.id));
+    return cliBase().filter((s) => !mcpHub.some((h) => h.id === s.id));
   },
   // Plugin hub behavior mirrors MCP hub editing.
   plugin_hub() {
@@ -2311,9 +2383,16 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
   },
   telemetry_summary({ filter }) { return telemetry.summary(filter); },
+  telemetry_insights({ filter }) { return telemetry.insights(filter); },
+  telemetry_turns({ conversation, messageIds }) { return telemetry.turns(conversation, messageIds); },
   telemetry_events({ filter, cursor }) { return telemetry.page(filter, cursor); },
   telemetry_export({ filter }) { localStorage.setItem("mock:telemetryExport", telemetry.exportData(filter)); return null; },
   telemetry_clear() { telemetry.clear(); return null; },
+  review_calibration_status() { return reviewCalibration.status(); },
+  review_calibration_set_enabled({ enabled }) { return reviewCalibration.setEnabled(enabled); },
+  review_calibration_append({ generation, record }) { reviewCalibration.append(generation, record); return null; },
+  review_calibration_clear() { return reviewCalibration.clear(); },
+  review_calibration_export() { localStorage.setItem("mock:reviewCalibrationExport", reviewCalibration.exportCsv()); return null; },
   typesafe_status() {
     return { ...mockTypeSafe(), problem: null };
   },
@@ -2336,7 +2415,7 @@ const mockCommands: IpcHandlers = {
     const fail = localStorage.getItem("mock:typesafeFail");
     return new Promise((done, reject) => setTimeout(() => fail
       ? reject(`i18n:${JSON.stringify({ code: `err.evaluation.${fail}` })}`)
-      : done({ answers: fakeEvaluation(request) }), 700));
+      : done({ answers: fakeEvaluation(request), model: localStorage.getItem("mock:typesafeModel") ?? "jev-1.13.0" }), 700));
   },
   pty_resize() {},
   remove_workspace() {},

@@ -19,10 +19,14 @@ from the conversation settlement rule in ADR 0056.
 | --- | --- | --- | --- |
 | Main execution and accepted message turns | Captured | Captured | Captured |
 | Independent child execution and explicit human waits | When canonical signals expose them | When canonical signals expose them | Unavailable |
-| Main-agent input/output | Turn result; deduplicated message inputs provide partial coverage | Delta of verified thread totals; resume/reset without a baseline stays partial/unknown | Unknown |
-| Cache/reasoning | Cache read/write are input subsets; reasoning unknown | Cache is an input subset; reasoning is an output subset | Unknown |
-| Observed models/calls | Main assistant model IDs, partial per-model input, distinct message calls | Unknown without verified actual-model/call evidence | Unknown |
+| Main-agent input/output | Turn result; verified `modelUsage` deltas can additionally cover the whole tree | Delta of verified thread totals; resume/reset without a baseline stays partial/unknown | Deduplicated current steps; verified cumulative deltas complete the turn |
+| Cache/reasoning | Cache read/write are input subsets; reasoning unknown | Cache is an input subset; reasoning is an output subset | Reported cache/thinking subsets, otherwise unknown |
+| Observed models/calls | Main assistant IDs and verified cumulative model rows; distinct message calls | Unknown without verified actual-model/call evidence | Distinct observed step IDs; model breakdown unknown |
 | Per-turn cost | Same-session cumulative delta; restored/reset/overlapping-child spend excluded | Unknown | Unknown |
+| Context meter/actions | Observed main-call input and reported model window; explicit compact/report/new conversation | Last input and model window; explicit compact/report/new conversation | Hidden without a reported window |
+| Cache rebuild signal | Deduplicated calls with known preceding context and cache-write evidence | Unknown without reliable distinct-call evidence | Only if distinct-step cache-write evidence exists; otherwise unknown |
+| Reply footers/workspace summaries | Canonical usage; local hashed lookup restores native transcript footer | Canonical usage; no invented price | Canonical observed usage; no invented price |
+| App-call source | Naming and plugin maker, separately measured | Naming, separately measured | No app-initiated model call |
 
 `telemetry/tests.rs`, the adapters' `telemetry_*` tests and
 `src/telemetry.test.ts` cover normalization, incomplete coverage, local query and
@@ -33,6 +37,36 @@ and response ordering. Streaming input without a correlatable native terminal
 retains unknown turn attribution; capture health exposes that limit. These are
 fixture-based guarantees, not live certification of every installed provider
 version. Full semantics are in the [contract](../contracts/telemetry.md).
+
+Issue 131's presentation is covered by `src/usage-presentation.test.ts`,
+`src/workspace-usage.test.ts`, `src/timeline.test.ts`, `src/conversation.test.ts`, `src/telemetry.test.ts` and
+`e2e/usage-insights.spec.ts`. The browser scenario protects keyboard/Escape focus
+and preservation of the typed draft when a context action uses the shared
+popover, including a turn starting and ending while the panel stays open. The
+disabled-action transition must preserve Tab/Escape focus in Chromium and WebKit;
+pure tests cannot establish browser focus after DOM replacement. Model/provider
+label disambiguation stays in the pure presentation tests. The browser case does
+not multiply provider or locale variants, and it does not exercise a native CLI.
+Adapter fixture tests cover consecutive counters, restored/reset/error results
+and duplicate observations; synthetic Claude fixtures explicitly declare their
+provenance. Telemetry tests cover reply privacy/lookup, grouping, sources and PR
+evidence. Unsupported measurements remain unknown, never a billing estimate.
+The native telemetry producer test verifies commit visibility and lock release
+before `telemetry-changed`; the workspace consumer test covers a refresh without
+a board change, coalescing, navigation and history-deletion invalidation.
+
+Verification additions shared by the existing features:
+
+- `boundary_contract.rs`, `scripts/check-contracts.mjs` and
+  `src/backend-contract.test.ts` check backend board/model serialization and
+  synthetic Claude/Codex output against frontend types and reducers. Antigravity
+  retains its recorded canonical fixture in `src/conversation.test.ts`.
+- `codex/process_tests.rs` checks initialization, split UTF-8, interruption,
+  partial output at process exit and resume through a controlled subprocess.
+  It does not establish live CLI compatibility or equivalent subprocess coverage
+  for Claude/Antigravity; see the [runtime contract](../contracts/agent-runtime.md#process-boundary-verification).
+- `crates/core/src/workspace_lifecycle.rs` tests finish/archive/restore state preservation for
+  every provider through shared board rules, without invoking any provider.
 
 ## Legend
 
@@ -109,7 +143,7 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | local and account skills | a package with SKILL.md through the plugin selection | the same package with a native manifest | Unavailable | `crates/tools/src/skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; installation does not activate automatically |
 | start a conversation from a skill with the declared artifact path | package added to the first conversation's resolved `--plugin-dir` set; opening line in the first message | package added to the derived marketplace of that conversation; same opening line | Unavailable; no hub tool selection | `kickoff.rs` tests, `session.rs::first_message_opens_with_the_kickoff_line`, `session.rs::artifact_path_follows_the_primary_repository`, `scripts.rs::method_artifacts_are_inherited_normalized_and_never_invented`, `src/kickoff.test.ts`; plugin-shipped skills must come from a local folder; the method is not re-announced to later tabs; a resume whose skill was removed continues without it and warns |
 | layered selection (global, project, workspace) per axis | resolved at spawn before the adapter | resolved at spawn before the adapter | Adapted; see verification boundary | `selection.rs` resolve tests, `session.rs::provenance_classifies_each_hub_item`, `session.rs::project_tools_require_approval_and_invalidate_it_when_hash_changes` and `session.rs::tool_axis_payload_is_validated_before_persistence`; the project `[tools]` layer is gated on trust-on-first-use of its hash, an undecided item stays `pending` and a rejected one stays `rejected` (both resolved yet not injected), and the setters refuse a malformed payload or an id on the wrong axis |
-| CLI-inherited MCP base (ADR 0046) | discovered from `~/.claude.json` and the working directory's `.mcp.json` plus its ancestors, nearest first; visible in the picker with the `cli` provenance and removable as a workspace delta; a declared axis materializes the whole effective set through the strict config | no discovered base; the CLI keeps loading its own configuration outside the picker | Unavailable | `selection.rs::cli_base_participates_in_the_chain`, `mcp.rs` inherited/universe tests and `mcp.rs::missing_selected_servers_prevent_materialization`, `session.rs::provenance_classifies_inherited_cli_configuration`, `src/mcp.test.ts`, mixed-provider picker and inheritance reset in `e2e/tools.spec.ts` |
+| CLI-inherited MCP base (ADR 0046 and ADR 0063) | discovered from `~/.claude.json` and the working directory's `.mcp.json` plus its ancestors, nearest first, plus the active account's claude.ai connectors; visible in the picker with the `cli` provenance and removable as a workspace delta; a declared axis materializes the whole effective set through the strict config, connectors included as `claudeai-proxy` entries | no discovered base; the CLI keeps loading its own configuration outside the picker | Unavailable | `selection.rs::cli_base_participates_in_the_chain`, `mcp.rs` inherited/universe tests, `mcp.rs::account_connectors_join_the_inherited_base` and `mcp.rs::missing_selected_servers_prevent_materialization`, `session.rs::provenance_classifies_inherited_cli_configuration`, `src/mcp.test.ts`, `src/tool-picker.test.ts`, mixed-provider picker, long-base scrolling and inheritance reset in `e2e/tools.spec.ts` |
 | hooks of a chosen plugin | active from `SessionStart` | `enabled = true` + trust limited to the `pluginId` and hash before the thread | Unavailable | `codex.rs` tests; a failure prevents the thread |
 | attachments in a message, capture thumbnails and pasting | adapted through a local path; promise and pasteboard materialized by macOS, pasted image by GTK on Linux | adapted through a local path; promise and pasteboard materialized by macOS, pasted image by GTK on Linux | Adapted; see verification boundary | `file_drop.rs`, `chat.ts`, `paste.ts`, `tree-menu.ts`, `changes-menu.ts` and the shared `file-menu.ts`; `e2e/file-drop.spec.ts`, dropped-file scenarios and the file tree menu in `e2e/critical-flows.spec.ts` cover the UI over the mock; `paste.test.ts` covers the paste detour, including the empty WebKitGTK clipboard; `paths.test.ts` covers reading sent attachments back as numbered image tags, shared by both agents; `tree-menu.test.ts` covers the menu an agent without attachments receives, `changes-menu.test.ts` the same groups on a changed file |
 | the browser's visual context | a tag in the draft and the history; complete HTML, CSS, URL and PNG mention on send | the same interface and textual contract | Adapted; see verification boundary | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, `browser.rs` tests; WKWebView capture and the AppKit gesture still require native verification |
@@ -120,7 +154,7 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | live sharing | V1 after normalization | V1 after normalization | shared application behavior | `team*.test.ts`, E2E over the mock |
 | remote control from the owner's devices | the same relay v4; execution stays local | the same relay v4; execution stays local | shared application behavior | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
 | comments in a shared session | adapted after V1 | adapted after V1 | shared application behavior | `notes.test.ts`, `team.test.ts`, `relay/src/logic.test.ts`, E2E over the mock |
-| optional missing-context review before creating a workspace (bring-your-own TypeSafe key) | independent of the CLI; no protocol change | independent of the CLI; no protocol change | shared application behavior | `src/context-review.test.ts` (rules, EN/PT examples, stale results), `evaluation.rs` and `typesafe.rs` tests (port, credential lifecycle, adapter failures with synthetic responses); System One wire checked against live API, see [context evaluation](../contracts/context-evaluation.md) |
+| optional missing-context review before creating a workspace (bring-your-own TypeSafe key; pinned model, per-language policy, opt-in local calibration) | independent of the CLI; no protocol change | independent of the CLI; no protocol change | shared application behavior | `src/context-review.test.ts` (rules, EN/PT examples, stale results), `evaluation.rs`, `typesafe.rs` and `review_calibration.rs` tests (model identity, port, credential lifecycle, private content-free records, consent races, CSV and adapter failures with synthetic responses); System One wire checked against live API, see [context evaluation](../contracts/context-evaluation.md) |
 | desk with several conversations at once | adapted (the same conversation screen) | adapted (the same conversation screen) | shared application behavior | `desk.test.ts`, E2E over the mock |
 | streamed conversation painting and hidden-window catch-up | shared V1 presentation; subagent work state still updates the composer | same V1 presentation and work-state rule | same presentation; no native child-task signal | `src/timeline.test.ts`, `e2e/critical-flows.spec.ts` in Chromium/WebKit for streaming and hidden catch-up, `e2e/markdown.spec.ts` for final Markdown and copy; WebKit timing limits in [energy profile](energy-profile.md) |
 | sleep preference during local agent work | `agent` keeps display awake through native child-task settlement; macOS `agent-system` keeps only the system awake | same rule over Codex's normalized child signals | same choices, but no native child-task signal to extend a settled turn | `src/statusbar.test.ts`, `awake.rs` command/transition tests, [ADR 0061](../decisions/0061-background-energy-policy.md); AC `pmset` check only, battery unavailable |
@@ -160,9 +194,14 @@ under the [release contract](../contracts/releases.md).
   manifest;
 - plugins enabled outside Prometeu stay subject to each CLI's global registry
   and are not part of the workspace's selection;
-- the CLI-inherited MCP base (ADR 0046) covers Claude only; servers configured
-  for Codex in `~/.codex/config.toml` are not discovered and stay invisible to
-  the picker, a recorded follow-up;
+- the CLI-inherited MCP base (ADR 0046 and ADR 0063) covers Claude only;
+  servers configured for Codex in `~/.codex/config.toml` are not discovered and
+  stay invisible to the picker, a recorded follow-up;
+- the account connectors are read from an endpoint Prometeu does not own and
+  are cached per login for five minutes, so an edit made on claude.ai can take
+  that long to reach the picker, and an unreachable account keeps that login's
+  last known list; with no list ever read, the picker shows the file base and a
+  spawn with a declared MCP selection fails instead of dropping connectors;
 - attachments have UI tests over the mock and native validation of the saved
   destination; the real thumbnail gesture was confirmed in Prometeu Dev on
   2026-09-06. Actual reading by the CLI still requires manual verification.
@@ -339,15 +378,15 @@ Claude, Codex and Antigravity catalogs use the same injected private query port;
 provider requests, pagination and parsing are shared in `crates/protocols/src/catalog.rs`;
 `agents/catalog.rs` retains desktop profile preparation and selection.
 `agents/catalog_tests.rs` retains empty/error, whole-query deadline, profile,
-pagination and cleanup fixtures. Claude/Codex naming uses the finite-command
-runner; other providers retain their fallback titles without inference. GitHub
+pagination and cleanup fixtures. Claude/Codex naming uses the bounded query
+launcher; other providers retain their fallback titles without inference. GitHub
 action polling and preparation fetches are provider-independent.
 
 `crates/process/src/command/tests.rs` and `query/tests.rs` cover real local
 subprocess backpressure, blocked writes, output bounds, exit status, inherited
-pipes and cleanup without Tauri. `naming.rs::command_port_tests`,
-`github.rs::command_port_tests` and `session.rs::fetch_port_tests` inject runners
-to verify fallback/error compatibility. Existing real-Git preparation tests
+pipes and cleanup without Tauri. `naming.rs::tests`,
+`github.rs::command_port_tests` and `session.rs::fetch_port_tests` verify injected
+I/O policy and fallback/error compatibility. Existing real-Git preparation tests
 exercise the native runner. This does not prove live model inference, remote
 GitHub/network behavior or Windows/WSL execution.
 

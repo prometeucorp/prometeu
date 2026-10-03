@@ -41,6 +41,7 @@ import {
 import { $, debounce, h, template } from "./util";
 import * as viewer from "./viewer";
 import * as changesUi from "./workspace-changes";
+import { WorkspaceUsage, announceWorkspaceUsage } from "./workspace-usage";
 
 /// Coordinate workspace breadcrumbs, tabs, center views, and the side panel.
 
@@ -63,6 +64,7 @@ let openWs: string | null = null;
 let navigation = 0;
 const gitRefresh = new GitRefreshPolicy();
 const turns = new TurnSettlePolicy();
+let usage: WorkspaceUsage;
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -72,6 +74,8 @@ const stillHere = (epoch: number, id: string) => navigation === epoch && openWs 
 
 export function init(context: Ctx) {
   ctx = context;
+  usage = new WorkspaceUsage();
+  $("prsplit").before(usage.root);
   changesUi.init({
     workspace: current,
     refresh: async () => { if (openWs && hasDiff()) { await loadChanges(openWs); tree.redrawSoon(); } },
@@ -239,6 +243,7 @@ function catchUp(ws: Workspace) {
 }
 
 export function leave() {
+  usage.hide();
   changesUi.leave();
   navigation++;
   gitRefresh.clear();
@@ -265,6 +270,7 @@ export function observeTurns() {
 export function draw() {
   const ws = current();
   if (!ws) return ctx.home();
+  usage.update(ws, ctx.board());
   catchUp(ws);
 
   // Show project, workspace, and branch breadcrumbs; remote conversations identify their owner first.
@@ -651,6 +657,7 @@ export function finish(id: string) {
   if (openWs === id) ctx.home();
   invoke("finish_workspace", { id })
     .then(() => {
+      if (target) void announceWorkspaceUsage(target, ctx.board(), ctx.say, true);
       if (target && !target.remote && !target.cleaned && target.worktree !== target.repo) openCleanup(ctx.say, id);
     })
     .catch((e) => ctx.say(fromBack(e), true));

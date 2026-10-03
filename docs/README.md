@@ -114,7 +114,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0060](decisions/0060-isolated-desktop-presentation.md): isolated Desktop presentation with a shared production/gallery view.
 - [ADR 0061](decisions/0061-background-energy-policy.md): explicit system-only inhibition while a macOS agent works.
 - [ADR 0062](decisions/0062-local-diff-review.md): local review notes and explicit batch submission.
-- [ADR 0063](decisions/0063-portable-board-core.md): independently tested board models and injected storage/publication.
+- [ADR 0063](decisions/0063-account-connectors-in-the-mcp-base.md): the account's claude.ai connectors join the inherited MCP base.
 - [ADR 0064](decisions/0064-portable-conversation-stream.md): portable conversation ordering and injected input, history, events and time.
 - [ADR 0065](decisions/0065-injected-process-supervision.md): injected process supervision and reusable Unix execution adapter.
 - [ADR 0066](decisions/0066-injected-session-coordination.md): portable session queues, reactions and ordered observations through injected effects.
@@ -130,6 +130,7 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0076](decisions/0076-injected-native-profiles.md): Tauri-free native account profiles and injected preparation.
 - [ADR 0077](decisions/0077-injected-startup-tools.md): injected startup tools and Tauri-free MCP encoding.
 - [ADR 0078](decisions/0078-injected-native-packages.md): native package preparation and injected cache installation.
+
 
 ## Local telemetry
 
@@ -196,3 +197,8 @@ current system until the corresponding implementation is accepted.
 
 - [Native Windows application](contracts/windows-application.md): shared desktop interface and WSL command integration.
 - [ADR 0084](decisions/0084-shared-windows-desktop.md): injected application transport and shared Windows interface.
+- [ADR 0085](decisions/0085-portable-board-core.md): independently tested board models and injected storage/publication.
+
+- [Local usage and context insights implementation plan](superpowers/plans/2026-10-01-issue-131-usage-insights.md).
+
+- [Review calibration implementation plan](superpowers/plans/2026-09-27-review-calibration.md).

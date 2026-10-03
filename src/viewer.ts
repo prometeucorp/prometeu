@@ -7,6 +7,7 @@ import { fileIcon, icon } from "./icons";
 import { findCapped, follow, markup, nearest, step, type Match } from "./find";
 import { button, input } from "./ui";
 import { relocateKeys } from "./tree-moves";
+import { lineChanges } from "./line-changes";
 import { $ } from "./util";
 
 /// The file editor layers highlighted code over a transparent textarea.
@@ -43,6 +44,13 @@ let seen = "";
 let drawn = { text: "", query: "", active: -1 };
 let query: HTMLInputElement;
 
+/// Committed text of the open file, the change gutter's baseline; `text` is null without Git.
+/// `at` throttles refreshes: board events repeat often, and a commit changes it without touching disk.
+let base: { key: string; text: string | null; at: number } = { key: "", text: null, at: 0 };
+let baseRequest = 0;
+const BASE_TTL = 2000;
+let changeLayer: HTMLElement;
+
 const box = () => $("vtext") as HTMLTextAreaElement;
 const here = () => (shown ? key(shown.id, shown.path) : "");
 const draft = () => drafts.get(here());
@@ -70,6 +78,9 @@ export function init(onError: (m: string) => void, onSaved: (id: string) => void
   $("vcancel").innerHTML = icon("x");
   $("vcancel").addEventListener("click", () => void revert());
 
+  changeLayer = document.createElement("div");
+  changeLayer.id = "vchanges";
+  changeLayer.setAttribute("aria-hidden", "true");
   initFind();
   const text = box();
   text.addEventListener("input", typed);
@@ -246,6 +257,7 @@ export async function show(id: string, path: string) {
   const k = key(id, path);
   const same = shown?.id === id && shown.path === path;
   const currentRequest = ++request;
+  void loadBase(id, path, !same);
   // An unsaved draft owns the displayed text.
   if (same && drafts.has(k)) return;
 
@@ -463,8 +475,32 @@ function paint() {
   const rows: string[] = [];
   for (let i = 1; i <= text.split("\n").length; i++) rows.push(String(i));
   $("vgutter").textContent = rows.join("\n");
+  $("vgutter").append(changeLayer);
   $("vpre").innerHTML = highlight(text, shown?.path ?? "");
+  changes();
   refind();
+}
+
+/// Read the committed text again when the file changes or the last read is stale.
+async function loadBase(id: string, path: string, force: boolean) {
+  const k = key(id, path);
+  if (!force && base.key === k && Date.now() - base.at < BASE_TTL) return;
+  const mine = ++baseRequest;
+  if (base.key !== k) base = { key: k, text: null, at: 0 };
+  base.at = Date.now();
+  const text = await invoke("file_base", { id, rel: path }).catch(() => null);
+  if (mine !== baseRequest || base.key !== k) return;
+  const changed = base.text !== text;
+  base.text = text;
+  if (changed && here() === k && !box().hidden) changes();
+}
+
+/// Draw the change gutter: bars for added and modified lines, a notch where lines were removed.
+function changes() {
+  const text = base.key === here() ? base.text : null;
+  changeLayer.innerHTML = text === null ? "" : lineChanges(text, box().value)
+    .map((c) => `<div class="${c.kind}" style="--row:${c.start};--rows:${c.count}"></div>`)
+    .join("");
 }
 
 /// Show save and discard controls only for unsaved drafts.

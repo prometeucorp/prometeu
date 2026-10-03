@@ -82,6 +82,21 @@ fn remove_registered_project(board: &std::sync::Mutex<Board>, id: &str) {
     prometeu_core::projects::remove(&mut lock(board), id);
 }
 
+/// The sidebar lists projects in board order. Projects missing from `ids` (registered while the
+/// drag was in flight) keep their relative order after the listed ones; unknown IDs are ignored.
+#[tauri::command]
+pub fn reorder_projects(app: AppHandle, state: State<AppState>, ids: Vec<String>) {
+    {
+        let _sync = crate::catalog::guard();
+        sort_projects(&mut lock(&state.board).projects, &ids);
+    }
+    publish(&app);
+}
+
+fn sort_projects(projects: &mut [Project], ids: &[String]) {
+    prometeu_core::projects::reorder(projects, ids);
+}
+
 /* ---------- workspaces ---------- */
 
 /// The workspace owns its stage, regardless of whether the menu, header, or drag gesture changes
@@ -110,20 +125,12 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
 /// separate, confirmed decision.
 #[tauri::command(async)]
 pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
-    {
-        let mut board = lock(&state.board);
-        let final_stage = board.stages.last().cloned();
-        if let (Some(ws), Some(stage)) = (board.workspace_mut(&id), final_stage) {
-            ws.stage = stage;
-        }
-    }
+    crate::workspace_lifecycle::finish(&mut lock(&state.board), &id);
     archive(&app, &state, &id, true);
 }
 
 fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
     let generation = lock(&state.telemetry).generation;
-    let mut dead: Vec<String> = Vec::new();
-    let mut changed = false;
     // Run the archive script before archiving, while its resources still exist. It cleans up
     // containers, databases, and tunnels asynchronously, without a PTY or blocking the window.
     if archived {
@@ -142,20 +149,11 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
             }
         }
     }
-    {
-        let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(id) {
-            changed = ws.archived != archived;
-            if archived {
-                dead = ws.tabs.iter().map(|t| t.id.clone()).collect();
-            }
-        }
-        let _ = workspace_lifecycle::apply(&mut board, id, Change::Archive(archived));
-    }
+    let effects = crate::workspace_lifecycle::archive(&mut lock(&state.board), id, archived);
     // Stop processes outside the board lock: signalling and waiting must not block other sessions.
-    stop(state, &dead);
+    stop(state, &effects.stop_tabs);
     publish(app);
-    if changed {
+    if effects.changed {
         crate::telemetry::journey(
             app,
             generation,
@@ -470,8 +468,9 @@ pub fn workspace_tools(
 
 /// The CLI-inherited servers of one workspace, absent from the hub, for the composer's picker rows
 /// and button gating (ADR 0046). Discovery reads Claude's configuration, so a Codex conversation has
-/// no inherited base and its rows stay hub-only.
-#[tauri::command]
+/// no inherited base and its rows stay hub-only. It runs off the main thread because the account
+/// connectors may cost a request when the cache is cold (ADR 0063).
+#[tauri::command(async)]
 pub fn mcp_inherited(
     state: State<AppState>,
     id: String,
@@ -1460,6 +1459,7 @@ fn spawn_tab_with_id(
         pending_prompt,
         tokens: None,
         context_tokens: None,
+        context_window: None,
         choice,
         kickoff: None,
     })
@@ -1860,6 +1860,18 @@ mod tests {
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
+
+    #[test]
+    fn project_order_follows_ids_and_keeps_unlisted_projects_last() {
+        let mut board = crate::state::Board::default();
+        for path in ["/a", "/b", "/c", "/d"] {
+            super::register_project(&mut board, Path::new(path));
+        }
+        let ids = ["/c", "/gone", "/a"].map(String::from);
+        super::sort_projects(&mut board.projects, &ids);
+        let order: Vec<_> = board.projects.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(order, ["/c", "/a", "/b", "/d"]);
+    }
 
     #[test]
     fn local_project_changes_wait_for_catalog_installation_without_locking_the_board() {
@@ -2271,6 +2283,7 @@ mod tests {
             pending_prompt: None,
             tokens: None,
             context_tokens: None,
+            context_window: None,
             choice,
             kickoff: None,
         }

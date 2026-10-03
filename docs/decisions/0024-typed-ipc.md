@@ -26,6 +26,13 @@ Keep the existing Tauri transport, Rust handlers, error representation, and
 command-name parity test. Generate bindings only after a separate proof covers
 serde enums/defaults, optional values, errors, and events.
 
+For incremental cross-language verification, serialize representative real Rust
+values into a checked fixture and compile the JSON literals against the actual
+TypeScript contracts. Rust tests reject stale fixtures; consumer tests validate
+and reduce canonical events. This adds no binding generator or schema library.
+The examples allow additive fields and only prove the shapes they exercise;
+they do not replace validation or imply complete argument/result coverage.
+
 ## Consequences
 
 Wrong arguments and mock results fail compilation without adding a dependency.
@@ -41,4 +48,7 @@ No wire or persisted format changes; rollback only reverts source code.
 - [IPC contract](../contracts/ipc.md).
 - [Invocation and compile-time regressions](../../src/ipc.test.ts).
 - [Exact command-name parity](../../src-tauri/tests/mock.rs).
+- [Rust serialization producer](../../src-tauri/src/boundary_contract.rs),
+  [literal type check](../../scripts/check-contracts.mjs) and
+  [consumer regressions](../../src/backend-contract.test.ts).
 - `npm run typecheck` validates callers and mock handlers.

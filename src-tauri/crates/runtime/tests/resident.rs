@@ -1457,6 +1457,7 @@ fn registered_project_files_and_shell_work_without_a_conversation() {
 
 #[test]
 fn application_resident_starts_empty_and_restores_projects_without_a_primary_workspace() {
+    use serde_json::json;
     struct Application;
     impl RuntimeLauncher for Application {
         fn launch(&self, target: &Target) -> Result<Child, String> {
@@ -1508,6 +1509,16 @@ fn application_resident_starts_empty_and_restores_projects_without_a_primary_wor
     client
         .application("add_project".into(), serde_json::json!({"path":project}))
         .unwrap();
+    client
+        .application("add_project".into(), json!({"path":home}))
+        .unwrap();
+    let board = client
+        .application("load_board".into(), Value::Null)
+        .unwrap();
+    let reordered = json!([board["projects"][1]["id"], board["projects"][0]["id"]]);
+    client
+        .application("reorder_projects".into(), json!({"ids":reordered}))
+        .unwrap();
     let skill = serde_json::json!({"id":"review","description":"Before a review","content":"Read the diff."});
     assert_eq!(
         client.application("skill_hub".into(), Value::Null).unwrap(),
@@ -1554,9 +1565,13 @@ fn application_resident_starts_empty_and_restores_projects_without_a_primary_wor
     let board = client
         .application("load_board".into(), Value::Null)
         .unwrap();
-    assert_eq!(board["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(board["projects"].as_array().unwrap().len(), 2);
     assert_eq!(
         board["projects"][0]["path"],
+        home.to_string_lossy().as_ref()
+    );
+    assert_eq!(
+        board["projects"][1]["path"],
         project.to_string_lossy().as_ref()
     );
     assert_eq!(board["workspaces"], serde_json::json!([]));
@@ -1667,6 +1682,13 @@ fn deferred_git_and_checkout_preserve_responsiveness_and_settle_after_detach() {
     .unwrap();
     std::fs::write(project.join("notes"), "changed").unwrap();
     git(&["add", "notes"]);
+    assert_eq!(
+        client
+            .application("file_base".into(), json!({"id":"primary","rel":"notes"}))
+            .unwrap(),
+        "original"
+    );
+
     let status = client
         .application("workspace_git_status".into(), json!({"id":"primary"}))
         .unwrap();

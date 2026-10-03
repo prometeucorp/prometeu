@@ -36,8 +36,8 @@ hold those pipes. Both adapters establish a cleanup owner immediately after
 spawn. Reaping retires the signal target; drop never signals an already reaped
 leader. Detached descendants remain outside the guarantee.
 
-`main.rs` injects both implementations. Catalog commands receive the query
-launcher; naming and action monitoring receive the command runner; workspace
+`main.rs` injects both implementations. Catalog commands and naming receive the query
+launcher; action monitoring receives the command runner; workspace
 preparation passes it through branch/worktree helpers into fetch. Provider
 protocol parsing, account setup, command arguments, result interpretation and
 error translation remain at the feature edge. No vendor or platform dispatch is
@@ -48,10 +48,12 @@ added to the core.
 - Catalog: 20 seconds for the whole query; 1 MiB stdout across all lines,
   including delimiters; discarded stderr; unchanged pagination, schemas and
   catalog error codes. Deadline checks also cover blocked writes.
-- Naming: 60 seconds; Claude receives the prompt on stdin with a new 1 MiB
-  stdout bound; stderr is discarded. Codex keeps its existing final-answer file
-  and discards both streams. Failures keep the fallback title; manual renames
-  still win. The final-answer file is still read by the native naming adapter.
+- Naming: 60 seconds and 1 MiB structured stdout for either provider, with
+  discarded stderr. The query adapter delivers measurements before exit, retaining
+  partial usage on failure. Claude receives the prompt on stdin and returns a JSON
+  result; Codex keeps its final-answer file. Failures keep the fallback title and
+  manual renames still win. This reuses bounded query cleanup without adding a
+  naming-specific subprocess supervisor.
 - Background GitHub action queries: 30 seconds and 8 MiB per captured stream.
   Stdout overflow keeps the response-error classification. Stderr overflow now
   rejects with that same classification instead of returning a truncated
@@ -77,5 +79,5 @@ post-spawn I/O/polling loops.
 - [Native finite-command tests](../../src-tauri/crates/process/src/command/tests.rs).
 - [Native query tests](../../src-tauri/crates/process/src/query/tests.rs).
 - [Catalog compatibility](../../src-tauri/src/agents/catalog_tests.rs).
-- `command_port_tests` in `naming.rs` and `github.rs`, and `fetch_port_tests` in `session.rs` verify injected policy and application outcomes.
+- Structured-output and descendant-cleanup tests in `naming.rs`, `command_port_tests` in `github.rs`, and `fetch_port_tests` in `session.rs` verify injected policy and application outcomes.
 - [Core contract](../contracts/application-core.md#bounded-commands-and-queries).

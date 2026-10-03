@@ -86,3 +86,10 @@ pub fn prepare(
         resumed,
     })
 }
+
+pub(crate) use prometeu_protocols::codex::exec_usage;
+
+#[cfg(test)]
+pub(crate) mod contract;
+#[cfg(test)]
+mod process_tests;

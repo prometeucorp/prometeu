@@ -104,6 +104,7 @@ pub struct Mutation<'a> {
     pub remote: Option<&'a str>,
 }
 pub trait RepositoryGit: Send + Sync {
+    fn file_base(&self, root: &Path, repos: &[PathBuf], rel: &str) -> Option<String>;
     fn status(&self, repos: &[Repo]) -> Vec<GitStatus>;
     fn diff(
         &self,

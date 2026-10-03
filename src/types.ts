@@ -30,6 +30,7 @@ export type Tab = {
   tokens: number | null;
   /// Last observed context and the backend's persisted counting cursor.
   context_tokens?: number | null;
+  context_window?: number | null;
   /// A prompt queued until worktree setup finishes.
   pending_prompt?: string | null;
   /// An optional tab-specific model choice; absent choices inherit workspace defaults.
@@ -229,8 +230,8 @@ export type Workspace = {
   preparing: boolean;
   /// Structured backend preparation error, translated by fromBack.
   failed: string | null;
-  /// Frontend-only remote workspace state; Rust never receives these entries. An offline owner freezes the view and disables input.
-  remote: Remote | null;
+  /// Frontend-only remote workspace state; absent from local Rust snapshots. An offline owner freezes the view and disables input.
+  remote?: Remote | null;
   tabs: Tab[];
   active: string | null;
 };

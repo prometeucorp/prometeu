@@ -3,10 +3,31 @@ import { describe, expect, it } from "vitest";
 import { parseConversationEvent } from "./conversation";
 import { LegacyConversationAdapter } from "./conversation-legacy";
 import { Timeline } from "./timeline";
+import type { TelemetryMeasurement } from "./telemetry";
 
 const line = (value: unknown) => JSON.stringify(value);
 
 describe("ConversationEventV1", () => {
+  it("keeps old completions and ignores malformed optional usage without losing settlement", () => {
+    const completion = { v: 1, type: "turn.completed", at: 1, outcome: "ok", message: "", durationMs: 100, costUsd: 99 };
+    const usage: TelemetryMeasurement = { usageScope: "mainAgent", complete: true, selectedModel: null,
+      observedModels: ["example"], usageByModel: null, usage: {
+        inputTokens: 100, outputTokens: 20, cacheReadTokens: 80, cacheWriteTokens: 0, reasoningTokens: 5,
+        contextUsed: 100, contextWindow: 200000, peakContext: 100, modelCalls: 1,
+        compactions: null, cacheRebuilds: null, costUsd: 0,
+      } };
+    expect(parseConversationEvent(completion)).toEqual(completion);
+    expect(parseConversationEvent({ ...completion, usage, messageId: "reply" })).toMatchObject({ usage, messageId: "reply" });
+    for (const invalid of [null, {}, { ...usage, usage: { ...usage.usage, inputTokens: -1 } },
+      { ...usage, usage: { ...usage.usage, cacheReadTokens: 101 } },
+      { ...usage, usage: { ...usage.usage, costUsd: Infinity } },
+      { ...usage, usageByModel: [{ model: "m", usage: { ...usage.usage, outputTokens: -1 } }] }]) {
+      const parsed = parseConversationEvent({ ...completion, usage: invalid });
+      expect(parsed?.type).toBe("turn.completed");
+      expect(parsed).not.toHaveProperty("usage");
+    }
+  });
+
   it("discards invalid versions, types and required fields without breaking replay", () => {
     expect(parseConversationEvent({ v: 2, type: "user.message", at: 1, content: [] })).toBeNull();
     expect(parseConversationEvent({ v: 1, type: "provider.surprise", at: 1 })).toBeNull();

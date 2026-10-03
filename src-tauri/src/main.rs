@@ -11,6 +11,9 @@ mod antigravity;
 mod awake;
 mod background;
 mod board_store;
+
+#[cfg(test)]
+mod boundary_contract;
 mod browser;
 mod catalog;
 mod chat;
@@ -41,6 +44,7 @@ mod paths;
 mod platform;
 mod plugins;
 mod pty;
+mod review_calibration;
 mod scripts;
 mod selection;
 mod session;
@@ -54,6 +58,7 @@ mod transcript_store;
 mod typesafe;
 mod usage;
 mod usage_scheduler;
+mod workspace_lifecycle;
 mod workspace_tools;
 
 use prometeu_core::publication::{BoardPublisher, BoardStore};
@@ -195,6 +200,8 @@ fn main() {
             usage::usage,
             usage::usage_refresh,
             telemetry::telemetry_summary,
+            telemetry::telemetry_insights,
+            telemetry::telemetry_turns,
             telemetry::telemetry_events,
             telemetry::telemetry_export,
             telemetry::telemetry_clear,
@@ -204,6 +211,7 @@ fn main() {
             session::load_board,
             session::add_project,
             session::remove_project,
+            session::reorder_projects,
             session::list_branches,
             session::create_workspace,
             session::set_stage,
@@ -229,6 +237,7 @@ fn main() {
             session::git::workspace_git_status,
             session::git::tree_git_status,
             session::git::tree_restore,
+            session::git::file_base,
             session::git::workspace_git_diff,
             session::git::workspace_git_action,
             session::git::workspace_git_history,
@@ -334,6 +343,11 @@ fn main() {
             typesafe::typesafe_remove_key,
             typesafe::typesafe_set_enabled,
             typesafe::context_evaluate,
+            review_calibration::review_calibration_status,
+            review_calibration::review_calibration_set_enabled,
+            review_calibration::review_calibration_append,
+            review_calibration::review_calibration_clear,
+            review_calibration::review_calibration_export,
         ])
         .setup(|app| {
             if let Some(window) = tauri::Manager::get_window(app, "main") {
@@ -342,6 +356,9 @@ fn main() {
             background::watch(app.handle().clone());
             notifications::install(app.handle());
             embedded_mcp::start(app.handle().clone())?;
+            // The account connectors are part of the inherited MCP base; fetch them before the
+            // first picker or spawn asks for them (ADR 0063).
+            mcp::warm_connectors();
             file_drop::install(app.handle())?;
             actions::watch(app.handle().clone());
             machine::watch(app.handle().clone());

@@ -68,6 +68,11 @@ export type Commands = {
   cloud_relay_ticket: { args: { organization: string; user: string; expectedOrigin: string }; result: string };
   cloud_status: { args: { refresh: boolean }; result: CloudStatus };
   context_evaluate: { args: { request: import("./evaluation").EvaluationRequest }; result: import("./evaluation").EvaluationResult };
+  review_calibration_status: { args: undefined; result: import("./review-calibration").CalibrationStatus };
+  review_calibration_set_enabled: { args: { enabled: boolean }; result: import("./review-calibration").CalibrationStatus };
+  review_calibration_append: { args: { generation: number; record: import("./review-calibration").CalibrationRecord }; result: null };
+  review_calibration_clear: { args: undefined; result: import("./review-calibration").CalibrationStatus };
+  review_calibration_export: { args: { path: string }; result: null };
   create_path: { args: { id: string; rel: string; dir: boolean }; result: void };
   create_scripts_file: { args: { id: string }; result: string };
   create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
@@ -75,6 +80,7 @@ export type Commands = {
   feedback_capture: { args: undefined; result: string | null };
   feedback_image: { args: { path: string }; result: { name: string; type: "image/png" | "image/jpeg" | "image/webp"; data: string } };
   feedback_send: { args: { report: Record<string, unknown> }; result: void };
+  file_base: { args: { id: string; rel: string }; result: string | null };
   file_stamp: { args: { id: string; rel: string }; result: string };
   find_paths: { args: { id: string; query: string; recent: string[]; files?: boolean }; result: PathEntry[] };
   finish_workspace: { args: { id: string }; result: void };
@@ -126,6 +132,7 @@ export type Commands = {
   read_file: { args: { id: string; rel: string }; result: string };
   refresh_prs: { args: undefined; result: void };
   remove_project: { args: { id: string }; result: void };
+  reorder_projects: { args: { ids: string[] }; result: void };
   remove_workspace: { args: { id: string }; result: void };
   rename_path: { args: { id: string; from: string; to: string }; result: void };
   rename_tab: { args: { workspace: string; tab: string; title: string }; result: void };
@@ -155,6 +162,8 @@ export type Commands = {
   typesafe_save_key: { args: { key: string }; result: import("./evaluation").EvaluationStatus };
   typesafe_set_enabled: { args: { enabled: boolean }; result: import("./evaluation").EvaluationStatus };
   telemetry_summary: { args: { filter: import("./telemetry").TelemetryFilter }; result: import("./telemetry").TelemetrySummary };
+  telemetry_insights: { args: { filter: import("./telemetry").TelemetryFilter }; result: import("./telemetry").TelemetryInsights };
+  telemetry_turns: { args: { conversation: string; messageIds: string[] }; result: import("./telemetry").TurnMeasurement[] };
   telemetry_events: { args: { filter: import("./telemetry").TelemetryFilter; cursor?: import("./telemetry").TelemetryCursor }; result: import("./telemetry").TelemetryPage };
   telemetry_export: { args: { filter: import("./telemetry").TelemetryFilter; path: string }; result: null };
   telemetry_clear: { args: undefined; result: null };

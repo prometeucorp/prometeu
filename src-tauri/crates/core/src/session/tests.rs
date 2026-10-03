@@ -312,6 +312,18 @@ fn canonical_reactions_preserve_request_notes_identity_and_account_usage_ports()
         usage: &f,
     };
     let ready = AtomicBool::new(false);
+    for used in [90, 0] {
+        reactions.react(
+            "s",
+            &json!({"type":"context.updated","used":used,"window":200000}),
+            &ready,
+        );
+        let mut board = lock(&f.board);
+        let tab = board.tab_mut("s").unwrap();
+        assert_eq!(tab.context_tokens, Some(used));
+        assert_eq!(tab.context_window, Some(200000));
+    }
+
     reactions.react(
         "s",
         &json!({"type":"request.opened","kind":"approval","tool":"Bash"}),

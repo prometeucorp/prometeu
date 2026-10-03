@@ -66,8 +66,8 @@ impl Lines {
         Ok(Self { text, seq: 0 })
     }
 
-    /// Local telemetry never enters replay or public delivery. The caller retains the original
-    /// frame for private capture and reactions after releasing the stream lock.
+    /// Internal capture fields never enter replay or public delivery; canonical turn usage does.
+    /// The caller retains the original frame for private capture and reactions after releasing the stream lock.
     pub fn record(
         &mut self,
         text: &str,
@@ -196,7 +196,7 @@ fn closed_request(command: &Value, clock: &dyn Clock) -> Option<Value> {
     })
 }
 
-fn public_text<'a>(text: &'a str, frame: &Value) -> std::borrow::Cow<'a, str> {
+pub fn public_text<'a>(text: &'a str, frame: &Value) -> std::borrow::Cow<'a, str> {
     if frame.get("telemetry").is_none() && frame.get("providerDurationMs").is_none() {
         return std::borrow::Cow::Borrowed(text);
     }

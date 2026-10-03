@@ -4,6 +4,81 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.22.0] - 2026-10-02
+
+### New
+
+- **usage:** Show local token usage and context insights
+
+### Fixes
+
+- **mcp:** Let the MCP picker scroll when your account has many connectors
+- **mcp:** Resume arrow keys from the row you just chose in the tool picker
+- **mcp:** Keep the chosen action selected when labels collide
+- **usage:** Distinguish providers and refresh context actions
+- **desk:** Stop selecting text while dragging a conversation
+- **desk:** Preserve selected text when clicking conversation handles
+
+## [0.21.0] - 2026-09-29
+
+### New
+
+- **viewer:** Show changed lines in the editor gutter
+- **sidebar:** Reorder projects by dragging them
+
+### Fixes
+
+- **sidebar:** Keep project drags stable across redraws and cancels
+- **sidebar:** Restore project focus only if it was not moved elsewhere
+- **chat:** Fold long subagent reports into a readable card
+- **chat:** Show the subagent report and keep background labels on one line
+- **chat:** Mark cut background commands in the activity label
+- **mcp:** Show your claude.ai connectors in the MCP picker and keep them when a conversation starts
+
+### Performance
+
+- **viewer:** Keep the change gutter cheap on large edits
+
+## [0.20.0] - 2026-09-28
+
+### New
+
+- **review:** Show the calibrated model and optional review history
+
+### Fixes
+
+- **review:** Keep calibration collection reliable after clearing
+
+## [0.19.0] - 2026-09-27
+
+### New
+
+- **app:** Share window and power activity context
+- **app:** Allow display sleep during active agents
+- **review:** Annotate diffs and send review notes in one batch
+
+### Fixes
+
+- **git:** Preserve file rows during refresh
+- **git:** Keep commits limited to the files shown as staged
+- **linux:** Use plugged-in refresh budgets while on external power
+- **status:** Keep resource, terminal and port readings current
+- **chat:** Keep following responses in a visible window without focus
+- **files:** Show files an agent creates in the file tree
+- **github:** Refresh pull requests after agent turns instead of every app switch
+- Refresh quotas, ports and pull requests after state changes
+- **review:** Preserve current patches and concurrent note edits
+- **review:** Retain draft edits and focus across workspace changes
+- **review:** Place inline notes within their anchored hunk
+
+### Performance
+
+- **accounts:** Budget quota probes by account interest
+- **status:** Sample resources when visible or requested
+- **git:** Coalesce workspace status refreshes
+- **github:** Budget general pull request discovery
+- **chat:** Avoid unchanged streaming and preview paints
+
 ## [0.18.2] - 2026-09-26
 
 ### Fixes

@@ -15,6 +15,7 @@ impl ApplicationClient for Deferred<'_> {
                 | "workspace_git_branches"
                 | "workspace_git_conflict"
                 | "workspace_git_resolve"
+                | "file_base"
                 | "tree_git_status"
                 | "tree_restore"
                 | "workspace_branch"

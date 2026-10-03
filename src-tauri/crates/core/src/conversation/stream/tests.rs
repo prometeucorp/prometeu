@@ -24,15 +24,18 @@ impl TranscriptStore for Memory {
 }
 
 #[test]
-fn telemetry_measurements_never_enter_transcripts_or_shared_conversation_lines() {
+fn canonical_usage_survives_while_internal_capture_fields_stay_private() {
     let frame = json!({"v":1,"type":"turn.completed","at":1,"outcome":"ok","message":"answer","durationMs":10,"costUsd":null,
-            "providerDurationMs":10,"telemetry":{"usage":{"inputTokens":123}}});
+            "providerDurationMs":10,"telemetry":{"usage":{"inputTokens":123}},
+            "messageId":"reply","usage":{"complete":true,"usage":{"inputTokens":123}}});
     let serialized = frame.to_string();
     let public: Value = serde_json::from_str(&public_text(&serialized, &frame)).unwrap();
     assert!(public.get("telemetry").is_none());
     assert!(public.get("providerDurationMs").is_none());
     assert_eq!(public["message"], "answer");
     assert_eq!(public["durationMs"], 10);
+    assert_eq!(public["messageId"], "reply");
+    assert_eq!(public["usage"], frame["usage"]);
     assert_eq!(frame["telemetry"]["usage"]["inputTokens"], 123);
 }
 

@@ -51,6 +51,15 @@ impl SessionReactions<'_> {
             }
             Some("usage.updated") => self.usage.observe(frame),
             Some("context.updated") => {
+                {
+                    let mut board = lock(self.sessions.board);
+                    if let Some(tab) = board.tab_mut(id) {
+                        tab.context_window = frame["window"].as_u64().filter(|window| *window > 0);
+                        if frame["used"].as_u64() == Some(0) {
+                            tab.context_tokens = Some(0);
+                        }
+                    }
+                }
                 self.sessions
                     .update(id, None, Note::Keep, frame["used"].as_u64())
             }

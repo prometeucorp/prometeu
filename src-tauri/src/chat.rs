@@ -303,7 +303,11 @@ fn write_mode(
     } else {
         vec![]
     };
-    pump.capture((scope, relations), || {
+    let origin = match scope.is_some() {
+        true => crate::telemetry::conversation_attribution(&context.app, session),
+        false => Default::default(),
+    };
+    pump.capture((scope, relations, origin), || {
         let mut chats = lock(&state.sessions.conversations);
         let chat = chats
             .get_mut(session)
@@ -575,6 +579,28 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
 #[tauri::command]
 pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
     snapshot(&state, &session)
+}
+
+#[cfg(test)]
+pub(crate) fn contract_public_events(events: Vec<Value>) -> Vec<Value> {
+    events
+        .into_iter()
+        .filter(|event| event["type"] != "telemetry.usage")
+        .map(|event| {
+            let mut event: Value = serde_json::from_str(
+                &prometeu_core::conversation::stream::public_text(&event.to_string(), &event),
+            )
+            .unwrap();
+            event["at"] = json!(0);
+            if event
+                .get("durationMs")
+                .is_some_and(|value| value.is_number())
+            {
+                event["durationMs"] = json!(0);
+            }
+            event
+        })
+        .collect()
 }
 
 #[cfg(test)]

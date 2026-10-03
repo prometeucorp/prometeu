@@ -193,7 +193,9 @@ Publication is a separate operational step. See the
 classification; `typesafe.rs` is its only adapter and keeps the person's own
 API key in a private file. The integration starts disabled and runs only on an
 explicit **Review request** in the launcher, whose rules live in
-`src/context-review.ts`. It is independent of the agent provider, the Cloud
+`src/context-review.ts`. `src/review-policy.ts` binds model identity and draft
+language to conservative thresholds; `review_calibration.rs` owns independent,
+opt-in, content-free local records and export. It is independent of the agent provider, the Cloud
 account, the timeline and the relay. See the
 [contract](docs/contracts/context-evaluation.md) and
 [ADR 0058](docs/decisions/0058-optional-context-evaluation.md).
@@ -250,8 +252,11 @@ Formats and compatibility are in
 `telemetry.rs` owns the private local SQLite event store. Provider adapters
 normalize usage; accepted conversation input, live output, workspace use cases
 and PR discovery capture typed content-free facts. The store persists independent
-of transcript or board retention. Concrete queries reach the settings summary
-through typed IPC, with JSONL export and complete history deletion.
+of transcript or board retention. Concrete queries supply settings and workspace
+summaries, with JSONL export and complete history deletion. Canonical completion
+usage drives reply footers; a local hashed assistant association restores them
+for native transcript replay. App naming and plugin creation have separate
+source records. Context meters offer explicit conversation actions.
 
 A per-process capture gate preserves input/output order while commits run outside
 board, transcript and chat locks. Missing ends and ambiguous streaming-input
@@ -271,8 +276,10 @@ Three contracts require explicit compatibility:
 The third already has a single typed and validated source in
 `relay/src/protocol.ts`. The first uses the command map in `src/ipc.ts` to
 check names, arguments, and results in both callers and the browser mock.
-Rust handler names have a parity test; argument/result bindings are still
-maintained manually. See [ADR 0024](docs/decisions/0024-typed-ipc.md).
+Rust handler names have a parity test. Rust-produced serialization fixtures
+check representative board, snapshot, model and conversation payloads against
+the TypeScript consumers; argument/result bindings are still maintained
+manually. See [ADR 0024](docs/decisions/0024-typed-ipc.md).
 The second uses the V1 contracts typed in the frontend. `claude.rs` adapts
 Claude's stream-json and `codex.rs` adapts Codex's JSON-RPC directly; both
 depend on the canonical primitives in `conversation.rs`.
@@ -315,10 +322,12 @@ The detailed rules and the current state of each one are in
 | UI boot and coordination | `src/main.ts`, `src/workspace.ts`, `src/session.ts` |
 | conversation | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
+| local usage and context | `src/conversation.ts`, `src/usage-presentation.ts`, `src/workspace-usage.ts`, `src/components/chat/usage.ts`, `src-tauri/src/telemetry.rs`, `src-tauri/src/telemetry/` |
 | starting from a skill | `src/kickoff.ts`, `src/launcher.ts`, `src-tauri/src/kickoff.rs`, `[method]` in `src-tauri/src/scripts.rs`; see [ADR 0057](docs/decisions/0057-skill-kickoff-and-artifact-path.md) |
 | workspaces | `src-tauri/src/session.rs`, `src-tauri/crates/core/src/board.rs`, `src-tauri/src/state.rs` |
 | session coordination | `src-tauri/crates/core/src/session.rs` and `session/` (policies), `src-tauri/src/chat/host.rs` (desktop effects) |
 | workspace tool selection | `src-tauri/crates/core/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
+| workspace archive/restore | `src-tauri/crates/core/src/workspace_lifecycle.rs` (state changes and stop decisions), `src-tauri/src/session.rs` (scripts, processes, publication and telemetry) |
 | Local diff review | `src/review-comments.ts` (rules), `src/review-store.ts` (local storage), `src/workspace-review.ts` (coordination), `src/review-context.ts` (text contract); see [review notes](docs/contracts/diff-review.md) |
 | Git and files | `src/workspace-changes.ts`, `src/changes-menu.ts`, `src/file-menu.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
