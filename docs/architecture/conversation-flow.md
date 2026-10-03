@@ -29,25 +29,16 @@ sequenceDiagram
     UI->>UI: Timeline.push(line)
 ```
 
-The core's `Launch` gathers agent, model, effort, plan mode, MCP, plugins and skills.
-`LaunchService` coordinates resume through injected preparation, spawning and
-lifecycle effects. New tabs use the same launcher but publish their tab before
-signaling readiness. `session/launch.rs` composes desktop preparation and effects;
-injected `ProviderPreparation` in `agent_launch.rs` selects native configuration
-and a protocol factory without launching the conversation. After spawning, the
-factory connects input/translation and supplies the adapter’s turn-wait policy.
-See the [provider contract](../contracts/application-core.md#provider-preparation-and-input); the [launch contract](../contracts/application-core.md#session-launch-and-resume)
-describes failure ordering. A tab
+The core's `Launch` gathers agent, model, effort, plan mode, MCP, plugins and
+skills. `LaunchService` prepares, spawns and installs the conversation through
+injected effects; `agent_launch.rs` supplies native provider preparation, and
+`ConversationWorkers` consume output once pipe drains run. Ordering and failure
+rules are in the
+[application-core contract](../contracts/application-core.md#sessions-launch-and-workers). A tab
 can override the workspace's agent/model/effort. Ordinary tabs resolve tools
 from the global, trusted project and workspace layers for their effective
 provider. [Tasks](../contracts/actions.md) keep a resolved copy of the profile,
 including tools, instructions and permissions.
-
-After native spawning establishes pipe drains, `ConversationWorkers` initializes
-the adapter and schedules output consumers through the host's executor. Stdout
-closure waits for process termination and waiter cleanup before the desktop
-checks identity and publishes closure. See the
-[worker contract](../contracts/application-core.md#conversation-workers).
 
 Materialization belongs to the edge. Claude receives MCP and plugins through
 its own files and flags; Codex receives the MCP table through an override and
@@ -110,7 +101,7 @@ writes the V1 events in its own transcript.
 filters private telemetry, retains the line and assigns its transport sequence
 through injected transcript and event ports. The host holds the same mutex
 through recording, `chat` delivery and snapshots. See the
-[stream contract](../contracts/application-core.md#conversation-stream).
+[stream contract](../contracts/application-core.md#conversation-stream-and-pump).
 
 Sending a command holds this mutex across the child write and recording of
 local user/echo events. A successful send records those events before a fast
@@ -118,11 +109,8 @@ child response can acquire the mutex. A failed write records no user event,
 allowing the pending message to be retried. Independent stdout/stderr readers
 continue draining into channels while command writes hold publication locks,
 preventing pipe backpressure from deadlocking the child. Queued lines drain
-before exit cleanup; prolonged stalls can grow queue memory. The independent
-`prometeu-process` crate owns these drains and native reaping through injected
-process ports. EOF alone no longer marks a live child stopped. Signals and reap
-attempts share a lock, preventing shutdown from targeting a recycled PID.
-See the [process contract](../contracts/application-core.md#process-supervision).
+before exit cleanup; prolonged stalls can grow queue memory. `prometeu-process`
+owns the drains and reaping; EOF alone never marks a live child stopped.
 State reactions run after releasing
 the conversation locks, except the in-memory delegation execution projection:
 it records canonical order under the buffer lock and publishes afterward.
@@ -192,17 +180,11 @@ in the [notification contract](../contracts/notifications.md) and
 
 ## Input and control
 
-A local message goes through `chat_send` and the injected core `SessionService`.
-The desktop's `SessionHost<Chat>` owns the shared registry, admission gates,
-readiness and background work and composes that service through lifecycle ports.
-Removal clears transient state; exit publication is guarded by process identity
-under the registry lock. See [host ownership](../contracts/application-core.md#session-host-ownership).
-If the process is ready, it is sent
+A local message goes through `chat_send` and the core `SessionService`, composed
+by the desktop's `SessionHost<Chat>`. If the process is ready, it is sent
 immediately; otherwise it stays in `pending_prompt` and the process is resumed.
-The message enters the buffer before the events it triggers.
-`SessionPump` owns command/output capture ordering; native effects are injected
-from `chat/host.rs`. It schedules pending input after settlement and setup checks,
-with reactions outside capture and transcript locks.
+The message enters the buffer before the events it triggers. `SessionPump`
+schedules pending input after settlement and setup checks.
 
 Interruptions and answers to questions or permissions use
 `ConversationCommandV1` and go through `chat_control`.

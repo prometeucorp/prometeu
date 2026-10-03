@@ -68,8 +68,8 @@ npm run test:release
 npm run test:web
 npm run test:rust
 npm run test:core
-npm run test:profiles
-
+npm run test:process
+npm run test:runtime
 npm run test:contracts
 npm run test:e2e
 npm run format:check
@@ -81,7 +81,9 @@ npm run check
 desktop and mobile builds/typecheck, the whole test suite and Clippy with
 warnings as errors. It is the same main validation as CI.
 `npm run architecture:check` first runs its
-dependency-checker fixtures with Node's test runner, then checks the repository.
+dependency-checker fixtures with Node's test runner, then checks the repository,
+including the Rust crate graph through `cargo tree` (see
+[Rust crates](../architecture/dependency-rules.md#rust-crates)).
 
 The phone app is a separate bundle: `npm run build:mobile` generates
 `dist-mobile/` from `src/mobile/`; in `prometeu-cloud`,
@@ -100,11 +102,6 @@ the Cloud's bundle.
 
 During development, run the smallest suite that covers the change first. Use
 `npm run check` before finishing a cross-cutting change or opening a PR.
-
-`npm run test:core` tests the portable board models, tool selection and injected
-publication service without Tauri or GUI libraries. It also runs as part of
-`test:rust`; independent Linux/Windows CI guards portability. This does not
-exercise a native Windows desktop or a WSL execution bridge.
 
 ## What each level proves
 
@@ -290,102 +287,75 @@ cover locale selection, interpolation and structured errors, not translation
 copy quality; TypeScript checks that the English catalog implements the source
 catalog keys.
 
-## Process adapter checks
+## Portable crates and native adapters
 
-`npm run test:process` runs real local Unix subprocess tests for agent spawning,
-pipe backpressure, graceful input closure, interruption, shutdown escalation,
-exit codes and abandoned-handle cleanup. It requires neither Tauri/GUI libraries
-nor installed agent CLIs. It is included in the workspace Rust suite and runs
-in an independent Linux/macOS CI job. `npm run test:core` separately checks
-shutdown policy with injected controls and keeps its Windows CI coverage.
-The same suite now includes real PTYs (input, resize, EOF, exit and group
-shutdown) and private authentication pipes (line bounds and cleanup). The live-child
-shutdown test injects a reader that ends after the readiness marker, keeping a real
-PTY process alive without assuming when the host reports native EOF. Native EOF
-and exit status are covered separately by the terminating-child test. These
-tests do not exercise a Windows shell, WSL bootstrap or live OAuth.
+These suites run without Tauri, GUI libraries, installed agent CLIs or network;
+`npm run test:rust` includes all of them.
 
-Bounded query/command adapter tests also run in `npm run test:process`. They use
-local synthetic children for pipe backpressure, blocked writes, total-output
-bounds, nonzero exits and descendants holding pipes. Provider fixtures remain
-in the desktop Rust suite; no CLI account or network is needed for these tests.
-
-## Native profile and tool verification
-
-`npm run test:tools` tests native MCP encoding and package preparation through
-injected catalogs, private files and installers, without Tauri or installed agents.
-It covers manifest/configuration compatibility, cache invalidation, failure cleanup
-and shared preparation ordering; a synthetic CLI checks native installer behavior.
-
-`npm run test:profiles` tests the Unix account profile adapter without Tauri,
-GUI libraries or installed CLIs. Its fixtures cover shared history, credential
-isolation, explicit roots, environment application and preparation failures.
-The Linux/macOS native adapter CI job also runs its tests and Clippy. Private
-file permissions and injection into startup/login are verified by the desktop
-Rust suite; real provider authentication remains a separate manual check.
-
-## Headless conversation verification
-
-`npm run test:runtime` runs the shared Codex adapter and actual headless executable
-fixtures without Tauri or a provider subscription. The synthetic provider needs
-Python 3.11 or later (`tomllib` is used to inspect provider configuration); CI
-selects Python 3.12 explicitly on both Unix hosts. CI matrices retain all platform
-results even when a sibling fails. Path assertions use canonical paths, and the
-worktree fixture exercises a symlinked source. Resident fixtures use private,
-canonical directories under `/tmp` to stay within Unix socket limits even when
-the host's temporary directory is long. The saturated-terminal fixture replaces
-the shell with its output producer so cleanup exercises the supervised process
-group independently of interactive shell job control. Native XDG trash recovery
-runs in a separate Linux-only resident test; project file/shell integration and
-injected-trash admission/failure tests run on both Unix hosts. The macOS system
-trash requires desktop services and does not use the isolated XDG fixture.
-See [run instructions](../contracts/headless-runtime.md#run) for a real
-conversation and the current limitations. Real-provider smoke testing uses an
-isolated runtime directory and the execution environment's existing Codex login.
+- `npm run test:core`: portable rules and ports with injected fakes.
+- `npm run test:process`: real local subprocesses, PTYs and private pipes
+  (backpressure, blocked writes, output bounds, escalation, EOF before exit,
+  abandoned waiters). Unix only.
+- `npm run test:profiles` and `npm run test:tools`: account profiles, MCP
+  encoding and package preparation through injected files, catalogs and a
+  synthetic installer CLI.
+- `npm run test:bridge`: the portable WSL client, paths and bootstrap.
+- `npm run test:runtime`: the shared Codex adapter and the real runtime
+  executable, bridge and resident host with a synthetic provider. It needs
+  Python 3.11 or later (`tomllib`). Resident fixtures use short canonical paths
+  under `/tmp` because of Unix socket limits; native XDG trash recovery runs only
+  on Linux.
 
 ## Native Windows/WSL integration
 
-`npm run test:windows:native -- CONFIG.json` exercises the original desk, file
-editor, binary viewers and terminal in WebView2 over WSL. Binary acceptance covers
-raw Tauri byte responses larger than one WSL message and the local blob CSP.
-Attachment acceptance uses real Windows file dialogs and clipboard image/file
-data; a synthetic provider reads the chosen file from WSL. The clipboard fixture
-restores its previous contents in `finally`, including on timeout. This opt-in
-native coverage targets path conversion and OS clipboard boundaries that mocks
-cannot validate; shared chips and draft interactions keep their existing tests.
-Tool acceptance uses the original picker and has the fixture provider execute a
-selected MCP definition's command with its private environment. This proves native
-configuration delivery without spending model credits; shared picker/trust browser
-tests and runtime selection/resume tests retain responsibility for portable rules.
-The default native entry is the shared
-interface; `/wsl.html` remains diagnostic coverage for the older preview.
-See [current coverage](../contracts/windows-application.md).
+Build and run the WSL runtime alone (Linux, WSL or macOS):
 
-The native acceptance config may additionally set `codex` to the absolute Linux
-path of an already authenticated Codex executable. This opt-in mode sends two
-short live inference requests in an isolated temporary project and checks the
-original ChatView before and after window reconnection. Omit `codex` for the
-synthetic-provider journey covering projects, scripts and Git. Both modes keep
-credentials in WSL and use separate runtime roots; live inference uses the selected
-CLI account's service quota. Use a separate `artifacts` directory for each mode. With live `codex`, set
-`bootstrap: true` to exercise default WSL startup without a setup screen, ordinary project selection,
-embedded runtime installation and saved automatic reconnection. This mode injects
-an isolated `PROMETEU_WINDOWS_RUNTIME_ROOT` and reuses its private WebView profile.
+```sh
+cargo build --manifest-path src-tauri/Cargo.toml -p prometeu-runtime --locked
+src-tauri/target/debug/prometeu-runtime --root /tmp/prometeu-runtime --workdir "$PWD"
+```
 
-Build the Linux runtime in WSL and run `npm run app:wsl` from a Windows checkout.
-`npm run build:app:wsl` builds the native executable without an installer or
-publishing. Running this command on Linux first builds and embeds the release
-runtime. On other build hosts, set `PROMETEU_WSL_RUNTIME` to the matching Linux
-artifact; CI supplies it from the Linux job. Without that artifact, automatic startup rejects the incomplete build. Setup, private roots, reconnect semantics and validation limits are
-in the [preview contract](../contracts/wsl-preview.md).
-`npm run build:wsl` builds only its frontend; `npm run dev` serves the deterministic
-`/wsl-preview.html` composition without WSL. `npm run test:bridge` checks the
-portable transport, and `test:runtime` includes real-process bridge tests.
+Use an empty root on first run; desktop roots are rejected. Send one
+[framed request](../contracts/wsl-runtime.md#framing) per line, for example
+`{"v":1,"id":1,"action":{"method":"start"}}`, and wait for `session.identity`
+before a `command` carrying `message.send`. Codex uses the environment's own
+login and configuration.
 
-`npm run test:wsl:native -- CONFIG.json` runs the opt-in Windows acceptance check
-against the built executable, WebView2 and an installed WSL distribution. It
-uses a synthetic provider and an isolated root, without a provider subscription.
-See the [native acceptance instructions](../contracts/wsl-preview.md#native-windows-acceptance).
-It stays outside the default browser suite: hosted CI's Windows build has no
-configured WSL distribution, and browser mocks cannot prove native IPC, Windows
-argument encoding or execution surviving closure of the actual window.
+For the Windows app, run `npm run app:wsl` from a Windows checkout with Node,
+Rust (MSVC) and WebView2. `npm run build:app:wsl` builds the executable without
+an installer. On Linux both commands first build and embed the release runtime;
+elsewhere set `PROMETEU_WSL_RUNTIME` to a matching Linux x86_64 artifact, or
+automatic startup rejects the build. `npm run build:wsl` builds only the
+frontend. Packaging is in [release](release.md#windows-installer).
+
+`npm run test:windows:native -- CONFIG.json` is the opt-in acceptance journey.
+It drives the original desk, editor, viewers, terminal, launcher, Setup/Run, Git,
+resources and attachments through WebView2, native IPC, real Windows dialogs,
+clipboard and Explorer, and an installed WSL distribution, using a synthetic
+provider in isolated roots. Optional configuration:
+
+- `codex`: absolute Linux path of an authenticated Codex; sends two short live
+  requests and checks recall after window reconnection (uses the CLI's quota).
+- `bootstrap: true` (with `codex`): exercises default WSL discovery, embedded
+  runtime installation and saved reconnection with an isolated
+  `PROMETEU_WINDOWS_RUNTIME_ROOT`.
+- `installer`: reinstalls that NSIS package between the two windows
+  (`scripts/fixtures/windows-install.ps1`); run only against an installation you
+  chose.
+
+Use a separate `artifacts` directory per mode. The clipboard fixture restores its
+contents afterwards. This journey stays outside the default suites: hosted CI
+has no WSL distribution, and mocks cannot prove native IPC, Windows argument
+encoding, path translation or execution surviving window closure.
+
+The ignored `actual_wsl_*` Rust tests run the bridge, terminal and resident
+reconnect through real `wsl.exe` (from WSL interop or Windows):
+
+```sh
+PROMETEU_TEST_WSL_DISTRIBUTION=Ubuntu-24.04 \
+  cargo test --manifest-path src-tauri/Cargo.toml -p prometeu-runtime \
+  --test resident actual_wsl_resident_reconnect -- --ignored
+```
+
+`actual_wsl_codex_recalls_after_reconnect` in `--test bridge` also needs
+`PROMETEU_TEST_CODEX` and makes two real model requests.

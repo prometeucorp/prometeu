@@ -76,7 +76,7 @@ npm run typecheck
 The workspace tool use case and board models live in the independent
 `prometeu-core` crate. Supply effects through application-owned ports and keep
 Tauri at the command edge. See the [core contract](../contracts/application-core.md)
-and [ADR 0085](../decisions/0085-portable-board-core.md) before extending that boundary.
+and [ADR 0085](../decisions/0085-portable-core.md) before extending that boundary.
 
 ## Connect features or change collaboration
 

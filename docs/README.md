@@ -16,7 +16,9 @@ as a short index for agents and `README.md` presents the product.
 
 ## Contracts
 
-- [Portable application core](contracts/application-core.md): board models, conversation ordering, process ports and session coordination.
+- [Portable application core](contracts/application-core.md): core ports, their desktop and WSL adapters and implementation obligations.
+- [Native Windows application](contracts/windows-application.md): shared interface over WSL, command coverage, deadlines and paths.
+- [WSL runtime protocol](contracts/wsl-runtime.md): framing, capabilities, resident attachment, storage and compatibility.
 - [Desktop presentation](contracts/desktop-presentation.md): typed snapshots, callbacks, focus and resource view lifetime.
 
 - [Local notifications](contracts/notifications.md): event selection, native delivery and silent defaults.
@@ -36,7 +38,6 @@ as a short index for agents and `README.md` presents the product.
   authentication, desktop connection and private persistence.
 
 - [Reusable actions](contracts/actions.md): commands, profiles and local PR tracking.
-- [Headless runtime](contracts/headless-runtime.md): experimental conversation executable, development protocol and isolated storage.
 - [`contracts/accounts.md`](contracts/accounts.md): accounts, login, global
   selection and quota isolation between agents.
 
@@ -115,22 +116,9 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0061](decisions/0061-background-energy-policy.md): explicit system-only inhibition while a macOS agent works.
 - [ADR 0062](decisions/0062-local-diff-review.md): local review notes and explicit batch submission.
 - [ADR 0063](decisions/0063-account-connectors-in-the-mcp-base.md): the account's claude.ai connectors join the inherited MCP base.
-- [ADR 0064](decisions/0064-portable-conversation-stream.md): portable conversation ordering and injected input, history, events and time.
-- [ADR 0065](decisions/0065-injected-process-supervision.md): injected process supervision and reusable Unix execution adapter.
-- [ADR 0066](decisions/0066-injected-session-coordination.md): portable session queues, reactions and ordered observations through injected effects.
-- [ADR 0067](decisions/0067-injected-terminal-and-private-processes.md): terminal byte ordering and private authentication processes through injected ports.
-- [ADR 0068](decisions/0068-bounded-command-and-query-ports.md): bounded private catalog queries and finite command execution.
-- [ADR 0069](decisions/0069-portable-session-host.md): portable session host ownership and composition.
-- [ADR 0070](decisions/0070-portable-conversation-pump.md): portable conversation pump and injected scheduling effects.
-- [ADR 0071](decisions/0071-injected-session-launch.md): shared launch settings and injected start/resume coordination.
-- [ADR 0072](decisions/0072-injected-conversation-workers.md): portable conversation workers and injected background execution.
-- [ADR 0073](decisions/0073-injected-provider-preparation.md): injected native provider preparation and canonical input.
-- [ADR 0074](decisions/0074-injected-account-registry.md): portable account registry with injected storage.
-- [ADR 0075](decisions/0075-injected-account-login.md): account login through injected authentication and effects.
-- [ADR 0076](decisions/0076-injected-native-profiles.md): Tauri-free native account profiles and injected preparation.
-- [ADR 0077](decisions/0077-injected-startup-tools.md): injected startup tools and Tauri-free MCP encoding.
-- [ADR 0078](decisions/0078-injected-native-packages.md): native package preparation and injected cache installation.
-
+- [ADR 0082](decisions/0082-resident-wsl-attachments.md): resident WSL execution with disposable attachments.
+- [ADR 0084](decisions/0084-shared-windows-desktop.md): shared desktop interface over an injected WSL runtime.
+- [ADR 0085](decisions/0085-portable-core.md): portable core with injected effects.
 
 ## Local telemetry
 
@@ -179,25 +167,9 @@ current system until the corresponding implementation is accepted.
 
 ## Implementation records
 
-- [Windows desktop and injected WSL runtime plan](superpowers/plans/2026-09-27-windows-wsl-runtime.md) (in progress; board, conversation, process and session boundaries implemented).
+- [Windows desktop and injected WSL runtime plan](superpowers/plans/2026-09-27-windows-wsl-runtime.md) (in progress; shared interface and installer implemented, parity pending).
 - [Diff review design](superpowers/specs/2026-09-26-diff-review-design.md).
 - [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).
-
-- [ADR 0079](decisions/0079-headless-conversation-slice.md): runnable headless conversation and shared Codex protocol.
-
-- [Native WSL conversation preview](contracts/wsl-preview.md): setup, transport and recovery limits.
-- [ADR 0080](decisions/0080-native-wsl-conversation-preview.md): isolated native shell and injected WSL connector.
-
-- [ADR 0081](decisions/0081-wsl-supporting-terminal.md): supporting WSL terminal with injected ports and output credits.
-
-- [Resident runtime](contracts/resident-runtime.md): private WSL attachments, ownership and recovery.
-- [ADR 0082](decisions/0082-resident-wsl-attachments.md): resident WSL execution with disposable attachments.
-- [WSL workspaces](contracts/wsl-workspaces.md): saved catalog, selection and isolated execution contexts.
-- [ADR 0083](decisions/0083-wsl-workspace-catalog.md): injected workspace catalog and runtime contexts.
-
-- [Native Windows application](contracts/windows-application.md): shared desktop interface and WSL command integration.
-- [ADR 0084](decisions/0084-shared-windows-desktop.md): injected application transport and shared Windows interface.
-- [ADR 0085](decisions/0085-portable-board-core.md): independently tested board models and injected storage/publication.
 
 - [Local usage and context insights implementation plan](superpowers/plans/2026-10-01-issue-131-usage-insights.md).
 

@@ -58,26 +58,15 @@ Codex JSON-RPC ─> protocols::codex ──────────────�
 Antigravity ────> antigravity.rs ───────────────┘
 ```
 
-`prometeu-core::conversation` retains and numbers V1 lines through injected
-storage and event ports. `chat.rs` composes these with injected process ports;
-`prometeu-process` owns native agent spawning, pipe draining and reaping.
-`session::workers::ConversationWorkers` initializes adapters and consumes output
-through an injected executor; desktop effects handle identity-guarded closure.
-`prometeu-core::session` coordinates input recovery, account handoffs and
-canonical reactions through injected ports. `session::host::SessionHost` owns
-the live registry, readiness, admission gates and background work and composes
-that service. `session::pump::SessionPump` coordinates shared input/output capture
-and post-lock reactions; `chat/host.rs` supplies the desktop effects.
-`session::launch::LaunchService` coordinates restarts and shares its launcher
-with new tabs; `session/launch.rs` supplies desktop preparation and effects.
-`agent_launch.rs` implements injected provider preparation without a desktop
-handle; provider adapters supply canonical input and connection factories.
-`prometeu-oauth` shares PKCE and loopback callback mechanics through injected native consent; tools services retain private credentials in the execution host.
-
-`prometeu-tools` supplies injected startup-tool ports and MCP encoding through
-catalog/token and private-file dependencies. Its package backend owns derived
-homes/manifests and cache coordination through injected catalog/files/installer
-ports; `tool_materialization.rs` composes native packages and desktop MCP adapters. `timeline.ts` validates and reduces those lines into DOM-independent
+`prometeu-core` retains and numbers V1 lines, coordinates input, account
+handoffs, reactions, launch and workers, and owns the shutdown policy; its
+effects are injected. `chat.rs` and `chat/host.rs` compose those services with
+`prometeu-process` (spawning, pipe draining and reaping) and the provider
+adapters registered in `agent_launch.rs`. `prometeu-tools` prepares MCP, plugins
+and skills for each spawn. See the
+[application-core contract](docs/contracts/application-core.md) and
+[ADR 0085](docs/decisions/0085-portable-core.md). `timeline.ts` validates and
+reduces those lines into DOM-independent
 items. `chat.ts` renders the items and sends `ConversationCommandV1`. Older
 transcripts are adapted before the reducer, without rewriting.
 
@@ -86,77 +75,20 @@ and the capabilities from ADR 0003 are implemented as well.
 
 See [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-flow.md).
 
-## Experimental headless execution
+## Windows and WSL execution
 
-`prometeu-runtime` is a Unix development executable for Codex conversations,
-built without Tauri. It composes the same process, conversation and worker ports
-with injected provider, storage, delivery and execution dependencies.
-`prometeu-protocols` contains the shared Codex adapter; desktop supplies its own
-language callback and client version. Canonical usage types live in the core.
-
-The executable has an isolated root lock, private transcript and provider thread
-identity, typed stdio requests and stop/resume across runtime restarts. It does
-not adopt desktop roots or replace the production desktop deployment. Full Windows
-UI parity remains pending. The Windows shell ships through Tauri's per-user NSIS
-installer with its matching Linux runtime embedded. A resident attachment adapter now keeps
-execution alive across preview disconnects.
-See the [headless contract](docs/contracts/headless-runtime.md).
-
-The separate `prometeu-wsl-desktop` preview injects a portable stdio connector
-and WSL launcher, reusing the conversation reducer and Desktop components.
-Its Windows build excludes Unix execution crates. Disconnect detaches its proxy;
-the resident host retains execution. A supporting shell uses injected terminal
-ports, raw-byte snapshots and renderer acknowledgements, with reattachment through
-snapshot discovery. See the [resident contract](docs/contracts/resident-runtime.md), the
-[preview contract](docs/contracts/wsl-preview.md) and
-[ADR 0080](docs/decisions/0080-native-wsl-conversation-preview.md).
-
-The same host now retains a context per conversation session through an
-injected `ContextFactory`. `prometeu-core::workspaces` reuses board models with
-catalog storage, folder-validation and worktree-preparation ports. The Unix
-`GitWorktrees` adapter receives a bounded command runner and creates new branches
-without switching the source checkout. Selection changes live delivery and
-snapshots without stopping other contexts. The bridge exposes `WorkspaceClient`;
-presentation consumes `WorkspacePort`. See the [workspace contract](docs/contracts/wsl-workspaces.md)
-and [ADR 0083](docs/decisions/0083-wsl-workspace-catalog.md).
-
-Workspace metadata changes use `core::workspace_lifecycle`; the injected
-`WorktreeCleanup` port shares the original native Git checks and removal effects.
-Each host owns process shutdown and persistence. WSL archive/finish preserves
-history/files, and explicit cleanup retains transcripts outside the checkout.
-
-The Windows application integration now loads the existing desktop HTML and
-`src/main.ts` through an injected application transport. The separate preview is
-a diagnostic entry; full service coverage remains in progress. Git review and
-mutations use the shared `RepositoryGit` core port and `prometeu-git` native adapter,
-with the same workspace admission and model types at both host boundaries. Native
-folder selection uses the existing dialog; an injected Windows path adapter admits
-the connected distribution and delegates drive mounts to its `wslpath`. Shared
-core project registration preserves workspaces and files on removal. Startup injects
-default WSL discovery and installation of an embedded Linux package. It opens the
-existing interface without setup screens; an injected empty catalog seed leaves
-project registration in the normal desktop flow and preserves existing catalogs.
-Injected `ConnectionRecovery` and `TerminalSnapshots` restore the same views after
-attachment loss without replacing drafts or replaying input. Runtime upgrades
-negotiate idle retirement at attachment; live execution defers replacement.
-File-manager reveal resolves existing paths in WSL, then an injected native Windows
-adapter opens or selects the translated entry in Explorer through the same UI command.
-Tree mutations and ranked path search reuse the original native implementations
-through `ProjectEntries` and `ProjectSearch`; recoverable trash is an injected
-filesystem effect and search caches belong to each host.
-Binary reads share the native file service; the bridge assembles bounded WSL
-blocks into the original byte response for existing image, PDF and CSV viewers.
-An injected attachment picker, clipboard and drop adapter map native paths before
-the existing drafts and first-message formatter send them to WSL execution.
-Local resource reads and standalone skill authoring reuse `prometeu-tools` libraries
-with injected private files and package registries. Core `tool_resolution` shares
-selection, picker provenance and project approval; WSL reads current selections
-through `ToolSelection` at each Codex spawn and injects the same `NativeTools`
-package/MCP preparation used by desktop. `PluginLibrary` shares local registration,
-repository import/update and removal with injected catalog/files/command ports;
-Windows folder-source translation stays at the application boundary. Cloud
-integration is separate. See the
-[Windows application contract](docs/contracts/windows-application.md).
+On Windows, a native Tauri shell (`crates/wsl-desktop`, `src/windows/`) loads
+the existing `index.html` and `src/main.ts` with an injected IPC transport.
+Commands run in `prometeu-runtime`, a Tauri-free Unix host inside the default
+WSL distribution that composes the same core services and native adapters as
+the desktop. The runtime stays resident across window closure and owns its own
+private root and workspace catalog; it never adopts the desktop's data.
+`prometeu-bridge` carries typed requests and injects WSL paths, Explorer,
+clipboard, browser consent, runtime installation and connection recovery at the
+Windows boundary. Only Codex is registered there. See
+[ADR 0084](docs/decisions/0084-shared-windows-desktop.md), the
+[Windows application contract](docs/contracts/windows-application.md) and the
+[WSL runtime protocol](docs/contracts/wsl-runtime.md).
 
 ## Shared interface
 
@@ -231,14 +163,9 @@ resumes the session when there is news. See the
 - Claude writes its own transcript; Prometeu writes the translated Codex and Antigravity lines
   in `~/.prometeu/chats/`.
 - Agent accounts and the global selection live in `<root>/accounts.json`.
-  `prometeu-core::accounts` owns registry compatibility, selection and serialized
-  updates through an injected store. `account_store.rs` implements private file
-  persistence. `accounts::login::LoginService` coordinates login through injected
-  authentication and effects. `accounts.rs` composes native profiles, the desktop
-  executor and events; `account_login.rs` supplies native authentication.
-  `prometeu-profiles` owns native profile paths, credential isolation and shared
-  resource links through an injected `ProfileBackend`; `account_profiles.rs`
-  supplies desktop roots and private file writes.
+  Registry and login rules live in `prometeu-core::accounts`; `accounts.rs`
+  composes native profiles (`prometeu-profiles`), authentication
+  (`account_login.rs`) and desktop events.
 - Team state lives in `~/.prometeu/team.json`, with private permissions.
 - Private identities, TOFU and receipts live in `team-security.json`;
   `team-channel.ts` is the encrypted-content boundary of the webview.
@@ -350,15 +277,10 @@ explicit send to the draft. See the
 - The provider identity is still called `agent` in the persisted format and in
   some payloads for compatibility, even though the type is already `ProviderId`.
 - IPC types and conversation events can still diverge between Rust and TS.
-- Board models and tool-selection rules now build independently in
-  `prometeu-core`, together with conversation sequencing, snapshots and
-  background-task settlement, process-supervision policy and session
-  coordination through injected effects. `prometeu-process` provides a
-  Tauri-free Unix adapter for agents, terminals and private authentication
-  processes, plus bounded catalog queries and finite commands. Workspace/launch
-  and native service composition still depend on the desktop host. A
-  standalone execution host still needs lifecycle, transport and ownership
-  contracts before deployment changes.
+- Native feature composition (`chat/host.rs`, `session.rs`) still lives in
+  the desktop crate, and the Windows composition implements desktop commands one
+  at a time; gaps are listed in the
+  [Windows contract](docs/contracts/windows-application.md).
 
 These points do not authorize a mass reorganization. The accepted sequence is:
 document, introduce tested contracts and only then move implementations.

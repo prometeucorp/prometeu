@@ -21,57 +21,59 @@ every commit of the PR.
 ## CI
 
 `.github/workflows/ci.yml` runs on PRs, including from forks, and on pushes to
-`main`, on GitHub-hosted runners. The macOS job installs dependencies, installs
-Chromium and WebKit and runs `npm run check`. The `linux` job uses the same
-Ubuntu 22.04 baseline as release, installs the WebKitGTK development packages,
-builds the frontend and runs the Rust tests and Clippy, which cover the Linux
-`cfg` branches; see [Linux](linux.md). Hosted runners are disposable and
-the workflow has no secrets, so fork code runs without risk. Do not register a
-self-hosted runner in this repository: the code is public and a fork's PR
-controls what the job runs. See
-[ADR 0040](../decisions/0040-open-source.md).
+`main`, on GitHub-hosted runners:
 
-## Windows Codex installer
+- `macos` installs Chromium and WebKit and runs `npm run check`.
+- `linux` uses the same Ubuntu 22.04 baseline as release, installs the WebKitGTK
+  development packages and runs `npm run build`, `npm run build:wsl`,
+  `npm run test:rust` and `npm run lint:rust`, covering the Linux `cfg` branches;
+  see [Linux](linux.md).
+- `windows` tests and lints `prometeu-core`, `prometeu-protocols` and
+  `prometeu-bridge`, runs `npm run build:wsl` and lints `prometeu-wsl-desktop
+  --features desktop` without an embedded runtime.
+- `commits` checks every commit message of the PR.
 
-The Windows shell reuses Tauri's NSIS installer with `currentUser` installation,
-Start menu shortcuts and the WebView2 bootstrapper when WebView2 is missing.
-It embeds the matching Linux runtime and opens the original desktop against the
-default WSL distribution. WSL, Git and an authenticated Codex CLI must already be
-installed; the installer does not provision them or import the WSLg app's data.
+The Unix execution crates are covered by the `test:rust` and `lint:rust` runs on
+macOS and Linux. Crate-graph boundaries are checked by `npm run architecture:check`
+inside `npm run check`. Hosted runners are disposable and the workflow has no
+secrets, so fork code runs without risk. Do not register a self-hosted runner in
+this repository: the code is public and a fork's PR controls what the job runs.
+See [ADR 0040](../decisions/0040-open-source.md).
 
-On a Windows build machine with the Tauri prerequisites and dependencies installed:
+## Windows installer
+
+The Windows shell uses Tauri's per-user NSIS installer (`currentUser`, Start menu
+shortcut, WebView2 bootstrapper when missing) with identifier
+`co.prometeu.desktop`. It embeds the matching Linux x86_64 runtime and opens the
+desktop against the default WSL distribution. WSL, Git and an authenticated Codex
+CLI must already be installed; the installer neither provisions them nor imports
+WSLg data. It is not part of a release.
+
+Only a manual run of the CI workflow (`workflow_dispatch`) builds it: the
+`windows-runtime` job builds the runtime on Ubuntu 22.04 and the
+`windows-installer` job embeds it and uploads the unsigned installer as a
+seven-day artifact.
+
+On a Windows machine with the Tauri prerequisites:
 
 ```powershell
 $env:PROMETEU_WSL_RUNTIME = 'C:\build\prometeu-runtime'
 npm run package:windows
 ```
 
-Supply the Linux x86_64 release runtime built from the same source. The Linux CI
-job builds this package on Ubuntu 22.04; the Windows job embeds it and uploads the
-unsigned `windows-installer` CI artifact for seven days. This does not publish a
-release. The output is `src-tauri/target/release/bundle/nsis/*-setup.exe`.
+`PROMETEU_WSL_RUNTIME` must be the Linux runtime built from the same source. The
+installer is written to `src-tauri/target/release/bundle/nsis/*-setup.exe`. Linux
+builders with NSIS and cargo-xwin can run
+`npm run package:windows -- --runner cargo-xwin --target x86_64-pc-windows-msvc`,
+which builds the runtime automatically; building it on newer distributions can
+raise the required glibc.
 
-Linux builders with NSIS and cargo-xwin installed can also run:
-
-```sh
-npm run package:windows -- --runner cargo-xwin --target x86_64-pc-windows-msvc
-```
-
-That command builds the matching Linux runtime automatically. Its installer is
-under `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Building the
-runtime on newer Linux distributions can raise the required glibc version.
-
-Run the installer and open **Prometeu** from the Windows Start menu. The default
-installation directory is `%LOCALAPPDATA%\Prometeu`. For an update, close the
-Windows window and run the next installer. Conversations and project files remain
-in WSL; replacing or uninstalling the Windows shell does not delete them. Runtime
-replacement respects active execution as described in the
-[resident contract](../contracts/resident-runtime.md). Automatic Windows updates
-and signing for public distribution remain outside this initial package.
-
-Validate an installed executable with `scripts/test-windows-application.mjs`
-using the [native acceptance configurations](../contracts/windows-application.md#verification).
-The hosted CI build does not prove native installation or WSL execution.
+The default installation directory is `%LOCALAPPDATA%\Prometeu`. To update, close
+the window and run the next installer. Conversations and projects stay in WSL;
+replacing or uninstalling the app does not delete them, and runtime replacement
+waits for idle execution ([safe replacement](../contracts/wsl-runtime.md#safe-replacement)).
+Signing and automatic updates are not implemented. Validate an installed build
+with the [native acceptance journey](development.md#native-windowswsl-integration).
 
 ## Create a release
 
