@@ -71,16 +71,22 @@ base, alongside the configuration files of ADR 0046:
   neither the picker nor a spawn waits on the network in the common case. The
   cache belongs to the login that produced it — the account id and its revision
   — so switching accounts or logging in again never shows another account's
-  connectors. Concurrent fetches update only their own login's entry. A failed
-  fetch keeps that login's last known list, so a network blip changes nothing.
+  connectors. The cache retains one revision per account; a late fetch from an
+  older revision cannot replace the newer one. A failed fetch re-reads the
+  cache, so a concurrent success remains available. Network failures keep that
+  login's last known list.
 - **Unknown is not empty.** Without an account or without its credential the
   list is empty and complete: the CLI would load no connector either. An
-  unreadable or malformed credential, or a failed fetch with no successful
-  result for that login, leaves the list unknown. The picker degrades to the
-  file base. A declared selection that still inherits the account base refuses
-  to spawn while the list is unknown: strict mode would silently drop connectors
+  unreadable or malformed credential without a valid Keychain fallback, or a
+  failed fetch with no successful result for that login, leaves the list unknown.
+  The picker degrades to the file base. A declared selection that still inherits
+  the account base refuses to spawn while the list is unknown: strict mode would
+  silently drop connectors
   the person kept. A `base: "none"` replacement at any layer excludes that base,
   so its strict configuration can start even when the account lookup fails.
+  An explicitly added account connector retains its ID through resolution; if
+  discovery cannot supply its configuration, materialization refuses the spawn
+  instead of silently dropping that selection.
 
 Scope: Claude only, like ADR 0046. Codex has no account connector source.
 
@@ -114,12 +120,13 @@ Negative:
   configuration file shadowing a connector, and the `claudeai-proxy` entry in
   the strict configuration.
 - `mcp.rs`: `unknown_account_connectors_prevent_materialization` — inherited
-  connectors require a known list; `older_account_fetch_cannot_replace_newer_account_cache`
-  checks concurrent login fetches.
-- `session.rs`: `replacing_mcp_base_does_not_require_account_connectors` — a
-  replacement can start without the account base.
-- `usage.rs`: `malformed_and_unreadable_claude_credentials_are_unknown` — a
-  credential read failure is distinct from a missing credential.
+  connectors require a known list; `account_cache_keeps_current_revision_and_observes_overlapping_fetch`
+  checks revisions and concurrent fetches.
+- `session.rs`: `explicit_account_connector_survives_replacement_until_materialization`
+  checks replacement without the base and failure for a missing explicit connector.
+- `usage.rs`: `unreadable_claude_file_uses_keychain_token` and
+  `malformed_and_unreadable_claude_credentials_are_unknown` distinguish Keychain
+  fallback, read failures and a missing credential.
 - `mcp.rs`: the existing `inherited_base_combines_user_project_and_repository_configuration`
   still describes the file scopes, now with an explicit empty account.
 - Web: `src/mock.ts` mirrors the base with a connector row that the import menu

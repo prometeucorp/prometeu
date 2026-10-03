@@ -2,6 +2,7 @@ import * as actions from "./actions";
 import * as background from "./background";
 import * as cloud from "./cloud";
 import { invoke } from "./ipc";
+import { onConnectionRestored } from "./connection";
 import { listen } from "@tauri-apps/api/event";
 import { openProjects } from "./projects";
 import * as alert from "./alert";
@@ -269,6 +270,15 @@ function showSettings(push = true) {
 $("settings").addEventListener("click", () => showSettings());
 
 /* Backend events. */
+
+onConnectionRestored(async () => {
+  state = await invoke("load_board");
+  actions.update(state);
+  team.boardChanged(state);
+  alert.boardChanged(state);
+  refresh();
+  await dockbar.refresh();
+});
 
 listen<Board>("board", ({ payload }) => {
   state = payload;

@@ -47,9 +47,9 @@ test("tools: Cloud MCP checks and authenticates locally with recoverable failure
   const row = page.locator(".mcp-server", { has: page.locator("b", { hasText: /^notion$/ }) });
   const catalogBefore = await page.evaluate(() => localStorage.getItem("mock:catalog"));
   await expect(row).toContainText("Personal");
-  await expect(row.getByRole("status")).toHaveText("Not checked on this Mac");
+  await expect(row.getByRole("status")).toHaveText("Not checked on this device");
   await action(page, row, "Test connection");
-  await expect(row.getByRole("status")).toHaveText("Authentication required on this Mac");
+  await expect(row.getByRole("status")).toHaveText("Authentication required on this device");
 
   await page.evaluate(() => localStorage.setItem("test:denyMcpLogin", "1"));
   await action(page, row, "Authenticate");
@@ -80,7 +80,7 @@ test("tools: Cloud MCP checks and authenticates locally with recoverable failure
   await action(page, row, "Test connection");
   await expect(row.getByRole("status")).toHaveText("signed in");
   await action(page, row, "Sign out");
-  await expect(row.getByRole("status")).toHaveText("Authentication required on this Mac");
+  await expect(row.getByRole("status")).toHaveText("Authentication required on this device");
   expect(await page.evaluate(() => localStorage.getItem("mock:catalog"))).toBe(catalogBefore);
   expect(await page.evaluate(() => (window as McpWindow).mcpCalls)).not.toContain("mcp_save");
   await expect(page.locator(".mcp-server", { has: page.locator("b", { hasText: /^notion$/ }) })).toHaveCount(1);
@@ -110,7 +110,7 @@ test("tools: editor authentication neither saves the catalog nor publishes the d
   await expect(page.locator("#veil").getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   await page.locator("#veil").getByRole("button", { name: "Cancel", exact: true }).click();
   // A saved login without a cached check offers sign-out, not another browser OAuth flow.
-  await expect(row.getByRole("status")).toHaveText("Not checked on this Mac");
+  await expect(row.getByRole("status")).toHaveText("Not checked on this device");
   await row.getByRole("button", { name: "More options · notion", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "Authenticate", exact: true })).toHaveCount(0);
   await expect(page.getByRole("menuitem", { name: "Sign out", exact: true })).toBeVisible();
@@ -147,7 +147,7 @@ test("tools: refresh preserves the pending login lock and discards stale results
   await expect(row.getByRole("button", { name: "More options · notion", exact: true })).toBeDisabled();
   await page.evaluate(() => (window as McpWindow).releaseMcpLogin!());
   await expect(row).toHaveAttribute("aria-busy", "false");
-  await expect(row.getByRole("status")).toHaveText("Not checked on this Mac");
+  await expect(row.getByRole("status")).toHaveText("Not checked on this device");
   await action(page, row, "Test connection");
   await expect(row.getByRole("status")).toHaveText("Connection error · connection refused");
   const calls = await page.evaluate(() => (window as McpWindow).mcpCalls);

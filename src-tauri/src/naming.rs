@@ -7,10 +7,10 @@ use crate::lock::lock;
 use crate::session::Launch;
 use crate::state::publish;
 use crate::AppState;
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, Command, Stdio};
+use prometeu_core::command::{QueryLauncher, QueryPolicy};
+use std::process::Command;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 /// Constrain Claude to title generation so it does not treat the prompt as a request to execute.
@@ -56,7 +56,9 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
             generation,
             scope: scope.unwrap_or_default(),
         };
-        let title = crate::telemetry::notify_changed(&app, || ask(&prompt, &launch, &context));
+        let title = crate::telemetry::notify_changed(&app, || {
+            ask(state.query_launcher.as_ref(), &prompt, &launch, &context)
+        });
         let Some(title) = title else {
             return;
         };
@@ -81,13 +83,19 @@ struct NamingTelemetry<'a> {
 
 /// Naming failures retain the existing title rather than surfacing an error for an optional
 /// enhancement.
-fn ask(prompt: &str, launch: &Launch, context: &NamingTelemetry<'_>) -> Option<String> {
+fn ask(
+    queries: &dyn QueryLauncher<Command>,
+    prompt: &str,
+    launch: &Launch,
+    context: &NamingTelemetry<'_>,
+) -> Option<String> {
     match launch.agent {
         // Use Codex's cheapest catalog model, falling back to the workspace model only when no
         // catalog exists.
         crate::state::ProviderId::Codex => {
             let model = crate::agents::codex_namer_model();
             ask_codex(
+                queries,
                 prompt,
                 if model.is_empty() {
                     &launch.model
@@ -97,13 +105,18 @@ fn ask(prompt: &str, launch: &Launch, context: &NamingTelemetry<'_>) -> Option<S
                 context,
             )
         }
-        crate::state::ProviderId::Claude => ask_claude(prompt, context),
+        crate::state::ProviderId::Claude => ask_claude(queries, prompt, context),
         crate::state::ProviderId::Antigravity | crate::state::ProviderId::RetiredGemini => None,
     }
 }
 
 /// Use codex exec with -o to capture only the final answer without parsing terminal output.
-fn ask_codex(prompt: &str, model: &str, context: &NamingTelemetry<'_>) -> Option<String> {
+fn ask_codex(
+    queries: &dyn QueryLauncher<Command>,
+    prompt: &str,
+    model: &str,
+    context: &NamingTelemetry<'_>,
+) -> Option<String> {
     let out = std::env::temp_dir().join(format!("prometeu-nome-{}.txt", uuid::Uuid::new_v4()));
     let mut cmd = Command::new("codex");
     cmd.args([
@@ -122,17 +135,11 @@ fn ask_codex(prompt: &str, model: &str, context: &NamingTelemetry<'_>) -> Option
     // Label the instructions and source prompt because codex exec has no system-prompt flag.
     cmd.arg(format!("{SYSTEM}\n\nPedido:\n{prompt}"));
     cmd.current_dir(crate::paths::home());
-    // Close stdin so codex exec does not wait indefinitely for additional input.
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
 
     let profile = crate::accounts::active(crate::state::ProviderId::Codex).ok()?;
-    profile.prepare().ok()?;
-    profile.apply(&mut cmd).ok()?;
-    use std::os::unix::process::CommandExt;
-    cmd.process_group(0);
-    let title = cmd.spawn().ok().and_then(|mut child| {
+    crate::accounts::prepare_profile(&profile).ok()?;
+    crate::accounts::apply_profile(&profile, &mut cmd).ok()?;
+    let title = {
         let mut scope = context.scope.clone();
         scope.provider = Some("codex".into());
         let mut capture = crate::telemetry::AppCapture::start(
@@ -142,7 +149,7 @@ fn ask_codex(prompt: &str, model: &str, context: &NamingTelemetry<'_>) -> Option
             crate::telemetry::AppSource::Naming,
             (!model.trim().is_empty()).then(|| model.trim().to_string()),
         );
-        let succeeded = drain(&mut child, TIMEOUT, |line| {
+        let succeeded = drain(queries, &mut cmd, &[], TIMEOUT, |line| {
             if let Ok(value) = serde_json::from_str(line) {
                 if let Some(measurement) = crate::codex::exec_usage(&value) {
                     capture.measurement(measurement);
@@ -153,13 +160,17 @@ fn ask_codex(prompt: &str, model: &str, context: &NamingTelemetry<'_>) -> Option
         succeeded
             .then(|| std::fs::read_to_string(&out).ok())
             .flatten()
-    });
+    };
     let _ = std::fs::remove_file(&out);
     clean(&title?)
 }
 
 /// Use Claude's single-prompt mode with the naming request supplied through stdin.
-fn ask_claude(prompt: &str, context: &NamingTelemetry<'_>) -> Option<String> {
+fn ask_claude(
+    queries: &dyn QueryLauncher<Command>,
+    prompt: &str,
+    context: &NamingTelemetry<'_>,
+) -> Option<String> {
     let mut cmd = Command::new("claude");
     cmd.args([
         "-p",
@@ -183,24 +194,10 @@ fn ask_claude(prompt: &str, context: &NamingTelemetry<'_>) -> Option<String> {
             cmd.env_remove(k);
         }
     }
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
 
     let profile = crate::accounts::active(crate::state::ProviderId::Claude).ok()?;
-    profile.prepare().ok()?;
-    profile.apply(&mut cmd).ok()?;
-    use std::os::unix::process::CommandExt;
-    cmd.process_group(0);
-    let mut child = cmd.spawn().ok()?;
-    let written = child
-        .stdin
-        .take()
-        .is_some_and(|mut input| input.write_all(prompt.as_bytes()).is_ok());
-    if !written {
-        stop(&mut child);
-        return None;
-    }
+    crate::accounts::prepare_profile(&profile).ok()?;
+    crate::accounts::apply_profile(&profile, &mut cmd).ok()?;
     let mut scope = context.scope.clone();
     scope.provider = Some("claude".into());
     let mut capture = crate::telemetry::AppCapture::start(
@@ -212,7 +209,7 @@ fn ask_claude(prompt: &str, context: &NamingTelemetry<'_>) -> Option<String> {
     );
     let mut adapter = crate::claude::Adapter::fresh();
     let mut title = None;
-    let succeeded = drain(&mut child, TIMEOUT, |line| {
+    let succeeded = drain(queries, &mut cmd, prompt.as_bytes(), TIMEOUT, |line| {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             return;
         };
@@ -227,55 +224,34 @@ fn ask_claude(prompt: &str, context: &NamingTelemetry<'_>) -> Option<String> {
     succeeded.then_some(title).flatten()
 }
 
-/// Wait only until the naming deadline. Return false on timeout or process failure instead of
-/// retaining one stalled thread per workspace.
-fn drain(child: &mut Child, timeout: Duration, mut receive: impl FnMut(&str)) -> bool {
-    let Some(stdout) = child.stdout.take() else {
-        stop(child);
+/// Reuse bounded query I/O and process-group cleanup; preserve partial usage on failure.
+fn drain(
+    queries: &dyn QueryLauncher<Command>,
+    command: &mut Command,
+    input: &[u8],
+    timeout: Duration,
+    mut receive: impl FnMut(&str),
+) -> bool {
+    let Ok(mut query) = queries.launch(
+        command,
+        QueryPolicy {
+            timeout,
+            max_output: 1_048_576,
+        },
+    ) else {
         return false;
     };
-    let (sender, receiver) = std::sync::mpsc::sync_channel(16);
-    std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if sender.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    let deadline = Instant::now() + timeout;
-    let mut exited = None;
+    if query.send(input).is_err() {
+        return false;
+    }
+    query.close_input();
     loop {
-        match receiver.recv_timeout(Duration::from_millis(50)) {
-            Ok(line) => receive(&line),
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                if let Some(status) = exited {
-                    return status;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => exited = Some(status.success()),
-            Ok(None) => {}
-            Err(_) => {
-                stop(child);
-                return false;
-            }
-        }
-        if Instant::now() >= deadline {
-            stop(child);
-            return false;
+        match query.next() {
+            Ok(Some(line)) => receive(&line),
+            Ok(None) => return query.finish().unwrap_or(false),
+            Err(_) => return false,
         }
     }
-}
-
-fn stop(child: &mut Child) {
-    unsafe {
-        libc::kill(-(child.id() as i32), libc::SIGKILL);
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// Accept only short single-line titles, trimming wrapping quotes and final punctuation. Reject
@@ -293,26 +269,26 @@ fn clean(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{clean, drain};
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
     use std::time::{Duration, Instant};
 
     #[test]
     fn naming_drains_structured_output_before_waiting_for_process_exit() {
         let mut command = Command::new("sh");
         command.args(["-c","i=0; while [ $i -lt 3000 ]; do printf '%s\\n' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":10,\"cached_input_tokens\":8,\"output_tokens\":2}}'; i=$((i+1)); done"]);
-        let mut child = command
-            .stdout(Stdio::piped())
-            .process_group(0)
-            .spawn()
-            .unwrap();
         let mut lines = 0;
-        assert!(drain(&mut child, Duration::from_secs(5), |line| {
-            let value = serde_json::from_str(line).unwrap();
-            let measurement = crate::codex::exec_usage(&value).unwrap();
-            assert_eq!(measurement.usage.input_tokens, Some(10));
-            lines += 1;
-        }));
+        assert!(drain(
+            &prometeu_process::query::UnixQueryLauncher,
+            &mut command,
+            &[],
+            Duration::from_secs(5),
+            |line| {
+                let value = serde_json::from_str(line).unwrap();
+                let measurement = crate::codex::exec_usage(&value).unwrap();
+                assert_eq!(measurement.usage.input_tokens, Some(10));
+                lines += 1;
+            }
+        ));
         assert_eq!(lines, 3000);
     }
 
@@ -320,13 +296,14 @@ mod tests {
     fn naming_timeout_stops_descendants_holding_output_open() {
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 10 & wait"]);
-        let mut child = command
-            .stdout(Stdio::piped())
-            .process_group(0)
-            .spawn()
-            .unwrap();
         let started = Instant::now();
-        assert!(!drain(&mut child, Duration::from_millis(50), |_| {}));
+        assert!(!drain(
+            &prometeu_process::query::UnixQueryLauncher,
+            &mut command,
+            &[],
+            Duration::from_millis(50),
+            |_| {}
+        ));
         assert!(started.elapsed() < Duration::from_secs(2));
     }
 

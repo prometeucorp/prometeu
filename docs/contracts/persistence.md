@@ -21,20 +21,20 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 
 | Data | Path | Ownership |
 | --- | --- | --- |
-| board | `<root>/board.json` | `state.rs` |
+| board | `<root>/board.json` | `board_store.rs` via injected `BoardStore`; models in `crates/core/src/board.rs` |
 | external MCP clients | `<root>/mcp-clients/<uuid>.json` | `mcp_access.rs`; private versioned credentials and project scope; see [embedded MCP](embedded-mcp.md) |
 | MCP socket discovery | `<root>/mcp-socket` | `embedded_mcp.rs`; private ephemeral socket path, replaced on startup |
-| board backup | next to `board.json` | `state.rs` |
+| board backup | next to `board.json` | `board_store.rs` |
 | team and credential | `<root>/team.json` | `team.rs` |
 | E2EE identities, TOFU links and replay | `<root>/team-security.json` | `team.rs` (file), `team-security.ts` (internal schema) |
 | optional Prometeu account | `<root>/cloud.json` | `cloud.rs`; see the [contract](cloud-account.md) |
 | cloud catalog cache and links | `<root>/catalog.json` (`catalog.local.json` is a legacy backup) | `catalog.rs`; see the [contract](cloud-catalog.md) |
 | installed skills and packages | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; see the [catalog](cloud-catalog.md) |
-| accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
+| accounts and per-provider selection | `<root>/accounts.json` | `crates/core/src/accounts.rs` through injected `AccountStore`; `account_store.rs` supplies private file persistence |
 | additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
 | optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
-| Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
+| Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -142,7 +142,7 @@ repository is accepted; otherwise nothing is named.
 The last explicit launcher choice, including none, lives in desktop webview
 localStorage as the string `prometeu:kickoff`. A value the installed catalog no
 longer offers, or unavailable storage, starts without a skill. Tests:
-`state.rs::tabs_without_a_kickoff_keep_the_previous_format`,
+`crates/core/src/board.rs::tabs_without_a_kickoff_keep_the_previous_format`,
 `scripts.rs::method_artifacts_are_inherited_normalized_and_never_invented` and
 `src/kickoff.test.ts`. See
 [ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md).
@@ -236,7 +236,7 @@ requires a test with JSON from the previous version.
 
 ## Ordered board publication
 
-`Saver::publish` serializes snapshot creation, enqueueing, and the `board`
+`BoardPublisher::publish` serializes snapshot creation, enqueueing, and the `board`
 event under one publication mutex. It briefly locks the current board to clone
 it, then releases the board lock before enqueueing and emission. Competing
 publishers cannot enqueue or emit an older captured snapshot after a newer one.
@@ -245,8 +245,11 @@ The worker still coalesces writes and performs disk I/O outside the board lock.
 `save_now` uses the same publication mutex and waits for a flush acknowledgment.
 Flushing does not terminate the worker: action transitions also flush while
 the app remains running. Later changes must still be persisted. Regression
-coverage lives in `state.rs` (`concurrent_publications_keep_snapshot_and_emission_order`
-and `flush_keeps_saver_available_for_runtime_publications`).
+coverage lives in `crates/core/src/publication/tests.rs`, including concurrent
+publication, durable barriers, storage failures and disconnected delivery.
+Storage and event delivery use injected ports; see the
+[application-core contract](application-core.md). Terminal port assignment uses
+the same persistence queue, preventing older snapshots from overwriting it.
 
 No board fields or serialization change. See
 [ADR 0023](../decisions/0023-ordered-publication.md).
@@ -284,9 +287,9 @@ first and `remove` has the last word.
 
 | Layer | Where it lives | Owner |
 | --- | --- | --- |
-| global | `Board.tools` in `<root>/board.json` | `state.rs` |
+| global | `Board.tools` in `<root>/board.json` | `crates/core/src/board.rs` |
 | project | the `[tools]` table of `.prometeu/settings.toml`, in the repository | `scripts.rs` |
-| workspace | `Workspace.mcp`, `Workspace.plugins` and `Workspace.skills` | `state.rs` |
+| workspace | `Workspace.mcp`, `Workspace.plugins` and `Workspace.skills` | `crates/core/src/board.rs` |
 
 `Board.tools` is app-local and holds one `Selection` per axis, all absent by
 default, so an old board keeps injecting exactly what it used to. The project
@@ -307,6 +310,12 @@ declaration whose hash differs from the stored decision — approval or rejectio
 — is resolved but not injected, and prompts again, until the person decides;
 the decision is never written into the repository. See
 [`plugin-marketplace.md`](plugin-marketplace.md).
+
+The WSL application catalog retains these same board fields inside its existing
+versioned catalog envelope. Shared resolution and declaration hashing preserve
+their meaning; selection/trust mutations save the next catalog before replacing
+the live value. No tool format migration is introduced for Windows. See
+[conversation tools](windows-application.md#conversation-tools).
 
 ### Workspace migration
 
@@ -360,7 +369,7 @@ Old `gemini` board values retain that identity and read their existing V1 logs,
 but cannot start a process. They never fall back to Claude or acquire agy IDs.
 Legacy plan/permission fields have no execution effect. Old Gemini account
 entries and selections remain opaque on disk; no secrets or histories are
-removed. Compatibility tests live in `state.rs` and `accounts.rs`.
+removed. Compatibility tests live in `crates/core/src/board.rs` and `accounts.rs`.
 
 ### Compatibility
 
@@ -433,3 +442,18 @@ is not repurposed as consumption or current occupancy. New canonical transcript
 completions can retain optional usage independently of the local history store.
 Clearing telemetry removes local queries and restored footer caches, not the
 conversation transcript or existing exports.
+
+## Pending session input
+
+`SessionService` keeps the existing `pending_prompt` field and its append order
+across setup, account changes and process loss; a failed send puts the original
+prompt before later text. No format migration is introduced. See
+[sessions](application-core.md#sessions-launch-and-workers).
+
+## WSL runtime root
+
+On Windows, execution state lives in a separate, exclusively leased WSL root that
+reuses these board, transcript, account and tool formats and never adopts a
+desktop root. Its layout, the `workspaces.json` catalog and recovery limits are
+in the [WSL runtime protocol](wsl-runtime.md#storage-and-ownership). Worktree
+cleanup deletes the checkout, not its conversation store.

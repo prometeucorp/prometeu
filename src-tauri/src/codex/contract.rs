@@ -1,6 +1,8 @@
 //! Synthetic translation scenarios, independent of installed accounts and provider versions.
 
 use super::*;
+use prometeu_protocols::codex::Link;
+use serde_json::{json, Value};
 
 pub(crate) fn start(resume: Option<String>) -> Start {
     Start {
@@ -16,7 +18,12 @@ pub(crate) fn start(resume: Option<String>) -> Start {
 }
 
 pub(crate) fn events() -> Vec<Value> {
-    let mut link = Link::new(Box::new(std::io::sink()), start(None));
+    let mut link = Link::new(
+        Box::new(std::io::sink()),
+        start(None),
+        i18n::pick,
+        env!("CARGO_PKG_VERSION"),
+    );
     [
         json!({"method":"turn/started","params":{"threadId":"thread","turn":{"id":"turn"}}}),
         json!({"method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"agentMessage","id":"answer","text":""}}}),

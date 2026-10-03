@@ -1,0 +1,20 @@
+[package]
+name = "prometeu-tools"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+prometeu-oauth = { path = "../oauth" }
+prometeu-core = { path = "../core" }
+prometeu-profiles = { path = "../profiles" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+toml = "0.8"
+sha2 = "0.10"
+semver = "1"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

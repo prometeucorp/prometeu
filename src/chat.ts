@@ -12,8 +12,9 @@ import { requestCard } from "./components/chat/requests";
 import * as actions from "./actions";
 import * as background from "./background";
 import { invoke } from "./ipc";
+import { onConnectionRestored } from "./connection";
 import { listen } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { pickAttachments } from "./file-input";
 import { capabilitiesOf, onCatalogChange } from "./agents";
 import { encodeBrowserContext, type BrowserContext } from "./browser-context";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
@@ -183,6 +184,9 @@ export class ChatView {
       for (const at of this.tl.clearRestoredUsage()) this.dirty.add(at);
       this.composerDirty ||= context !== this.tl.context;
       if ((this.dirty.size || this.composerDirty) && !this.nativeHidden()) this.flush();
+    }));
+    this.cleanup.push(onConnectionRestored(async () => {
+      if (this.key && !this.remote && !this.disposed) await this.attach(this.key);
     }));
     this.cleanup.push(background.subscribe((context) => {
       if (this.disposed || !context.visible) return;
@@ -810,10 +814,12 @@ export class ChatView {
 
   /// The file picker starts in the worktree but allows other local files. Show attachments as removable chips and convert them to mentions on send without altering typed text.
   private async addFile() {
+    const target = this.fileDropTarget();
+    if (!target) return;
     const root = this.ctx.info().worktree;
-    const picked = await open({ multiple: true, title: t("chat.addFile.dialog"), defaultPath: root ?? undefined });
-    const list = Array.isArray(picked) ? picked : picked ? [picked] : [];
-    this.attachFiles(list);
+    try {
+      target.put(await pickAttachments({ title: t("chat.addFile.dialog"), defaultPath: root ?? undefined }));
+    } catch (error) { this.ctx.say(fromBack(error), true); }
   }
 
   /// Attachments require a tab-owned draft.

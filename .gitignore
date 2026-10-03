@@ -11,3 +11,5 @@ prototypes/
 dist-mobile/
 
 /dist-feedback/
+dist-wsl/
+src-tauri/crates/wsl-desktop/gen/

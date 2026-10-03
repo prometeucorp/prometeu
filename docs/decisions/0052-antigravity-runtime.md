@@ -67,6 +67,6 @@ made outside Prometeu. No relay format or implementation change is needed.
 - [Official headless protocol](https://www.antigravity.google/docs/cli/headless/).
 - `antigravity.rs`: adapter, native fixtures and launch-policy tests, including
   explicit worktree scope on creation and resume.
-- `accounts.rs` and `state.rs`: retired account/board compatibility tests.
+- `src-tauri/src/accounts.rs` and `src-tauri/crates/core/src/board.rs`: retired account/board compatibility tests.
 - `e2e/accounts.spec.ts`: external attachment, selection, focus and removal.
 - [Provider matrix](../quality/provider-matrix.md): verification limits.

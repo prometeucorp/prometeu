@@ -194,8 +194,15 @@ export type IpcArguments<C extends IpcCommand> = IpcArgs<C> extends undefined
   : [args: IpcArgs<C>, options?: InvokeOptions];
 export type IpcCall<C extends IpcCommand = IpcCommand> = { [K in C]: [command: K, ...IpcArguments<K>] }[C];
 
+/** Selected once by the entry point; screens retain the same typed application contract. */
+export interface IpcTransport {
+  invoke<C extends IpcCommand>(command: C, args: IpcArgs<C>, options?: InvokeOptions): Promise<IpcResult<C>>;
+}
+let transport: IpcTransport = { invoke: tauriInvoke };
+export function useIpc(next: IpcTransport) { transport = next; }
+
 export function invoke<C extends IpcCommand>(
   ...[command, args, options]: [command: C, ...IpcArguments<NoInfer<C>>] & IpcCall
 ): Promise<IpcResult<C>> {
-  return tauriInvoke<IpcResult<C>>(command, args, options);
+  return transport.invoke(command, args as IpcArgs<C>, options);
 }

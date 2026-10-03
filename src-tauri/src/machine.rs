@@ -312,7 +312,7 @@ fn roots(state: &tauri::State<AppState>) -> Vec<Root> {
         name: "Prometeu".to_string(),
         detail: String::new(),
     }];
-    for (id, chat) in lock(&state.chats).iter() {
+    for (id, chat) in lock(&state.sessions.conversations).iter() {
         if !chat.alive() {
             continue;
         }

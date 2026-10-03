@@ -118,7 +118,7 @@ watch_run() {
       "completed success")
         echo
         echo "draft pronta: https://github.com/$REPO/releases/tag/$TAG"
-        echo "install and review the macOS DMG and Linux AppImage. Then: sh scripts/release.sh publish"
+        echo "install and review the macOS DMG, Linux AppImage and Windows installer. Then: sh scripts/release.sh publish"
         return 0 ;;
       completed*)
         die "o run terminou como '${STATUS#completed }' — leia o log em $URL antes de qualquer coisa" ;;
@@ -136,7 +136,7 @@ draft() {
   TAG=v$VERSION
   for want in Prometeu_aarch64.dmg Prometeu_aarch64.app.tar.gz \
               Prometeu_aarch64.app.tar.gz.sig Prometeu_x86_64.AppImage \
-              Prometeu_x86_64.AppImage.sig latest.json; do
+              Prometeu_x86_64.AppImage.sig Prometeu_x64-setup.exe latest.json; do
     [ -f "$DIRECTORY/$want" ] || die "Missing $want"
   done
   [ -n "${RELEASE_NOTES:-}" ] || die "Missing release notes"
@@ -154,6 +154,7 @@ draft() {
     "$DIRECTORY/Prometeu_aarch64.app.tar.gz.sig" \
     "$DIRECTORY/Prometeu_x86_64.AppImage" \
     "$DIRECTORY/Prometeu_x86_64.AppImage.sig" \
+    "$DIRECTORY/Prometeu_x64-setup.exe" \
     "$DIRECTORY/latest.json"
 }
 
@@ -168,12 +169,13 @@ publish() {
   [ "$DRAFT" = true ] || die "$TAG já está publicada"
 
   ASSETS=$(gh release view "$TAG" -R "$REPO" --json assets -q '.assets[].name')
-  # Stable asset names preserve download links for both platforms.
+  # Stable asset names preserve download links for all platforms.
   for want in Prometeu_aarch64.dmg \
               Prometeu_aarch64.app.tar.gz \
               Prometeu_aarch64.app.tar.gz.sig \
               Prometeu_x86_64.AppImage \
               Prometeu_x86_64.AppImage.sig \
+              Prometeu_x64-setup.exe \
               latest.json; do
     printf '%s\n' "$ASSETS" | grep -qx "$want" || die "falta $want na draft — o CI terminou inteiro?"
   done

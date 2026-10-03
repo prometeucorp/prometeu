@@ -78,8 +78,11 @@ reports no tasks rather than reconstructing them from the transcript.
 
 The rule lives in `Work::observe`, over canonical events, so it is one
 implementation for every provider rather than one per adapter.
+`SessionReactions` now forwards resumed assistant activity to that rule; its
+regression in `crates/core/src/session/tests.rs` proves a later child drain
+cannot release a terminal invalidated by new main-agent activity.
 
-Tests: `chat.rs::work_tests` including the resumed turn and the busy check, `delegation.rs` held-completion and interruption
+Tests: `crates/core/src/conversation/work.rs::work_tests` including the resumed turn and the busy check, `delegation.rs` held-completion and interruption
 tests, `src/timeline.test.ts`, `src/alert.test.ts`, the Stop control in
 `e2e/composer.spec.ts`. Claude and Codex each drive `Work::observe` with what
 their adapter really emits, in `claude.rs` and `codex.rs`, so the shared rule is

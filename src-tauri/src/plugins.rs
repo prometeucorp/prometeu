@@ -9,9 +9,8 @@ use crate::i18n;
 use crate::lock::lock;
 use crate::paths;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, Read};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,23 +18,21 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// A persisted hub plugin.
-#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
-pub struct Plugin {
-    /// The manifest name is the CLI's deduplication identity and the displayed plugin name.
-    pub id: String,
-    /// A local directory or ZIP path, or a remote ZIP URL, translated into provider configuration.
-    pub source: String,
-    /// Free-form source or purpose displayed below the name.
-    #[serde(default)]
-    pub note: String,
-    /// Only application-created or cloned directories may be deleted on removal. Manually
-    /// registered directories remain user-owned.
-    #[serde(default)]
-    pub made: bool,
-    /// The original repository address supplies the displayed source and update target.
-    #[serde(default)]
-    pub from: String,
+pub use prometeu_tools::packages::Plugin;
+pub(crate) use prometeu_tools::plugins::git_url;
+#[cfg(test)]
+use prometeu_tools::plugins::{guessed_name, last_line, within};
+use prometeu_tools::plugins::{manifest_path, plugins_in, read_json, repo_name, trim};
+fn library() -> prometeu_tools::plugins::PluginLibrary {
+    prometeu_tools::plugins::PluginLibrary {
+        root: paths::root(),
+        home: paths::home(),
+        catalog: std::sync::Arc::new(prometeu_tools::packages::FilePackageCatalog {
+            path: hub_path(),
+        }),
+        files: std::sync::Arc::new(PrivatePackageFiles),
+        runner: std::sync::Arc::new(prometeu_process::command::UnixCommandRunner),
+    }
 }
 
 /// Keep the path-and-URL registry private alongside other application state, even though it
@@ -45,10 +42,9 @@ fn hub_path() -> PathBuf {
 }
 
 pub fn load() -> Vec<Plugin> {
-    std::fs::read_to_string(hub_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Vec<Plugin>>(&raw).ok())
-        .unwrap_or_default()
+    prometeu_tools::packages::PackageCatalog::load(&prometeu_tools::packages::FilePackageCatalog {
+        path: hub_path(),
+    })
 }
 
 pub(crate) fn write_hub(plugins: &[Plugin]) -> Result<(), String> {
@@ -82,37 +78,9 @@ pub fn plugin_save(
     save_local(plugin)
 }
 
-fn trim(plugin: Plugin) -> Plugin {
-    Plugin {
-        id: plugin.id.trim().to_string(),
-        source: plugin.source.trim().to_string(),
-        note: plugin.note.trim().to_string(),
-        made: plugin.made,
-        from: plugin.from.trim().to_string(),
-    }
-}
-
 /// Save local installation, update, and test changes without publishing them.
 pub(crate) fn save_local(plugin: Plugin) -> Result<Vec<Plugin>, String> {
-    let plugin = Plugin {
-        id: plugin.id.trim().to_string(),
-        source: plugin.source.trim().to_string(),
-        note: plugin.note.trim().to_string(),
-        made: plugin.made,
-        from: plugin.from.trim().to_string(),
-    };
-    if plugin.id.is_empty() {
-        return Err(i18n::t("err.plugin.noName"));
-    }
-    check_source(&plugin.source)?;
-    let mut plugins = load();
-    match plugins.iter_mut().find(|p| p.id == plugin.id) {
-        Some(old) => *old = plugin,
-        None => plugins.push(plugin),
-    }
-    plugins.sort_by_key(|p| p.id.to_lowercase());
-    write_hub(&plugins)?;
-    Ok(plugins)
+    library().save_local(plugin)
 }
 
 /// Remove the registry entry and delete its directory only when the app owns it. Manually
@@ -132,15 +100,8 @@ pub(crate) fn remove_hub(id: &str) -> Result<Vec<Plugin>, String> {
 
 /// Remove this Mac's registration and any application-owned directory; the caller persists the hub.
 pub(crate) fn remove_local(mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
-    let mut removed = false;
-    if let Some(gone) = plugins.iter().find(|p| p.id == id) {
-        removed = true;
-        let dir = PathBuf::from(expand(&gone.source));
-        if gone.made && dir.starts_with(store()) && dir != store() {
-            std::fs::remove_dir_all(&dir).ok();
-        }
-    }
-    plugins.retain(|p| p.id != id);
+    let removed = plugins.iter().any(|p| p.id == id);
+    plugins = library().remove_local(plugins, id);
     if removed && slug(id) == id && !cfg!(test) {
         codex_remove_everywhere(&format!("{}@{}", id, codex_marketplace_name()));
     }
@@ -150,144 +111,38 @@ pub(crate) fn remove_local(mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
 /// Reject sources the CLI cannot load before starting a session that would silently omit the
 /// selected plugin.
 fn check_source(source: &str) -> Result<(), String> {
-    if source.is_empty() {
-        return Err(i18n::t("err.plugin.noSource"));
-    }
-    if remote(source) {
-        return Ok(());
-    }
-    let path = PathBuf::from(expand(source));
-    if !path.exists() {
-        return Err(i18n::ta(
-            "err.plugin.noPath",
-            &[("path", path.display().to_string())],
-        ));
-    }
-    // The CLI opens ZIP sources directly; directories require a plugin manifest.
-    if path.is_dir() && !manifest_path(&path).exists() {
-        return Err(i18n::ta(
-            "err.plugin.notPlugin",
-            &[("path", path.display().to_string())],
-        ));
-    }
-    Ok(())
+    library().check_source(source)
 }
 
 /// Read a directory's manifest to prefill its name and description. For ZIP paths or URLs, suggest
 /// the filename without downloading it. Apply the same source validation used during saving.
 #[tauri::command]
 pub fn plugin_look(source: String) -> Result<Plugin, String> {
-    let source = source.trim().to_string();
-    check_source(&source)?;
-    let path = PathBuf::from(expand(&source));
-    let manifest = (!remote(&source) && path.is_dir())
-        .then(|| read_json(&manifest_path(&path)))
-        .flatten();
-    let text = |key: &str| {
-        manifest
-            .as_ref()
-            .and_then(|m| m.get(key))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
-    };
-    let id = match text("name") {
-        name if !name.is_empty() => name,
-        _ => guessed_name(&source),
-    };
-    Ok(Plugin {
-        id,
-        source,
-        note: text("description"),
-        made: false,
-        from: String::new(),
-    })
-}
-
-/// Suggest a ZIP filename without its extension; the enclosed manifest remains authoritative.
-fn guessed_name(source: &str) -> String {
-    source
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(".zip")
-        .to_string()
+    library().look_source(source)
 }
 
 /// Generate flags for selected IDs still present in the hub, skipping deleted entries for
 /// compatibility. None leaves CLI defaults intact.
-pub fn args_for(chosen: Option<&Vec<String>>) -> Vec<String> {
-    match chosen {
-        Some(chosen) => args_from(&load(), chosen),
-        None => vec![],
-    }
-}
-
-/// Inject the hub contents so flag translation tests do not require filesystem state.
+#[cfg(test)]
 fn args_from(hub: &[Plugin], chosen: &[String]) -> Vec<String> {
-    chosen
-        .iter()
-        .filter_map(|name| hub.iter().find(|p| &p.id == name))
-        .flat_map(flags)
-        .collect()
+    prometeu_tools::packages::args_from(hub, chosen, &paths::home())
 }
-
-/// Use plugin-url for remote sources and plugin-dir for local ones. Expand tilde at launch time
-/// using this machine's home without rewriting the stored source.
+#[cfg(test)]
 fn flags(plugin: &Plugin) -> [String; 2] {
-    let source = plugin.source.trim();
-    if remote(source) {
-        ["--plugin-url".to_string(), source.to_string()]
-    } else {
-        ["--plugin-dir".to_string(), expand(source)]
-    }
+    prometeu_tools::packages::flags(plugin, &paths::home())
 }
-
-pub(crate) fn remote(source: &str) -> bool {
-    source.starts_with("http://") || source.starts_with("https://")
-}
-
-fn manifest_path(dir: &Path) -> PathBuf {
-    dir.join(".claude-plugin").join("plugin.json")
-}
-
-fn read_json(path: &Path) -> Option<Value> {
-    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
-}
+pub(crate) use prometeu_tools::packages::remote;
 
 pub(crate) fn expand(source: &str) -> String {
-    match source.strip_prefix("~/") {
-        Some(rest) => paths::home().join(rest).display().to_string(),
-        None => source.to_string(),
-    }
+    prometeu_tools::packages::expand(source, &paths::home())
 }
 
-/* Codex adaptation */
+/* Native package composition */
+#[cfg(test)]
+use prometeu_tools::packages::PackageBackend;
+#[cfg(test)]
+use prometeu_tools::CodexPlugins;
 
-/// Return the derived home, selected canonical plugin IDs, and the subset declaring hooks. The
-/// handshake may trust only selected IDs and must discover every required hook before opening the
-/// thread.
-pub struct CodexPlugins {
-    pub home: Option<PathBuf>,
-    pub ids: Vec<String>,
-    pub hook_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PreparedPlugin {
-    id: String,
-    canonical: String,
-    version: String,
-    hooks: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-struct InstalledPlugin {
-    version: String,
-}
-
-/// Use a reserved marketplace namespace because Codex's shared cache must not collide with
-/// user-registered marketplaces.
 fn codex_marketplace_name() -> &'static str {
     if cfg!(debug_assertions) {
         "prometeu-dev"
@@ -295,741 +150,73 @@ fn codex_marketplace_name() -> &'static str {
         "prometeu"
     }
 }
-
-/// Include the adapter revision in cache versions so corrected materialization reinstalls unchanged
-/// upstream packages.
-const CODEX_PACKAGE_REVISION: &str = "2";
-
-fn codex_workspaces_root() -> PathBuf {
-    paths::root().join("codex-workspaces")
-}
-
-fn codex_marketplace_root(home: &Path) -> PathBuf {
-    home.join("marketplace")
-}
-
-/// Derive the home from the persisted workspace ID, not cwd or an ephemeral tab ID. Workspaces
-/// sharing a clone can still have different selections.
-fn codex_workspace_home(workspace: &str) -> PathBuf {
-    let fingerprint = format!("{:x}", Sha256::digest(workspace.as_bytes()));
-    codex_workspaces_root().join(&fingerprint[..24])
-}
-
-/// Remove this disposable configuration with its workspace. Shared installed payloads and other
-/// workspaces' configurations remain available.
-pub fn forget_codex_workspace(workspace: &str) {
-    let root = codex_workspaces_root();
-    let home = codex_workspace_home(workspace);
-    remove_codex_home(&root, &home);
-}
-
-fn remove_codex_home(root: &Path, home: &Path) {
-    if home.starts_with(root) && home != root {
-        std::fs::remove_dir_all(home).ok();
+pub(crate) struct PrivatePackageFiles;
+impl prometeu_tools::packages::PackageFiles for PrivatePackageFiles {
+    fn ensure_private_dir(&self, path: &Path) -> Result<(), String> {
+        paths::ensure_private_dir(path)
+    }
+    fn write_private(&self, path: &Path, body: &str) -> Result<(), String> {
+        paths::write_private(path, body)
     }
 }
-
-/// Serialize marketplace materialization, configuration, and shared-cache installation so
-/// simultaneous tabs cannot observe a partial plugin version.
-pub fn codex_for(
+fn installer() -> prometeu_tools::package_installer::CodexInstaller {
+    prometeu_tools::package_installer::CodexInstaller {
+        executable: "codex".into(),
+        marketplace: codex_marketplace_name().into(),
+    }
+}
+pub(crate) fn native_packages() -> prometeu_tools::packages::NativePackages {
+    static PREPARE: OnceLock<std::sync::Arc<Mutex<()>>> = OnceLock::new();
+    prometeu_tools::packages::NativePackages::new(
+        paths::root().join("codex-workspaces"),
+        paths::home(),
+        codex_marketplace_name().into(),
+        std::sync::Arc::new(prometeu_tools::packages::FilePackageCatalog { path: hub_path() }),
+        std::sync::Arc::new(PrivatePackageFiles),
+        std::sync::Arc::new(installer()),
+        PREPARE
+            .get_or_init(|| std::sync::Arc::new(Mutex::new(())))
+            .clone(),
+    )
+}
+pub fn forget_codex_workspace(workspace: &str) {
+    native_packages().forget_codex_workspace(workspace);
+}
+#[cfg(test)]
+fn codex_for(
     workspace: &str,
-    chosen: Option<&Vec<String>>,
+    chosen: Option<&[String]>,
     profile: &crate::accounts::Profile,
 ) -> Result<CodexPlugins, String> {
-    let Some(chosen) = chosen else {
-        return Ok(CodexPlugins {
-            home: None,
-            ids: vec![],
-            hook_ids: vec![],
-        });
-    };
-    let hub = load();
-    let mut seen = HashSet::new();
-    let selected: Vec<Plugin> = chosen
-        .iter()
-        .filter_map(|id| hub.iter().find(|plugin| &plugin.id == id).cloned())
-        .filter(|plugin| seen.insert(plugin.id.clone()))
-        .collect();
-
-    static PREPARE: OnceLock<Mutex<()>> = OnceLock::new();
-    let _guard = lock(PREPARE.get_or_init(|| Mutex::new(())));
-    // Keep separate account homes so new account selections cannot redirect authentication links
-    // used by running processes.
-    let home = if profile.managed {
-        codex_workspace_home(workspace).join(&profile.id)
-    } else {
-        codex_workspace_home(workspace)
-    };
-    let marketplace = codex_marketplace_root(&home);
-    let prepared = prepare_marketplace(&marketplace, codex_marketplace_name(), &selected)?;
-    let ids = prepared
-        .iter()
-        .map(|plugin| plugin.canonical.clone())
-        .collect::<Vec<_>>();
-    let hook_ids = prepared
-        .iter()
-        .filter(|plugin| plugin.hooks)
-        .map(|plugin| plugin.canonical.clone())
-        .collect::<Vec<_>>();
-    let base = &profile.home;
-    prepare_codex_home(base, &home, &marketplace, &ids)?;
-
-    if prepared.is_empty() {
-        return Ok(CodexPlugins {
-            home: Some(home),
-            ids,
-            hook_ids,
-        });
-    }
-
-    let installed = codex_installed(&home)?;
-    for plugin in &prepared {
-        let current = installed.get(&plugin.canonical);
-        let needs_install = current.is_none_or(|found| found.version != plugin.version);
-        if needs_install {
-            if let Err(error) = codex_install(&home, &plugin.canonical) {
-                codex_remove(&home, &plugin.canonical);
-                return Err(error);
-            }
-        }
-    }
-    // Rebuild derived configuration after codex plugin add enables entries, restoring the exact
-    // selection and preserving previously trusted workspace hook hashes.
-    write_codex_config(base, &home, &marketplace, &ids)?;
-    Ok(CodexPlugins {
-        home: Some(home),
-        ids,
-        hook_ids,
-    })
+    native_packages().codex(workspace, chosen, profile)
 }
-
-/// Share native login, rollouts, skills, and databases through links. Only configuration and
-/// marketplace contents are disposable application-owned data.
-fn prepare_codex_home(
-    base: &Path,
-    home: &Path,
-    marketplace: &Path,
-    selected: &[String],
-) -> Result<(), String> {
-    if base == home {
-        return Err(i18n::ta(
-            "err.plugin.codex.config",
-            &[(
-                "cause",
-                "derived CODEX_HOME collides with the user home".into(),
-            )],
-        ));
-    }
-    std::fs::create_dir_all(base)
-        .and_then(|()| std::fs::create_dir_all(base.join("plugins")))
-        .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
-    paths::ensure_private_dir(home)
-        .map_err(|cause| i18n::ta("err.plugin.codex.config", &[("cause", cause)]))?;
-    mirror_codex_home(base, home)?;
-    write_codex_config(base, home, marketplace, selected)
-}
-
-/// Mirror existing and future Codex entries except writable configuration files. Preserve real
-/// entries already created in the derived home; replace only obsolete links to another home.
-fn mirror_codex_home(base: &Path, home: &Path) -> Result<(), String> {
-    let entries = std::fs::read_dir(base)
-        .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
-    for entry in entries {
-        let entry = entry.map_err(|error| {
-            i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])
-        })?;
-        let name = entry.file_name();
-        let text = name.to_string_lossy();
-        if text.starts_with("config.toml")
-            || text.starts_with(".config.toml")
-            || text == "marketplace"
-        {
-            continue;
-        }
-        let target = home.join(&name);
-        replace_with_shared_entry(&entry.path(), &target, home).map_err(|error| {
-            i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])
-        })?;
-    }
-    Ok(())
-}
-
-fn replace_with_shared_entry(source: &Path, target: &Path, home: &Path) -> std::io::Result<()> {
-    if !target.starts_with(home) || target == home {
-        return Err(std::io::Error::other("invalid derived CODEX_HOME target"));
-    }
-    if let Ok(metadata) = std::fs::symlink_metadata(target) {
-        #[cfg(unix)]
-        if metadata.file_type().is_symlink()
-            && std::fs::read_link(target).ok().as_deref() == Some(source)
-        {
-            return Ok(());
-        }
-        if metadata.file_type().is_symlink() {
-            std::fs::remove_file(target)?;
-        } else {
-            return Ok(());
-        }
-    }
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(source, target)?;
-    #[cfg(not(unix))]
-    if source.is_dir() {
-        copy_tree(source, target)?;
-    } else {
-        std::fs::copy(source, target)?;
-    }
-    Ok(())
-}
-
-fn read_toml(path: &Path) -> Result<toml::Value, String> {
-    match std::fs::read_to_string(path) {
-        Ok(raw) => raw
-            .parse::<toml::Value>()
-            .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())])),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok(toml::Value::Table(toml::map::Map::new()))
-        }
-        Err(error) => Err(i18n::ta(
-            "err.plugin.codex.config",
-            &[("cause", error.to_string())],
-        )),
-    }
-}
-
-fn child_table<'a>(
-    parent: &'a mut toml::map::Map<String, toml::Value>,
-    key: &str,
-) -> &'a mut toml::map::Map<String, toml::Value> {
-    let value = parent
-        .entry(key.to_string())
-        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-    if !value.is_table() {
-        *value = toml::Value::Table(toml::map::Map::new());
-    }
-    value.as_table_mut().expect("table inserted above")
-}
-
-fn prometeu_plugin(id: &str) -> bool {
-    id.rsplit_once('@')
-        .is_some_and(|(_, marketplace)| matches!(marketplace, "prometeu" | "prometeu-dev"))
-}
-
-/// Rebuild derived configuration from the real home plus retained workspace hook and plugin
-/// settings. Disable all reserved marketplace entries before enabling only the current selection.
-fn write_codex_config(
-    base: &Path,
-    home: &Path,
-    marketplace: &Path,
-    selected: &[String],
-) -> Result<(), String> {
-    // Treat malformed derived TOML as disposable cache. Rebuild from real configuration and request
-    // hook trust again instead of permanently blocking the workspace.
-    let previous = read_toml(&home.join("config.toml"))
-        .unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
-    let previous_hook_state = previous
-        .get("hooks")
-        .and_then(|value| value.get("state"))
-        .and_then(toml::Value::as_table)
-        .cloned();
-    let previous_plugins = previous
-        .get("plugins")
-        .and_then(toml::Value::as_table)
-        .cloned()
-        .unwrap_or_default();
-
-    let mut config = read_toml(&base.join("config.toml"))?;
-    if !config.is_table() {
-        return Err(i18n::ta(
-            "err.plugin.codex.config",
-            &[("cause", "Codex config root is not a TOML table".into())],
-        ));
-    }
-    let root = config.as_table_mut().expect("checked above");
-
-    // Pin default and auto credential storage to file so refresh uses the shared auth.json link.
-    // Respect explicit keyring or ephemeral settings.
-    let auth_store = root
-        .get("cli_auth_credentials_store")
-        .and_then(toml::Value::as_str);
-    if base.join("auth.json").exists() && !matches!(auth_store, Some("keyring" | "ephemeral")) {
-        root.insert(
-            "cli_auth_credentials_store".into(),
-            toml::Value::String("file".into()),
-        );
-    }
-
-    if let Some(previous_state) = previous_hook_state {
-        let state = child_table(child_table(root, "hooks"), "state");
-        state.extend(previous_state);
-    }
-
-    let marketplaces = child_table(root, "marketplaces");
-    marketplaces.remove("prometeu");
-    marketplaces.remove("prometeu-dev");
-    let mut source = toml::map::Map::new();
-    source.insert("source_type".into(), toml::Value::String("local".into()));
-    source.insert(
-        "source".into(),
-        toml::Value::String(marketplace.display().to_string()),
-    );
-    marketplaces.insert(codex_marketplace_name().into(), toml::Value::Table(source));
-
-    let plugins = child_table(root, "plugins");
-    for (id, value) in previous_plugins {
-        if prometeu_plugin(&id) {
-            plugins.insert(id, value);
-        }
-    }
-    for (id, value) in plugins.iter_mut() {
-        if prometeu_plugin(id) {
-            if !value.is_table() {
-                *value = toml::Value::Table(toml::map::Map::new());
-            }
-            value
-                .as_table_mut()
-                .expect("table inserted above")
-                .insert("enabled".into(), toml::Value::Boolean(false));
-        }
-    }
-    for id in selected {
-        child_table(plugins, id).insert("enabled".into(), toml::Value::Boolean(true));
-    }
-
-    let body = toml::to_string_pretty(&config)
-        .map_err(|error| i18n::ta("err.plugin.codex.config", &[("cause", error.to_string())]))?;
-    paths::write_private(&home.join("config.toml"), &body)
-        .map_err(|cause| i18n::ta("err.plugin.codex.config", &[("cause", cause)]))
-}
-
-/// Copy packages without modifying their Claude sources. Add a content hash to the derived version
-/// so upstream changes invalidate cache even without a version bump.
-fn prepare_marketplace(
-    root: &Path,
-    marketplace: &str,
-    plugins: &[Plugin],
-) -> Result<Vec<PreparedPlugin>, String> {
-    let plugin_root = root.join("plugins");
-    paths::ensure_private_dir(&plugin_root)
-        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))?;
-    let mut prepared = Vec::new();
-    let mut entries = Vec::new();
-    for plugin in plugins {
-        if plugin.id.len() > 64 || slug(&plugin.id) != plugin.id {
-            return Err(i18n::ta(
-                "err.plugin.codex.name",
-                &[("name", plugin.id.clone())],
-            ));
-        }
-        if remote(&plugin.source) {
-            return Err(i18n::ta(
-                "err.plugin.codex.source",
-                &[("name", plugin.id.clone())],
-            ));
-        }
-        let source = PathBuf::from(expand(&plugin.source));
-        if !source.is_dir() {
-            return Err(i18n::ta(
-                "err.plugin.codex.source",
-                &[("name", plugin.id.clone())],
-            ));
-        }
-        let source = source.canonicalize().map_err(|error| {
-            i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())])
-        })?;
-        if root.starts_with(&source) {
-            return Err(i18n::ta(
-                "err.plugin.codex.prepare",
-                &[("cause", "plugin source contains the adapter cache".into())],
-            ));
-        }
-        let fingerprint = codex_package_fingerprint(&source)?;
-        let version = portable_version(&source, &fingerprint);
-        let target = plugin_root.join(&plugin.id);
-        stage_plugin(&source, &target, &plugin.id, &version, &fingerprint)?;
-        let canonical = format!("{}@{marketplace}", plugin.id);
-        entries.push(serde_json::json!({
-            "name": plugin.id,
-            "source": { "source": "local", "path": format!("./plugins/{}", plugin.id) },
-            "policy": { "installation": "AVAILABLE", "authentication": "ON_USE" },
-            "category": "Productivity",
-        }));
-        prepared.push(PreparedPlugin {
-            id: plugin.id.clone(),
-            canonical,
-            version,
-            hooks: plugin_has_hooks(&target),
-        });
-    }
-    let marketplace_path = root
-        .join(".agents")
-        .join("plugins")
-        .join("marketplace.json");
-    let body = serde_json::to_string_pretty(&serde_json::json!({
-        "name": marketplace,
-        "interface": { "displayName": "Prometeu" },
-        "plugins": entries,
-    }))
-    .map_err(|error| error.to_string())?;
-    paths::write_private(&marketplace_path, &body)
-        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))?;
-    Ok(prepared)
-}
-
-fn codex_package_fingerprint(root: &Path) -> Result<String, String> {
-    let source = fingerprint(root)?;
-    let mut hash = Sha256::new();
-    hash.update(b"prometeu-codex-package\0");
-    hash.update(CODEX_PACKAGE_REVISION.as_bytes());
-    hash.update(b"\0");
-    hash.update(source.as_bytes());
-    Ok(format!("{:x}", hash.finalize()))
-}
-
-/// A declared hook remains required even when its path is broken; fail startup rather than treating
-/// the package as skills only. Without an explicit field, check the native hooks/hooks.json
-/// convention.
-fn plugin_has_hooks(root: &Path) -> bool {
-    let declared = read_json(&root.join(".codex-plugin").join("plugin.json"))
-        .and_then(|manifest| manifest.get("hooks").cloned());
-    match declared {
-        Some(Value::String(path)) => !path.trim().is_empty(),
-        Some(Value::Array(paths)) => !paths.is_empty(),
-        Some(Value::Object(hooks)) => !hooks.is_empty(),
-        Some(Value::Null) | None => root.join("hooks").join("hooks.json").is_file(),
-        Some(_) => true,
-    }
-}
-
-fn fingerprint(root: &Path) -> Result<String, String> {
-    fn visit(root: &Path, at: &Path, hash: &mut Sha256) -> std::io::Result<()> {
-        let mut entries = std::fs::read_dir(at)?.collect::<Result<Vec<_>, _>>()?;
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            if entry.file_name() == ".git" {
-                continue;
-            }
-            let path = entry.path();
-            let rel = path.strip_prefix(root).unwrap_or(&path);
-            hash.update(rel.to_string_lossy().as_bytes());
-            let kind = entry.file_type()?;
-            if kind.is_dir() {
-                visit(root, &path, hash)?;
-            } else if kind.is_symlink() {
-                hash.update(std::fs::read_link(&path)?.to_string_lossy().as_bytes());
-            } else if kind.is_file() {
-                let mut file = std::fs::File::open(path)?;
-                let mut chunk = [0_u8; 16 * 1024];
-                loop {
-                    let read = file.read(&mut chunk)?;
-                    if read == 0 {
-                        break;
-                    }
-                    hash.update(&chunk[..read]);
-                }
-            }
-        }
-        Ok(())
-    }
-    let mut hash = Sha256::new();
-    visit(root, root, &mut hash)
-        .map_err(|error| i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())]))?;
-    Ok(format!("{:x}", hash.finalize()))
-}
-
-fn portable_version(source: &Path, fingerprint: &str) -> String {
-    let native = read_json(&source.join(".codex-plugin").join("plugin.json"));
-    let claude = read_json(&manifest_path(source));
-    let version = [native.as_ref(), claude.as_ref()]
-        .into_iter()
-        .flatten()
-        .find_map(|manifest| manifest.get("version").and_then(Value::as_str))
-        .unwrap_or("0.0.0")
-        .trim();
-    let candidate = version
-        .split('+')
-        .next()
-        .filter(|part| !part.is_empty())
-        .unwrap_or("0.0.0");
-    let base = semver::Version::parse(candidate)
-        .map(|version| version.to_string())
-        .unwrap_or_else(|_| "0.0.0".into());
-    format!("{base}+prometeu.{}", &fingerprint[..16])
-}
-
-fn stage_plugin(
-    source: &Path,
-    target: &Path,
-    id: &str,
-    version: &str,
-    fingerprint: &str,
-) -> Result<(), String> {
-    let marker = target.with_file_name(format!(".{id}.source-hash"));
-    if target.is_dir() && std::fs::read_to_string(&marker).ok().as_deref() == Some(fingerprint) {
-        return Ok(());
-    }
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
-    let temporary = parent.join(format!(".{id}.{}.tmp", uuid::Uuid::new_v4()));
-    if let Err(error) = copy_tree(source, &temporary) {
-        let _ = std::fs::remove_dir_all(&temporary);
-        return Err(i18n::ta(
-            "err.plugin.codex.prepare",
-            &[("cause", error.to_string())],
-        ));
-    }
-    if let Err(error) = write_portable_manifest(&temporary, id, version) {
-        let _ = std::fs::remove_dir_all(&temporary);
-        return Err(error);
-    }
-    if target.exists() {
-        std::fs::remove_dir_all(target).map_err(|error| {
-            i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())])
-        })?;
-    }
-    std::fs::rename(&temporary, target).map_err(|error| {
-        let _ = std::fs::remove_dir_all(&temporary);
-        i18n::ta("err.plugin.codex.prepare", &[("cause", error.to_string())])
-    })?;
-    paths::write_private(&marker, fingerprint)
-        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))
-}
-
-fn copy_tree(source: &Path, target: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(target)?;
-    for entry in std::fs::read_dir(source)? {
-        let entry = entry?;
-        if entry.file_name() == ".git" {
-            continue;
-        }
-        let from = entry.path();
-        let to = target.join(entry.file_name());
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            copy_tree(&from, &to)?;
-        } else if kind.is_symlink() {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(std::fs::read_link(from)?, to)?;
-            #[cfg(not(unix))]
-            if from.is_dir() {
-                copy_tree(&from, &to)?;
-            } else {
-                std::fs::copy(from, to)?;
-            }
-        } else if kind.is_file() {
-            std::fs::copy(from, to)?;
-        }
-    }
-    Ok(())
-}
-
-/// Overlay native Codex manifest fields onto the compatible Claude manifest. Generate missing
-/// native fields only in the derived copy.
-fn write_portable_manifest(root: &Path, id: &str, version: &str) -> Result<(), String> {
-    let claude = read_json(&manifest_path(root));
-    let native_path = root.join(".codex-plugin").join("plugin.json");
-    let native = read_json(&native_path);
-    let mut merged = serde_json::Map::new();
-    if let Some(fields) = claude.as_ref().and_then(Value::as_object) {
-        for (key, value) in fields {
-            // Wrap Claude's inline event map in Codex's HooksFile envelope. String paths use the
-            // same representation in both formats.
-            let value = if key == "hooks" {
-                codex_hooks(value)
-            } else {
-                value.clone()
-            };
-            merged.insert(key.clone(), value);
-        }
-    }
-    if let Some(fields) = native.as_ref().and_then(Value::as_object) {
-        for (key, value) in fields {
-            // An explicit native overlay already has the required Codex shape.
-            merged.insert(key.clone(), value.clone());
-        }
-    }
-    merged.insert("name".into(), Value::String(id.to_string()));
-    merged.insert("version".into(), Value::String(version.to_string()));
-    if !merged.contains_key("skills") && root.join("skills").is_dir() {
-        merged.insert("skills".into(), Value::String("./skills/".into()));
-    }
-    if !merged.contains_key("commands") && root.join("commands").is_dir() {
-        merged.insert("commands".into(), Value::String("./commands/".into()));
-    }
-    if !merged.contains_key("mcpServers") {
-        if let Some(name) = [".mcp.json", "mcp.json"]
-            .into_iter()
-            .find(|name| root.join(name).is_file())
-        {
-            merged.insert("mcpServers".into(), Value::String(format!("./{name}")));
-        }
-    }
-    let body =
-        serde_json::to_string_pretty(&Value::Object(merged)).map_err(|error| error.to_string())?;
-    paths::write_private(&native_path, &body)
-        .map_err(|cause| i18n::ta("err.plugin.codex.prepare", &[("cause", cause)]))
-}
-
-fn codex_hooks(hooks: &Value) -> Value {
-    match hooks {
-        Value::Object(fields) if !fields.contains_key("hooks") => {
-            serde_json::json!({ "hooks": hooks })
-        }
-        _ => hooks.clone(),
-    }
-}
-
-fn codex_command(home: &Path) -> Command {
-    let mut command = Command::new("codex");
-    command
-        .env("CODEX_HOME", home)
-        .args(["--enable", "plugins", "--enable", "hooks"]);
-    command
-}
-
-fn codex_installed(home: &Path) -> Result<HashMap<String, InstalledPlugin>, String> {
-    let output = codex_command(home)
-        .args([
-            "plugin",
-            "list",
-            "--marketplace",
-            codex_marketplace_name(),
-            "--available",
-            "--json",
-        ])
-        .output()
-        .map_err(|error| i18n::ta("err.plugin.codex.cli", &[("cause", error.to_string())]))?;
-    if !output.status.success() {
-        return Err(i18n::ta(
-            "err.plugin.codex.cli",
-            &[("cause", last_line(&String::from_utf8_lossy(&output.stderr)))],
-        ));
-    }
-    let value: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| i18n::ta("err.plugin.codex.cli", &[("cause", error.to_string())]))?;
-    Ok(value["installed"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| {
-            Some((
-                entry["pluginId"].as_str()?.to_string(),
-                InstalledPlugin {
-                    version: entry["version"].as_str().unwrap_or_default().to_string(),
-                },
-            ))
-        })
-        .collect())
-}
-
-fn codex_install(home: &Path, canonical: &str) -> Result<(), String> {
-    let output = codex_command(home)
-        .args(["plugin", "add", canonical, "--json"])
-        .output()
-        .map_err(|error| i18n::ta("err.plugin.codex.cli", &[("cause", error.to_string())]))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(i18n::ta(
-            "err.plugin.codex.cli",
-            &[("cause", last_line(&String::from_utf8_lossy(&output.stderr)))],
-        ))
-    }
-}
-
-fn codex_remove(home: &Path, canonical: &str) {
-    let _ = codex_command(home)
-        .args(["plugin", "remove", canonical, "--json"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
-fn forget_codex_config(home: &Path, canonical: &str) {
-    let Ok(mut config) = read_toml(&home.join("config.toml")) else {
-        return;
-    };
-    let Some(root) = config.as_table_mut() else {
-        return;
-    };
-    if let Some(plugins) = root.get_mut("plugins").and_then(toml::Value::as_table_mut) {
-        plugins.remove(canonical);
-    }
-    if let Ok(body) = toml::to_string_pretty(&config) {
-        let _ = paths::write_private(&home.join("config.toml"), &body);
-    }
-}
-
-fn remove_marketplace_entry(home: &Path, id: &str) {
-    let marketplace = codex_marketplace_root(home);
-    let target = marketplace.join("plugins").join(id);
-    if target.starts_with(&marketplace) && target != marketplace {
-        std::fs::remove_dir_all(&target).ok();
-        std::fs::remove_file(
-            marketplace
-                .join("plugins")
-                .join(format!(".{id}.source-hash")),
-        )
-        .ok();
-    }
-    let catalogue = marketplace
-        .join(".agents")
-        .join("plugins")
-        .join("marketplace.json");
-    let Some(mut value) = read_json(&catalogue) else {
-        return;
-    };
-    let Some(entries) = value.get_mut("plugins").and_then(Value::as_array_mut) else {
-        return;
-    };
-    entries.retain(|entry| entry.get("name").and_then(Value::as_str) != Some(id));
-    if let Ok(body) = serde_json::to_string_pretty(&value) {
-        let _ = paths::write_private(&catalogue, &body);
-    }
-}
-
-/// Best-effort removal clears the shared installation and references in derived homes. Later
-/// startup rebuilds configuration from the updated hub if cleanup fails.
 fn codex_remove_everywhere(canonical: &str) {
-    let id = canonical.split_once('@').map_or(canonical, |(id, _)| id);
-    for home in codex_homes_at(&codex_workspaces_root()) {
-        codex_remove(&home, canonical);
-        forget_codex_config(&home, canonical);
-        remove_marketplace_entry(&home, id);
-    }
+    native_packages().codex_remove_everywhere(canonical);
 }
-
-fn codex_homes_at(root: &Path) -> Vec<PathBuf> {
-    let mut homes = Vec::new();
-    for workspace in std::fs::read_dir(root).into_iter().flatten().flatten() {
-        if !workspace.file_type().is_ok_and(|kind| kind.is_dir()) {
-            continue;
-        }
-        let home = workspace.path();
-        if home.join("config.toml").is_file() {
-            homes.push(home.clone());
-        }
-        for account in std::fs::read_dir(home).into_iter().flatten().flatten() {
-            if account.file_type().is_ok_and(|kind| kind.is_dir())
-                && uuid::Uuid::parse_str(&account.file_name().to_string_lossy()).is_ok()
-                && account.path().join("config.toml").is_file()
-            {
-                homes.push(account.path());
-            }
-        }
-    }
-    homes
+#[cfg(test)]
+fn codex_workspace_home(workspace: &str) -> PathBuf {
+    native_packages().codex_workspace_home(workspace)
+}
+#[cfg(test)]
+fn codex_command(home: &Path) -> Command {
+    installer().command(home)
+}
+#[cfg(test)]
+fn codex_installed(
+    home: &Path,
+) -> Result<HashMap<String, prometeu_tools::packages::InstalledPlugin>, String> {
+    prometeu_tools::packages::PackageInstaller::installed(&installer(), home)
+}
+#[cfg(test)]
+fn codex_remove(home: &Path, canonical: &str) {
+    prometeu_tools::packages::PackageInstaller::remove(&installer(), home, canonical);
 }
 
 /* Installation */
 
 /// Report the clone path and discovered plugins. Automatically register a single plugin; a
 /// marketplace requires explicit selection before registration.
-#[derive(serde::Serialize)]
-pub struct Found {
-    pub dir: String,
-    pub plugins: Vec<Plugin>,
-    pub saved: bool,
-}
+pub use prometeu_tools::plugins::Found;
 
 /// Clone and inspect asynchronously so repository downloads do not block the window.
 #[tauri::command(async)]
@@ -1043,40 +230,7 @@ fn install(source: String) -> Result<Found, String> {
 }
 
 fn install_into(source: String, register: bool) -> Result<Found, String> {
-    let url = git_url(&source);
-    if url.is_empty() {
-        return Err(i18n::t("err.plugin.noSource"));
-    }
-    let dir = store().join(repo_name(&url));
-    if dir.exists() {
-        // An occupied clone used by hub entries requires updating. An unused clone left by an
-        // abandoned selection may be replaced.
-        if lives_in(&dir) {
-            return Err(i18n::ta("err.plugin.exists", &[("name", repo_name(&url))]));
-        }
-        std::fs::remove_dir_all(&dir).ok();
-    }
-    std::fs::create_dir_all(store())
-        .map_err(|e| i18n::ta("err.plugin.clone", &[("cause", e.to_string())]))?;
-    clone(&url, &dir)?;
-    let plugins = plugins_in(&dir, &url);
-    if plugins.is_empty() {
-        std::fs::remove_dir_all(&dir).ok();
-        return Err(i18n::ta("err.plugin.noPluginIn", &[("url", url)]));
-    }
-    // Installing a repository containing one plugin already selects that plugin.
-    let saved = plugins.len() == 1;
-    if saved && register {
-        if load().iter().any(|p| p.id == plugins[0].id) {
-            return Err(i18n::t("err.catalog.conflict"));
-        }
-        save_local(plugins[0].clone())?;
-    }
-    Ok(Found {
-        dir: dir.display().to_string(),
-        plugins,
-        saved,
-    })
+    library().install_into(source, register)
 }
 
 /// Install only the selected catalog item while preserving local names.
@@ -1101,9 +255,7 @@ pub(crate) fn install_catalog(
     let candidates = if dir.exists() && lives_in(&dir) {
         let root = git_root(&dir).ok_or_else(|| i18n::t("err.catalog.conflict"))?;
         let origin = git(&root, &["remote", "get-url", "origin"])?;
-        if !origin.status.success()
-            || String::from_utf8_lossy(&origin.stdout).trim() != git_url(source)
-        {
+        if !origin.success || String::from_utf8_lossy(&origin.stdout).trim() != git_url(source) {
             return Err(i18n::t("err.catalog.conflict"));
         }
         plugins_in(&dir, &git_url(source))
@@ -1133,10 +285,8 @@ pub(crate) fn install_catalog(
 /// entry uses them.
 #[tauri::command]
 pub fn plugin_scrap(dir: String) {
-    let dir = PathBuf::from(expand(&dir));
-    if dir.starts_with(store()) && dir != store() && !lives_in(&dir) {
-        std::fs::remove_dir_all(&dir).ok();
-    }
+    let _sync = crate::catalog::guard();
+    library().scrap_directory(dir)
 }
 
 /// Update application-owned clones with git pull --ff-only, preserving manual edits on divergence.
@@ -1144,227 +294,22 @@ pub fn plugin_scrap(dir: String) {
 #[tauri::command(async)]
 pub fn plugin_update(id: String) -> Result<Vec<Plugin>, String> {
     let _sync = crate::catalog::guard();
-    let plugin = load()
-        .into_iter()
-        .find(|p| p.id == id)
-        .ok_or_else(|| i18n::t("err.plugin.gone"))?;
-    let dir = PathBuf::from(expand(&plugin.source));
-    let root = git_root(&dir).ok_or_else(|| i18n::t("err.plugin.noGit"))?;
-    let out = git(&root, &["pull", "--ff-only", "-q"])?;
-    if !out.status.success() {
-        return Err(i18n::ta(
-            "err.plugin.pull",
-            &[("cause", last_line(&String::from_utf8_lossy(&out.stderr)))],
-        ));
-    }
-    let fresh = read_plugin(&dir, &plugin.from);
-    if fresh.id == plugin.id {
-        return save_local(fresh);
-    }
-    Ok(load())
+    library().update_plugin(id)
 }
 
 /// Check whether any hub plugin uses this clone directory.
 fn lives_in(dir: &Path) -> bool {
-    load()
-        .iter()
-        .any(|p| PathBuf::from(expand(&p.source)).starts_with(dir))
+    library().lives_in(dir)
 }
 
-/// Expand owner/repo as GitHub shorthand and remove browser tree/branch suffixes. Preserve other
-/// Git URLs for GitLab, Bitbucket, and SSH transports.
-pub(crate) fn git_url(source: &str) -> String {
-    let mut text = source.trim().trim_end_matches('/');
-    if let Some(cut) = text.find("/tree/") {
-        text = &text[..cut];
-    }
-    let bare = text
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_start_matches("www.");
-    if text.contains("://") || text.contains('@') {
-        return text.to_string();
-    }
-    let path = bare.strip_prefix("github.com/").unwrap_or(bare);
-    // Accept only the exact owner/repo shorthand shape.
-    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
-    match parts.as_slice() {
-        [owner, repo] => format!("https://github.com/{owner}/{repo}"),
-        _ => String::new(),
-    }
-}
-
-/// Use the repository name for its clone directory.
-fn repo_name(url: &str) -> String {
-    let name = url
-        .trim_end_matches('/')
-        .rsplit(['/', ':'])
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(".git");
-    slug(name)
-}
-
-/// Use a shallow noninteractive clone so plugins do not download unnecessary history or wait
-/// indefinitely for terminal credentials.
-fn clone(url: &str, dir: &Path) -> Result<(), String> {
-    let out = Command::new("git")
-        .args(["clone", "--depth", "1", "-q", url])
-        .arg(dir)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
-        .output()
-        .map_err(|e| i18n::ta("err.plugin.clone", &[("cause", e.to_string())]))?;
-    if out.status.success() {
-        return Ok(());
-    }
-    std::fs::remove_dir_all(dir).ok();
-    Err(i18n::ta(
-        "err.plugin.clone",
-        &[("cause", last_line(&String::from_utf8_lossy(&out.stderr)))],
-    ))
-}
-
-fn git(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
-    Command::new("git")
-        .current_dir(root)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
-        .output()
-        .map_err(|e| i18n::ta("err.plugin.pull", &[("cause", e.to_string())]))
+fn git(root: &Path, args: &[&str]) -> Result<prometeu_core::command::CommandOutput, String> {
+    library().git(root, args)
 }
 
 /// Find the clone root for marketplace plugins stored below it; updates must run where .git
 /// belongs.
 fn git_root(dir: &Path) -> Option<PathBuf> {
-    let mut at = dir;
-    loop {
-        if at.join(".git").exists() {
-            return Some(at.to_path_buf());
-        }
-        at = at.parent()?;
-        if !at.starts_with(store()) {
-            return None;
-        }
-    }
-}
-
-/// Use the final Git error line as a compact diagnostic.
-fn last_line(text: &str) -> String {
-    text.trim()
-        .lines()
-        .rev()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or_default()
-        .to_string()
-}
-
-/// Discover a root plugin, local marketplace entries, or one level of child/plugin directories.
-/// Remote marketplace entries require their own installation and must not escape this clone.
-fn plugins_in(dir: &Path, from: &str) -> Vec<Plugin> {
-    if manifest_path(dir).exists() {
-        return vec![read_plugin(dir, from)];
-    }
-    let mut found: Vec<Plugin> = Vec::new();
-    for market in [
-        dir.join(".agents").join("plugins").join("marketplace.json"),
-        dir.join(".claude-plugin").join("marketplace.json"),
-    ]
-    .iter()
-    .filter_map(|path| read_json(path))
-    {
-        for entry in market
-            .get("plugins")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some(rel) = marketplace_local_source(entry) else {
-                continue;
-            };
-            if let Some(at) = within(dir, rel) {
-                if manifest_path(&at).exists() {
-                    found.push(read_plugin(&at, from));
-                }
-            }
-        }
-    }
-    if found.is_empty() {
-        found = scan(dir, from);
-    }
-    found.sort_by_key(|p| p.id.to_lowercase());
-    found.dedup_by(|a, b| a.source == b.source);
-    found
-}
-
-/// Accept Claude string sources and Codex local-source objects, following only paths inside the
-/// clone.
-fn marketplace_local_source(entry: &Value) -> Option<&str> {
-    match entry.get("source")? {
-        Value::String(path) => Some(path),
-        Value::Object(source) if source.get("source")?.as_str()? == "local" => {
-            source.get("path")?.as_str()
-        }
-        _ => None,
-    }
-}
-
-/// Inspect immediate children and plugins/ without recursively scanning the entire repository.
-fn scan(dir: &Path, from: &str) -> Vec<Plugin> {
-    let mut found = Vec::new();
-    for root in [dir.to_path_buf(), dir.join("plugins")] {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let at = entry.path();
-            if at.is_dir() && manifest_path(&at).exists() {
-                found.push(read_plugin(&at, from));
-            }
-        }
-    }
-    found
-}
-
-/// Confine marketplace paths to the clone; reject traversal to unrelated disk locations.
-fn within(dir: &Path, rel: &str) -> Option<PathBuf> {
-    let rel = rel.trim().trim_start_matches("./");
-    if rel.is_empty() {
-        return Some(dir.to_path_buf());
-    }
-    let at = dir.join(rel);
-    (!rel.starts_with('/') && !at.components().any(|c| c.as_os_str() == "..")).then_some(at)
-}
-
-/// Read hub metadata from the manifest, falling back to the folder name when no name is declared.
-fn read_plugin(dir: &Path, from: &str) -> Plugin {
-    let manifest = read_json(&manifest_path(dir));
-    let text = |key: &str| {
-        manifest
-            .as_ref()
-            .and_then(|m| m.get(key))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    };
-    let id = match text("name") {
-        name if !name.is_empty() => name,
-        _ => dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or_default()
-            .to_string(),
-    };
-    Plugin {
-        id,
-        source: dir.display().to_string(),
-        note: text("description"),
-        made: true,
-        from: from.to_string(),
-    }
+    library().git_root(dir)
 }
 
 /* Plugin creation */
@@ -1526,8 +471,8 @@ fn make(
         .stderr(Stdio::null());
 
     let profile = crate::accounts::active(crate::state::ProviderId::Claude)?;
-    profile.prepare()?;
-    profile.apply(&mut cmd)?;
+    crate::accounts::prepare_profile(&profile)?;
+    crate::accounts::apply_profile(&profile, &mut cmd)?;
     let mut child = cmd
         .spawn()
         .map_err(|e| i18n::ta("err.plugin.make", &[("cause", e.to_string())]))?;
@@ -1660,37 +605,37 @@ fn inside(dir: &Path, path: &str) -> String {
         .to_string()
 }
 
-/// Normalize names for directories and CLI identities: lowercase, no spaces or accents.
-/// Transliterate supported accented letters rather than replacing them with separators.
-fn slug(name: &str) -> String {
-    let mut out = String::new();
-    for ch in name.trim().to_lowercase().chars().map(fold) {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-        } else if !out.is_empty() && !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    out.trim_matches('-').to_string()
-}
-
-/// Transliterate common Portuguese and Spanish accents; this is not full Unicode normalization.
-fn fold(ch: char) -> char {
-    match ch {
-        'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
-        'é' | 'è' | 'ê' | 'ë' => 'e',
-        'í' | 'ì' | 'î' | 'ï' => 'i',
-        'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
-        'ú' | 'ù' | 'û' | 'ü' => 'u',
-        'ç' => 'c',
-        'ñ' => 'n',
-        other => other,
-    }
-}
+use prometeu_tools::packages::slug;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_package_files_remain_private() {
+        use prometeu_tools::packages::PackageFiles;
+        use std::os::unix::fs::PermissionsExt;
+        let root =
+            std::env::temp_dir().join(format!("prometeu-package-files-{}", uuid::Uuid::new_v4()));
+        let config = root.join("config.toml");
+        PrivatePackageFiles.ensure_private_dir(&root).unwrap();
+        PrivatePackageFiles
+            .write_private(&config, "private configuration")
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&root).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&config).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::read_to_string(config).unwrap(),
+            "private configuration"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn catalog_install_keeps_private_names_and_reuses_clone() {
@@ -1779,23 +724,6 @@ mod tests {
         assert!(installed_path.exists());
         assert!(private.exists());
         assert_eq!(load().len(), 1);
-    }
-
-    #[test]
-    fn cleanup_finds_all_accounts_without_following_links() {
-        let root =
-            std::env::temp_dir().join(format!("prometeu-account-plugins-{}", uuid::Uuid::new_v4()));
-        let home = root.join("workspace");
-        let account = home.join(uuid::Uuid::new_v4().to_string());
-        paths::ensure_private_dir(&account).unwrap();
-        std::fs::write(home.join("config.toml"), "").unwrap();
-        std::fs::write(account.join("config.toml"), "").unwrap();
-        std::os::unix::fs::symlink(&account, home.join(uuid::Uuid::new_v4().to_string())).unwrap();
-        let homes = codex_homes_at(&root);
-        assert_eq!(homes.len(), 2);
-        assert!(homes.contains(&home));
-        assert!(homes.contains(&account));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn plugin(id: &str, source: &str) -> Plugin {
@@ -1996,265 +924,6 @@ mod tests {
         std::fs::create_dir_all(root.join("vazio")).unwrap();
         assert!(plugins_in(&root.join("vazio"), "").is_empty());
         std::fs::remove_dir_all(&root).ok();
-    }
-
-    /// Generate a native marketplace entry and Codex manifest while retaining compatible hooks.
-    /// Content-hashed versions invalidate unchanged upstream version numbers.
-    #[test]
-    fn codex_marketplace_uses_the_same_plugin() {
-        let root =
-            std::env::temp_dir().join(format!("prometeu-codex-market-{}", uuid::Uuid::new_v4()));
-        let source = root.join("origem");
-        let market = root.join("mercado");
-        std::fs::create_dir_all(source.join(".claude-plugin")).unwrap();
-        std::fs::create_dir_all(source.join("skills").join("curta")).unwrap();
-        std::fs::create_dir_all(source.join("commands")).unwrap();
-        std::fs::write(
-            source.join(".claude-plugin").join("plugin.json"),
-            r#"{"name":"curta","description":"responde curto","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"sh ${CLAUDE_PLUGIN_ROOT}/hooks/curta.sh"}]}]}}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            source.join("skills/curta/SKILL.md"),
-            "---\nname: curta\n---\n",
-        )
-        .unwrap();
-        std::fs::write(
-            source.join(".mcp.json"),
-            r#"{"mcpServers":{"curta":{"command":"node","args":["server.js"]}}}"#,
-        )
-        .unwrap();
-
-        let prepared = prepare_marketplace(
-            &market,
-            "prometeu-test",
-            &[plugin("curta", &source.display().to_string())],
-        )
-        .unwrap();
-        assert_eq!(prepared[0].id, "curta");
-        assert_eq!(prepared[0].canonical, "curta@prometeu-test");
-        assert!(prepared[0].version.starts_with("0.0.0+prometeu."));
-        assert!(prepared[0].hooks);
-
-        let native = read_json(
-            &market
-                .join("plugins/curta")
-                .join(".codex-plugin/plugin.json"),
-        )
-        .unwrap();
-        assert_eq!(native["name"], "curta");
-        assert_eq!(native["skills"], "./skills/");
-        assert_eq!(native["commands"], "./commands/");
-        assert_eq!(native["mcpServers"], "./.mcp.json");
-        assert!(native["hooks"]["hooks"]["UserPromptSubmit"].is_array());
-        assert_eq!(native["version"], prepared[0].version);
-
-        let catalogue = read_json(&market.join(".agents/plugins/marketplace.json")).unwrap();
-        assert_eq!(catalogue["name"], "prometeu-test");
-        assert_eq!(catalogue["plugins"][0]["source"]["source"], "local");
-        assert_eq!(catalogue["plugins"][0]["source"]["path"], "./plugins/curta");
-
-        // An adapter revision must regenerate older snapshots whose source hash and inline hook
-        // envelope used the previous format.
-        let staged = market.join("plugins/curta");
-        std::fs::write(
-            staged.join(".codex-plugin/plugin.json"),
-            r#"{"name":"curta","hooks":{"UserPromptSubmit":[]}}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            market.join("plugins/.curta.source-hash"),
-            fingerprint(&source).unwrap(),
-        )
-        .unwrap();
-        prepare_marketplace(
-            &market,
-            "prometeu-test",
-            &[plugin("curta", &source.display().to_string())],
-        )
-        .unwrap();
-        let migrated = read_json(&staged.join(".codex-plugin/plugin.json")).unwrap();
-        assert!(migrated["hooks"]["hooks"]["UserPromptSubmit"].is_array());
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn detects_hooks_that_must_start_enabled() {
-        let root = std::env::temp_dir().join(format!(
-            "prometeu-codex-hook-detect-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let inline = root.join("inline");
-        let conventional = root.join("conventional");
-        let declared_but_broken = root.join("declared-broken");
-        let plain = root.join("plain");
-
-        for plugin in [&inline, &conventional, &declared_but_broken, &plain] {
-            std::fs::create_dir_all(plugin.join(".codex-plugin")).unwrap();
-        }
-        std::fs::write(
-            inline.join(".codex-plugin/plugin.json"),
-            r#"{"name":"inline","hooks":{"SessionStart":[{"hooks":[]}]}}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            conventional.join(".codex-plugin/plugin.json"),
-            r#"{"name":"conventional"}"#,
-        )
-        .unwrap();
-        std::fs::create_dir_all(conventional.join("hooks")).unwrap();
-        std::fs::write(conventional.join("hooks/hooks.json"), r#"{"hooks":{}}"#).unwrap();
-        std::fs::write(
-            declared_but_broken.join(".codex-plugin/plugin.json"),
-            r#"{"name":"declared-broken","hooks":"./missing.json"}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            plain.join(".codex-plugin/plugin.json"),
-            r#"{"name":"plain"}"#,
-        )
-        .unwrap();
-
-        assert!(plugin_has_hooks(&inline));
-        assert!(plugin_has_hooks(&conventional));
-        assert!(plugin_has_hooks(&declared_but_broken));
-        assert!(!plugin_has_hooks(&plain));
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn freeform_claude_versions_do_not_break_the_codex_cache() {
-        let root =
-            std::env::temp_dir().join(format!("prometeu-plugin-version-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
-        std::fs::write(
-            root.join(".claude-plugin/plugin.json"),
-            r#"{"name":"x","version":"v-next"}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            portable_version(&root, "0123456789abcdef0123456789abcdef"),
-            "0.0.0+prometeu.0123456789abcdef"
-        );
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn codex_home_belongs_to_the_workspace_not_the_working_directory() {
-        assert_eq!(
-            codex_workspace_home("workspace-a"),
-            codex_workspace_home("workspace-a")
-        );
-        assert_ne!(
-            codex_workspace_home("workspace-a"),
-            codex_workspace_home("workspace-b")
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn deleting_derived_home_does_not_follow_links_to_the_real_home() {
-        let root =
-            std::env::temp_dir().join(format!("prometeu-codex-remove-{}", uuid::Uuid::new_v4()));
-        let homes = root.join("homes");
-        let home = homes.join("workspace");
-        let real = root.join("real");
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::create_dir_all(&real).unwrap();
-        std::fs::write(real.join("auth.json"), "account").unwrap();
-        std::os::unix::fs::symlink(real.join("auth.json"), home.join("auth.json")).unwrap();
-
-        remove_codex_home(&homes, &home);
-
-        assert!(!home.exists());
-        assert_eq!(
-            std::fs::read_to_string(real.join("auth.json")).unwrap(),
-            "account"
-        );
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn derived_home_preserves_state_without_changing_global_configuration() {
-        let root =
-            std::env::temp_dir().join(format!("prometeu-codex-home-{}", uuid::Uuid::new_v4()));
-        let base = root.join("base");
-        let home = root.join("workspace");
-        let marketplace = home.join("marketplace");
-        std::fs::create_dir_all(base.join("plugins")).unwrap();
-        std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(base.join("auth.json"), "account").unwrap();
-        let global = r#"
-[projects."/tmp/project"]
-trust_level = "trusted"
-
-[plugins."global@other"]
-enabled = true
-
-[hooks.state.global]
-trusted_hash = "sha256:global"
-"#;
-        std::fs::write(base.join("config.toml"), global).unwrap();
-        let selected = format!("novo@{}", codex_marketplace_name());
-        let old = format!("antigo@{}", codex_marketplace_name());
-        std::fs::write(
-            home.join("config.toml"),
-            format!(
-                r#"
-[hooks.state.workspace]
-trusted_hash = "sha256:workspace"
-
-[plugins."{old}"]
-enabled = true
-opcao = "preservada"
-"#
-            ),
-        )
-        .unwrap();
-
-        prepare_codex_home(&base, &home, &marketplace, std::slice::from_ref(&selected)).unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(base.join("config.toml")).unwrap(),
-            global
-        );
-        let config = read_toml(&home.join("config.toml")).unwrap();
-        assert_eq!(
-            config["projects"]["/tmp/project"]["trust_level"].as_str(),
-            Some("trusted")
-        );
-        assert_eq!(
-            config["plugins"]["global@other"]["enabled"].as_bool(),
-            Some(true)
-        );
-        assert_eq!(config["cli_auth_credentials_store"].as_str(), Some("file"));
-        assert_eq!(
-            config["plugins"][&selected]["enabled"].as_bool(),
-            Some(true)
-        );
-        assert_eq!(config["plugins"][&old]["enabled"].as_bool(), Some(false));
-        assert_eq!(
-            config["plugins"][&old]["opcao"].as_str(),
-            Some("preservada")
-        );
-        assert_eq!(
-            config["hooks"]["state"]["global"]["trusted_hash"].as_str(),
-            Some("sha256:global")
-        );
-        assert_eq!(
-            config["hooks"]["state"]["workspace"]["trusted_hash"].as_str(),
-            Some("sha256:workspace")
-        );
-        assert_eq!(
-            config["marketplaces"][codex_marketplace_name()]["source"].as_str(),
-            Some(marketplace.to_string_lossy().as_ref())
-        );
-        #[cfg(unix)]
-        assert_eq!(
-            std::fs::read_link(home.join("auth.json")).unwrap(),
-            base.join("auth.json")
-        );
-        std::fs::remove_dir_all(root).ok();
     }
 
     /// Opt-in CLI integration verifies the marketplace, installed copy, visible skill, and active

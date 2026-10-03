@@ -1,6 +1,6 @@
 import { expect, expectTypeOf, it, vi } from "vitest";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import { invoke, type IpcCall, type IpcHandlers } from "./ipc";
+import { invoke, useIpc, type IpcCall, type IpcHandlers, type IpcTransport } from "./ipc";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -61,4 +61,17 @@ it("keeps command arguments correlated when a caller chooses between commands", 
     // @ts-expect-error The tuple accepted by forwarding helpers preserves the same correlation.
     forward(["write_file", { id: "workspace", rel: "README.md" }]);
   }
+});
+
+it("injects an application transport without changing screen command contracts", async () => {
+  const calls: unknown[] = [];
+  const port: IpcTransport = { invoke: async (command, args, options) => {
+    calls.push([command, args, options]);
+    throw new Error("remote failure");
+  } };
+  useIpc(port);
+  try {
+    await expect(invoke("chat_send", { session: "explicit-session", text: "Hello" })).rejects.toThrow("remote failure");
+    expect(calls).toEqual([["chat_send", { session: "explicit-session", text: "Hello" }, undefined]]);
+  } finally { useIpc({ invoke: tauriInvoke }); }
 });

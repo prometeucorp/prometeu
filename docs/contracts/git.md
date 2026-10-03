@@ -1,12 +1,20 @@
 # Workspace Git
 
-Status: implemented. Git runs only on the Mac that owns the workspace.
+Status: implemented. Desktop Git runs on the machine that owns the workspace.
+The native Windows application runs the same `prometeu-git` implementation in
+WSL; its worktree creation and cleanup are described in the
+[WSL runtime](wsl-runtime.md#workspace-methods) and
+[Windows](windows-application.md#workspace-lifecycle) contracts.
 
 ## Responsibilities
 
 `src/workspace-changes.ts` controls selection, drafts and presentation. The
-backend `src-tauri/src/session/git.rs` resolves the repository from the
-workspace and runs Git with separate arguments, without a shell. `src/diff.ts`
+desktop facade `src-tauri/src/session/git.rs` and the WSL application host resolve
+repositories using shared core admission rules. Both receive `RepositoryGit`;
+`prometeu-git::NativeGit` runs the existing native operations with separate arguments,
+without a shell. Core owns the unchanged IPC model types and the running-agent
+check for pull/discard. Caches, mutation serialization and filesystem/Git effects
+belong to the native adapter. `src/diff.ts`
 stacks the scope's files in a single scroll, in a unified or side-by-side diff,
 both in Changes and in comparison and commit. Both presentations keep the line
 numbers of each side; side by side aligns the blocks of removals and additions
@@ -283,7 +291,7 @@ The screen uses the per-repository `workspace_git_*` commands. The unused
 uses its existing view model. There is no board, transcript or collaboration
 protocol migration.
 
-- `src-tauri/src/session/git_tests.rs`: real Git repositories, partial index,
+- `src-tauri/crates/git/src/tests.rs`: real Git repositories, partial index,
   special paths, discard, commit, local remotes, conflicts and merge.
 - `src/changes-menu.test.ts`: the file menu per scope, for a deleted file,
   while an agent runs and when one starts after the menu opened.
@@ -297,3 +305,21 @@ protocol migration.
 - `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving
   and finishing, plus dialog lifetime during deletion.
 - `src-tauri/tests/mock.rs`: IPC command parity.
+
+## Preparation fetch execution
+
+Refreshing a remote base during workspace preparation uses the injected command
+runner with a ten-second deadline, closed stdin and inherited output. Completed
+nonzero exits still allow use of a valid local ref. A timeout retains the existing
+error code and now kills/reaps the owned group. Other repository Git commands
+retain their existing adapters. Real-repository preparation tests and injected
+`fetch_port_tests` in `session.rs` cover this boundary; see
+[bounded commands](application-core.md#processes-terminals-and-commands).
+
+## Windows application verification
+
+`runtime/tests/resident.rs` runs status, commit and base reads over the application
+transport, including deferred execution with real hooks, while `crates/git` covers
+the commands themselves; the opt-in native journey stages and commits through the
+original Changes panel. Git keeps its original process lifetime, without a new
+timeout or hook cancellation.

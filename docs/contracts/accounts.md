@@ -35,6 +35,15 @@ profile; new messages require selecting an account. Removing an inactive account
 preserves the current selection. There is no removal during a pending login: the
 attempt must be completed or cancelled.
 
+## Registry ownership
+
+Registry, selection and login rules live in `prometeu-core::accounts`, with
+storage (`prometeu-files::accounts`) and native authentication (`account_login.rs`)
+injected. `accounts.rs` keeps the desktop facade, executor, quota effects and
+events; provider adapters keep credentials, and only identity metadata returns
+from authentication. Failure, concurrency and cleanup obligations are in the
+[core contract](application-core.md#accounts-and-profiles).
+
 ## Registry and IPC
 
 `<root>/accounts.json` stores `{ accounts, active }` through a private, atomic
@@ -109,6 +118,9 @@ returns `err.account.noActive`; the adapters never silently use a removed
 terminal account.
 
 ## Profiles and credentials
+
+`prometeu-profiles` implements the profiles below; the desktop injects it into
+provider startup and native authentication.
 
 Managed profiles live in `<root>/accounts/<uuid>/`, with a `0700` directory.
 They explicitly share history, skills and plugins; they never share inference
@@ -191,11 +203,26 @@ selection are discarded.
 
 ## Evidence and verification limits
 
+- `crates/core/src/accounts/login/tests.rs`: login and reconnection ordering,
+  active-turn refusal, cancellation, authentication/persistence failures, busy
+  restrictions and external attachment through injected effects.
+- `crates/core/src/accounts/tests.rs`: registry failures, concurrent updates,
+  revision checks, empty selection and opaque-provider compatibility through
+  injected storage; `account_store.rs` checks private files and corrupt storage.
+- `crates/core/src/auxiliary.rs` and `crates/process/src/auxiliary/tests.rs`: private
+  authentication transport, cancellation/deadline policies and native cleanup;
+  provider edges inject the Unix launcher. See the
+  [core contract](application-core.md#processes-terminals-and-commands).
 - `accounts.rs`: compatibility with old registries, removal of every account,
   persistence of the empty selection and cancellation with process termination.
-- `claude.rs`, `codex/account.rs`: identity fixtures, profiles with separate
-  credentials and reading of the same transcript/rollout.
-- `chat.rs`, `usage.rs`: transition between turns and quota isolation.
+- `claude.rs`, `codex/account.rs`: native authentication and identity fixtures.
+- `crates/profiles/src/claude.rs`, `codex.rs` and `tests.rs`: separate credentials,
+  shared history, explicit roots, environment isolation and preparation failures,
+  independently of Tauri. `account_profiles.rs` checks private desktop writes;
+  `agent_launch.rs` and `account_login.rs` check injected preparation failures.
+- `crates/core/src/session/tests.rs`: account handoffs and queued-input recovery
+  through injected account/runtime ports; `chat/host.rs` supplies real account
+  state. `usage.rs` covers quota isolation.
 - `usage_scheduler.rs`: login invalidation and immediate resumption after
   cancellation or failure, for selected and inactive accounts.
 - `plugins.rs`: cleanup of per-account layers without following links.
@@ -255,3 +282,9 @@ displays used and remaining percentages. The catalog reads `agy models`.
 Former Gemini accounts and active selections are opaque preserved entries, not
 usable accounts. Their directories, credentials and native histories remain
 untouched. See [ADR 0052](../decisions/0052-antigravity-runtime.md).
+
+The Windows/WSL composition uses a separate runtime-owned registry and the same
+atomic private writes. It currently registers the installed Codex CLI's external
+account and probes its real identity. Selection/removal persist; attaching an
+external account does not reactivate a removed selection. Additional managed login
+profiles remain pending there. See the [Windows contract](windows-application.md#launcher-and-execution-identity).

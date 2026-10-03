@@ -1,16 +1,15 @@
 //! Adapt Claude stream-json commands and events at the process boundary. Everything delivered to
-//! chat::Pump uses Prometeu's canonical conversation protocol.
+//! the shared conversation pump uses Prometeu's canonical conversation protocol.
 
 use crate::conversation::{event, now};
-use crate::{accounts, chat, i18n, paths};
+use crate::{accounts, i18n, paths};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{ChildStdin, Command};
+use std::process::Command;
 use std::sync::{atomic::AtomicBool, Arc};
 use std::time::Duration;
-use tauri::AppHandle;
 
 pub fn user_home() -> PathBuf {
     std::env::var_os("CLAUDE_CONFIG_DIR")
@@ -28,108 +27,7 @@ pub fn user_home() -> PathBuf {
         .unwrap_or_else(|| paths::home().join(".claude"))
 }
 
-/// Claude stores MCP definitions beside the default home or inside a configured home.
-pub(crate) fn config_file(home: &Path) -> PathBuf {
-    let nested = home.join(".claude.json");
-    if nested.exists() {
-        nested
-    } else {
-        home.with_extension("json")
-    }
-}
-
-const AUTH_ENV: &[&str] = &[
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_PROFILE",
-    "ANTHROPIC_FEDERATION_RULE_ID",
-    "ANTHROPIC_ORGANIZATION_ID",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
-];
-
-pub fn account_env(command: &mut Command, profile: &accounts::Profile) {
-    for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("CLAUDE") {
-            command.env_remove(key);
-        }
-    }
-    if profile.managed || std::env::var_os("CLAUDE_CONFIG_DIR").is_some() {
-        command.env("CLAUDE_CONFIG_DIR", &profile.home);
-    }
-    if profile.managed {
-        for key in AUTH_ENV {
-            command.env_remove(key);
-        }
-    }
-}
-
-pub fn prepare_profile(profile: &accounts::Profile) -> Result<(), String> {
-    prepare_profile_at(&user_home(), &profile.home)
-}
-
-fn prepare_profile_at(base: &Path, home: &Path) -> Result<(), String> {
-    for name in [
-        "projects",
-        "plugins",
-        "skills",
-        "commands",
-        "agents",
-        "plans",
-        "tasks",
-        "file-history",
-        "session-env",
-    ] {
-        accounts::share(base, home, name, true)?;
-    }
-    accounts::share(base, home, "CLAUDE.md", false)?;
-    let body = match std::fs::read_to_string(base.join("settings.json")) {
-        Ok(body) => Some(body),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(i18n::io(error)),
-    };
-    if let Some(body) = body {
-        let mut settings: Value = serde_json::from_str(&body).map_err(i18n::io)?;
-        settings
-            .as_object_mut()
-            .ok_or_else(|| i18n::t("err.account.profile"))?
-            .remove("apiKeyHelper");
-        if let Some(env) = settings["env"].as_object_mut() {
-            env.retain(|key, _| !AUTH_ENV.contains(&key.as_str()) && key != "CLAUDE_CONFIG_DIR");
-        }
-        paths::write_private(&home.join("settings.json"), &settings.to_string())
-            .map_err(i18n::io)?;
-    }
-    // MCP configuration and project trust live outside settings.json. Preserve the profile's login
-    // identity without copying the global identity.
-    let source = config_file(base);
-    if source.exists() {
-        let global: Value =
-            serde_json::from_str(&std::fs::read_to_string(source).map_err(i18n::io)?)
-                .map_err(i18n::io)?;
-        let target = home.join(".claude.json");
-        let mut local: Value = match std::fs::read_to_string(&target) {
-            Ok(body) => serde_json::from_str(&body).map_err(i18n::io)?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
-            Err(error) => return Err(i18n::io(error)),
-        };
-        let local = local
-            .as_object_mut()
-            .ok_or_else(|| i18n::t("err.account.profile"))?;
-        for name in ["mcpServers", "projects"] {
-            if let Some(value) = global.get(name) {
-                local.insert(name.into(), value.clone());
-            }
-        }
-        paths::write_private(&target, &serde_json::to_string(local).map_err(i18n::io)?)
-            .map_err(i18n::io)?;
-    }
-    Ok(())
-}
+pub use prometeu_profiles::claude::{account_env, config_file};
 
 pub fn login(
     profile: &accounts::Profile,
@@ -140,7 +38,12 @@ pub fn login(
         .args(["auth", "login", "--claudeai"])
         .current_dir(paths::home());
     account_env(&mut command, profile);
-    let mut process = accounts::AuthProcess::spawn(command, Duration::from_secs(600), cancel)?;
+    let mut process = accounts::AuthProcess::spawn(
+        &prometeu_process::auxiliary::UnixAuxiliaryLauncher,
+        command,
+        Duration::from_secs(600),
+        cancel,
+    )?;
     while process.line()?.is_some() {}
     process.finish()?;
     let identity = account_status(profile)?;
@@ -162,6 +65,7 @@ fn account_status_at(
     command.args(["auth", "status", "--json"]).current_dir(cwd);
     account_env(&mut command, profile);
     let mut process = accounts::AuthProcess::spawn(
+        &prometeu_process::auxiliary::UnixAuxiliaryLauncher,
         command,
         Duration::from_secs(20),
         Arc::new(AtomicBool::new(false)),
@@ -191,44 +95,43 @@ fn parse_account(value: &Value) -> Result<accounts::Identity, String> {
     })
 }
 
-/// Start Claude with provider-specific configuration and protocol adapters. The chat module owns
-/// process lifecycle and stream pumping.
-pub fn spawn(
-    app: &AppHandle,
+/// Prepare Claude configuration and a protocol factory without starting the conversation.
+pub fn prepare(
     id: &str,
     worktree: &Path,
     resume: bool,
-    launch: &crate::session::Launch,
-) -> Result<chat::Chat, String> {
-    let args = launch_args(id, resume, launch, worktree)?;
-    let profile = accounts::active(crate::state::ProviderId::Claude)?;
-    profile.prepare()?;
+    launch: &prometeu_core::session::launch::Launch,
+    profiles: &dyn prometeu_profiles::ProfileBackend,
+    tools: &dyn prometeu_tools::StartupTools,
+) -> Result<crate::agent_launch::PreparedAgent, String> {
+    let args = launch_args(id, resume, launch, worktree, tools)?;
+    let profile = profiles.resolve(&accounts::selected(crate::state::ProviderId::Claude)?)?;
+    profiles.prepare(&profile)?;
     if profile.managed && !account_status_at(&profile, worktree)?.connected {
         return Err(i18n::t("err.account.disconnected"));
     }
     let mut cmd = Command::new("claude");
     cmd.args(args).current_dir(worktree);
-    profile.apply(&mut cmd)?;
+    profiles.apply(&profile, &mut cmd)?;
     let seed = paths::transcript(id, worktree);
-    let wire = |stdin| {
-        let mut adapter = Adapter {
-            fresh: !resume,
-            ..Adapter::default()
-        };
-        (
-            chat::Wire::Claude(Link::new(stdin)),
-            Box::new(move |line: &str| adapter.translate_line(line)) as chat::Translate,
-        )
-    };
-    chat::launch(
-        app,
-        id,
-        cmd,
-        &seed,
-        None,
-        "err.chat.spawn",
-        chat::ProcessIo::new(passthrough_stderr, wire, profile),
-    )
+    Ok(crate::agent_launch::PreparedAgent {
+        command: cmd,
+        store: std::sync::Arc::new(crate::transcript_store::ProviderTranscriptStore::new(seed)),
+        profile,
+        connect: Box::new(move |stdin, _| {
+            let mut adapter = Adapter {
+                fresh: !resume,
+                ..Adapter::default()
+            };
+            prometeu_core::session::provider::AgentProtocol {
+                input: Box::new(Link::new(stdin)),
+                translate: Box::new(move |line: &str| adapter.translate_line(line)),
+            }
+        }),
+        stderr_line: passthrough_stderr,
+        spawn_error: "err.chat.spawn",
+        resumed: resume,
+    })
 }
 
 /// Build headless stream-json arguments for a new or resumed session using the same ID. Route
@@ -237,8 +140,9 @@ pub fn spawn(
 fn launch_args(
     id: &str,
     resume: bool,
-    launch: &crate::session::Launch,
+    launch: &prometeu_core::session::launch::Launch,
     worktree: &Path,
+    tools: &dyn prometeu_tools::StartupTools,
 ) -> Result<Vec<String>, String> {
     let mut args: Vec<String> = [
         "-p",
@@ -280,21 +184,19 @@ fn launch_args(
     // defaults. The strict file carries the whole effective set, including the CLI-inherited
     // servers the layers kept (ADR 0046). Materialization failures must prevent startup rather
     // than silently discard selected tools.
-    if let Some(path) =
-        crate::mcp::config_for(id, launch.mcp.as_ref(), worktree, launch.mcp_inherits_base)?
-    {
+    if launch.mcp.is_some() && launch.mcp_inherits_base {
+        crate::mcp::requires_connectors(crate::mcp::connectors().is_some())?;
+    }
+    let packages = launch.plugin_packages();
+    let selected = tools.claude(id, worktree, launch.mcp.as_deref(), packages.as_deref())?;
+    if let Some(path) = selected.mcp_config {
         args.extend([
             "--mcp-config".into(),
             path.display().to_string(),
             "--strict-mcp-config".into(),
         ]);
     }
-    // Inject selected plugins through session flags without modifying the CLI registry. Claude owns
-    // name-based deduplication with globally enabled plugins. Without a selection, leave those
-    // defaults intact; Codex materializes its own configuration in its adapter. Standalone skills
-    // ride the same plugin-package pipeline, so they materialize together with the plugins.
-    let packages = launch.plugin_packages();
-    args.extend(crate::plugins::args_for(packages.as_ref()));
+    args.extend(selected.plugin_args);
     Ok(args)
 }
 
@@ -304,20 +206,28 @@ fn passthrough_stderr(line: &str) -> Option<String> {
 
 /// The Claude process's stream-json input transport.
 pub struct Link {
-    stdin: ChildStdin,
+    stdin: Option<Box<dyn Write + Send>>,
 }
 
 impl Link {
-    fn new(stdin: ChildStdin) -> Self {
-        Self { stdin }
+    fn new(stdin: Box<dyn Write + Send>) -> Self {
+        Self { stdin: Some(stdin) }
+    }
+
+    pub fn close(&mut self) {
+        self.stdin = None;
     }
 
     pub fn write(&mut self, frame: &Value, buffer: &str) -> Result<Vec<Value>, String> {
         let provider = command(frame, buffer).ok_or_else(|| i18n::t("err.team.bad"))?;
         let mut line = provider.to_string();
         line.push('\n');
-        self.stdin.write_all(line.as_bytes()).map_err(i18n::io)?;
-        self.stdin.flush().map_err(i18n::io)?;
+        let stdin = self
+            .stdin
+            .as_mut()
+            .ok_or_else(|| i18n::t("err.chat.gone"))?;
+        stdin.write_all(line.as_bytes()).map_err(i18n::io)?;
+        stdin.flush().map_err(i18n::io)?;
         Ok(vec![])
     }
 }
@@ -1346,6 +1256,20 @@ fn between<'a>(text: &'a str, start: &str, end: &str) -> Option<&'a str> {
     Some(rest.split_once(end)?.0)
 }
 
+impl prometeu_core::conversation::stream::ConversationInput for Link {
+    fn send(&mut self, command: &Value, transcript: &str) -> Result<Vec<Value>, String> {
+        self.write(command, transcript)
+    }
+}
+impl prometeu_core::session::provider::AgentInput for Link {
+    fn close(&mut self) {
+        self.close();
+    }
+    fn requires_idle(&self) -> bool {
+        false
+    }
+}
+
 /// Claude escapes the notification's XML text; a subagent's report follows its one-line summary in `<result>`.
 fn task_notice(text: &str) -> Option<String> {
     let summary = unescape(between(text, "<summary>", "</summary>")?.trim());
@@ -1378,6 +1302,17 @@ pub(crate) mod contract;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_input_closes_stream_json_writer() {
+        let mut input: Box<dyn prometeu_core::session::provider::AgentInput> =
+            Box::new(Link::new(Box::new(std::io::sink())));
+        let command = json!({"v":1,"type":"message.send","text":"hello"});
+        assert!(!input.requires_idle());
+        assert!(input.send(&command, "").unwrap().is_empty());
+        input.close();
+        assert!(input.send(&command, "").is_err());
+    }
 
     #[test]
     fn insights_model_deltas_keep_resume_reset_and_crash_boundaries() {
@@ -1716,59 +1651,6 @@ mod account_tests {
     }
 
     #[test]
-    fn accounts_share_transcripts_and_plugins_without_copying_login() {
-        let root =
-            std::env::temp_dir().join(format!("prometeu-claude-accounts-{}", uuid::Uuid::new_v4()));
-        let base = root.join("base");
-        let first = root.join("first");
-        let second = root.join("second");
-        for home in [&base, &first, &second] {
-            paths::ensure_private_dir(home).unwrap();
-        }
-        std::fs::write(base.join(".credentials.json"), "original login").unwrap();
-        std::fs::write(base.join(".claude.json"), r#"{"oauthAccount":{"email":"original@example.com"},"mcpServers":{"local":{"command":"echo"}},"projects":{"/repo":{"hasTrustDialogAccepted":true}}}"#).unwrap();
-        std::fs::write(base.join("settings.json"), r#"{"env":{"ANTHROPIC_API_KEY":"secret","CLAUDE_CONFIG_DIR":"/other-account","KEEP":"yes"},"apiKeyHelper":"other-key","enabledPlugins":{"test":true}}"#).unwrap();
-        prepare_profile_at(&base, &first).unwrap();
-        prepare_profile_at(&base, &second).unwrap();
-        std::fs::write(first.join(".credentials.json"), "first account").unwrap();
-        std::fs::write(
-            first.join("projects/conversation.jsonl"),
-            "complete transcript",
-        )
-        .unwrap();
-        prepare_profile_at(&base, &first).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(second.join("projects/conversation.jsonl")).unwrap(),
-            "complete transcript"
-        );
-        assert_eq!(
-            std::fs::read_link(second.join("plugins")).unwrap(),
-            base.join("plugins")
-        );
-        assert_eq!(
-            std::fs::read_to_string(first.join(".credentials.json")).unwrap(),
-            "first account"
-        );
-        assert!(!second.join(".credentials.json").exists());
-        assert_eq!(
-            std::fs::read_to_string(base.join(".credentials.json")).unwrap(),
-            "original login"
-        );
-        let settings: Value =
-            serde_json::from_str(&std::fs::read_to_string(first.join("settings.json")).unwrap())
-                .unwrap();
-        assert!(settings["apiKeyHelper"].is_null());
-        assert!(settings["env"]["ANTHROPIC_API_KEY"].is_null());
-        assert_eq!(settings["env"]["KEEP"], "yes");
-        let config: Value =
-            serde_json::from_str(&std::fs::read_to_string(first.join(".claude.json")).unwrap())
-                .unwrap();
-        assert!(config["oauthAccount"].is_null());
-        assert_eq!(config["mcpServers"]["local"]["command"], "echo");
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
     fn status_261_exposes_only_account_identity() {
         // Sanitized shape captured from claude auth status --json 2.1.261.
         let value = json!({"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty","analyticsDisabled":false,"projectsDirectory":"/private/projects","email":"person@example.com","orgId":"org-test","orgName":"Team","subscriptionType":"max"});
@@ -1785,7 +1667,20 @@ mod account_tests {
 
 #[cfg(test)]
 mod launch_tests {
-    use super::launch_args;
+    fn launch_args(
+        id: &str,
+        resume: bool,
+        launch: &Launch,
+        worktree: &Path,
+    ) -> Result<Vec<String>, String> {
+        super::launch_args(
+            id,
+            resume,
+            launch,
+            worktree,
+            &crate::tool_materialization::native(),
+        )
+    }
     use crate::paths;
     use crate::session::Launch;
     use crate::state::ProviderId;

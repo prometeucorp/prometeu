@@ -80,6 +80,12 @@ capability checks and draft persistence. Updating model, tool or busy indicators
 does not replace the textarea. Desk and workspace keep their existing shared
 draft behavior. `attachmentChip` reports removal without accessing files.
 
+Workspace entry may await a conversation snapshot. A supporting shell selected
+during that wait retains the center and keyboard focus when attachment finishes;
+loading a transcript cannot supersede the person's later tab selection. The
+native Windows journey delays that snapshot deliberately and checks focus before
+typing, protecting a retained composer draft from unintended submission.
+
 `contextGauge` updates its open panel from the host's latest snapshot, including
 action availability and callbacks. It preserves scroll and focus on an enabled
 action; if that action is disabled or removed, focus returns to the panel so
@@ -158,3 +164,8 @@ The isolated chat and Git stories are available for visual inspection; they have
 no dedicated E2E scenario. Existing product journeys cover their integration.
 
 See the [agent composition recipe](../architecture/desktop-composition.md).
+
+The request card's `allowAlways` callback is optional. Hosts that cannot change
+permission policy omit it; the card then omits permanent approval and plan-bypass
+actions while retaining one-request approval, denial and question responses.
+Existing Desktop consumers supply the callback and retain their behavior.

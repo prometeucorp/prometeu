@@ -214,7 +214,9 @@ export async function open(ws: Workspace, tab?: string) {
   if (tab && first) invoke("focus_tab", { workspace: ws.id, tab: first.id });
   // Restore the previously selected file or diff view.
   const fs = files(ws.id);
-  if (tab) showTerm();
+  // A shell selected while the transcript was loading already owns the center and focus.
+  if (dockbar.front()) showShell();
+  else if (tab) showTerm();
   else if (fs.web) await showWeb();
   else if (fs.diff) showChanges();
   else if (fs.active) await showFile();

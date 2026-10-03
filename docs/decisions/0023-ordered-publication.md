@@ -53,7 +53,7 @@ transcript compatibility tests remain applicable.
 
 ## Evidence
 
-- [Board publication and flush regressions](../../src-tauri/src/state.rs).
+- [Board publication and flush regressions](../../src-tauri/crates/core/src/publication/tests.rs).
 - [Concurrent emission, fast response, and failed-write regressions](../../src-tauri/src/chat.rs).
 - [Persistence contract](../contracts/persistence.md).
 - [Conversation flow](../architecture/conversation-flow.md).

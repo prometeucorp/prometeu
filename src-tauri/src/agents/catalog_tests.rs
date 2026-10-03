@@ -1,5 +1,7 @@
 use super::*;
+use prometeu_process::query::UnixQueryLauncher;
 use serde_json::json;
+use std::time::Instant;
 
 fn fake(script: &str) -> Command {
     let mut command = Command::new("sh");
@@ -66,7 +68,13 @@ read unexpected
 exit 5
 "#,
     );
-    let models = query_codex(&mut command, Duration::from_secs(2)).unwrap();
+    let models = query_codex(
+        &UnixQueryLauncher,
+        &mut command,
+        Duration::from_secs(2),
+        "test",
+    )
+    .unwrap();
     assert_eq!(
         models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
         ["first", "second"]
@@ -88,20 +96,32 @@ read unexpected
 "#,
     );
     assert_eq!(
-        query_codex(&mut command, Duration::from_secs(2))
-            .unwrap_err()
-            .code,
+        query_codex(
+            &UnixQueryLauncher,
+            &mut command,
+            Duration::from_secs(2),
+            "test"
+        )
+        .unwrap_err()
+        .code,
         "err.modelsCatalog.invalid"
     );
 }
 
 #[test]
 fn process_timeout_kills_and_reaps_child() {
-    let mut command = fake("sleep 30");
-    let mut process = CatalogProcess::spawn(&mut command, Duration::from_millis(40)).unwrap();
-    let pid = process.child.id() as i32;
+    let mut command = fake("echo $$; exec sleep 30");
+    let mut process =
+        CatalogProcess::spawn(&UnixQueryLauncher, &mut command, Duration::from_millis(40)).unwrap();
+    let pid: i32 = process
+        .read_line()
+        .unwrap()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     assert_eq!(
-        process.next().unwrap_err().code,
+        process.read_line().unwrap_err().code,
         "err.modelsCatalog.timeout"
     );
     drop(process);
@@ -116,13 +136,21 @@ fn process_timeout_kills_and_reaps_child() {
 #[test]
 fn subprocess_failure_is_not_an_empty_catalog() {
     assert_eq!(
-        command_output(&mut fake("exit 2"), Duration::from_secs(1))
-            .unwrap_err()
-            .code,
+        command_output(
+            &UnixQueryLauncher,
+            &mut fake("exit 2"),
+            Duration::from_secs(1)
+        )
+        .unwrap_err()
+        .code,
         "err.modelsCatalog.failed"
     );
     assert_eq!(
-        command_output(&mut fake("exit 0"), Duration::from_secs(1)),
+        command_output(
+            &UnixQueryLauncher,
+            &mut fake("exit 0"),
+            Duration::from_secs(1)
+        ),
         Ok(String::new())
     );
 }
@@ -135,9 +163,13 @@ fn missing_account_fails_before_any_provider_process() {
         ProviderId::Antigravity,
     ] {
         assert_eq!(
-            fetch_for_profile(provider, Err("no active account".into()))
-                .unwrap_err()
-                .code,
+            fetch_for_profile(
+                &UnixQueryLauncher,
+                provider,
+                Err("no active account".into())
+            )
+            .unwrap_err()
+            .code,
             "err.modelsCatalog.noAccount"
         );
     }
@@ -158,7 +190,11 @@ fn claude_correlates_response_and_cleans_up_after_success_or_invalid_data() {
         let pid_file =
             std::env::temp_dir().join(format!("prometeu-catalog-{}.pid", uuid::Uuid::new_v4()));
         let script = format!("echo $$ > '{}'\nread request\nprintf '%s\\n' '{{\"type\":\"control_response\",\"response\":{{\"request_id\":\"other\",\"subtype\":\"error\"}}}}' '{}'\nread unexpected", pid_file.display(), response);
-        let result = query_claude(&mut fake(&script), Duration::from_secs(2));
+        let result = query_claude(
+            &UnixQueryLauncher,
+            &mut fake(&script),
+            Duration::from_secs(2),
+        );
         match expected {
             None => assert!(result.unwrap().is_empty()),
             Some(code) => assert_eq!(result.unwrap_err().code, code),
@@ -194,9 +230,14 @@ printf '%s\n' '{"id":3,"result":{"data":[],"nextCursor":null}}'
 "#,
     );
     assert_eq!(
-        query_codex(&mut command, Duration::from_millis(250))
-            .unwrap_err()
-            .code,
+        query_codex(
+            &UnixQueryLauncher,
+            &mut command,
+            Duration::from_millis(250),
+            "test"
+        )
+        .unwrap_err()
+        .code,
         "err.modelsCatalog.timeout"
     );
 }
@@ -210,8 +251,12 @@ fn catalog_model_deserialization_defaults_additional_for_older_payloads() {
 
 #[test]
 fn a_provider_that_does_not_read_cannot_block_the_catalog_deadline() {
-    let mut process =
-        CatalogProcess::spawn(&mut fake("sleep 30"), Duration::from_millis(40)).unwrap();
+    let mut process = CatalogProcess::spawn(
+        &UnixQueryLauncher,
+        &mut fake("sleep 30"),
+        Duration::from_millis(40),
+    )
+    .unwrap();
     assert_eq!(
         process
             .send(json!({"large": "x".repeat(1_048_576)}))
@@ -225,15 +270,22 @@ fn a_provider_that_does_not_read_cannot_block_the_catalog_deadline() {
 fn unavailable_executable_and_invalid_protocol_are_distinct_errors() {
     let mut missing = Command::new("/prometeu-test-no-such-provider");
     assert_eq!(
-        query_codex(&mut missing, Duration::from_secs(1))
-            .unwrap_err()
-            .code,
+        query_codex(
+            &UnixQueryLauncher,
+            &mut missing,
+            Duration::from_secs(1),
+            "test"
+        )
+        .unwrap_err()
+        .code,
         "err.modelsCatalog.unavailable"
     );
     assert_eq!(
         query_codex(
+            &UnixQueryLauncher,
             &mut fake("read init; printf '%s\\n' 'invalid json'; read wait"),
-            Duration::from_secs(1)
+            Duration::from_secs(1),
+            "test"
         )
         .unwrap_err()
         .code,
@@ -257,7 +309,7 @@ fn installed_selected_account_catalog_smoke() {
             continue;
         }
         queried += 1;
-        match fetch(provider.id) {
+        match fetch(&UnixQueryLauncher, provider.id) {
             Ok(catalog) => {
                 let efforts: std::collections::BTreeSet<_> = catalog
                     .models
@@ -281,6 +333,7 @@ fn installed_selected_account_catalog_smoke() {
 #[test]
 fn oversized_unterminated_stdout_is_invalid_before_the_deadline() {
     let result = command_output(
+        &UnixQueryLauncher,
         &mut fake("head -c 1048577 /dev/zero; sleep 30"),
         Duration::from_secs(2),
     );
@@ -290,6 +343,7 @@ fn oversized_unterminated_stdout_is_invalid_before_the_deadline() {
 #[test]
 fn stdout_limit_applies_across_many_small_lines() {
     let result = command_output(
+        &UnixQueryLauncher,
         &mut fake("awk 'BEGIN { for (i = 0; i < 8193; i++) printf \"%0127d\\n\", 0 }'; sleep 30"),
         Duration::from_secs(2),
     );
@@ -299,12 +353,18 @@ fn stdout_limit_applies_across_many_small_lines() {
 #[test]
 fn dropping_catalog_process_terminates_its_descendant() {
     let mut process = CatalogProcess::spawn(
+        &UnixQueryLauncher,
         &mut fake("sleep 30 & printf '%s\\n' \"$!\"; wait"),
         Duration::from_secs(2),
     )
     .unwrap();
-    let descendant: i32 = process.next().unwrap().unwrap().trim().parse().unwrap();
-    assert_ne!(descendant, process.child.id() as i32);
+    let descendant: i32 = process
+        .read_line()
+        .unwrap()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     assert_eq!(unsafe { libc::kill(descendant, 0) }, 0);
     drop(process);
     // An orphan is reaped asynchronously by the system after its process group is killed.
@@ -359,8 +419,13 @@ read unexpected
     ] {
         command.env(key, "synthetic-inherited-value");
     }
-    profile.apply(&mut command).unwrap();
-    let result = query_codex(&mut command, Duration::from_secs(2));
+    crate::accounts::apply_profile(&profile, &mut command).unwrap();
+    let result = query_codex(
+        &UnixQueryLauncher,
+        &mut command,
+        Duration::from_secs(2),
+        "test",
+    );
     std::fs::remove_dir_all(home).unwrap();
     assert_eq!(result.unwrap()[0].id, "selected-account-model");
 }

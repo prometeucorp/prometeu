@@ -6,6 +6,7 @@ use crate::domain::Pr;
 use crate::lock::lock;
 use crate::state::{publish, Repo, Workspace};
 use crate::{i18n, AppState};
+use prometeu_core::command::{CommandError, CommandPolicy, CommandRunner, OutputPolicy};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -597,7 +598,11 @@ pub struct TaskSnapshot {
 
 /// The monitor uses read-only gh queries with pagination for comments, reviews, and inline
 /// comments. No model calls are involved.
-pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSnapshot, String> {
+pub fn task_snapshot(
+    runner: &dyn CommandRunner<Command>,
+    ws: &Workspace,
+    run: &crate::actions::Run,
+) -> Result<TaskSnapshot, String> {
     let mut snapshot = TaskSnapshot {
         prs: run.prs.clone(),
         events: BTreeMap::new(),
@@ -620,6 +625,7 @@ pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSn
         // A missing PR means keep waiting. Authentication and network errors remain visible.
         if !run.prs.contains_key(&repo.name) {
             let all = task_gh(
+                runner,
                 dir,
                 &[
                     "pr", "list", "--head", &what, "--state", "open", "--json", "number",
@@ -631,6 +637,7 @@ pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSn
             }
         }
         let pr = task_gh(
+            runner,
             dir,
             &[
                 "pr",
@@ -657,7 +664,7 @@ pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSn
                 Some(login) => login,
                 None => {
                     viewer = Some(
-                        task_gh(dir, &["api", "user"])?["login"]
+                        task_gh(runner, dir, &["api", "user"])?["login"]
                             .as_str()
                             .filter(|s| !s.is_empty())
                             .ok_or_else(|| i18n::t("err.actions.response"))?
@@ -680,7 +687,7 @@ pub fn task_snapshot(ws: &Workspace, run: &crate::actions::Run) -> Result<TaskSn
                     format!("repos/{{owner}}/{{repo}}/pulls/{number}/comments?per_page=100"),
                 ),
             ] {
-                let pages = task_gh(dir, &["api", "--paginate", "--slurp", &path])?;
+                let pages = task_gh(runner, dir, &["api", "--paginate", "--slurp", &path])?;
                 let pages = pages
                     .as_array()
                     .ok_or_else(|| i18n::t("err.actions.response"))?;
@@ -774,57 +781,39 @@ fn task_check(value: &serde_json::Value) -> Option<(String, String)> {
 
 /// Bound gh execution time and drain both output pipes so large responses cannot deadlock the
 /// process before wait.
-fn task_gh(dir: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
-    use std::io::Read;
-    use std::process::Stdio;
-    use std::time::{Duration, Instant};
-    let mut child = Command::new("gh")
-        .current_dir(dir)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(i18n::io)?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let read = |pipe: Box<dyn Read + Send>| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            pipe.take(8 * 1024 * 1024 + 1)
-                .read_to_end(&mut bytes)
-                .map(|_| bytes)
-        })
-    };
-    let output = read(Box::new(stdout));
-    let errors = read(Box::new(stderr));
-    let until = Instant::now() + Duration::from_secs(30);
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(100)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(i18n::t("err.actions.timeout"));
+fn task_gh(
+    runner: &dyn CommandRunner<Command>,
+    dir: &Path,
+    args: &[&str],
+) -> Result<serde_json::Value, String> {
+    let mut command = Command::new("gh");
+    command.current_dir(dir).args(args);
+    let output = runner
+        .run(
+            &mut command,
+            &[],
+            CommandPolicy {
+                timeout: std::time::Duration::from_secs(30),
+                stdout: OutputPolicy::Capture {
+                    limit: 8 * 1024 * 1024,
+                },
+                stderr: OutputPolicy::Capture {
+                    limit: 8 * 1024 * 1024,
+                },
+            },
+        )
+        .map_err(|error| match error {
+            CommandError::Timeout => i18n::t("err.actions.timeout"),
+            CommandError::OutputLimit | CommandError::InvalidOutput => {
+                i18n::t("err.actions.response")
             }
-        }
-    };
-    let bytes = output
-        .join()
-        .map_err(|_| i18n::t("err.actions.response"))?
-        .map_err(i18n::io)?;
-    let errors = errors
-        .join()
-        .map_err(|_| i18n::t("err.actions.response"))?
-        .map_err(i18n::io)?;
-    if !status.success() {
-        return Err(i18n::io(String::from_utf8_lossy(&errors)));
+            CommandError::Unavailable => i18n::io("gh executable not found"),
+            CommandError::Io(cause) => i18n::io(cause),
+        })?;
+    if !output.success {
+        return Err(i18n::io(String::from_utf8_lossy(&output.stderr)));
     }
-    if bytes.len() > 8 * 1024 * 1024 {
-        return Err(i18n::t("err.actions.response"));
-    }
-    serde_json::from_slice(&bytes).map_err(i18n::io)
+    serde_json::from_slice(&output.stdout).map_err(i18n::io)
 }
 
 #[cfg(test)]
@@ -855,5 +844,62 @@ mod task_tests {
                 .1,
             "SUCCESS"
         );
+    }
+}
+
+#[cfg(test)]
+mod command_port_tests {
+    use super::*;
+    use prometeu_core::command::CommandOutput;
+    struct Runner(u8);
+    impl CommandRunner<Command> for Runner {
+        fn run(
+            &self,
+            request: &mut Command,
+            input: &[u8],
+            policy: CommandPolicy,
+        ) -> Result<CommandOutput, CommandError> {
+            assert_eq!(request.get_program(), "gh");
+            assert_eq!(request.get_current_dir(), Some(Path::new("/fixture")));
+            assert!(input.is_empty());
+            assert_eq!(policy.timeout, std::time::Duration::from_secs(30));
+            assert_eq!(
+                policy.stdout,
+                OutputPolicy::Capture {
+                    limit: 8 * 1024 * 1024
+                }
+            );
+            match self.0 {
+                0 => Ok(CommandOutput {
+                    success: true,
+                    stdout: br#"{"number":42}"#.to_vec(),
+                    stderr: vec![],
+                }),
+                1 => Err(CommandError::Timeout),
+                2 => Err(CommandError::OutputLimit),
+                _ => Ok(CommandOutput {
+                    success: false,
+                    stdout: vec![],
+                    stderr: b"private CLI error".to_vec(),
+                }),
+            }
+        }
+    }
+    #[test]
+    fn task_queries_keep_json_results_and_existing_error_classification() {
+        assert_eq!(
+            task_gh(&Runner(0), Path::new("/fixture"), &["api", "user"]).unwrap()["number"],
+            42
+        );
+        for (mode, error) in [
+            (1, i18n::t("err.actions.timeout")),
+            (2, i18n::t("err.actions.response")),
+            (3, i18n::io("private CLI error")),
+        ] {
+            assert_eq!(
+                task_gh(&Runner(mode), Path::new("/fixture"), &["api", "user"]),
+                Err(error)
+            );
+        }
     }
 }

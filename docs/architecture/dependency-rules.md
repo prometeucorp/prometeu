@@ -44,7 +44,7 @@ Connect features where their caller already coordinates them. For example,
 Linear connection callback. Neither feature needs to import its caller or use
 a global event bus to obtain those dependencies.
 
-`src-tauri/src/workspace_tools.rs` validates tool selections and changes one
+`prometeu-core::workspace_tools` validates tool selections and changes one
 workspace axis using explicit board state. It does not access process handles
 or mutate tabs. `session.rs` reads the native IPC body, preserves absent versus
 null arguments, translates validation errors and publishes the board.
@@ -53,16 +53,15 @@ Saving a selection is allowed during a turn; existing processes keep their
 captured tools until they stop. The new selection applies at the next spawn or
 resume of a stopped process. Tests exercise validation and preservation of
 sibling tabs without `AppHandle`, `AppState`, a saver or a provider process.
-The board types still come from `state.rs`, so this boundary is not yet a
-standalone crate. See
-[ADR 0050](../decisions/0050-tested-application-boundaries.md).
+See [ADR 0050](../decisions/0050-tested-application-boundaries.md).
 
-`workspace_lifecycle.rs` receives a mutable board for finish/archive/restore.
+`prometeu-core::workspace_lifecycle` receives a mutable board for finish/archive/restore.
 It preserves the person's stage on archive, returns the tab IDs to stop, and
 reports whether the archived flag changed. `session.rs` still runs archive
 scripts before mutation, stops processes after releasing the board lock, and
 owns publication and telemetry. Restoring never starts a process. These rules
-are tested without Tauri state or effects; board types remain in `state.rs`.
+are tested without Tauri state or effects. The Rust crate boundaries are in
+[Rust crates](#rust-crates).
 
 ## Rules in force for agents
 
@@ -201,3 +200,45 @@ provider-name restriction still targets the six presentation modules listed in
 `scripts/check-architecture.mjs`; it is not a blanket ban on provider dispatch.
 Fixtures in `scripts/architecture-dependencies.test.mjs` demonstrate the allowed
 and rejected dependency shapes.
+
+## Rust crates
+
+Application rules live in `prometeu-core`; effects are injected through ports
+it owns ([ADR 0085](../decisions/0085-portable-core.md),
+[core contract](../contracts/application-core.md)). Dependencies point inward:
+
+| Crate | Responsibility | May depend on |
+| --- | --- | --- |
+| `prometeu-core` | models, portable rules, sequencing and ports | `serde`, `serde_json`, `uuid` only |
+| `prometeu-oauth` | PKCE, loopback callback and `Consent` port | no workspace crate |
+| `prometeu-protocols` | shared Codex and model-catalog protocols | core |
+| `prometeu-files`, `prometeu-git` | project files, search, scripts, account storage; native Git | core |
+| `prometeu-process`, `prometeu-profiles` (Unix) | processes, PTYs, pipes, bounded commands; account profiles | core |
+| `prometeu-tools` (Unix) | MCP, packages, skills, plugins, MCP credentials | core, profiles, oauth |
+| `prometeu-bridge` | typed runtime client and injected WSL ports | core, oauth |
+| `prometeu-runtime` (Unix) | WSL execution host | the crates above |
+| `prometeu-wsl-desktop` | Windows shell; Tauri behind the `desktop` feature | bridge, oauth |
+| `prometeu` (`src-tauri`) | macOS/Linux desktop | core, adapters; Unix crates under `cfg(unix)` |
+
+Rules:
+
+- No crate other than the two shells links Tauri. The Windows shell links no Unix
+  execution crate (`prometeu-process`, `-profiles`, `-tools`, `-runtime`); it
+  embeds the Linux runtime only as data.
+- Implementations are selected only in composition roots: `src-tauri/src/main.rs`,
+  the runtime host, the Windows shell, `src/main.ts` and `src/windows/main.ts`.
+  Application rules and presentation contain no OS dispatch, including
+  equivalent `match` chains; target-specific code stays in adapter modules and
+  target-specific Cargo dependencies.
+- Native requests (prepared commands, PTY builders, captured profiles, paths) are
+  adapter-local generic parameters, never IPC or bridge payloads.
+- Shared screens receive host effects through injected ports with inert desktop
+  defaults (`IpcTransport`, `ConnectionRecovery`, `TerminalSnapshots`,
+  `AttachmentPicker`) and never import `src/windows/`.
+
+Enforcement: `crates/core/tests/boundary.rs` allowlists the core manifest and
+rejects known native API and OS-dispatch tokens. `npm run architecture:check`
+inspects `cargo tree` so portable crates do not reach Tauri and the Windows shell
+does not reach Unix execution crates. CI builds and tests core, protocols and
+bridge on Windows. These are conservative checks, not semantic analysis;
+aliases, macros and dependency internals still need review.

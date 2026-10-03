@@ -361,17 +361,33 @@ fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
 /// needed. Claude Code on Linux keeps it only in the file. `mcp.rs` reads the same credential to
 /// list the account's connectors, so the lookup lives here once.
 pub(crate) fn claude_token(profile: &accounts::Profile) -> Result<Option<String>, ()> {
-    let body = match std::fs::read_to_string(profile.home.join(".credentials.json")) {
-        Ok(body) => Some(body),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => keychain(profile)?,
-        Err(_) => return Err(()),
+    claude_token_from(
+        std::fs::read_to_string(profile.home.join(".credentials.json")),
+        || keychain(profile),
+    )
+}
+
+fn claude_token_from(
+    file: std::io::Result<String>,
+    keychain: impl FnOnce() -> Result<Option<String>, ()>,
+) -> Result<Option<String>, ()> {
+    let parse = |body: &str| {
+        serde_json::from_str::<Value>(body).ok()?["claudeAiOauth"]["accessToken"]
+            .as_str()
+            .map(str::to_string)
     };
-    let Some(body) = body else { return Ok(None) };
-    let creds: Value = serde_json::from_str(&body).map_err(|_| ())?;
-    creds["claudeAiOauth"]["accessToken"]
-        .as_str()
-        .map(|token| Some(token.to_string()))
-        .ok_or(())
+    if let Ok(body) = &file {
+        if let Some(token) = parse(body) {
+            return Ok(Some(token));
+        }
+    }
+    match keychain() {
+        Ok(Some(body)) => parse(&body).map(Some).ok_or(()),
+        Ok(None) if matches!(file, Err(ref error) if error.kind() == std::io::ErrorKind::NotFound) => {
+            Ok(None)
+        }
+        _ => Err(()),
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -678,6 +694,24 @@ fn now() -> u64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn unreadable_claude_file_uses_keychain_token() {
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let keychain = || {
+            Ok(Some(
+                r#"{"claudeAiOauth":{"accessToken":"keychain"}}"#.into(),
+            ))
+        };
+        assert_eq!(
+            claude_token_from(Err(denied), keychain),
+            Ok(Some("keychain".into()))
+        );
+        assert_eq!(
+            claude_token_from(Ok("invalid".into()), keychain),
+            Ok(Some("keychain".into()))
+        );
+    }
 
     #[test]
     fn malformed_and_unreadable_claude_credentials_are_unknown() {

@@ -8,7 +8,7 @@ import { inputView, toolLabel } from "./content";
 
 export type RequestActions = {
   respond: (response: RequestResponse) => void;
-  allowAlways: () => void;
+  allowAlways?: () => void;
   feedbackOpen: boolean;
   feedbackChanged: (open: boolean) => void;
 };
@@ -32,13 +32,13 @@ export function requestCard(ask: Ask, options: RequestActions): HTMLElement {
     go.title = t("chat.plan.go.title");
     go.addEventListener("click", () => {
       // Approving a plan also enables bypass before resuming so its first tool does not immediately ask again.
-      options.allowAlways();
+      options.allowAlways?.();
     });
     const asking = button(t("chat.plan.ask"));
     asking.title = t("chat.plan.ask.title");
     asking.addEventListener("click", () => options.respond({ outcome: "allow" }));
     const no = button(t("chat.plan.no"), undefined, "ghost");
-    row.append(go, asking, no);
+    row.append(...(options.allowAlways ? [go] : []), asking, no);
     el.append(row);
     // Send requested plan changes as denial feedback to the agent.
     const fb = template("div", "fb", `<textarea rows="3"></textarea><div class="row"><span class="spacer"></span><button class="pri md"></button></div>`);
@@ -173,11 +173,11 @@ export function requestCard(ask: Ask, options: RequestActions): HTMLElement {
     yes.addEventListener("click", () => options.respond({ outcome: "allow" }));
     const always = button(t("chat.perm.always"));
     always.addEventListener("click", () => {
-      options.allowAlways();
+      options.allowAlways?.();
     });
     const no = button(t("chat.perm.no"), undefined, "ghost");
     no.addEventListener("click", () => options.respond({ outcome: "deny", message: t("chat.perm.denied") }));
-    row.append(yes, always, no);
+    row.append(yes, ...(options.allowAlways ? [always] : []), no);
     el.append(row);
     return el;
   }

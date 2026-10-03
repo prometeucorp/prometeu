@@ -19,7 +19,7 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("verify_release", SCRIPTS / "verify-release.py")
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
-ASSETS = ["Prometeu_aarch64.dmg", "latest.json"] + [
+ASSETS = ["Prometeu_aarch64.dmg", "Prometeu_x64-setup.exe", "latest.json"] + [
     name + suffix for name in release.PACKAGES.values() for suffix in ("", ".sig")
 ]
 
@@ -29,6 +29,7 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "Prometeu_aarch64.dmg").write_text("notarized dmg")
+            (directory / "Prometeu_x64-setup.exe").write_text("unsigned Windows installer")
             for platform, name in release.PACKAGES.items():
                 (directory / name).write_text(f"final {platform} package")
                 (directory / f"{name}.sig").write_text(base64.b64encode(platform.encode()).decode())
@@ -105,7 +106,7 @@ else:
                         self.assertIn("--verify-tag", commands[0])
                         self.assertEqual(commands[1][:2], ["release", "upload"])
                         self.assertNotIn("--clobber", commands[1])
-                        self.assertEqual({Path(arg).name for arg in commands[1][-6:]}, set(ASSETS))
+                        self.assertEqual({Path(arg).name for arg in commands[1][-len(ASSETS):]}, set(ASSETS))
 
     def test_manifest_preserves_macos_and_checks_linux_signatures(self):
         signature = base64.b64encode(b"test signature").decode()
@@ -173,7 +174,7 @@ else:
                 with self.assertRaises(subprocess.CalledProcessError):
                     verify(manifest)
 
-    def test_publish_requires_both_platforms_and_successful_workflow(self):
+    def test_publish_requires_all_platforms_and_successful_workflow(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "scripts").mkdir()

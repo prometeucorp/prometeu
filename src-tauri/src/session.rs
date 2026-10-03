@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::domain::Pr;
 use crate::lock::lock;
 use crate::selection::{Selection, Tools};
@@ -6,6 +7,14 @@ use crate::state::{
 };
 use crate::workspace_tools::{self, Axis};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
+use prometeu_core::command::{CommandError, CommandPolicy, CommandRunner, OutputPolicy};
+pub(crate) use prometeu_core::tool_resolution::ResolvedTools;
+use prometeu_core::tool_resolution::{
+    approved, axis_provenance, decided, gate_of, resolve_tools, Gate, ProjectDeclaration,
+};
+#[cfg(test)]
+use prometeu_core::tool_resolution::{EffectiveItem, Provenance};
+pub use prometeu_core::tool_resolution::{ProjectTools, WorkspaceTools};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager, State};
@@ -14,6 +23,7 @@ pub(crate) mod diff;
 pub(crate) mod files;
 pub(crate) mod find;
 pub(crate) mod git;
+mod launch;
 
 #[cfg(test)]
 use diff::patch_map;
@@ -49,9 +59,6 @@ fn register_local_project(board: &std::sync::Mutex<Board>, path: &Path) -> Proje
 /// guard. Acquire that guard before the board lock, so origin checks and cloning stay serialized.
 pub(crate) fn register_project(board: &mut Board, path: &Path) -> Project {
     let id = path.display().to_string();
-    if let Some(project) = board.projects.iter().find(|p| p.path == id) {
-        return project.clone();
-    }
     let project = Project {
         id: id.clone(),
         name: path
@@ -61,8 +68,7 @@ pub(crate) fn register_project(board: &mut Board, path: &Path) -> Project {
             .into(),
         path: id,
     };
-    board.projects.push(project.clone());
-    project
+    prometeu_core::projects::register(board, project)
 }
 
 #[tauri::command(async)]
@@ -73,7 +79,7 @@ pub fn remove_project(app: AppHandle, state: State<AppState>, id: String) {
 
 fn remove_registered_project(board: &std::sync::Mutex<Board>, id: &str) {
     let _sync = crate::catalog::guard();
-    lock(board).projects.retain(|p| p.id != id);
+    prometeu_core::projects::remove(&mut lock(board), id);
 }
 
 /// The sidebar lists projects in board order. Projects missing from `ids` (registered while the
@@ -88,7 +94,7 @@ pub fn reorder_projects(app: AppHandle, state: State<AppState>, ids: Vec<String>
 }
 
 fn sort_projects(projects: &mut [Project], ids: &[String]) {
-    projects.sort_by_key(|p| ids.iter().position(|id| *id == p.id).unwrap_or(ids.len()));
+    prometeu_core::projects::reorder(projects, ids);
 }
 
 /* ---------- workspaces ---------- */
@@ -181,9 +187,7 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
     }
     {
         let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&id) {
-            ws.title = title.to_string();
-        }
+        let _ = workspace_lifecycle::apply(&mut board, &id, Change::Rename(title.into()));
     }
     publish(&app);
 }
@@ -193,15 +197,14 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
 pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned: bool) {
     {
         let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&id) {
-            ws.pinned = pinned;
-        }
+        let _ = workspace_lifecycle::apply(&mut board, &id, Change::Pin(pinned));
     }
     publish(&app);
 }
 
 /// Interpret and validate one tool-axis argument: JSON `null` returns the axis to inherit, an
 /// object must deserialize as a `Selection` carrying only ids of its own axis.
+#[cfg(test)]
 fn axis(value: serde_json::Value, kind: Axis) -> Result<Option<Selection>, String> {
     workspace_tools::selection(value, kind).map_err(|error| {
         i18n::t(match error {
@@ -221,13 +224,7 @@ fn axis_patch(
     let tauri::ipc::InvokeBody::Json(body) = body else {
         return Err(i18n::t("err.tools.badPayload"));
     };
-    let body = body
-        .as_object()
-        .ok_or_else(|| i18n::t("err.tools.badPayload"))?;
-    body.get(name)
-        .cloned()
-        .map(|value| axis(value, kind))
-        .transpose()
+    prometeu_core::workspace_tools::patch(body, name, kind)
 }
 
 /// Persist one workspace tool axis. The change applies at the next spawn or resume; a running session
@@ -308,24 +305,6 @@ pub fn set_tools_global(
     }
     publish(&app);
     Ok(())
-}
-
-/// The project `[tools]` declaration and its trust state, for the interface (ADR 0045). `hash` and
-/// `repo` are empty and `tools` inherits when the primary repository declares nothing.
-#[derive(serde::Serialize)]
-pub struct ProjectTools {
-    /// Repository identity that keys the trust decision: `origin` URL or absolute clone path.
-    pub repo: String,
-    /// The settings file that declared the layer, if any.
-    pub file: Option<String>,
-    /// SHA-256 of the declared section; empty when the repository declares nothing.
-    pub hash: String,
-    /// The declared layer; every axis inherits when nothing is declared.
-    pub tools: Tools,
-    /// True when a declaration exists whose current hash has no decision, so the interface prompts.
-    pub pending: bool,
-    /// The stored decision for this repository, if any.
-    pub decision: Option<ToolTrust>,
 }
 
 /// Resolve a workspace or project id to the worktree and clone of the repository whose `[tools]`
@@ -418,29 +397,13 @@ fn record_tool_trust(
     hash: &str,
     approved: bool,
 ) -> Result<(), String> {
-    if declaration.hash != hash {
-        return Err(i18n::t("err.tools.changed"));
-    }
-    let decision = ToolTrust {
-        repo: declaration.repo,
-        hash: declaration.hash,
+    prometeu_core::tool_resolution::record_trust(
+        trust,
+        declaration,
+        hash,
         approved,
-        at: crate::actions::now(),
-    };
-    match trust.iter_mut().find(|t| t.repo == decision.repo) {
-        Some(existing) => *existing = decision,
-        None => trust.push(decision),
-    }
-    Ok(())
-}
-
-/// The effective tool selection of one workspace, per axis, each item labeled with where it came
-/// from, so the picker shows the resolved result without reading the three layers (ADR 0045).
-#[derive(serde::Serialize)]
-pub struct WorkspaceTools {
-    pub mcp: Vec<EffectiveItem>,
-    pub plugins: Vec<EffectiveItem>,
-    pub skills: Vec<EffectiveItem>,
+        crate::actions::now(),
+    )
 }
 
 /// Resolve the workspace's effective set with provenance. The project layer is read from the
@@ -565,9 +528,7 @@ pub fn set_tab_choice(
 pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bool) {
     {
         let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&id) {
-            ws.unread = unread;
-        }
+        let _ = workspace_lifecycle::apply(&mut board, &id, Change::Unread(unread));
     }
     publish(&app);
 }
@@ -625,7 +586,7 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
             .workspace_mut(&id)
             .map(|ws| ws.tabs.iter().map(|t| t.id.clone()).collect())
             .unwrap_or_default();
-        board.workspaces.retain(|w| w.id != id);
+        let _ = workspace_lifecycle::apply(&mut board, &id, Change::Remove);
         (dead, removed)
     };
     stop(&state, &dead);
@@ -637,22 +598,8 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
 
 /* ---------- disk cleanup ---------- */
 
-/// Worktree disk usage and cleanup eligibility. A blocked reason is an error code translated by the
-/// frontend.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Cleanable {
-    pub id: String,
-    pub title: String,
-    pub repo_name: String,
-    pub branch: String,
-    pub worktree: String,
-    /// Disk usage in kilobytes, including large ignored directories such as node_modules and
-    /// target.
-    pub size_kb: u64,
-    pub pr: Option<u64>,
-    pub blocked: Option<String>,
-}
+pub use prometeu_core::workspace_lifecycle::Cleanable;
+use prometeu_core::workspace_lifecycle::{self, has_worktree, Change};
 
 /// Scan archived worktrees when the cleanup screen opens, not during board redraws. Exclude
 /// sessions in the original clone, and measure independent worktrees in parallel because each git
@@ -666,34 +613,14 @@ pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
         .cloned()
         .collect();
 
+    let cleanup = &state.worktree_cleanup;
     std::thread::scope(|scope| {
         let handles: Vec<_> = mine
             .into_iter()
-            .map(|ws| {
-                scope.spawn(move || {
-                    let wt = PathBuf::from(&ws.worktree);
-                    let pr = ws.prs().next().map(|(_, p)| p.number);
-                    Cleanable {
-                        size_kb: size_of(&wt),
-                        blocked: check(&ws).err(),
-                        pr,
-                        id: ws.id,
-                        title: ws.title,
-                        repo_name: ws.repo_name,
-                        branch: ws.branch,
-                        worktree: ws.worktree,
-                    }
-                })
-            })
+            .map(|ws| scope.spawn(move || cleanup.inspect(&ws)))
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
     })
-}
-
-/// Only archived, uncleaned workspaces with separate worktrees own removable directories. The
-/// original clone is never eligible.
-fn has_worktree(ws: &Workspace) -> bool {
-    ws.archived && !ws.cleaned && ws.worktree != ws.repo
 }
 
 /// Permanently remove the worktree and local branch while retaining the card. Force permits
@@ -710,11 +637,7 @@ pub fn cleanup_worktree(
     if ws.cleaned {
         return Ok(());
     }
-    if force {
-        hard(&ws)?;
-    } else {
-        check(&ws)?;
-    }
+    state.worktree_cleanup.check(&ws, force)?;
     if ws.multi() {
         validate_multi_root(&ws)?;
     }
@@ -728,41 +651,7 @@ pub fn cleanup_worktree(
         .unwrap_or_default();
     stop(&state, &dead);
 
-    // Remove each repository's worktree through its own clone.
-    for r in &ws.repos {
-        let repo = PathBuf::from(&r.path);
-        let wt = PathBuf::from(&r.worktree);
-        if wt.exists() {
-            // Force removes ignored files such as node_modules, target, and .env, plus uncommitted
-            // changes only when the person explicitly approved losing them.
-            let out = Command::new("git")
-                .arg("-C")
-                .arg(&repo)
-                .args(["worktree", "remove", "--force"])
-                .arg(&wt)
-                .output()
-                .map_err(|e| i18n::ta("err.git.spawn", &[("cause", e.to_string())]))?;
-            if !out.status.success() {
-                return Err(i18n::ta(
-                    "err.git",
-                    &[
-                        ("command", "git worktree remove".into()),
-                        (
-                            "cause",
-                            String::from_utf8_lossy(&out.stderr).trim().to_string(),
-                        ),
-                    ],
-                ));
-            }
-        }
-        // Use -D after checking merge safety, or when force explicitly permits loss. A branch
-        // deletion failure can leave a harmless ref after successful worktree cleanup, so it must
-        // not turn that cleanup into an error.
-        if !ws.branch.is_empty() && !ws.preserve_branches.contains(&r.path) {
-            let _ = git(&repo, &["branch", "-D", &ws.branch]);
-        }
-        let _ = git(&repo, &["worktree", "prune"]);
-    }
+    state.worktree_cleanup.remove(&ws)?;
     // Remove the application-owned directory that grouped the worktrees after its children are
     // gone.
     if ws.multi() {
@@ -784,42 +673,8 @@ pub fn cleanup_worktree(
     Ok(())
 }
 
-/// Return a translated error code when cleanup is unsafe. A missing worktree passes so cleanup can
-/// reconcile the board with disk.
-fn check(ws: &Workspace) -> Result<(), String> {
-    hard(ws)?;
-    // Every repository must pass before removing any part of a workspace.
-    for r in &ws.repos {
-        let wt = PathBuf::from(&r.worktree);
-        if !wt.exists() {
-            continue;
-        }
-        let dirty = git(&wt, &["status", "--porcelain"]).lines().count();
-        if dirty > 0 {
-            return Err(i18n::ta("err.cleanup.dirty", &[("n", dirty.to_string())]));
-        }
-        if !ws.preserve_branches.contains(&r.path) && !merged(r.pr.as_ref(), &wt) {
-            return Err(i18n::ta(
-                "err.cleanup.unmerged",
-                &[("branch", ws.branch.clone())],
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Force never bypasses archiving or permits deleting the original clone.
-fn hard(ws: &Workspace) -> Result<(), String> {
-    // Archiving runs the repository's archive script while the worktree exists. Disk cleanup must
-    // follow that step.
-    if !ws.archived {
-        return Err(i18n::t("err.cleanup.notArchived"));
-    }
-    if ws.worktree == ws.repo {
-        return Err(i18n::t("err.cleanup.isRepo"));
-    }
-    Ok(())
-}
+#[cfg(test)]
+use prometeu_git::cleanup::{check, hard};
 
 /// Only the exact grouping directory produced by create_workspace may be removed directly. Require
 /// every worktree to be an immediate child so edited or corrupted board data cannot authorize
@@ -851,311 +706,19 @@ fn validate_multi_root(ws: &Workspace) -> Result<(), String> {
     }
 }
 
-/// Work is safe when GitHub reports the PR merged or Git reports the branch is an ancestor of its
-/// target. The latter also supports merges outside GitHub and machines without gh.
-fn merged(pr: Option<&Pr>, wt: &Path) -> bool {
-    if pr.is_some_and(|pr| pr.merged()) {
-        return true;
-    }
-    let head = git(wt, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
-        .trim()
-        .to_string();
-    let target = if head.is_empty() {
-        "origin/main".to_string()
-    } else {
-        head
-    };
-    has_commit(wt, &target) && git_ok(wt, &["merge-base", "--is-ancestor", "HEAD", &target])
-}
+pub use prometeu_core::workspace_draft::Draft;
 
-/// Use the system du command for kilobytes. Unknown size becomes zero because an unavailable
-/// estimate must not block cleanup.
-fn size_of(wt: &Path) -> u64 {
-    if !wt.exists() {
-        return 0;
-    }
-    let out = Command::new("du").arg("-sk").arg(wt).output().ok();
-    out.and_then(|o| {
-        String::from_utf8_lossy(&o.stdout)
-            .split_whitespace()
-            .next()
-            .and_then(|n| n.parse().ok())
-    })
-    .unwrap_or(0)
-}
+pub use prometeu_core::session::launch::Launch;
 
-/// Keep launcher inputs together so adding an option does not expand the command's parameter list.
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Draft {
-    project: String,
-    /// Additional repositories receive sibling worktrees on the same branch. This requires
-    /// worktrees because the agent needs a common parent directory.
-    #[serde(default)]
-    extras: Vec<String>,
-    /// An empty branch name means no branch should be created.
-    branch: String,
-    /// The starting ref for a new branch.
-    base: String,
-    /// None keeps older callers' branch-creation behavior.
-    #[serde(default)]
-    new_branch: Option<bool>,
-    /// Selected local or remote ref when reusing a branch.
-    #[serde(default)]
-    source: Option<String>,
-    /// Create the branch in a separate worktree when enabled; otherwise switch the original clone.
-    worktree: bool,
-    title: String,
-    stage: String,
-    prompt: String,
-    inject: Vec<String>,
-    /// The Linear issue that opened the launcher, when present.
-    #[serde(default)]
-    issue: Option<crate::linear::IssueRef>,
-    /// The launcher's "Start with" skill as `<package>/<skill>`; empty means none. Older callers
-    /// omit it (ADR 0057).
-    #[serde(default)]
-    kickoff: String,
-    /// Model and effort persist on the workspace. Plan mode applies only to the initial
-    /// conversation.
-    #[serde(flatten)]
-    launch: Launch,
-}
-
-/// Provider-neutral launch settings shared by the launcher and persisted workspace defaults.
-#[derive(serde::Deserialize, Clone, Default)]
-pub struct Launch {
-    #[serde(default)]
-    pub permission: Option<crate::actions::Permission>,
-    #[serde(default)]
-    pub instructions: String,
-    #[serde(default)]
-    pub config_scope: Option<String>,
-    /// The provider comes from the selected model's catalog entry.
-    #[serde(default)]
-    pub agent: ProviderId,
-    /// An empty model lets the provider choose its default.
-    #[serde(default)]
-    pub model: String,
-    /// An empty effort lets the provider choose its default.
-    #[serde(default)]
-    pub effort: String,
-    /// Start the initial conversation in plan mode, requiring plan approval before execution.
-    #[serde(default)]
-    pub plan: bool,
-    /// MCP server IDs from the hub. None preserves the CLI's own configuration; see Workspace::mcp
-    /// and mcp.rs.
-    #[serde(default)]
-    pub mcp: Option<Vec<String>>,
-    /// Whether the resolved MCP selection still inherits the CLI base. Claude uses this to require
-    /// a known account connector list before strict materialization.
-    #[serde(skip)]
-    pub mcp_inherits_base: bool,
-    /// Plugin IDs from the hub. None preserves the CLI's own configuration; see Workspace::plugins
-    /// and plugins.rs.
-    #[serde(default)]
-    pub plugins: Option<Vec<String>>,
-    /// Standalone-skill hub IDs (`skill-<id>`). They share the plugin-package pipeline, so the
-    /// adapters materialize them together with `plugins`. None preserves the CLI's own configuration.
-    #[serde(default)]
-    pub skills: Option<Vec<String>>,
-}
-
-/// Convert a persisted tab choice into launch settings. Plan mode belongs to the initial request
-/// and is never restored from the tab choice.
-impl From<Choice> for Launch {
-    fn from(c: Choice) -> Self {
-        Launch {
-            agent: c.agent,
-            model: c.model,
-            effort: c.effort,
-            plan: false,
-            mcp: None,
-            plugins: None,
-            skills: None,
-            ..Default::default()
-        }
-    }
-}
-
-impl Launch {
-    /// Plugins and standalone skills share the plugin-package pipeline, so a spawn materializes the
-    /// two resolved axes together. `None` on both preserves the CLI's own plugins; otherwise the
-    /// selected packages are the union, in plugin-then-skill order.
-    pub fn plugin_packages(&self) -> Option<Vec<String>> {
-        match (&self.plugins, &self.skills) {
-            (None, None) => None,
-            (plugins, skills) => {
-                let mut merged = plugins.clone().unwrap_or_default();
-                if let Some(skills) = skills {
-                    merged.extend(skills.iter().cloned());
-                }
-                Some(merged)
-            }
-        }
-    }
-}
-
-/// The hub IDs a session injects, one axis at a time, after composing the layers. `None` on an axis
-/// means no layer declared it, so the provider keeps its own configuration; `Some` is the resolved
-/// set to materialize (possibly empty, which injects nothing from the hub).
-#[derive(Default, Debug, PartialEq, Eq)]
-pub(crate) struct ResolvedTools {
-    pub(crate) mcp: Option<Vec<String>>,
-    pub(crate) mcp_inherits_base: bool,
-    pub(crate) plugins: Option<Vec<String>>,
-    pub(crate) skills: Option<Vec<String>>,
-}
-
-/// Resolve one axis. When every layer inherits, the axis stays `None` so the provider's own
-/// configuration is preserved; otherwise the composed set — over the CLI-inherited base, when one
-/// applies — is what the session injects.
-fn resolve_axis(
-    global: &Option<Selection>,
-    project: &Option<Selection>,
-    workspace: &Option<Selection>,
-    base: &[String],
-    universe: &[String],
-) -> Option<Vec<String>> {
-    if global.is_none() && project.is_none() && workspace.is_none() {
-        None
-    } else {
-        Some(crate::selection::resolve_with_base(
-            base, global, project, workspace, universe,
-        ))
-    }
-}
-
-/// Compose the three layers into the IDs a launch injects, keeping only IDs the universe still has.
-/// The hubs, the mcp inherited base (ADR 0046) and the project layer come from the caller so the
-/// chain stays testable without disk. The project layer must already be gated on trust before it
-/// reaches here (ADR 0045, phase 4); see `trusted_project`.
-pub(crate) fn resolve_tools(
-    global: &Tools,
-    project: &Tools,
-    workspace: &Tools,
-    mcp_base: &[String],
-    mcp_universe: &[String],
-    plugin_hub: &[String],
-) -> ResolvedTools {
-    let mcp_layers = [
-        global.mcp.as_ref(),
-        project.mcp.as_ref(),
-        workspace.mcp.as_ref(),
-    ];
-    ResolvedTools {
-        mcp: resolve_axis(
-            &global.mcp,
-            &project.mcp,
-            &workspace.mcp,
-            mcp_base,
-            mcp_universe,
-        ),
-        mcp_inherits_base: mcp_layers.iter().any(Option::is_some)
-            && mcp_layers
-                .iter()
-                .flatten()
-                .all(|selection| selection.base != crate::selection::Base::None),
-        plugins: resolve_axis(
-            &global.plugins,
-            &project.plugins,
-            &workspace.plugins,
-            &[],
-            plugin_hub,
-        ),
-        // Standalone skills ride the plugin hub as `skill-<id>`, so the skills axis filters too.
-        skills: resolve_axis(
-            &global.skills,
-            &project.skills,
-            &workspace.skills,
-            &[],
-            plugin_hub,
-        ),
-    }
-}
-
-/// The project `[tools]` declaration of a repository, with the identity and hash that key its trust
-/// decision (ADR 0045). `project_declaration` returns `None` when the repository declares nothing,
-/// so an absent layer needs no approval and simply inherits.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct ProjectDeclaration {
-    /// Repository identity: the `origin` remote URL when one exists, else the clone's absolute path.
-    pub repo: String,
-    /// SHA-256 of the canonical form of the declared `[tools]` section.
-    pub hash: String,
-    /// The settings file that declared it, surfaced by the interface.
-    pub file: Option<String>,
-    /// The declared layer.
-    pub tools: Tools,
-}
-
-/// Read the primary repository's `[tools]` and derive its trust identity. Returns `None` when the
-/// repository declares no tools, so there is nothing to trust.
 pub(crate) fn project_declaration(worktree: &Path, repo: &Path) -> Option<ProjectDeclaration> {
-    let scripts = crate::scripts::read_for(worktree, repo);
-    if scripts.tools == Tools::default() {
-        return None;
-    }
-    Some(ProjectDeclaration {
-        repo: repo_identity(repo),
-        hash: tools_hash(&scripts.tools),
-        file: scripts.file,
-        tools: scripts.tools,
-    })
+    prometeu_files::tool_declarations::project_declaration(
+        &prometeu_files::settings::NativeSettings,
+        worktree,
+        repo,
+    )
 }
-
-/// Identify a repository for trust: its `origin` remote URL when one exists, else the clone's
-/// absolute path. The URL survives a moved clone; the path covers a repository without a remote.
-fn repo_identity(repo: &Path) -> String {
-    let origin = git(repo, &["remote", "get-url", "origin"]);
-    let origin = origin.trim();
-    if !origin.is_empty() {
-        return origin.to_string();
-    }
-    repo.canonicalize()
-        .unwrap_or_else(|_| repo.to_path_buf())
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// Hash the declared `[tools]` so a changed declaration re-prompts. Hashing the parsed structure,
-/// not the raw TOML, keeps the decision stable across comments, key order and whitespace.
-fn tools_hash(tools: &Tools) -> String {
-    use sha2::{Digest, Sha256};
-    let canonical = serde_json::to_string(tools).unwrap_or_default();
-    format!("{:x}", Sha256::digest(canonical.as_bytes()))
-}
-
-/// True when the person approved this exact declaration for this repository.
-fn approved(trust: &[ToolTrust], repo: &str, hash: &str) -> bool {
-    trust
-        .iter()
-        .any(|t| t.repo == repo && t.hash == hash && t.approved)
-}
-
-/// True when a decision (approval or rejection) exists for this exact declaration; a rejection
-/// quiets the prompt until the hash changes (ADR 0045).
-fn decided(trust: &[ToolTrust], repo: &str, hash: &str) -> bool {
-    trust.iter().any(|t| t.repo == repo && t.hash == hash)
-}
-
-/// Whether a declared project layer may activate, for provenance labeling.
-#[derive(Clone, Copy, PartialEq)]
-enum Gate {
-    Trusted,
-    /// Nobody decided on the current hash yet, so the interface prompts.
-    Pending,
-    /// The current hash was explicitly rejected; resolved yet not injected, and no prompt.
-    Rejected,
-}
-
-fn gate_of(trust: &[ToolTrust], repo: &str, hash: &str) -> Gate {
-    match trust.iter().find(|t| t.repo == repo && t.hash == hash) {
-        Some(decision) if decision.approved => Gate::Trusted,
-        Some(_) => Gate::Rejected,
-        None => Gate::Pending,
-    }
-}
+#[cfg(test)]
+use prometeu_files::tool_declarations::tools_hash;
 
 /// The project layer a workspace may inject: the primary repository's declared `[tools]` when its
 /// current hash is approved, otherwise nothing. Until approved, project-declared items stay out of
@@ -1181,16 +744,34 @@ pub(crate) fn resolve_workspace_tools(
     ws: &Workspace,
     agent: ProviderId,
 ) -> ResolvedTools {
-    let (mcp_base, mcp_universe) = mcp_base_and_universe(ws, agent);
+    let project = trusted_project(trust, ws);
+    let workspace = ws.tools();
+    let (mcp_base, mut mcp_universe) = mcp_base_and_universe(ws, agent);
+    if agent == ProviderId::Claude {
+        keep_selected_connectors(&mut mcp_universe, [global, &project, &workspace]);
+    }
     let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
     resolve_tools(
         global,
-        &trusted_project(trust, ws),
-        &ws.tools(),
+        &project,
+        &workspace,
         &mcp_base,
         &mcp_universe,
         &plugin_hub,
     )
+}
+
+/// Keep explicit connector IDs until strict materialization can verify their configuration.
+fn keep_selected_connectors(universe: &mut Vec<String>, layers: [&Tools; 3]) {
+    for id in layers
+        .into_iter()
+        .filter_map(|tools| tools.mcp.as_ref())
+        .flat_map(|selection| &selection.add)
+    {
+        if id.starts_with("claude.ai ") && !universe.contains(id) {
+            universe.push(id.clone());
+        }
+    }
 }
 
 /// The mcp axis base and universe of one workspace (ADR 0046): the hub IDs plus the servers the CLI
@@ -1211,202 +792,78 @@ fn mcp_base_and_universe(ws: &Workspace, agent: ProviderId) -> (Vec<String>, Vec
     (base, universe)
 }
 
-/// Where one effective item came from in the chain, so the picker shows the result without
-/// opening each layer (ADR 0045). `Removed` and `Pending` items are listed but not injected.
-#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum Provenance {
-    /// Active because a layer above the workspace selected it.
-    Inherited,
-    /// Active because the workspace layer added it.
-    Added,
-    /// Inactive because the workspace layer removed an otherwise-inherited item.
-    Removed,
-    /// Declared by the project but not yet trusted, so resolved yet not injected.
-    Pending,
-    /// Declared by the project and explicitly rejected for its current hash; resolved yet not
-    /// injected, and the interface stops prompting until the declaration changes.
-    Rejected,
-    /// Active because the person's CLI configuration loads it, not a Prometeu hub choice; the
-    /// visible inherited base of the mcp axis (ADR 0046).
-    Cli,
+/// Default conversations inherit the workspace's model and effort and carry the already resolved
+/// tools. Plan mode remains an explicit launcher choice.
+pub(crate) fn workspace_launch(workspace: &Workspace, tools: &ResolvedTools) -> Launch {
+    Launch {
+        agent: workspace.agent,
+        model: workspace.model.clone(),
+        effort: workspace.effort.clone(),
+        plan: false,
+        mcp: tools.mcp.clone(),
+        mcp_inherits_base: tools.mcp_inherits_base,
+        plugins: tools.plugins.clone(),
+        skills: tools.skills.clone(),
+        ..Default::default()
+    }
 }
 
-/// One item of the axis universe with its provenance.
-#[derive(serde::Serialize)]
-pub struct EffectiveItem {
-    pub id: String,
-    pub provenance: Provenance,
-}
-
-/// Classify every id of the axis universe for the picker. `project` is the declared layer and
-/// `gate` says whether it may activate; while gated, the items it declares appear as `Pending` or
-/// `Rejected`. The workspace layer is the person's own action, so an item it adds is active even
-/// while the project declaration is still gated. `base` holds the CLI-inherited ids (ADR 0046):
-/// an active one is labeled `Cli`, and the workspace can drop it with a removal like any inherited
-/// item. Items with no story (off and untouched) are omitted.
-fn axis_provenance(
-    global: &Option<Selection>,
-    project: &Option<Selection>,
-    gate: Gate,
-    workspace: &Option<Selection>,
-    base: &[String],
-    universe: &[String],
-) -> Vec<EffectiveItem> {
-    let gated = (gate == Gate::Trusted).then(|| project.clone()).flatten();
-    let effective = crate::selection::resolve_with_base(base, global, &gated, workspace, universe);
-    // What the project layer alone would contribute, to label gated items.
-    let declared = crate::selection::resolve(&None, project, &None, universe);
-    universe
+/// Resume with the tab's model override or workspace defaults. Ordinary tabs carry the resolved
+/// tools; tasks retain their frozen profile, instructions, and permissions.
+pub(crate) fn workspace_launch_of(
+    workspace: &Workspace,
+    tab: &str,
+    tools: &ResolvedTools,
+) -> Launch {
+    if let Some(run) = workspace
+        .tabs
         .iter()
-        .filter_map(|id| {
-            let on = effective.contains(id);
-            let added = workspace.as_ref().is_some_and(|s| s.add.contains(id));
-            let removed = workspace.as_ref().is_some_and(|s| s.remove.contains(id));
-            let provenance = if on && added {
-                Provenance::Added
-            } else if on && base.contains(id) {
-                Provenance::Cli
-            } else if on {
-                Provenance::Inherited
-            } else if removed {
-                Provenance::Removed
-            } else if gate != Gate::Trusted && declared.contains(id) {
-                match gate {
-                    Gate::Rejected => Provenance::Rejected,
-                    _ => Provenance::Pending,
-                }
-            } else {
-                return None;
-            };
-            Some(EffectiveItem {
-                id: id.clone(),
-                provenance,
-            })
-        })
-        .collect()
-}
-
-impl ResolvedTools {
-    /// Plugins and standalone skills share the plugin-package pipeline, so a spawn materializes the
-    /// two resolved axes together. `None` on both preserves the CLI's own plugins; otherwise the
-    /// selected packages are the union, in plugin-then-skill order.
-    pub(crate) fn plugin_packages(&self) -> Option<Vec<String>> {
-        match (&self.plugins, &self.skills) {
-            (None, None) => None,
-            (plugins, skills) => {
-                let mut merged = plugins.clone().unwrap_or_default();
-                if let Some(skills) = skills {
-                    merged.extend(skills.iter().cloned());
-                }
-                Some(merged)
-            }
+        .find(|t| t.id == tab)
+        .and_then(|t| t.task.as_ref())
+    {
+        return Launch {
+            mcp: run.profile.mcp.clone(),
+            plugins: run.profile.plugins.clone(),
+            permission: Some(run.profile.permission),
+            instructions: crate::actions::instructions(&run.profile),
+            config_scope: Some(tab.to_string()),
+            ..Launch::from(run.profile.choice.clone())
+        };
+    }
+    let mut launch = workspace_launch_with(
+        workspace,
+        workspace
+            .tabs
+            .iter()
+            .find(|t| t.id == tab)
+            .and_then(|t| t.choice.clone()),
+        tools,
+    );
+    if launch.agent == ProviderId::Antigravity {
+        if let Some(tab) = workspace.tabs.iter().find(|t| t.id == tab) {
+            launch.plan = tab.plan;
+            launch.permission = tab.permission;
         }
     }
+    launch
 }
 
-impl Workspace {
-    /// This workspace's three axes as the workspace layer of the tool selection.
-    fn tools(&self) -> Tools {
-        Tools {
-            mcp: self.mcp.clone(),
-            plugins: self.plugins.clone(),
-            skills: self.skills.clone(),
-        }
-    }
-
-    /// Default conversations inherit the workspace's model and effort and carry the already resolved
-    /// tools. Plan mode remains an explicit launcher choice.
-    pub(crate) fn launch(&self, tools: &ResolvedTools) -> Launch {
-        Launch {
-            agent: self.agent,
-            model: self.model.clone(),
-            effort: self.effort.clone(),
-            plan: false,
+/// Model overrides preserve the resolved tool selection for new and resumed tabs.
+fn workspace_launch_with(
+    workspace: &Workspace,
+    choice: Option<Choice>,
+    tools: &ResolvedTools,
+) -> Launch {
+    choice.map_or_else(
+        || workspace_launch(workspace, tools),
+        |choice| Launch {
             mcp: tools.mcp.clone(),
             mcp_inherits_base: tools.mcp_inherits_base,
             plugins: tools.plugins.clone(),
             skills: tools.skills.clone(),
-            ..Default::default()
-        }
-    }
-
-    /// Resume with the tab's model override or workspace defaults. Ordinary tabs carry the resolved
-    /// tools; tasks retain their frozen profile, instructions, and permissions.
-    pub(crate) fn launch_of(&self, tab: &str, tools: &ResolvedTools) -> Launch {
-        if let Some(run) = self
-            .tabs
-            .iter()
-            .find(|t| t.id == tab)
-            .and_then(|t| t.task.as_ref())
-        {
-            return Launch {
-                mcp: run.profile.mcp.clone(),
-                plugins: run.profile.plugins.clone(),
-                permission: Some(run.profile.permission),
-                instructions: crate::actions::instructions(&run.profile),
-                config_scope: Some(tab.to_string()),
-                ..Launch::from(run.profile.choice.clone())
-            };
-        }
-        let mut launch = self.launch_with(
-            self.tabs
-                .iter()
-                .find(|t| t.id == tab)
-                .and_then(|t| t.choice.clone()),
-            tools,
-        );
-        if launch.agent == ProviderId::Antigravity {
-            if let Some(tab) = self.tabs.iter().find(|t| t.id == tab) {
-                launch.plan = tab.plan;
-                launch.permission = tab.permission;
-            }
-        }
-        launch
-    }
-
-    /// Model overrides preserve the resolved tool selection for new and resumed tabs.
-    fn launch_with(&self, choice: Option<Choice>, tools: &ResolvedTools) -> Launch {
-        choice.map_or_else(
-            || self.launch(tools),
-            |choice| Launch {
-                mcp: tools.mcp.clone(),
-                mcp_inherits_base: tools.mcp_inherits_base,
-                plugins: tools.plugins.clone(),
-                skills: tools.skills.clone(),
-                ..Launch::from(choice)
-            },
-        )
-    }
-
-    /// Persist model and effort overrides on the tab. Choosing the workspace defaults clears the
-    /// override so the tab follows later changes. Reject provider changes because providers cannot
-    /// resume each other's transcripts.
-    pub fn retune(&mut self, tab: &str, choice: Choice) -> Result<(), String> {
-        if self.tabs.iter().any(|t| t.id == tab && t.task.is_some()) {
-            return Err(i18n::t("err.actions.frozen"));
-        }
-        // The tab is ordinary, so its provider is the model override or the workspace default.
-        let current = self
-            .tabs
-            .iter()
-            .find(|t| t.id == tab)
-            .and_then(|t| t.choice.clone())
-            .map_or(self.agent, |c| c.agent);
-        if current != choice.agent {
-            return Err(i18n::t("err.session.otherAgent"));
-        }
-        let follows = choice.agent == self.agent
-            && choice.model == self.model
-            && choice.effort == self.effort;
-        let tab = self
-            .tabs
-            .iter_mut()
-            .find(|t| t.id == tab)
-            .ok_or_else(|| i18n::t("err.session.noTab"))?;
-        tab.choice = (!follows).then_some(choice);
-        Ok(())
-    }
+            ..Launch::from(choice)
+        },
+    )
 }
 
 /// Publish a preparing card before slow Git and filesystem work. Resolve enough metadata to render
@@ -1707,7 +1164,7 @@ fn build(
             } else {
                 &r.base
             };
-            match add_worktree(&clone, &branch, base, &dest) {
+            match add_worktree(state.command_runner.as_ref(), &clone, &branch, base, &dest) {
                 Ok(true) => feitos.push((clone, dest)),
                 Ok(false) => {}
                 Err(e) => {
@@ -1723,7 +1180,7 @@ fn build(
             describe_root(&root, &repos, &branch);
         }
     } else if !draft.branch.trim().is_empty() {
-        switch_branch(&repo, &branch, &draft.base)?;
+        switch_branch(state.command_runner.as_ref(), &repo, &branch, &draft.base)?;
     }
 
     // The first conversation keeps the launcher's model, instructions, and permissions, but its
@@ -1858,7 +1315,7 @@ pub fn new_tab(
             choice.filter(|c| c.agent != ws.agent || c.model != ws.model || c.effort != ws.effort);
         let agent = choice.as_ref().map_or(ws.agent, |c| c.agent);
         let tools = resolve_workspace_tools(&global, &trust, &ws, agent);
-        let launch = ws.launch_with(choice.clone(), &tools);
+        let launch = workspace_launch_with(&ws, choice.clone(), &tools);
         (launch, choice)
     };
 
@@ -1943,113 +1400,21 @@ pub fn rename_tab(
     }
     {
         let mut board = lock(&state.board);
-        if let Some(t) = board
-            .workspace_mut(&workspace)
-            .and_then(|ws| ws.tabs.iter_mut().find(|t| t.id == tab))
-        {
-            t.title = title.to_string();
-        }
+        let _ = workspace_lifecycle::apply(
+            &mut board,
+            &workspace,
+            Change::RenameTab {
+                tab,
+                title: title.into(),
+            },
+        );
     }
     publish(&app);
 }
 
-/// Restart the process when chat_send receives a message for a stopped tab.
+/// Restart the process through the shared launch workflow and injected desktop effects.
 pub fn revive(app: &AppHandle, state: &State<AppState>, tab: &str) -> Result<bool, String> {
-    let (workspace, worktree, mut launch, cleaned, agent_session, kickoff_lost) = {
-        // Snapshot under the lock; tool resolution runs git subprocesses and reads CLI
-        // configuration, which must not block board events.
-        let (global, trust, snapshot) = {
-            let board = lock(&state.board);
-            let snapshot = board.workspace_of(tab).map(|w| {
-                let previous = w
-                    .tabs
-                    .iter()
-                    .find(|t| t.id == tab)
-                    .and_then(|t| t.agent_session.clone());
-                (w.clone(), previous)
-            });
-            (board.tools.clone(), board.tool_trust.clone(), snapshot)
-        };
-        let Some((ws, previous)) = snapshot else {
-            return Err(i18n::t("err.session.noTab"));
-        };
-        let agent = ws.launch_of(tab, &ResolvedTools::default()).agent;
-        let tools = resolve_workspace_tools(&global, &trust, &ws, agent);
-        let mut launch = ws.launch_of(tab, &tools);
-        // A conversation started from a skill keeps that skill's package across resumes, validated
-        // like at creation; a skill no longer installed never blocks the resume (ADR 0057).
-        let kickoff_lost = ws
-            .tabs
-            .iter()
-            .find(|t| t.id == tab)
-            .and_then(|t| t.kickoff.as_deref())
-            .and_then(|kickoff| {
-                crate::kickoff::resume(
-                    &mut launch,
-                    kickoff,
-                    &crate::skills::load(),
-                    &crate::plugins::load(),
-                )
-            });
-        (
-            ws.id.clone(),
-            PathBuf::from(&ws.worktree),
-            launch,
-            ws.cleaned,
-            previous,
-            kickoff_lost,
-        )
-    };
-    if let Some(delegation) = lock(&state.board).delegations.iter().find(|d| d.id == tab) {
-        launch.permission = delegation.permission;
-    }
-    if cleaned {
-        return Err(i18n::t("err.session.cleaned"));
-    }
-    if !worktree.exists() {
-        return Err(i18n::ta(
-            "err.session.noWorktree",
-            &[("path", worktree.display().to_string())],
-        ));
-    }
-
-    // Remove the previous Chat handle even when its process has already exited.
-    chat::kill(state, tab);
-
-    // Claude conversations without a transcript must restart with their existing ID. Codex instead
-    // resumes only when its previously returned thread identity is known.
-    let (resume, handle) = match launch.agent {
-        ProviderId::RetiredGemini => return Err(i18n::t("err.provider.retired")),
-        ProviderId::Antigravity => (
-            agent_session.is_some(),
-            crate::antigravity::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
-        ),
-        ProviderId::Codex => (
-            agent_session.is_some(),
-            crate::codex::spawn(app, tab, &workspace, &worktree, agent_session, &launch)?,
-        ),
-        ProviderId::Claude => {
-            let resume = paths::transcript(tab, &worktree).exists();
-            (
-                resume,
-                crate::claude::spawn(app, tab, &worktree, resume, &launch)?,
-            )
-        }
-    };
-    if let Some(notice) = kickoff_lost {
-        handle.warn("kickoff.missing", &notice);
-    }
-    lock(&state.chats).insert(tab.to_string(), handle);
-    {
-        let mut board = lock(&state.board);
-        if let Some(t) = board.tab_mut(tab) {
-            t.status = Status::Pronta;
-            t.note = None;
-        }
-    }
-    publish(app);
-    chat::ready_now(app, tab);
-    Ok(resume)
+    launch::resume(app, state, tab)
 }
 
 fn spawn_tab(
@@ -2091,16 +1456,17 @@ fn spawn_tab_with_id(
         .map(|workspace| PathBuf::from(&workspace.worktree))
         .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    // The selected provider determines which CLI runs; the tab identity stays the same.
-    let handle = match launch.agent {
-        ProviderId::Antigravity => {
-            crate::antigravity::spawn(app, &id, workspace, &worktree, None, launch)?
-        }
-        ProviderId::RetiredGemini => return Err(i18n::t("err.provider.retired")),
-        ProviderId::Codex => crate::codex::spawn(app, &id, workspace, &worktree, None, launch)?,
-        ProviderId::Claude => crate::claude::spawn(app, &id, &worktree, false, launch)?,
-    };
-    lock(&state.chats).insert(id.clone(), handle);
+    launch::start(
+        app,
+        state,
+        &prometeu_core::session::launch::LaunchRequest {
+            session: id.clone(),
+            workspace: workspace.into(),
+            worktree: worktree.to_string_lossy().into_owned(),
+            settings: launch.clone(),
+            mode: prometeu_core::session::launch::StartMode::Fresh,
+        },
+    )?;
     // The caller publishes the tab before chat::ready_now releases its pending prompt.
     Ok(Tab {
         plan: launch.agent == ProviderId::Antigravity && launch.plan,
@@ -2135,26 +1501,7 @@ fn artifacts_of(ws: &Workspace) -> Option<String> {
     Some(inside.join(declared).to_string_lossy().into_owned())
 }
 
-/// Open with the kickoff line when there is one, then attach initial context through @path
-/// mentions supported by the agent, then the person's prompt.
-fn first_message(opening: Option<&str>, prompt: &str, inject: &[String]) -> Option<String> {
-    let mentions = inject
-        .iter()
-        .filter(|p| !p.trim().is_empty())
-        .map(|p| format!("@{}", p.trim()))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let parts: Vec<String> = [
-        opening.unwrap_or_default().to_string(),
-        mentions,
-        prompt.trim().to_string(),
-    ]
-    .into_iter()
-    .filter(|s| !s.is_empty())
-    .collect();
-    (!parts.is_empty()).then(|| parts.join("\n\n"))
-}
+use prometeu_core::workspace_draft::first_message;
 
 /// Derive a short tab title from the prompt's first line; multiple tabs share limited horizontal
 /// space.
@@ -2168,7 +1515,13 @@ fn tab_title(prompt: &str) -> String {
 
 /// Use base only for new branches; existing branches retain their history. Return whether this call
 /// created the worktree, because adopted directories must survive rollback of sibling repositories.
-fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<bool, String> {
+fn add_worktree(
+    runner: &dyn CommandRunner<Command>,
+    repo: &Path,
+    branch: &str,
+    base: &str,
+    dest: &Path,
+) -> Result<bool, String> {
     // Reuse existing directories only when they contain the requested branch.
     if dest.exists() {
         return match head_branch(dest) {
@@ -2203,7 +1556,7 @@ fn add_worktree(repo: &Path, branch: &str, base: &str, dest: &Path) -> Result<bo
     } else {
         cmd.arg("-b").arg(branch).arg(dest);
         if !base.is_empty() {
-            if let Err(e) = prepare_base(repo, base) {
+            if let Err(e) = prepare_base(runner, repo, base) {
                 close_dirs(&abertas);
                 return Err(e);
             }
@@ -2353,7 +1706,12 @@ fn undo_worktrees(feitos: &[(PathBuf, PathBuf)]) {
 
 /// Without worktree isolation, create or select the branch in the original clone. Uncommitted
 /// changes move with the checkout when Git permits it; otherwise report Git's error.
-fn switch_branch(repo: &Path, branch: &str, base: &str) -> Result<(), String> {
+fn switch_branch(
+    runner: &dyn CommandRunner<Command>,
+    repo: &Path,
+    branch: &str,
+    base: &str,
+) -> Result<(), String> {
     if head_branch(repo).as_deref() == Some(branch) {
         return Ok(());
     }
@@ -2365,7 +1723,7 @@ fn switch_branch(repo: &Path, branch: &str, base: &str) -> Result<(), String> {
     } else {
         cmd.arg("-c").arg(branch);
         if !base.is_empty() {
-            prepare_base(repo, base)?;
+            prepare_base(runner, repo, base)?;
             cmd.arg(base);
         }
     }
@@ -2389,18 +1747,19 @@ fn switch_branch(repo: &Path, branch: &str, base: &str) -> Result<(), String> {
 }
 
 fn head_branch(repo: &Path) -> Option<String> {
-    let name = git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
-        .trim()
-        .to_string();
-    (!name.is_empty() && name != "HEAD").then_some(name)
+    prometeu_core::repository::head_name(&git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]))
 }
 
 /// Refresh only the requested remote base. If the network fails, the existing local ref remains
 /// usable.
-fn prepare_base(repo: &Path, base: &str) -> Result<(), String> {
+fn prepare_base(
+    runner: &dyn CommandRunner<Command>,
+    repo: &Path,
+    base: &str,
+) -> Result<(), String> {
     if let Some((remote, rest)) = base.split_once('/') {
         if has_commit(repo, &format!("refs/remotes/{base}")) {
-            let _ = fetch(repo, remote, rest);
+            let _ = fetch(runner, repo, remote, rest);
         }
     }
     match has_commit(repo, base) {
@@ -2416,27 +1775,34 @@ fn prepare_base(repo: &Path, base: &str) -> Result<(), String> {
 }
 
 /// Bound git fetch duration so a stalled network cannot stall workspace preparation.
-fn fetch(repo: &Path, remote: &str, branch: &str) -> Result<(), String> {
-    let mut child = Command::new("git")
+fn fetch(
+    runner: &dyn CommandRunner<Command>,
+    repo: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<(), String> {
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(repo)
-        .args(["fetch", "--quiet", remote, branch])
-        .stdin(std::process::Stdio::null())
-        .spawn()
-        .map_err(i18n::io)?;
-
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return Ok(()),
-            Err(e) => return Err(i18n::io(e)),
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                return Err(i18n::t("err.git.fetchSlow"));
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
-        }
-    }
+        .args(["fetch", "--quiet", remote, branch]);
+    runner
+        .run(
+            &mut command,
+            &[],
+            CommandPolicy {
+                timeout: std::time::Duration::from_secs(10),
+                stdout: OutputPolicy::Inherit,
+                stderr: OutputPolicy::Inherit,
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| match error {
+            CommandError::Timeout => i18n::t("err.git.fetchSlow"),
+            CommandError::Unavailable => i18n::io("git executable not found"),
+            CommandError::Io(cause) => i18n::io(cause),
+            _ => i18n::io("unexpected fetch output failure"),
+        })
 }
 
 /// Require a ref that resolves to a commit; verify alone accepts objects that worktree add cannot
@@ -2498,83 +1864,20 @@ fn default_base(repo: &Path) -> String {
     list_branches(repo.display().to_string()).default
 }
 
-/// List repository branches for the launcher, with recently updated branches first.
-#[derive(serde::Serialize)]
-pub struct Branches {
-    pub all: Vec<String>,
-    pub local: Vec<String>,
-    pub default: String,
-    /// Distinguish a non-Git folder from a newly initialized repository with no refs, so the
-    /// launcher can enable valid controls.
-    pub git: bool,
-}
-
+pub use prometeu_core::repository::Branches;
+/// List repository branches using the shared launcher's reference selection policy.
 #[tauri::command(async)]
 pub fn list_branches(project: String) -> Branches {
     let repo = PathBuf::from(expand(&project));
-    let git_repo = repo.join(".git").exists();
-    let refs = |pattern: &str| -> Vec<String> {
-        git(
-            &repo,
-            &[
-                "for-each-ref",
-                "--sort=-committerdate",
-                "--format=%(refname:short)",
-                pattern,
-            ],
-        )
-        .lines()
-        .map(str::trim)
-        .filter(|r| !r.is_empty() && !r.ends_with("/HEAD"))
-        .map(str::to_string)
-        .collect()
-    };
-    let locals = refs("refs/heads");
-    let remotes = refs("refs/remotes");
-
-    // Prefer the saved origin/HEAD, then conventional names, then the current branch.
-    let head = git(
-        &repo,
-        &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-    )
-    .trim()
-    .to_string();
-    let default = [head, "origin/main".to_string(), "origin/master".to_string()]
-        .into_iter()
-        .find(|r| !r.is_empty() && remotes.contains(r))
-        .or_else(|| {
-            let head = git(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
-                .trim()
-                .to_string();
-            (!head.is_empty() && head != "HEAD").then_some(head)
-        })
-        .or_else(|| locals.first().cloned())
-        .unwrap_or_default();
-
-    // Put the selected base first, followed by local and remote branches.
-    let mut all: Vec<String> = Vec::new();
-    for name in [default.clone()]
-        .into_iter()
-        .chain(locals.iter().cloned())
-        .chain(remotes)
-    {
-        if !name.is_empty() && !all.contains(&name) {
-            all.push(name);
-        }
-    }
-    Branches {
-        all,
-        local: locals,
-        default,
-        git: git_repo,
-    }
+    prometeu_core::repository::branches(|args| git(&repo, args), repo.join(".git").exists())
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        artifacts_of, first_message, multi_pr_text, patch_map, pr_text, resolve_tools, Choice,
-        Draft, Pr, ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
+        artifacts_of, first_message, multi_pr_text, patch_map, pr_text, resolve_tools,
+        workspace_launch, workspace_launch_of, workspace_launch_with, Choice, Draft, Pr,
+        ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -2693,7 +1996,14 @@ mod tests {
         );
 
         let dest = root.join("wt");
-        super::add_worktree(&local, "work", "origin/main", &dest).unwrap();
+        super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "work",
+            "origin/main",
+            &dest,
+        )
+        .unwrap();
 
         let mut ws = super::Workspace {
             id: "w".into(),
@@ -2785,7 +2095,14 @@ mod tests {
             ],
         );
         let dest2 = root.join("wt2");
-        super::add_worktree(&local2, "work", "origin/main", &dest2).unwrap();
+        super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &local2,
+            "work",
+            "origin/main",
+            &dest2,
+        )
+        .unwrap();
         ws.repos.push(Repo {
             path: local2.display().to_string(),
             name: "clone-2".into(),
@@ -3135,8 +2452,8 @@ mod tests {
                 };
                 ws.tabs = vec![tab("custom", Some(choice.clone())), tab("inherited", None)];
                 for launch in [
-                    ws.launch_with(Some(choice), &tools),
-                    ws.launch_of("custom", &tools),
+                    workspace_launch_with(&ws, Some(choice), &tools),
+                    workspace_launch_of(&ws, "custom", &tools),
                 ] {
                     assert_eq!(launch.agent, provider);
                     assert_eq!(launch.model, "tab-model");
@@ -3146,8 +2463,8 @@ mod tests {
                     assert!(!launch.plan);
                 }
                 for launch in [
-                    ws.launch_with(None, &tools),
-                    ws.launch_of("inherited", &tools),
+                    workspace_launch_with(&ws, None, &tools),
+                    workspace_launch_of(&ws, "inherited", &tools),
                 ] {
                     assert_eq!(launch.model, "workspace-model");
                     assert_eq!(launch.effort, "high");
@@ -3190,7 +2507,7 @@ mod tests {
             &[],
             &hub,
         );
-        let launch = ws.launch(&tools);
+        let launch = workspace_launch(&ws, &tools);
         assert_eq!(launch.plugins, Some(vec!["reviewer".into()]));
         assert_eq!(launch.skills, Some(vec!["skill-review".into()]));
         assert_eq!(
@@ -3342,22 +2659,32 @@ mod tests {
     }
 
     #[test]
-    fn replacing_mcp_base_does_not_require_account_connectors() {
+    fn explicit_account_connector_survives_replacement_until_materialization() {
         use crate::selection::{Selection, Tools};
-        let hub = vec!["hub".to_string()];
-        let global = Tools {
+        let hub = "hub".to_string();
+        let connector = "claude.ai Drive".to_string();
+        let global = Tools::default();
+        let project = Tools::default();
+        let workspace = Tools {
+            mcp: Some(Selection::only(vec![hub.clone(), connector.clone()])),
+            ..Default::default()
+        };
+        let mut universe = vec![hub.clone()];
+        super::keep_selected_connectors(&mut universe, [&global, &project, &workspace]);
+        let resolved = resolve_tools(&global, &project, &workspace, &[], &universe, &[]);
+        assert_eq!(resolved.mcp, Some(vec![hub, connector]));
+        assert!(!resolved.mcp_inherits_base);
+        assert!(
+            prometeu_tools::mcp::config_body(&[], resolved.mcp.as_ref().unwrap(), |_| None)
+                .is_err()
+        );
+        let inherited = Tools {
             mcp: Some(Selection::default()),
             ..Default::default()
         };
-        let workspace = Tools {
-            mcp: Some(Selection::only(hub.clone())),
-            ..Default::default()
-        };
-        let resolved = resolve_tools(&global, &Tools::default(), &workspace, &[], &hub, &[]);
-        assert_eq!(resolved.mcp, Some(hub));
-        assert!(!resolved.mcp_inherits_base);
-        let inherited = resolve_tools(&global, &Tools::default(), &Tools::default(), &[], &[], &[]);
-        assert!(inherited.mcp_inherits_base);
+        assert!(
+            resolve_tools(&inherited, &project, &Tools::default(), &[], &[], &[]).mcp_inherits_base
+        );
     }
 
     /// Real files and both adapters' universes, isolated from the user's configuration in a child.
@@ -3423,11 +2750,11 @@ mod tests {
                     agent,
                     ..Choice::default()
                 };
-                let launch = ws.launch_with(Some(choice.clone()), &tools);
+                let launch = workspace_launch_with(&ws, Some(choice.clone()), &tools);
                 assert_eq!(launch.agent, agent);
                 assert_eq!(launch.mcp.as_ref().unwrap(), &expected);
                 ws.tabs = vec![tab("mixed", Some(choice))];
-                let resumed = ws.launch_of("mixed", &tools);
+                let resumed = workspace_launch_of(&ws, "mixed", &tools);
                 assert_eq!(resumed.agent, agent);
                 assert_eq!(resumed.mcp.as_ref().unwrap(), &expected);
                 // Materialize the exact resolved set at the provider boundary.
@@ -3435,14 +2762,13 @@ mod tests {
                     ProviderId::Claude => {
                         crate::mcp::config_for(
                             "test",
-                            launch.mcp.as_ref(),
+                            launch.mcp.as_deref(),
                             Path::new(&ws.worktree),
-                            launch.mcp_inherits_base,
                         )
                         .unwrap();
                     }
                     ProviderId::Codex | ProviderId::Antigravity | ProviderId::RetiredGemini => {
-                        crate::mcp::codex_config("test", launch.mcp.as_ref()).unwrap();
+                        crate::mcp::codex_config("test", launch.mcp.as_deref()).unwrap();
                     }
                 }
             }
@@ -3668,7 +2994,7 @@ mod tests {
         // Changing the workspace afterwards must not reach the frozen task.
         ws.mcp = Some(Selection::only(vec!["changed".into()]));
         ws.model = "haiku".into();
-        let launch = ws.launch_of("task", &ResolvedTools::default());
+        let launch = workspace_launch_of(&ws, "task", &ResolvedTools::default());
         assert_eq!(launch.model, "opus");
         assert_eq!(launch.mcp, Some(vec!["original".into()]));
         assert_eq!(launch.plugins, Some(vec![]));
@@ -3697,14 +3023,14 @@ mod tests {
             ),
         ];
 
-        let inherited = ws.launch_of("inherited", &ResolvedTools::default());
+        let inherited = workspace_launch_of(&ws, "inherited", &ResolvedTools::default());
         assert_eq!(
             (inherited.model.as_str(), inherited.effort.as_str()),
             ("opus[1m]", "high")
         );
         assert_eq!(inherited.agent, ProviderId::Claude);
 
-        let explicit_choice = ws.launch_of("explicit", &ResolvedTools::default());
+        let explicit_choice = workspace_launch_of(&ws, "explicit", &ResolvedTools::default());
         assert_eq!(explicit_choice.agent, ProviderId::Codex);
         assert_eq!(
             (
@@ -3718,7 +3044,7 @@ mod tests {
 
         // A tab removed while the request was in flight falls back to workspace defaults.
         assert_eq!(
-            ws.launch_of("missing", &ResolvedTools::default()).model,
+            workspace_launch_of(&ws, "missing", &ResolvedTools::default()).model,
             "opus[1m]"
         );
     }
@@ -3739,7 +3065,7 @@ mod tests {
         };
 
         ws.retune("open", choice("sonnet", "medium")).unwrap();
-        let launch = ws.launch_of("open", &ResolvedTools::default());
+        let launch = workspace_launch_of(&ws, "open", &ResolvedTools::default());
         assert_eq!(
             (launch.model.as_str(), launch.effort.as_str()),
             ("sonnet", "medium")
@@ -3938,27 +3264,66 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
         assert!(super::existing_branch_source(&local, "missing", Some("origin/missing")).is_err());
         assert!(super::existing_branch_source(&local, "new", Some("origin/old")).is_err());
         assert!(super::existing_branch_source(&local, "main", Some("origin/main")).is_err());
-        super::add_worktree(&local, "new", "origin/old", &dest).unwrap();
+        super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "new",
+            "origin/old",
+            &dest,
+        )
+        .unwrap();
         assert_eq!(run(&dest, &["rev-parse", "HEAD"]), old);
         assert_eq!(run(&dest, &["rev-parse", "--abbrev-ref", "HEAD"]), "new");
 
         // Reject a base that does not exist.
-        let error = super::add_worktree(&local, "other", "origin/missing", &root.join("wt2"));
+        let error = super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "other",
+            "origin/missing",
+            &root.join("wt2"),
+        );
         assert!(error.unwrap_err().contains("missing"));
 
         // Reuse a worktree already on the requested branch so repeated creation is safe.
-        super::add_worktree(&local, "new", "origin/old", &dest).unwrap();
+        super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "new",
+            "origin/old",
+            &dest,
+        )
+        .unwrap();
         // Reject an existing worktree on the wrong branch.
-        let error = super::add_worktree(&local, "other-branch", "origin/main", &dest).unwrap_err();
+        let error = super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "other-branch",
+            "origin/main",
+            &dest,
+        )
+        .unwrap_err();
         assert!(error.contains("new"), "{error}");
 
         // Without worktree isolation, move the original clone's HEAD to a branch at the selected
         // base without creating a directory.
-        super::switch_branch(&local, "here", "origin/old").unwrap();
+        super::switch_branch(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "here",
+            "origin/old",
+        )
+        .unwrap();
         assert_eq!(run(&local, &["rev-parse", "--abbrev-ref", "HEAD"]), "here");
         assert_eq!(run(&local, &["rev-parse", "HEAD"]), old);
         // Selecting the current branch is a no-op.
-        super::switch_branch(&local, "here", "origin/main").unwrap();
+        super::switch_branch(
+            &prometeu_process::command::UnixCommandRunner,
+            &local,
+            "here",
+            "origin/main",
+        )
+        .unwrap();
         assert_eq!(run(&local, &["rev-parse", "HEAD"]), old);
 
         let _ = std::fs::remove_dir_all(&root);
@@ -3997,12 +3362,25 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
 
         // Create the single-repository workspace first.
         let first = root.join("code-rules").join("aut-49");
-        assert!(super::add_worktree(&repo, "aut-49", "", &first).unwrap());
+        assert!(super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &repo,
+            "aut-49",
+            "",
+            &first
+        )
+        .unwrap());
 
         // Request the same branch at the multi-repository path.
         let second = root.join("code-rules+autonomous").join("aut-49");
-        let error =
-            super::add_worktree(&repo, "aut-49", "", &second.join("code-rules")).unwrap_err();
+        let error = super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &repo,
+            "aut-49",
+            "",
+            &second.join("code-rules"),
+        )
+        .unwrap_err();
         let location = first.canonicalize().unwrap().display().to_string();
         assert!(
             error.contains("aut-49") && error.contains(&location),
@@ -4017,7 +3395,14 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
 
         // Adopt an existing worktree on the requested branch, and preserve it during rollback of a
         // sibling failure.
-        assert!(!super::add_worktree(&repo, "aut-49", "", &first).unwrap());
+        assert!(!super::add_worktree(
+            &prometeu_process::command::UnixCommandRunner,
+            &repo,
+            "aut-49",
+            "",
+            &first
+        )
+        .unwrap());
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -4151,17 +3536,6 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
         assert!(!is_terminal("setup"));
         assert!(!is_terminal("run"));
     }
-}
-
-/// Run read-only Git predicates and use their exit status as the result.
-fn git_ok(dir: &Path, args: &[&str]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -4398,4 +3772,44 @@ pub(crate) fn cwd_of(state: &State<AppState>, id: &str) -> Option<PathBuf> {
                 .find(|p| p.id == id)
                 .map(|p| PathBuf::from(&p.path))
         })
+}
+
+#[cfg(test)]
+mod fetch_port_tests {
+    use super::*;
+    use prometeu_core::command::CommandOutput;
+    struct Runner(bool);
+    impl CommandRunner<Command> for Runner {
+        fn run(
+            &self,
+            request: &mut Command,
+            input: &[u8],
+            policy: CommandPolicy,
+        ) -> Result<CommandOutput, CommandError> {
+            assert_eq!(request.get_program(), "git");
+            assert_eq!(
+                request.get_args().collect::<Vec<_>>(),
+                ["-C", "/fixture", "fetch", "--quiet", "origin", "main"]
+            );
+            assert!(input.is_empty());
+            assert_eq!(policy.timeout, std::time::Duration::from_secs(10));
+            assert_eq!(policy.stdout, OutputPolicy::Inherit);
+            match self.0 {
+                true => Ok(CommandOutput {
+                    success: false,
+                    stdout: vec![],
+                    stderr: vec![],
+                }),
+                false => Err(CommandError::Timeout),
+            }
+        }
+    }
+    #[test]
+    fn preparation_fetch_preserves_nonzero_fallback_and_timeout_code() {
+        assert!(fetch(&Runner(true), Path::new("/fixture"), "origin", "main").is_ok());
+        assert_eq!(
+            fetch(&Runner(false), Path::new("/fixture"), "origin", "main"),
+            Err(i18n::t("err.git.fetchSlow"))
+        );
+    }
 }

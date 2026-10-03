@@ -3,15 +3,7 @@ use crate::state::Project;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Serialize)]
-pub struct CatalogProject {
-    #[serde(flatten)]
-    item: Portable,
-    organization: Option<String>,
-    organization_name: Option<String>,
-    revision: Option<u64>,
-    local_path: Option<String>,
-}
+pub use prometeu_tools::catalog::CatalogProject;
 
 pub(super) fn state(cache: &Cache, registered: &[Project]) -> Vec<CatalogProject> {
     let local: Vec<_> = if cache.doc.projects.is_empty()

@@ -3,7 +3,6 @@
 //! Non-prefixed external errors remain readable as supplied. The canonical message catalog lives in
 //! src/i18n.pt.ts.
 
-use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 /// The frontend sets the global display language at startup and on changes. Only terminal notices,
@@ -41,15 +40,10 @@ pub fn pick(pt_br: &str, en: &str) -> String {
 }
 
 /// Encode a message code without arguments.
-pub fn t(code: &str) -> String {
-    format!("i18n:{}", serde_json::json!({ "code": code }))
-}
+pub use prometeu_core::error::code as t;
 
 /// Encode a message code with arguments named after the catalog placeholders.
-pub fn ta(code: &str, args: &[(&str, String)]) -> String {
-    let map: BTreeMap<&str, &str> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    format!("i18n:{}", serde_json::json!({ "code": code, "args": map }))
-}
+pub use prometeu_core::error::with_args as ta;
 
 /// Wrap external library errors through the catalog without translating their diagnostic text.
 pub fn io(cause: impl ToString) -> String {

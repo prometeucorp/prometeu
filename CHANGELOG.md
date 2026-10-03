@@ -4,6 +4,19 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.23.0] - 2026-10-03
+
+### New
+
+- **windows:** Run the existing desktop with codex in wsl
+- **windows:** Include installer in desktop releases
+
+### Fixes
+
+- **wsl:** Preserve startup errors and keep resident connections open
+- **auth:** Wait for complete oauth callback requests
+- **auth:** Accept oauth callbacks behind large localhost cookies
+
 ## [0.22.0] - 2026-10-02
 
 ### New
