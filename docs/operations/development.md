@@ -333,7 +333,9 @@ selects Python 3.12 explicitly on both Unix hosts. CI matrices retain all platfo
 results even when a sibling fails. Path assertions use canonical paths, and the
 worktree fixture exercises a symlinked source. Resident fixtures use private,
 canonical directories under `/tmp` to stay within Unix socket limits even when
-the host's temporary directory is long. See [run instructions](../contracts/headless-runtime.md#run) for a real
+the host's temporary directory is long. The saturated-terminal fixture replaces
+the shell with its output producer so cleanup exercises the supervised process
+group independently of interactive shell job control. See [run instructions](../contracts/headless-runtime.md#run) for a real
 conversation and the current limitations. Real-provider smoke testing uses an
 isolated runtime directory and the execution environment's existing Codex login.
 

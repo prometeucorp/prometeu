@@ -69,7 +69,7 @@ jobs:
         with:
           python-version: '3.12'
       # Real local processes, without a webview, GUI libraries or installed agent.
-      - run: cargo test -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --locked
+      - run: cargo test -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --locked --no-fail-fast
       - run: cargo clippy -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --all-targets --locked -- -D warnings
 
   macos:

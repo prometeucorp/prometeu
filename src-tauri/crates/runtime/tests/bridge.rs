@@ -323,10 +323,12 @@ fn terminal_roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) 
         .unwrap();
     until(&rx, "turn.completed");
     let held = client.terminal_open(80, 24).unwrap();
+    // Keep the producer in the supervised shell group. Interactive shells can put
+    // foreground jobs in a separate group, whose lifetime is outside this contract.
     client
         .terminal_write(
             held.id.clone(),
-            b"stty -icanon -echo; head -c 1048576 /dev/zero; sleep 30\r".to_vec(),
+            b"stty -icanon -echo; exec head -c 1048576 /dev/zero\r".to_vec(),
         )
         .unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
@@ -356,7 +358,11 @@ fn terminal_roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) 
     let closing = std::time::Instant::now();
     // EOF must wait for PTY cleanup before releasing the runtime root.
     drop(client);
-    assert!(closing.elapsed() < Duration::from_secs(9));
+    assert!(
+        closing.elapsed() < Duration::from_secs(9),
+        "cleanup took {:?}",
+        closing.elapsed()
+    );
     assert!(prometeu_runtime::store::Store::open(
         &std::path::PathBuf::from(&target.root),
         &workdir
