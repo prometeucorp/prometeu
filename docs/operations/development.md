@@ -299,9 +299,10 @@ nor installed agent CLIs. It is included in the workspace Rust suite and runs
 in an independent Linux/macOS CI job. `npm run test:core` separately checks
 shutdown policy with injected controls and keeps its Windows CI coverage.
 The same suite now includes real PTYs (input, resize, EOF, exit and group
-shutdown) and private authentication pipes (line bounds and cleanup). Its Python 3
-PTY fixture explicitly detaches the controlling terminal before closing stdio,
-so EOF while the child remains alive does not depend on Linux-only behavior. These
+shutdown) and private authentication pipes (line bounds and cleanup). The live-child
+shutdown test injects a reader that ends after the readiness marker, keeping a real
+PTY process alive without assuming when the host reports native EOF. Native EOF
+and exit status are covered separately by the terminating-child test. These
 tests do not exercise a Windows shell, WSL bootstrap or live OAuth.
 
 Bounded query/command adapter tests also run in `npm run test:process`. They use

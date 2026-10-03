@@ -52,29 +52,20 @@ fn terminal_input_and_resizing_reach_the_child() {
     assert_eq!(terminal.waiter.wait().unwrap(), 0);
 }
 #[test]
-fn terminal_eof_does_not_disable_shutdown_of_a_live_child() {
-    // Release the controlling terminal as well as its descriptors: closing stdio alone
-    // does not produce PTY EOF on every Unix host while the session leader remains alive.
-    let mut command = CommandBuilder::new("python3");
-    command.args([
-        "-c",
-        r#"import fcntl, os, signal, sys, termios
-signal.signal(signal.SIGHUP, signal.SIG_IGN)
-signal.signal(signal.SIGTERM, signal.SIG_IGN)
-sys.stdout.write('ready')
-sys.stdout.flush()
-tty = os.open('/dev/tty', os.O_RDWR)
-fcntl.ioctl(tty, termios.TIOCNOTTY)
-os.close(tty)
-with open(os.devnull, 'r+b') as null:
-    for fd in (0, 1, 2):
-        os.dup2(null.fileno(), fd)
-os.execvp('sleep', ['sleep', '30'])
-"#,
-    ]);
-    let mut terminal = UnixTerminalFactory
-        .open(command, TerminalSize { cols: 80, rows: 24 })
-        .unwrap();
+fn output_eof_does_not_disable_shutdown_of_a_live_terminal_child() {
+    let mut command = CommandBuilder::new("/bin/sh");
+    command.args(["-c", "trap '' HUP TERM; printf ready; exec sleep 30"]);
+    // End the injected reader after the readiness marker. Native PTYs differ in when
+    // they report EOF for a live session; shutdown must remain independent of either.
+    let mut terminal = open_with_streams(
+        command,
+        TerminalSize { cols: 80, rows: 24 },
+        |master, closing| {
+            let (reader, writer) = blocking_streams(master, closing)?;
+            Ok((Box::new(reader.take(5)), writer))
+        },
+    )
+    .unwrap();
     let output = drain(terminal.output)
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
