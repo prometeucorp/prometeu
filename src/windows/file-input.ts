@@ -3,7 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AttachmentPicker } from "../file-input";
-import type { Commands } from "../wsl/ipc";
+import type { Commands } from "./host";
 
 function paths(paths: string[], direction: "linux" | "windows") {
   return invoke<Commands["application_paths"]["result"]>("application_paths", { paths, direction });

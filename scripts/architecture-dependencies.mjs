@@ -17,7 +17,7 @@ const resourceDependencies = new Set([
   "src/components/primitives.ts", "src/components/menu.ts",
 ]);
 const componentEffects = new Set(["fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage", "indexedDB"]);
-const pureRoots = new Set(["src/wsl/workspaces.ts", "src/wsl/session.ts", "src/wsl/terminal.ts", "src/review-comments.ts", "src/review-context.ts", "src/message-context.ts", "src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts"]);
+const pureRoots = new Set(["src/review-comments.ts", "src/review-context.ts", "src/message-context.ts", "src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts"]);
 const desktop = /^src\/(?:ipc|mock|team)\.ts$/;
 const mobileDesktop = /^src\/(?:ipc|mock|team|chat|session|main)\.ts$/;
 const ambientEffects = new Set([

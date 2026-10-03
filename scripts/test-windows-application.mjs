@@ -109,7 +109,7 @@ async function connect() {
     record("Original project picker and launcher created the first conversation in WSL");
     return;
   }
-  // Fixtures select the existing diagnostic transport through IPC; no product setup UI.
+  // Replace the bootstrap attachment through fixture-only host commands; there is no product setup UI.
   await page.evaluate(async target => {
     // Busy shutdown is rejected before effects. Wait only for that explicit refusal;
     // a transport failure or uncertain outcome must not repeat the shutdown request.
@@ -129,7 +129,7 @@ async function connect() {
 }
 async function closeWindow() {
   const child = application;
-  await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `$p = Get-Process -Id ${child.pid} -ErrorAction Stop; if (-not $p.CloseMainWindow()) { throw 'Could not close native preview window' }`], { timeout: 15_000 });
+  await execute("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `$p = Get-Process -Id ${child.pid} -ErrorAction Stop; if (-not $p.CloseMainWindow()) { throw 'Could not close native window' }`], { timeout: 15_000 });
   await expect.poll(() => child.exitCode, { timeout: 15_000 }).not.toBeNull();
   await browser?.close().catch(() => {}); browser = undefined; page = undefined; application = undefined;
 }

@@ -46,7 +46,6 @@
     "build:app:wsl": "node scripts/wsl-app.mjs build --no-bundle",
     "package:windows": "node scripts/wsl-app.mjs build --bundles nsis",
     "test:windows:native": "node scripts/test-windows-application.mjs",
-    "test:wsl:native": "node scripts/test-wsl-native.mjs",
     "test:bridge": "cd src-tauri && cargo test -p prometeu-bridge --locked"
   },
   "dependencies": {

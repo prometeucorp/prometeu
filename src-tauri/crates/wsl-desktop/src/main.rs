@@ -2,11 +2,9 @@
 mod clipboard;
 mod consent;
 mod explorer;
-use prometeu_bridge::terminal::{OpenedTerminal, TerminalSnapshot};
-use prometeu_bridge::workspaces::Catalog;
 use prometeu_bridge::{
-    ApplicationWslLauncher, ResidentWslLauncher, Response, RuntimeClient, RuntimeConnector,
-    RuntimeEvents, Snapshot, Started, StdioConnector, Target,
+    ApplicationWslLauncher, ResidentWslLauncher, RuntimeClient, RuntimeConnector, RuntimeEvents,
+    StdioConnector, Target,
 };
 use serde_json::Value;
 use std::sync::{
@@ -25,6 +23,7 @@ struct Connected {
 }
 struct Desktop {
     bootstrap: prometeu_bridge::bootstrap::Bootstrap,
+    /// Explicit-target attachment used only by the native acceptance fixture (`wsl_connect`).
     connector: Arc<dyn RuntimeConnector>,
     application_connector: Arc<dyn RuntimeConnector>,
     application: prometeu_bridge::application::NativeApplication,
@@ -75,18 +74,6 @@ impl Desktop {
         current.events = events;
         Ok(true)
     }
-
-    fn with_session<T>(
-        &self,
-        run: impl FnOnce(&mut dyn RuntimeClient) -> Result<T, String>,
-    ) -> Result<T, String> {
-        let mut session = self.session.lock().map_err(|e| e.to_string())?;
-        run(session
-            .as_mut()
-            .ok_or("runtime is not connected")?
-            .client
-            .as_mut())
-    }
 }
 #[tauri::command]
 async fn application_open(
@@ -135,19 +122,22 @@ async fn application_reconnect(state: State<'_, Arc<Desktop>>) -> Result<bool, S
     .await
     .map_err(|e| e.to_string())?
 }
+// `wsl_connect`, `wsl_disconnect` and `wsl_shutdown` are not used by the interface. The native
+// acceptance fixture (`scripts/test-windows-application.mjs`) uses them to replace the bootstrap
+// attachment with an explicit target running a synthetic provider.
 #[tauri::command]
 async fn wsl_connect(
     app: tauri::AppHandle,
     state: State<'_, Arc<Desktop>>,
     target: Target,
     connection: String,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut session = state.session.lock().map_err(|e| e.to_string())?;
         if let Some(existing) = session.as_ref() {
             if existing.target == target {
-                return Ok(existing.client.terminal_supported());
+                return Ok(());
             }
             return Err("disconnect the current runtime first".into());
         }
@@ -157,26 +147,16 @@ async fn wsl_connect(
             active: AtomicBool::new(true),
         });
         let client = state.connector.connect(&target, events.clone())?;
-        let terminal = client.terminal_supported();
         *session = Some(Connected {
             target,
             client,
             events,
             connector: state.connector.clone(),
         });
-        Ok(terminal)
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
-}
-async fn operation<T: Send + 'static>(
-    state: State<'_, Arc<Desktop>>,
-    run: impl FnOnce(&mut dyn RuntimeClient) -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || state.with_session(run))
-        .await
-        .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn application_paths(
@@ -275,64 +255,6 @@ async fn application_request(
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-async fn wsl_workspace_worktree(
-    state: State<'_, Arc<Desktop>>,
-    request: prometeu_bridge::workspaces::WorktreeRequest,
-) -> Result<Catalog, String> {
-    operation(state, move |s| s.workspace_worktree(request)).await
-}
-#[tauri::command]
-async fn wsl_workspace_list(state: State<'_, Arc<Desktop>>) -> Result<Catalog, String> {
-    operation(state, |s| s.workspace_list()).await
-}
-#[tauri::command]
-async fn wsl_workspace_create(
-    state: State<'_, Arc<Desktop>>,
-    title: String,
-    path: String,
-) -> Result<Catalog, String> {
-    operation(state, move |s| s.workspace_create(title, path)).await
-}
-#[tauri::command]
-async fn wsl_workspace_select(
-    state: State<'_, Arc<Desktop>>,
-    id: String,
-) -> Result<Catalog, String> {
-    operation(state, move |s| s.workspace_select(id)).await
-}
-#[tauri::command]
-async fn wsl_workspace_stage(
-    state: State<'_, Arc<Desktop>>,
-    id: String,
-    stage: String,
-) -> Result<Catalog, String> {
-    operation(state, move |s| s.workspace_stage(id, stage)).await
-}
-#[tauri::command]
-async fn wsl_start(state: State<'_, Arc<Desktop>>) -> Result<Started, String> {
-    operation(state, |s| s.start()).await
-}
-#[tauri::command]
-async fn wsl_send(state: State<'_, Arc<Desktop>>, text: String) -> Result<(), String> {
-    operation(state, move |s| s.send(text)).await
-}
-#[tauri::command]
-async fn wsl_respond(
-    state: State<'_, Arc<Desktop>>,
-    request_id: String,
-    response: Response,
-) -> Result<(), String> {
-    operation(state, move |s| s.respond(request_id, response)).await
-}
-#[tauri::command]
-async fn wsl_stop(state: State<'_, Arc<Desktop>>) -> Result<(), String> {
-    operation(state, |s| s.stop()).await
-}
-#[tauri::command]
-async fn wsl_snapshot(state: State<'_, Arc<Desktop>>) -> Result<Snapshot, String> {
-    operation(state, |s| s.snapshot()).await
-}
-#[tauri::command]
 async fn wsl_disconnect(state: State<'_, Arc<Desktop>>) -> Result<(), String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -360,56 +282,6 @@ async fn wsl_shutdown(state: State<'_, Arc<Desktop>>) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
-}
-#[tauri::command]
-async fn wsl_terminal_current(
-    state: State<'_, Arc<Desktop>>,
-) -> Result<Option<TerminalSnapshot>, String> {
-    operation(state, |s| s.terminal_current()).await
-}
-#[tauri::command]
-async fn wsl_terminal_open(
-    state: State<'_, Arc<Desktop>>,
-    cols: u16,
-    rows: u16,
-) -> Result<OpenedTerminal, String> {
-    operation(state, move |s| s.terminal_open(cols, rows)).await
-}
-#[tauri::command]
-async fn wsl_terminal_write(
-    state: State<'_, Arc<Desktop>>,
-    id: String,
-    data: Vec<u8>,
-) -> Result<(), String> {
-    operation(state, move |s| s.terminal_write(id, data)).await
-}
-#[tauri::command]
-async fn wsl_terminal_resize(
-    state: State<'_, Arc<Desktop>>,
-    id: String,
-    cols: u16,
-    rows: u16,
-) -> Result<(), String> {
-    operation(state, move |s| s.terminal_resize(id, cols, rows)).await
-}
-#[tauri::command]
-async fn wsl_terminal_snapshot(
-    state: State<'_, Arc<Desktop>>,
-    id: String,
-) -> Result<TerminalSnapshot, String> {
-    operation(state, move |s| s.terminal_snapshot(id)).await
-}
-#[tauri::command]
-async fn wsl_terminal_acknowledge(
-    state: State<'_, Arc<Desktop>>,
-    id: String,
-    seq: u64,
-) -> Result<(), String> {
-    operation(state, move |s| s.terminal_acknowledge(id, seq)).await
-}
-#[tauri::command]
-async fn wsl_terminal_close(state: State<'_, Arc<Desktop>>, id: String) -> Result<(), String> {
-    operation(state, move |s| s.terminal_close(id)).await
 }
 
 fn main() {
@@ -457,28 +329,11 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             application_open,
             application_reconnect,
-            wsl_connect,
             application_request,
             application_paths,
-            wsl_workspace_worktree,
-            wsl_workspace_list,
-            wsl_workspace_create,
-            wsl_workspace_select,
-            wsl_workspace_stage,
-            wsl_start,
-            wsl_send,
-            wsl_respond,
-            wsl_stop,
-            wsl_snapshot,
+            wsl_connect,
             wsl_disconnect,
-            wsl_shutdown,
-            wsl_terminal_current,
-            wsl_terminal_open,
-            wsl_terminal_write,
-            wsl_terminal_resize,
-            wsl_terminal_snapshot,
-            wsl_terminal_close,
-            wsl_terminal_acknowledge
+            wsl_shutdown
         ])
         .build(tauri::generate_context!())
         .expect("failed to build WSL desktop")

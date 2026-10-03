@@ -6,7 +6,7 @@ export default defineConfig({
   // silently connects to another server.
   server: { port: Number(process.env.PORT ?? 1420), strictPort: true },
   build: {
-    rollupOptions: { input: { app: "index.html", wslPreview: "wsl-preview.html", notification: "notification.html", designSystem: "design-system.html", companyDesignSystem: "packages/design-system/index.html" } },
+    rollupOptions: { input: { app: "index.html", notification: "notification.html", designSystem: "design-system.html", companyDesignSystem: "packages/design-system/index.html" } },
     // Target the modern Tauri webview so production builds accept top-level await used during bootstrap.
     target: "esnext",
     minify: "esbuild",

@@ -135,7 +135,7 @@ pub fn serve(
         fs::remove_file(&address).map_err(|e| e.to_string())?;
     }
     let listener = UnixListener::bind(&address).map_err(|e| {
-        format!("resident socket: {e}; use a shorter preview root if its path is too long")
+        format!("resident socket: {e}; use a shorter runtime root if its path is too long")
     })?;
     let _endpoint = SocketPath(address.clone());
     fs::set_permissions(&address, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;

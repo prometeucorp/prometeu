@@ -8,5 +8,5 @@ export default defineConfig({
   } } }],
   server: { port: 1421, strictPort: true },
   // Embed small image assets so WebView2 renders nested SVG images without another protocol request.
-  build: { assetsInlineLimit: 8192, outDir: "dist-wsl", target: "esnext", rollupOptions: { input: ["index.html", "wsl.html"] } },
+  build: { assetsInlineLimit: 8192, outDir: "dist-wsl", target: "esnext" },
 });
