@@ -744,16 +744,34 @@ pub(crate) fn resolve_workspace_tools(
     ws: &Workspace,
     agent: ProviderId,
 ) -> ResolvedTools {
-    let (mcp_base, mcp_universe) = mcp_base_and_universe(ws, agent);
+    let project = trusted_project(trust, ws);
+    let workspace = ws.tools();
+    let (mcp_base, mut mcp_universe) = mcp_base_and_universe(ws, agent);
+    if agent == ProviderId::Claude {
+        keep_selected_connectors(&mut mcp_universe, [global, &project, &workspace]);
+    }
     let plugin_hub: Vec<String> = crate::plugins::load().into_iter().map(|p| p.id).collect();
     resolve_tools(
         global,
-        &trusted_project(trust, ws),
-        &ws.tools(),
+        &project,
+        &workspace,
         &mcp_base,
         &mcp_universe,
         &plugin_hub,
     )
+}
+
+/// Keep explicit connector IDs until strict materialization can verify their configuration.
+fn keep_selected_connectors(universe: &mut Vec<String>, layers: [&Tools; 3]) {
+    for id in layers
+        .into_iter()
+        .filter_map(|tools| tools.mcp.as_ref())
+        .flat_map(|selection| &selection.add)
+    {
+        if id.starts_with("claude.ai ") && !universe.contains(id) {
+            universe.push(id.clone());
+        }
+    }
 }
 
 /// The mcp axis base and universe of one workspace (ADR 0046): the hub IDs plus the servers the CLI
@@ -783,6 +801,7 @@ pub(crate) fn workspace_launch(workspace: &Workspace, tools: &ResolvedTools) -> 
         effort: workspace.effort.clone(),
         plan: false,
         mcp: tools.mcp.clone(),
+        mcp_inherits_base: tools.mcp_inherits_base,
         plugins: tools.plugins.clone(),
         skills: tools.skills.clone(),
         ..Default::default()
@@ -839,6 +858,7 @@ fn workspace_launch_with(
         || workspace_launch(workspace, tools),
         |choice| Launch {
             mcp: tools.mcp.clone(),
+            mcp_inherits_base: tools.mcp_inherits_base,
             plugins: tools.plugins.clone(),
             skills: tools.skills.clone(),
             ..Launch::from(choice)
@@ -1179,6 +1199,7 @@ fn build(
         if let Some(ws) = &ws {
             let tools = resolve_workspace_tools(&global, &trust, ws, launch.agent);
             launch.mcp = tools.mcp;
+            launch.mcp_inherits_base = tools.mcp_inherits_base;
             launch.plugins = tools.plugins;
             launch.skills = tools.skills;
         }
@@ -2420,6 +2441,7 @@ mod tests {
                 // The caller resolves the layers; a tab carries that result whatever its model.
                 let tools = ResolvedTools {
                     mcp: selected.clone(),
+                    mcp_inherits_base: false,
                     plugins: selected.clone(),
                     skills: None,
                 };
@@ -2634,6 +2656,35 @@ mod tests {
             }
         }
         assert!(axis_patch(&InvokeBody::Raw(vec![]), "mcp", Axis::Mcp).is_err());
+    }
+
+    #[test]
+    fn explicit_account_connector_survives_replacement_until_materialization() {
+        use crate::selection::{Selection, Tools};
+        let hub = "hub".to_string();
+        let connector = "claude.ai Drive".to_string();
+        let global = Tools::default();
+        let project = Tools::default();
+        let workspace = Tools {
+            mcp: Some(Selection::only(vec![hub.clone(), connector.clone()])),
+            ..Default::default()
+        };
+        let mut universe = vec![hub.clone()];
+        super::keep_selected_connectors(&mut universe, [&global, &project, &workspace]);
+        let resolved = resolve_tools(&global, &project, &workspace, &[], &universe, &[]);
+        assert_eq!(resolved.mcp, Some(vec![hub, connector]));
+        assert!(!resolved.mcp_inherits_base);
+        assert!(
+            prometeu_tools::mcp::config_body(&[], resolved.mcp.as_ref().unwrap(), |_| None)
+                .is_err()
+        );
+        let inherited = Tools {
+            mcp: Some(Selection::default()),
+            ..Default::default()
+        };
+        assert!(
+            resolve_tools(&inherited, &project, &Tools::default(), &[], &[], &[]).mcp_inherits_base
+        );
     }
 
     /// Real files and both adapters' universes, isolated from the user's configuration in a child.
@@ -2922,6 +2973,7 @@ mod tests {
         // The profile leaves MCP unset, so it freezes the resolved layer the caller supplies.
         let resolved = ResolvedTools {
             mcp: Some(vec!["original".into()]),
+            mcp_inherits_base: false,
             plugins: None,
             skills: None,
         };

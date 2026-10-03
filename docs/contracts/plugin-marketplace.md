@@ -109,6 +109,13 @@ passed and the CLI loads its own defaults — the same set the picker shows
 is materialized as `{ "type": "claudeai-proxy", "url": …, "id": … }`, the entry
 the CLI creates for itself: the strict flag stops the CLI from fetching the
 account list, so without this entry the connector would be dropped in silence.
+If the account list is unknown, a declared selection that still inherits the
+account base fails before spawn. A `base: "none"` layer replaces that base and
+can start with its chosen servers. An explicitly added `claude.ai` connector
+keeps its ID through resolution and fails before spawn if its configuration is
+missing. Credential read and parse failures use the macOS Keychain when it has a
+valid token; otherwise they leave the list unknown. Only a confirmed missing
+credential means an empty account list.
 
 Selecting is activating. The package must be enabled from the start of the
 session and, when it declares hooks, they must be active before the first

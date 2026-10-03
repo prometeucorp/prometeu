@@ -193,7 +193,9 @@ under the [release contract](../contracts/releases.md).
   are cached per login for five minutes, so an edit made on claude.ai can take
   that long to reach the picker, and an unreachable account keeps that login's
   last known list; with no list ever read, the picker shows the file base and a
-  spawn with a declared MCP selection fails instead of dropping connectors;
+  spawn with a declared MCP selection that inherits the base fails instead of
+  dropping connectors; a `base: "none"` replacement can start independently
+  unless an explicitly added account connector lacks its configuration;
 - attachments have UI tests over the mock and native validation of the saved
   destination; the real thumbnail gesture was confirmed in Prometeu Dev on
   2026-09-06. Actual reading by the CLI still requires manual verification.

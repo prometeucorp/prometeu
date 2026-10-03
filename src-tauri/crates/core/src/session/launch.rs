@@ -32,6 +32,9 @@ pub struct Launch {
     /// and mcp.rs.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
+    /// Whether a declared MCP selection still inherits the CLI base.
+    #[serde(skip)]
+    pub mcp_inherits_base: bool,
     /// Plugin IDs from the hub. None preserves the CLI's own configuration; see Workspace::plugins
     /// and plugins.rs.
     #[serde(default)]

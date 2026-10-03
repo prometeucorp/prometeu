@@ -184,6 +184,9 @@ fn launch_args(
     // defaults. The strict file carries the whole effective set, including the CLI-inherited
     // servers the layers kept (ADR 0046). Materialization failures must prevent startup rather
     // than silently discard selected tools.
+    if launch.mcp.is_some() && launch.mcp_inherits_base {
+        crate::mcp::requires_connectors(crate::mcp::connectors().is_some())?;
+    }
     let packages = launch.plugin_packages();
     let selected = tools.claude(id, worktree, launch.mcp.as_deref(), packages.as_deref())?;
     if let Some(path) = selected.mcp_config {

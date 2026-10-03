@@ -36,6 +36,7 @@ pub struct WorkspaceTools {
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct ResolvedTools {
     pub mcp: Option<Vec<String>>,
+    pub mcp_inherits_base: bool,
     pub plugins: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
 }
@@ -71,6 +72,11 @@ pub fn resolve_tools(
     mcp_universe: &[String],
     plugin_hub: &[String],
 ) -> ResolvedTools {
+    let mcp_layers = [
+        global.mcp.as_ref(),
+        project.mcp.as_ref(),
+        workspace.mcp.as_ref(),
+    ];
     ResolvedTools {
         mcp: resolve_axis(
             &global.mcp,
@@ -79,6 +85,11 @@ pub fn resolve_tools(
             mcp_base,
             mcp_universe,
         ),
+        mcp_inherits_base: mcp_layers.iter().any(Option::is_some)
+            && mcp_layers
+                .iter()
+                .flatten()
+                .all(|selection| selection.base != crate::selection::Base::None),
         plugins: resolve_axis(
             &global.plugins,
             &project.plugins,
