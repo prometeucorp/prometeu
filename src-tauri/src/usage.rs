@@ -346,7 +346,7 @@ pub fn watch(app: AppHandle) {
 fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
     reqwest::blocking::Client::new()
         .get("https://api.anthropic.com/api/oauth/usage")
-        .bearer_auth(claude_token(profile)?)
+        .bearer_auth(claude_token(profile).ok()??)
         .header("anthropic-beta", "oauth-2025-04-20")
         .timeout(std::time::Duration::from_secs(15))
         .send()
@@ -360,21 +360,27 @@ fn fetch_claude(profile: &accounts::Profile) -> Option<Value> {
 /// Read Claude's OAuth credential from a file first, then the macOS Keychain through security when
 /// needed. Claude Code on Linux keeps it only in the file. `mcp.rs` reads the same credential to
 /// list the account's connectors, so the lookup lives here once.
-pub(crate) fn claude_token(profile: &accounts::Profile) -> Option<String> {
-    let body = std::fs::read_to_string(profile.home.join(".credentials.json"))
-        .ok()
-        .or_else(|| keychain(profile))?;
-    let creds: Value = serde_json::from_str(&body).ok()?;
-    Some(creds["claudeAiOauth"]["accessToken"].as_str()?.to_string())
+pub(crate) fn claude_token(profile: &accounts::Profile) -> Result<Option<String>, ()> {
+    let body = match std::fs::read_to_string(profile.home.join(".credentials.json")) {
+        Ok(body) => Some(body),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => keychain(profile)?,
+        Err(_) => return Err(()),
+    };
+    let Some(body) = body else { return Ok(None) };
+    let creds: Value = serde_json::from_str(&body).map_err(|_| ())?;
+    creds["claudeAiOauth"]["accessToken"]
+        .as_str()
+        .map(|token| Some(token.to_string()))
+        .ok_or(())
 }
 
 #[cfg(not(target_os = "macos"))]
-fn keychain(_: &accounts::Profile) -> Option<String> {
-    None
+fn keychain(_: &accounts::Profile) -> Result<Option<String>, ()> {
+    Ok(None)
 }
 
 #[cfg(target_os = "macos")]
-fn keychain(profile: &accounts::Profile) -> Option<String> {
+fn keychain(profile: &accounts::Profile) -> Result<Option<String>, ()> {
     use sha2::{Digest, Sha256};
     let service = if profile.managed || std::env::var_os("CLAUDE_CONFIG_DIR").is_some() {
         let hash = format!(
@@ -388,10 +394,16 @@ fn keychain(profile: &accounts::Profile) -> Option<String> {
     let out = std::process::Command::new("security")
         .args(["find-generic-password", "-s", &service, "-w"])
         .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .map_err(|_| ())?;
+    if out.status.success() {
+        Ok(Some(
+            String::from_utf8_lossy(&out.stdout).trim().to_string(),
+        ))
+    } else if out.status.code() == Some(44) {
+        Ok(None) // security returns 44 for errSecItemNotFound.
+    } else {
+        Err(())
+    }
 }
 
 /// Use Codex's CLI User-Agent for its status endpoint to receive JSON rather than a Cloudflare
@@ -666,6 +678,29 @@ fn now() -> u64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn malformed_and_unreadable_claude_credentials_are_unknown() {
+        let home =
+            std::env::temp_dir().join(format!("prometeu-credentials-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        let profile = accounts::Profile {
+            id: "test".into(),
+            provider: crate::state::ProviderId::Claude,
+            home: home.clone(),
+            managed: true,
+            revision: 1,
+        };
+        let path = home.join(".credentials.json");
+        std::fs::write(&path, "not JSON").unwrap();
+        assert!(claude_token(&profile).is_err());
+        std::fs::write(&path, r#"{"claudeAiOauth":{"accessToken":"token"}}"#).unwrap();
+        assert_eq!(claude_token(&profile).unwrap().as_deref(), Some("token"));
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(claude_token(&profile).is_err());
+        std::fs::remove_dir_all(home).unwrap();
+    }
 
     #[test]
     fn late_updates_from_previous_accounts_do_not_change_current_quota() {

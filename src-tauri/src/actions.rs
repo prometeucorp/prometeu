@@ -200,6 +200,12 @@ pub fn resolve(
     // A task freezes the tools it starts with, so the caller resolves the layers once and an axis
     // the profile leaves unset inherits that resolved global and workspace selection.
     if p.mcp.is_none() {
+        if p.choice.agent == crate::state::ProviderId::Claude
+            && resolved.mcp_inherits_base
+            && crate::mcp::connectors().is_none()
+        {
+            return Err(i18n::t("err.mcp.connectors"));
+        }
         p.mcp = resolved.mcp.clone();
     }
     if p.plugins.is_none() {

@@ -947,6 +947,10 @@ pub struct Launch {
     /// and mcp.rs.
     #[serde(default)]
     pub mcp: Option<Vec<String>>,
+    /// Whether the resolved MCP selection still inherits the CLI base. Claude uses this to require
+    /// a known account connector list before strict materialization.
+    #[serde(skip)]
+    pub mcp_inherits_base: bool,
     /// Plugin IDs from the hub. None preserves the CLI's own configuration; see Workspace::plugins
     /// and plugins.rs.
     #[serde(default)]
@@ -998,6 +1002,7 @@ impl Launch {
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct ResolvedTools {
     pub(crate) mcp: Option<Vec<String>>,
+    pub(crate) mcp_inherits_base: bool,
     pub(crate) plugins: Option<Vec<String>>,
     pub(crate) skills: Option<Vec<String>>,
 }
@@ -1033,6 +1038,11 @@ pub(crate) fn resolve_tools(
     mcp_universe: &[String],
     plugin_hub: &[String],
 ) -> ResolvedTools {
+    let mcp_layers = [
+        global.mcp.as_ref(),
+        project.mcp.as_ref(),
+        workspace.mcp.as_ref(),
+    ];
     ResolvedTools {
         mcp: resolve_axis(
             &global.mcp,
@@ -1041,6 +1051,11 @@ pub(crate) fn resolve_tools(
             mcp_base,
             mcp_universe,
         ),
+        mcp_inherits_base: mcp_layers.iter().any(Option::is_some)
+            && mcp_layers
+                .iter()
+                .flatten()
+                .all(|selection| selection.base != crate::selection::Base::None),
         plugins: resolve_axis(
             &global.plugins,
             &project.plugins,
@@ -1309,6 +1324,7 @@ impl Workspace {
             effort: self.effort.clone(),
             plan: false,
             mcp: tools.mcp.clone(),
+            mcp_inherits_base: tools.mcp_inherits_base,
             plugins: tools.plugins.clone(),
             skills: tools.skills.clone(),
             ..Default::default()
@@ -1355,6 +1371,7 @@ impl Workspace {
             || self.launch(tools),
             |choice| Launch {
                 mcp: tools.mcp.clone(),
+                mcp_inherits_base: tools.mcp_inherits_base,
                 plugins: tools.plugins.clone(),
                 skills: tools.skills.clone(),
                 ..Launch::from(choice)
@@ -1725,6 +1742,7 @@ fn build(
         if let Some(ws) = &ws {
             let tools = resolve_workspace_tools(&global, &trust, ws, launch.agent);
             launch.mcp = tools.mcp;
+            launch.mcp_inherits_base = tools.mcp_inherits_base;
             launch.plugins = tools.plugins;
             launch.skills = tools.skills;
         }
@@ -3106,6 +3124,7 @@ mod tests {
                 // The caller resolves the layers; a tab carries that result whatever its model.
                 let tools = ResolvedTools {
                     mcp: selected.clone(),
+                    mcp_inherits_base: false,
                     plugins: selected.clone(),
                     skills: None,
                 };
@@ -3322,6 +3341,25 @@ mod tests {
         assert!(axis_patch(&InvokeBody::Raw(vec![]), "mcp", Axis::Mcp).is_err());
     }
 
+    #[test]
+    fn replacing_mcp_base_does_not_require_account_connectors() {
+        use crate::selection::{Selection, Tools};
+        let hub = vec!["hub".to_string()];
+        let global = Tools {
+            mcp: Some(Selection::default()),
+            ..Default::default()
+        };
+        let workspace = Tools {
+            mcp: Some(Selection::only(hub.clone())),
+            ..Default::default()
+        };
+        let resolved = resolve_tools(&global, &Tools::default(), &workspace, &[], &hub, &[]);
+        assert_eq!(resolved.mcp, Some(hub));
+        assert!(!resolved.mcp_inherits_base);
+        let inherited = resolve_tools(&global, &Tools::default(), &Tools::default(), &[], &[], &[]);
+        assert!(inherited.mcp_inherits_base);
+    }
+
     /// Real files and both adapters' universes, isolated from the user's configuration in a child.
     #[test]
     fn tool_resolution_uses_the_tab_provider_and_configured_claude_home() {
@@ -3399,6 +3437,7 @@ mod tests {
                             "test",
                             launch.mcp.as_ref(),
                             Path::new(&ws.worktree),
+                            launch.mcp_inherits_base,
                         )
                         .unwrap();
                     }
@@ -3608,6 +3647,7 @@ mod tests {
         // The profile leaves MCP unset, so it freezes the resolved layer the caller supplies.
         let resolved = ResolvedTools {
             mcp: Some(vec!["original".into()]),
+            mcp_inherits_base: false,
             plugins: None,
             skills: None,
         };

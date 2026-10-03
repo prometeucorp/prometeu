@@ -71,17 +71,16 @@ base, alongside the configuration files of ADR 0046:
   neither the picker nor a spawn waits on the network in the common case. The
   cache belongs to the login that produced it — the account id and its revision
   — so switching accounts or logging in again never shows another account's
-  connectors. A failed fetch keeps that login's last known list, so a network
-  blip changes nothing.
+  connectors. Concurrent fetches update only their own login's entry. A failed
+  fetch keeps that login's last known list, so a network blip changes nothing.
 - **Unknown is not empty.** Without an account or without its credential the
-  list is empty and complete: the CLI would load no connector either. With a
-  credential in hand and no successful fetch for that login, the list is
-  unknown rather than empty. The picker degrades to the file base,
-  because hiding rows costs nothing that a retry does not fix. A spawn that
-  materializes a declared selection refuses instead: the strict flag stops the
-  CLI from fetching the connectors, so starting would silently drop what the
-  person kept, and `docs/contracts/agent-runtime.md` already requires a
-  preparation error to prevent the spawn.
+  list is empty and complete: the CLI would load no connector either. An
+  unreadable or malformed credential, or a failed fetch with no successful
+  result for that login, leaves the list unknown. The picker degrades to the
+  file base. A declared selection that still inherits the account base refuses
+  to spawn while the list is unknown: strict mode would silently drop connectors
+  the person kept. A `base: "none"` replacement at any layer excludes that base,
+  so its strict configuration can start even when the account lookup fails.
 
 Scope: Claude only, like ADR 0046. Codex has no account connector source.
 
@@ -104,9 +103,9 @@ Negative:
 - the credential is read for a second purpose, widening the reasons Prometeu
   touches the Claude login;
 - a five-minute cache can show a connector removed on claude.ai minutes ago;
-- a conversation with a declared MCP selection does not start while the account
-  is unreachable and no list was ever read, which trades an offline start for
-  never losing connectors in silence.
+- a conversation that inherits account connectors does not start while their
+  list is unknown, which trades an offline start for never losing connectors in
+  silence.
 
 ## Evidence
 
@@ -114,8 +113,13 @@ Negative:
   numbered repeat, the entry an incomplete server does not produce, a
   configuration file shadowing a connector, and the `claudeai-proxy` entry in
   the strict configuration.
-- `mcp.rs`: `unknown_account_connectors_prevent_materialization` — a declared
-  selection refuses to materialize while the list is unknown.
+- `mcp.rs`: `unknown_account_connectors_prevent_materialization` — inherited
+  connectors require a known list; `older_account_fetch_cannot_replace_newer_account_cache`
+  checks concurrent login fetches.
+- `session.rs`: `replacing_mcp_base_does_not_require_account_connectors` — a
+  replacement can start without the account base.
+- `usage.rs`: `malformed_and_unreadable_claude_credentials_are_unknown` — a
+  credential read failure is distinct from a missing credential.
 - `mcp.rs`: the existing `inherited_base_combines_user_project_and_repository_configuration`
   still describes the file scopes, now with an explicit empty account.
 - Web: `src/mock.ts` mirrors the base with a connector row that the import menu

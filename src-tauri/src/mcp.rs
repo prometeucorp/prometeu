@@ -9,6 +9,7 @@ use crate::i18n;
 use crate::mcp_auth;
 use crate::paths;
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -186,15 +187,29 @@ const CONNECTOR_BETA: &str = "mcp-servers-2025-12-04";
 /// A list belongs to the login that produced it: the connectors of one account say nothing about
 /// another, and a new login on the same account bumps its revision.
 struct Cached {
-    account: String,
-    revision: u64,
     at: Instant,
     servers: Vec<Server>,
 }
 
-fn connector_cache() -> &'static Mutex<Option<Cached>> {
-    static CACHE: OnceLock<Mutex<Option<Cached>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
+fn connector_cache() -> &'static Mutex<HashMap<(String, u64), Cached>> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, u64), Cached>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cached_connectors(key: &(String, u64)) -> Option<(Instant, Vec<Server>)> {
+    crate::lock::lock(connector_cache())
+        .get(key)
+        .map(|cached| (cached.at, cached.servers.clone()))
+}
+
+fn remember_connectors(key: (String, u64), servers: Vec<Server>) {
+    crate::lock::lock(connector_cache()).insert(
+        key,
+        Cached {
+            at: Instant::now(),
+            servers,
+        },
+    );
 }
 
 /// The connectors of the person's Claude account (ADR 0063). Claude Code keeps them in no
@@ -202,42 +217,32 @@ fn connector_cache() -> &'static Mutex<Option<Cached>> {
 /// `claudeai` scope. Discovery has to ask the same endpoint, or the picker would hide what the CLI
 /// shows and a strict spawn would drop every connector without saying so.
 ///
-/// `None` means the list of a logged-in account is unknown — asked and failed, with nothing cached
-/// for that login — which is not the same as an account with no connectors: the picker degrades to
-/// the file base, while a spawn that materializes a selection refuses to start rather than drop
-/// connectors in silence. A failure after a successful fetch keeps the last known list, so a network
-/// blip changes nothing.
+/// `None` means the list of a logged-in account is unknown — credential read or fetch failed, with
+/// nothing cached for that login — which is not the same as an account with no connectors: the
+/// picker degrades to the file base, while a spawn that inherits it refuses to start rather than
+/// drop connectors in silence. A failure after a successful fetch keeps the last known list.
 pub fn connectors() -> Option<Vec<Server>> {
-    // Without an account, or without its credential, there is nothing to ask and the CLI loads no
-    // connector either: an empty list is the whole truth, not a gap.
-    let Some((profile, token)) = crate::accounts::active(crate::state::ProviderId::Claude)
-        .ok()
-        .and_then(|profile| Some((profile.clone(), crate::usage::claude_token(&profile)?)))
-    else {
+    // Without an account, the CLI loads no connectors.
+    let Ok(profile) = crate::accounts::active(crate::state::ProviderId::Claude) else {
         return Some(Vec::new());
     };
-    let mine =
-        |cached: &Cached| cached.account == profile.id && cached.revision == profile.revision;
-    {
-        let cache = crate::lock::lock(connector_cache());
-        if let Some(cached) = cache.as_ref().filter(|cached| mine(cached)) {
-            if cached.at.elapsed() < CONNECTOR_TTL {
-                return Some(cached.servers.clone());
-            }
+    let key = (profile.id.clone(), profile.revision);
+    let cached = cached_connectors(&key);
+    // No credential is a confirmed empty account. A read or parse error leaves its list unknown.
+    let token = match crate::usage::claude_token(&profile) {
+        Ok(Some(token)) => token,
+        Ok(None) => return Some(Vec::new()),
+        Err(()) => return cached.map(|(_, servers)| servers),
+    };
+    if let Some((at, servers)) = &cached {
+        if at.elapsed() < CONNECTOR_TTL {
+            return Some(servers.clone());
         }
     }
     let Some(fetched) = fetch_connectors(&token).map(|body| connectors_from(&body)) else {
-        return crate::lock::lock(connector_cache())
-            .as_ref()
-            .filter(|cached| mine(cached))
-            .map(|cached| cached.servers.clone());
+        return cached.map(|(_, servers)| servers);
     };
-    *crate::lock::lock(connector_cache()) = Some(Cached {
-        account: profile.id.clone(),
-        revision: profile.revision,
-        at: Instant::now(),
-        servers: fetched.clone(),
-    });
+    remember_connectors(key, fetched.clone());
     Some(fetched)
 }
 
@@ -491,11 +496,12 @@ pub fn config_for(
     id: &str,
     chosen: Option<&Vec<String>>,
     workdir: &Path,
+    inherit_account_connectors: bool,
 ) -> Result<Option<PathBuf>, String> {
     let Some(chosen) = chosen else {
         return Ok(None);
     };
-    requires_connectors(connectors().is_some())?;
+    requires_connectors(!inherit_account_connectors || connectors().is_some())?;
     let path = session_path(id);
     // Refresh OAuth tokens while materializing session configuration, without persisting them in
     // the registry; see mcp_auth.rs.
@@ -1335,7 +1341,7 @@ mod tests {
         assert!(available().iter().any(|s| s.id == "prometeu"));
         assert!(!hub_path().exists());
         assert!(codex_config("owner", None).unwrap().is_none());
-        assert!(config_for("owner", None, Path::new("/tmp"))
+        assert!(config_for("owner", None, Path::new("/tmp"), false)
             .unwrap()
             .is_none());
         let server = crate::embedded_mcp::server_config(
@@ -1369,7 +1375,7 @@ mod tests {
     /// behavior.
     #[test]
     fn no_selection_creates_no_file() {
-        assert!(config_for("aba", None, Path::new("/tmp"))
+        assert!(config_for("aba", None, Path::new("/tmp"), false)
             .expect("no error")
             .is_none());
     }
@@ -1527,6 +1533,20 @@ mod tests {
         assert!(requires_connectors(true).is_ok());
         let err = requires_connectors(false).expect_err("failure");
         assert!(err.contains("err.mcp.connectors"), "{err}");
+    }
+
+    #[test]
+    fn older_account_fetch_cannot_replace_newer_account_cache() {
+        let old = (uuid::Uuid::new_v4().to_string(), 1);
+        let new = (uuid::Uuid::new_v4().to_string(), 1);
+        let server = |id: &str| Server {
+            id: id.into(),
+            config: json!({ "type": "http", "url": "https://example.com" }),
+            note: String::new(),
+        };
+        remember_connectors(new.clone(), vec![server("new")]);
+        remember_connectors(old, vec![server("old")]);
+        assert_eq!(cached_connectors(&new).unwrap().1[0].id, "new");
     }
 
     /// A chosen id the universe no longer has fails the spawn instead of silently shrinking the

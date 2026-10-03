@@ -280,7 +280,9 @@ fn launch_args(
     // defaults. The strict file carries the whole effective set, including the CLI-inherited
     // servers the layers kept (ADR 0046). Materialization failures must prevent startup rather
     // than silently discard selected tools.
-    if let Some(path) = crate::mcp::config_for(id, launch.mcp.as_ref(), worktree)? {
+    if let Some(path) =
+        crate::mcp::config_for(id, launch.mcp.as_ref(), worktree, launch.mcp_inherits_base)?
+    {
         args.extend([
             "--mcp-config".into(),
             path.display().to_string(),
