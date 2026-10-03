@@ -1,11 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod account_login;
+mod account_profiles;
+mod account_store;
 mod accounts;
 mod actions;
+mod agent_launch;
 mod agents;
 mod antigravity;
 mod awake;
 mod background;
+mod board_store;
+
 #[cfg(test)]
 mod boundary_contract;
 mod browser;
@@ -46,34 +52,42 @@ mod skills;
 mod state;
 mod team;
 mod telemetry;
+mod tool_materialization;
 mod transcript;
+mod transcript_store;
 mod typesafe;
 mod usage;
 mod usage_scheduler;
 mod workspace_lifecycle;
 mod workspace_tools;
 
-use state::Board;
-use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use prometeu_core::publication::{BoardPublisher, BoardStore};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub struct AppState {
+    pub project_entries: Arc<dyn prometeu_core::files::ProjectEntries<std::path::Path>>,
+    pub project_search: Arc<dyn prometeu_core::files::ProjectSearch>,
+    pub worktree_cleanup: Arc<dyn prometeu_core::workspace_lifecycle::WorktreeCleanup>,
+    pub repository_git: Arc<dyn prometeu_core::git::RepositoryGit>,
+    pub authentication: Arc<dyn prometeu_core::accounts::login::AccountAuthentication>,
+    pub providers:
+        Arc<dyn prometeu_core::session::provider::ProviderPreparation<agent_launch::PreparedAgent>>,
+    pub tasks: Arc<dyn prometeu_core::tasks::TaskExecutor>,
+    pub command_runner: Arc<dyn prometeu_core::command::CommandRunner<std::process::Command>>,
+    pub query_launcher: Arc<dyn prometeu_core::command::QueryLauncher<std::process::Command>>,
+    pub terminal_factory:
+        Arc<dyn prometeu_core::terminal::TerminalFactory<portable_pty::CommandBuilder>>,
+    pub sessions: prometeu_core::session::host::SessionHost<chat::Chat>,
+    pub process_launcher: Arc<dyn prometeu_core::process::ProcessLauncher<std::process::Command>>,
     pub telemetry: Mutex<telemetry::Service>,
-    pub board: Mutex<Board>,
-    /// A single saver thread coalesces board writes; see state::spawn_saver.
-    pub save: state::Saver,
-    /// Running conversations keyed by their session/tab IDs, independent of the displayed
-    /// workspace.
-    pub chats: Mutex<HashMap<String, chat::Chat>>,
+    pub board: Mutex<state::Board>,
+    /// One ordered persistence queue, with its store injected at composition.
+    pub save: BoardPublisher,
     /// Dock terminals, setup, and run processes keyed by workspace:type.
     pub ptys: Mutex<HashMap<String, pty::Pty>>,
     /// The visible workspace does not acquire unread status for live updates.
     pub looking: Mutex<Option<String>>,
-    /// Only ready agents may receive their initial message. Setup completion must not write to a
-    /// process that is still starting.
-    pub ready: Mutex<HashSet<String>>,
-    /// Background tasks still running per conversation, and the turn completion they hold back.
-    pub work: Mutex<HashMap<String, chat::Work>>,
 }
 
 /// Finder and desktop-launcher starts inherit a minimal PATH. Adopt the user's login-shell PATH so agents and
@@ -126,19 +140,40 @@ fn main() {
     }
     install_crypto();
     adopt_login_path();
+    let root = paths::root();
+    let profiles: Arc<dyn prometeu_profiles::ProfileBackend> = Arc::new(account_profiles::native());
+    let telemetry = telemetry::Service::new(root.clone());
+    let board_store = Arc::new(board_store::FileBoardStore::new(root));
+    let mut board = board_store.load();
+    board.revive();
+    board.prepare_telemetry_ids();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
-            telemetry: Mutex::new(telemetry::Service::new(paths::root())),
-            board: Mutex::new(Board::load()),
-            save: state::spawn_saver(),
-            chats: Mutex::new(HashMap::new()),
+            project_entries: Arc::new(prometeu_files::entries::NativeEntries {
+                trash: Arc::new(prometeu_files::entries::SystemTrash),
+            }),
+            project_search: Arc::new(prometeu_files::search::NativeSearch::default()),
+            worktree_cleanup: Arc::new(prometeu_git::cleanup::NativeCleanup),
+            repository_git: Arc::new(prometeu_git::NativeGit),
+            providers: Arc::new(agent_launch::NativeProviders {
+                profiles: profiles.clone(),
+                tools: Arc::new(tool_materialization::native()),
+            }),
+            authentication: Arc::new(account_login::NativeAuthentication { profiles }),
+            tasks: Arc::new(prometeu_process::ThreadExecutor),
+            command_runner: Arc::new(prometeu_process::command::UnixCommandRunner),
+            query_launcher: Arc::new(prometeu_process::query::UnixQueryLauncher),
+            terminal_factory: Arc::new(prometeu_process::terminal::UnixTerminalFactory),
+            sessions: prometeu_core::session::host::SessionHost::default(),
+            process_launcher: Arc::new(prometeu_process::UnixProcessLauncher),
+            telemetry: Mutex::new(telemetry),
+            board: Mutex::new(board),
+            save: BoardPublisher::new(board_store),
             ptys: Mutex::new(HashMap::new()),
             looking: Mutex::new(None),
-            ready: Mutex::new(HashSet::new()),
-            work: Mutex::new(HashMap::new()),
         })
         .manage(background::State::default())
         .manage(usage::Service::new())

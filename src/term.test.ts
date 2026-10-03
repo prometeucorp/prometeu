@@ -2,10 +2,11 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
   invoke: vi.fn(),
+  listen: vi.fn(),
   terminals: [] as { output: string; input: (text: string) => void }[],
 }));
 vi.mock("./ipc", () => ({ invoke: fake.invoke }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: fake.listen }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -25,6 +26,9 @@ vi.mock("@xterm/xterm", () => ({
 
 import * as dock from "./dock";
 import { loneCompositionEnds } from "./term";
+import { useTerminalSnapshots, type TerminalOutput } from "./terminal-output";
+import { useConnectionRecovery } from "./connection";
+import { Recovery } from "./windows/recovery";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -39,8 +43,49 @@ beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", () => 0);
   vi.stubGlobal("cancelAnimationFrame", () => {});
   fake.invoke.mockReset();
+  fake.listen.mockClear();
+  useTerminalSnapshots({ read: async session => ({ data: await fake.invoke("pty_buffer", { session }) }) });
+  useConnectionRecovery({ subscribe: () => () => {} });
   dock.detach();
   dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement);
+});
+
+it("restores a retained terminal with ordered bytes, without duplicating concurrent output or reopening it", async () => {
+  const recovery = new Recovery(async () => true, () => {});
+  useConnectionRecovery(recovery);
+  dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement);
+  const receive = fake.listen.mock.calls[fake.listen.mock.calls.length - 1][1];
+  useTerminalSnapshots({ read: async () => ({ data: bytes("before"), seq: 1, running: true }) });
+  fake.invoke.mockResolvedValue("first:terminal");
+  await dock.open("first", "terminal");
+  const snapshot = deferred<TerminalOutput>();
+  useTerminalSnapshots({ read: () => snapshot.promise });
+  fake.invoke.mockClear();
+  const pending = recovery.recover();
+  await Promise.resolve();
+  await Promise.resolve();
+  fake.terminals[1].input("must not send while restoring");
+  receive({ payload: ["first:terminal", bytes("included"), 2] });
+  receive({ payload: ["first:terminal", [0xc3], 3] });
+  receive({ payload: ["first:terminal", [0xa9], 4] });
+  snapshot.resolve({ data: bytes("beforeincluded"), seq: 2, running: true });
+  await pending;
+  receive({ payload: ["first:terminal", bytes("duplicate"), 4] });
+  expect(fake.terminals[1].output).toBe("beforeincludedé");
+  expect(fake.invoke).not.toHaveBeenCalled();
+  fake.terminals[1].input("fresh input");
+  expect(fake.invoke).toHaveBeenCalledWith("pty_write", { session: "first:terminal", data: "fresh input" });
+});
+
+it("disables input when a restored terminal exited while disconnected", async () => {
+  useTerminalSnapshots({ read: async () => ({ data: bytes("finished"), seq: 8, running: false }) });
+  fake.invoke.mockResolvedValue("first:terminal");
+  await dock.open("first", "terminal");
+  expect(fake.terminals[1].output).toBe("finished");
+  expect(dock.currentKey("shell")).toBeNull();
+  fake.invoke.mockClear();
+  fake.terminals[1].input("ignored");
+  expect(fake.invoke).not.toHaveBeenCalled();
 });
 
 it("keeps terminal input in the current workspace when an earlier open finishes late", async () => {

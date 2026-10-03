@@ -1,9 +1,13 @@
 //! Real pipes and a controlled subprocess exercise the adapter without a model or credentials.
 
 use super::*;
+use crate::lock::lock;
+use prometeu_protocols::codex::Link;
+use serde_json::{json, Value};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 struct Peer {
@@ -66,9 +70,14 @@ impl Drop for Peer {
 fn run(mode: &str, resume: Option<String>) -> (Vec<Value>, i32) {
     let mut peer = Peer::spawn(mode);
     let stdin = lock(&peer.child).stdin.take().unwrap();
-    let stdout = chat::output_lines(lock(&peer.child).stdout.take().unwrap());
-    let stderr = chat::output_lines(lock(&peer.child).stderr.take().unwrap());
-    let mut link = Link::new(Box::new(stdin), contract::start(resume));
+    let stdout = prometeu_process::output_lines(lock(&peer.child).stdout.take().unwrap());
+    let stderr = prometeu_process::output_lines(lock(&peer.child).stderr.take().unwrap());
+    let mut link = Link::new(
+        Box::new(stdin),
+        contract::start(resume),
+        i18n::pick,
+        env!("CARGO_PKG_VERSION"),
+    );
     // Input queued before the handshake must be delivered once the thread identity is known.
     let mut events = link
         .write(&json!({"v":1,"type":"message.send","text":"Review the patch"}))

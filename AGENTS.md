@@ -58,13 +58,22 @@ The complete dependency rules are in
 - `src/chat.ts`: presentation and interaction of the conversation.
 - `src/desk.ts`: the desk, the home screen — one `ChatView` per running
   conversation.
-- `src-tauri/src/chat.rs`: process, transport, buffer, numbering and lifecycle.
-- `src-tauri/src/claude.rs`: Claude's stream-json adapter.
-- `src-tauri/src/codex.rs`: Codex's JSON-RPC adapter.
-- `src-tauri/src/session.rs`: use cases and workspace/tab lifecycle.
-- `src-tauri/src/workspace_tools.rs`: tool selection validation and workspace updates,
-  with explicit state and effects; Tauri commands stay in `session.rs`.
-- `src-tauri/src/state.rs`: the board's persisted state.
+- `src-tauri/crates/core/`: portable board models, conversation ordering,
+  session, launch, account and tool rules behind injected ports (ADR 0085).
+- `src-tauri/crates/process/`, `profiles/`, `tools/`, `files/`, `git/`,
+  `protocols/` and `oauth/`: Tauri-free native adapters shared by the desktop
+  and the WSL runtime.
+- `src-tauri/src/main.rs`: desktop composition root; `chat.rs`, `chat/host.rs`
+  and `session/launch.rs` compose conversations from core services.
+- `src-tauri/src/claude.rs`, `antigravity.rs` and `crates/protocols/src/codex.rs`:
+  provider adapters; `src-tauri/src/agent_launch.rs` registers native preparation.
+- `src-tauri/src/session.rs`: desktop use cases and workspace/tab lifecycle;
+  `state.rs` and `board_store.rs` adapt board events and file storage.
+- `src-tauri/src/accounts.rs` and `account_login.rs`: desktop account facade and
+  native authentication.
+- `src-tauri/crates/runtime/`: Unix execution host used by Windows through WSL.
+- `src-tauri/crates/bridge/`, `crates/wsl-desktop/` and `src/windows/`: native
+  Windows shell that loads the existing interface over the WSL runtime (ADR 0084).
 - `src/team.ts`: the collaboration desktop shell (team.json, organizations,
   Tauri ports, facade).
 - `src/team-member.ts` and `src/team-*.ts`: the portable collaboration core and

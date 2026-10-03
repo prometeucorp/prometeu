@@ -101,3 +101,6 @@ Status: Proposed
 | [0061](0061-background-energy-policy.md) | Separate display sleep from agent work |
 | [0062](0062-local-diff-review.md) | Local review notes and explicit batch submission |
 | [0063](0063-account-connectors-in-the-mcp-base.md) | Account connectors in the inherited MCP base |
+| [0082](0082-resident-wsl-attachments.md) | Resident WSL execution and disposable attachments |
+| [0084](0084-shared-windows-desktop.md) | Shared desktop interface over an injected WSL runtime |
+| [0085](0085-portable-core.md) | Portable core with injected effects |

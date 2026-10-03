@@ -43,7 +43,7 @@ and relay clients do not call these desktop commands.
 - [IPC parity](../../src-tauri/tests/mock.rs) checks agreement between Rust,
   TypeScript and the browser mock.
 - [IPC types](../../src/ipc.test.ts) reject retired command names.
-- [Git tests](../../src-tauri/src/session/git_tests.rs) cover the current Git
+- [Git tests](../../src-tauri/crates/git/src/tests.rs) cover the current Git
   operations; [session tests](../../src-tauri/src/session.rs) retain coverage
   of the cleanup commit counter.
 - [Cloud flows](../../e2e/cloud.spec.ts) and

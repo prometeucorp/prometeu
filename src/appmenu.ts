@@ -17,11 +17,27 @@ export type Action =
   | "voltar"
   | "avancar";
 
+type Native = Exclude<Parameters<typeof PredefinedMenuItem.new>[0], undefined>["item"];
+type MenuFactory = {
+  native(item: Native, key?: Key): Promise<PredefinedMenuItem>;
+  settings(): Promise<MenuItem>;
+};
+type ApplicationMenu = (factory: MenuFactory) => Promise<MenuItem | PredefinedMenuItem>[];
+const desktopApplicationMenu: ApplicationMenu = ({ native, settings }) => [
+  native({ About: null }, "menu.app.about"), native("Separator"), settings(), native("Separator"),
+  native("Services", "menu.app.services"), native("Separator"), native("Hide", "menu.app.hide"),
+  native("HideOthers", "menu.app.hideOthers"), native("ShowAll", "menu.app.showAll"), native("Separator"), native("Quit", "menu.app.quit"),
+];
+export const windowsApplicationMenu: ApplicationMenu = ({ native, settings }) => [
+  native({ About: null }, "menu.app.about"), settings(), native("Separator"), native("Quit", "menu.app.quit"),
+];
+let applicationMenu = desktopApplicationMenu;
+export function useApplicationMenu(menu: ApplicationMenu) { applicationMenu = menu; }
+
 export async function install(run: (a: Action) => void) {
   const our = (id: Action, key: Key, accelerator: string) =>
     MenuItem.new({ id, text: t(key), accelerator, action: () => run(id) });
   // The Mac implements system actions such as copy, quit, and full screen; localize their labels here.
-  type Native = Exclude<Parameters<typeof PredefinedMenuItem.new>[0], undefined>["item"];
   const os = (item: Native, key?: Key) =>
     PredefinedMenuItem.new(key ? { item, text: t(key) } : { item });
   const bar = (text: string, items: Promise<MenuItem | PredefinedMenuItem>[]) =>
@@ -30,19 +46,7 @@ export async function install(run: (a: Action) => void) {
   const menu = await Menu.new({
     items: await Promise.all([
       // The application-named menu contains About, Hide, and Quit as macOS expects.
-      bar("Prometeu", [
-        os({ About: null }, "menu.app.about"),
-        os("Separator"),
-        our("ajustes", "menu.app.settings", "CmdOrCtrl+,"),
-        os("Separator"),
-        os("Services", "menu.app.services"),
-        os("Separator"),
-        os("Hide", "menu.app.hide"),
-        os("HideOthers", "menu.app.hideOthers"),
-        os("ShowAll", "menu.app.showAll"),
-        os("Separator"),
-        os("Quit", "menu.app.quit"),
-      ]),
+      bar("Prometeu", applicationMenu({ native: os, settings: () => our("ajustes", "menu.app.settings", "CmdOrCtrl+,") })),
       bar(t("menu.file"), [
         our("novoWorkspace", "menu.file.newWorkspace", "CmdOrCtrl+N"),
         our("novaConversa", "menu.file.newChat", "CmdOrCtrl+T"),

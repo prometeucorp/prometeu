@@ -21,15 +21,56 @@ every commit of the PR.
 ## CI
 
 `.github/workflows/ci.yml` runs on PRs, including from forks, and on pushes to
-`main`, on GitHub-hosted runners. The macOS job installs dependencies, installs
-Chromium and WebKit and runs `npm run check`. The `linux` job uses the same
-Ubuntu 22.04 baseline as release, installs the WebKitGTK development packages,
-builds the frontend and runs the Rust tests and Clippy, which cover the Linux
-`cfg` branches; see [Linux](linux.md). Hosted runners are disposable and
-the workflow has no secrets, so fork code runs without risk. Do not register a
-self-hosted runner in this repository: the code is public and a fork's PR
-controls what the job runs. See
-[ADR 0040](../decisions/0040-open-source.md).
+`main`, on GitHub-hosted runners:
+
+- `macos` installs Chromium and WebKit and runs `npm run check`.
+- `linux` uses the same Ubuntu 22.04 baseline as release, installs the WebKitGTK
+  development packages and runs `npm run build`, `npm run build:wsl`,
+  `npm run test:rust` and `npm run lint:rust`, covering the Linux `cfg` branches;
+  see [Linux](linux.md).
+- `windows` tests and lints `prometeu-core`, `prometeu-protocols` and
+  `prometeu-bridge`, runs `npm run build:wsl` and lints `prometeu-wsl-desktop
+  --features desktop` without an embedded runtime.
+- `commits` checks every commit message of the PR.
+
+The Unix execution crates are covered by the `test:rust` and `lint:rust` runs on
+macOS and Linux. Crate-graph boundaries are checked by `npm run architecture:check`
+inside `npm run check`. Hosted runners are disposable and the workflow has no
+secrets, so fork code runs without risk. Do not register a self-hosted runner in
+this repository: the code is public and a fork's PR controls what the job runs.
+See [ADR 0040](../decisions/0040-open-source.md).
+
+## Windows installer
+
+The Windows shell uses Tauri's per-user NSIS installer (`currentUser`, Start menu
+shortcut, WebView2 bootstrapper when missing) with identifier
+`co.prometeu.desktop`. It embeds the matching Linux x86_64 runtime and opens the
+desktop against the default WSL distribution. WSL, Git and an authenticated Codex
+CLI must already be installed; the installer neither provisions them nor imports
+WSLg data. The release workflow builds the runtime on Ubuntu 22.04, embeds it
+in the Windows installer and publishes the unsigned installer with the macOS
+and Linux packages. Windows has no automatic updater or installer signature.
+
+On a Windows machine with the Tauri prerequisites:
+
+```powershell
+$env:PROMETEU_WSL_RUNTIME = 'C:\build\prometeu-runtime'
+npm run package:windows
+```
+
+`PROMETEU_WSL_RUNTIME` must be the Linux runtime built from the same source. The
+installer is written to `src-tauri/target/release/bundle/nsis/*-setup.exe`. Linux
+builders with NSIS and cargo-xwin can run
+`npm run package:windows -- --runner cargo-xwin --target x86_64-pc-windows-msvc`,
+which builds the runtime automatically; building it on newer distributions can
+raise the required glibc.
+
+The default installation directory is `%LOCALAPPDATA%\Prometeu`. To update, close
+the window and run the next installer. Conversations and projects stay in WSL;
+replacing or uninstalling the app does not delete them, and runtime replacement
+waits for idle execution ([safe replacement](../contracts/wsl-runtime.md#safe-replacement)).
+Signing and automatic updates are not implemented. Validate an installed build
+with the [native acceptance journey](development.md#native-windowswsl-integration).
 
 ## Create a release
 
@@ -43,7 +84,7 @@ and at least one public note since the previous tag. It computes or receives the
 version, updates the manifests and the changelog, runs the tests, creates the
 commit/tag and pushes to the remote.
 
-The release workflow builds and signs both platforms into one draft in this
+The release workflow builds all three platforms into one draft in this
 same repository, with the job's `GITHUB_TOKEN`. There is one version, tag and
 changelog for the desktop app. There is no release PAT.
 
@@ -51,6 +92,7 @@ changelog for the desktop app. There is no release PAT.
 | --- | --- | --- | --- |
 | macOS Apple Silicon | `macos-latest` | `Prometeu_aarch64.dmg` | `Prometeu_aarch64.app.tar.gz` and `.sig` |
 | Linux x86_64 | `ubuntu-22.04` | `Prometeu_x86_64.AppImage` | the same AppImage and `.sig` |
+| Windows x64 (experimental) | `windows-2022`, with WSL runtime from `ubuntu-22.04` | `Prometeu_x64-setup.exe` | none; install the next version manually |
 
 Linux targets the Ubuntu 22.04 build baseline; building on a newer runner can
 raise the required glibc version. Other distributions still need a native
@@ -65,13 +107,15 @@ repacked file again before uploading its workflow artifact. The final job reads
 that signature when assembling `latest.json`.
 Linux source and Arch package instructions remain in the [Linux guide](linux.md).
 
-The macOS and Linux jobs build and sign independently, then upload separate
-workflow artifacts with stable filenames. Each job checks that its commit
-belongs to `main` before using signing credentials. Only the final job assembles
-`latest.json` and writes the draft, after both jobs succeed. It verifies updater
-signatures and Apple notarization before upload, then downloads the draft and
-verifies them again. Reruns fail if any release already exists, so a moved tag
-cannot silently reuse binaries from an older draft. Rebuilding requires manual
+The macOS, Linux and Windows jobs upload separate workflow artifacts with stable
+filenames. The Windows build embeds a Linux runtime from the same commit. Jobs
+that use signing credentials check that their commit belongs to `main`. Only
+the final job assembles `latest.json` and writes the draft, after all builds
+succeed. The manifest retains only macOS and Linux updater entries. The final
+job verifies updater signatures, Apple notarization and the Windows installer
+file before upload, then downloads the draft and verifies them again. Reruns
+fail if any release already exists, so a moved tag cannot silently reuse
+binaries from an older draft. Rebuilding requires manual
 draft removal; published releases require a new version. Uploads never replace
 assets, even if someone publishes concurrently.
 Runs for the same ref remain serialized.
@@ -82,11 +126,12 @@ CI and release share Rust cache keys per platform and Ubuntu baseline. This lets
 new tags restore compatible dependency caches from `main`; caches scoped to a
 previous tag are not reusable by the next tag. CI warms the test/Clippy profiles;
 optimized release dependencies may still compile cold unless a compatible release
-build has populated the default-branch cache. Both release jobs reuse their
-validated frontend output by overriding Tauri's `beforeBuildCommand` only in CI.
+build has populated the default-branch cache. The macOS and Linux release jobs
+reuse their validated frontend output by overriding Tauri's
+`beforeBuildCommand` only in CI.
 Local `tauri build` retains its normal frontend build hook.
 
-`workflow_dispatch` builds signed packages for both systems without creating a
+`workflow_dispatch` builds packages for all three systems without creating a
 release or tag. Its workflow artifacts expire after seven days. It does not
 replace the final draft verification or the native installation checks.
 
@@ -94,33 +139,35 @@ replace the final draft verification or the native installation checks.
 
 Between the build and the publication there is a human check:
 
-1. download the `.dmg` and `.AppImage` from the draft;
+1. download the `.dmg`, `.AppImage` and `.exe` from the draft;
 2. install and open the DMG on an Apple Silicon Mac; make the AppImage executable
-   and open it on a Linux x86_64 desktop;
-3. validate the affected flows on both systems, including starting an agent,
+   and open it on a Linux x86_64 desktop; install the NSIS package on Windows
+   x64 with WSL, Git and authenticated Codex already installed;
+3. validate the affected flows on all three systems, including starting an agent,
    opening a terminal and links, and notifications when affected; when an older
    installation is available, also verify update download and restart;
-4. confirm that both platform builds and final verification passed, all assets
-   are present, and `latest.json` contains both platforms;
+4. confirm that all platform builds and final verification passed, all assets
+   are present, and `latest.json` contains macOS and Linux updater entries;
 5. publish with:
 
 ```sh
 sh scripts/release.sh publish
 ```
 
-The script refuses to publish unless the macOS and Linux assets, their updater
-signatures and `latest.json` exist and the release workflow succeeded. Native
-installation remains a human check, not something an asset check proves.
+The script refuses to publish unless all three platform assets, macOS and Linux
+updater signatures and `latest.json` exist and the release workflow succeeded.
+Native installation remains a human check, not something an asset check proves.
 
 Assets do not carry the version in their name. These links always select the
 latest published release:
 
 - macOS: `releases/latest/download/Prometeu_aarch64.dmg`;
-- Linux: `releases/latest/download/Prometeu_x86_64.AppImage`.
+- Linux: `releases/latest/download/Prometeu_x86_64.AppImage`;
+- Windows: `releases/latest/download/Prometeu_x64-setup.exe`.
 
-The site's existing macOS link stays valid. Its separate repository must add a
-Linux download button using the second path; adding assets here does not change
-the site. The README links to both downloads.
+The site's existing macOS link stays valid. Its separate repository must add
+Linux and Windows download buttons; adding assets here does not change the site.
+The README links to all three downloads.
 
 macOS and AppImage installations check for updates at startup and hourly.
 On Linux, the native Tauri bundle type enables the updater only for AppImage;
@@ -157,9 +204,10 @@ an explicit request.
 
 ## Verification
 
-`npm run test:release` tests manifest assembly from final signatures, compatibility,
-missing assets, signature verification failures, refusal to overwrite published
-assets and the publication gate with a fake `gh`. It never
+`npm run test:release` tests manifest assembly from final signatures,
+compatibility, missing assets (including the Windows installer), signature
+verification failures, refusal to overwrite published assets and the
+publication gate with a fake `gh`. It never
 publishes or contacts GitHub and is part of `npm test`. `src/update-init.test.ts`
 covers AppImage eligibility and keeps package-managed Linux installs disabled;
 `src/update.test.ts` covers download and restart behavior. The release workflow

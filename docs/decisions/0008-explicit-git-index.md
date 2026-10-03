@@ -50,6 +50,6 @@ This keeps checkout selection explicit and leaves the source clone unchanged.
 
 ## Evidence
 
-Real tests in `src-tauri/src/session/git_tests.rs`, UI in `e2e/git.spec.ts` and
+Real tests in `src-tauri/crates/git/src/tests.rs`, UI in `e2e/git.spec.ts` and
 IPC parity in `src-tauri/tests/mock.rs`. Visual approval happened in a temporary
 prototype; that artifact is not part of the versioned documentation.

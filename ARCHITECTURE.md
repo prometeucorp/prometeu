@@ -42,7 +42,7 @@ identity is accepted by the server directory (TOFU). See
 | Backend | Rust + Tauri | persisted state, processes, Git, files, IPC and agent translation | visual rules and interface translation |
 | Claude adapter | `claude.rs` | convert V1 commands to stream-json and stream-json to V1 events | DOM, board state or relay |
 | Antigravity adapter | `antigravity.rs` | convert native NDJSON to V1; resume native history | DOM, board state or relay |
-| Codex adapter | `codex.rs` | convert V1 commands to JSON-RPC and JSON-RPC to V1 events | DOM, board state or relay |
+| Codex adapter | `crates/protocols/src/codex.rs`, desktop `codex.rs` composition | convert V1 commands to JSON-RPC and JSON-RPC to V1 events | DOM, board state or relay |
 | Relay | Worker + Durable Object | enrollment, presence, audience, comments and forwarding | agent execution or worktree access |
 | Web mock | `src/mock.ts` | answer the same IPC for UI development and E2E | replace the Rust backend tests |
 | Prometeu Cloud (separate project) | Rails 8.1 + SQLite + ERB | optional account, organizations, invitations and tool catalogs | agent execution, general files, secrets or transcripts |
@@ -54,12 +54,19 @@ The conversation uses a contract owned by Prometeu:
 ```text
 Claude stream-json ─> claude.rs ───────────┐
                                            ├─> ConversationEventV1 ─> Pump/relay ─> timeline.ts ─> chat.ts
-Codex JSON-RPC ─> codex.rs ────────────────┤
+Codex JSON-RPC ─> protocols::codex ────────────────┤
 Antigravity ────> antigravity.rs ───────────────┘
 ```
 
-`chat.rs` stores and numbers V1 lines, emits updates and keeps the process
-alive. `timeline.ts` validates and reduces those lines into DOM-independent
+`prometeu-core` retains and numbers V1 lines, coordinates input, account
+handoffs, reactions, launch and workers, and owns the shutdown policy; its
+effects are injected. `chat.rs` and `chat/host.rs` compose those services with
+`prometeu-process` (spawning, pipe draining and reaping) and the provider
+adapters registered in `agent_launch.rs`. `prometeu-tools` prepares MCP, plugins
+and skills for each spawn. See the
+[application-core contract](docs/contracts/application-core.md) and
+[ADR 0085](docs/decisions/0085-portable-core.md). `timeline.ts` validates and
+reduces those lines into DOM-independent
 items. `chat.ts` renders the items and sends `ConversationCommandV1`. Older
 transcripts are adapted before the reducer, without rewriting.
 
@@ -67,6 +74,21 @@ The canonical protocol is the decision accepted in ADR 0002. The typed catalog
 and the capabilities from ADR 0003 are implemented as well.
 
 See [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-flow.md).
+
+## Windows and WSL execution
+
+On Windows, a native Tauri shell (`crates/wsl-desktop`, `src/windows/`) loads
+the existing `index.html` and `src/main.ts` with an injected IPC transport.
+Commands run in `prometeu-runtime`, a Tauri-free Unix host inside the default
+WSL distribution that composes the same core services and native adapters as
+the desktop. The runtime stays resident across window closure and owns its own
+private root and workspace catalog; it never adopts the desktop's data.
+`prometeu-bridge` carries typed requests and injects WSL paths, Explorer,
+clipboard, browser consent, runtime installation and connection recovery at the
+Windows boundary. Only Codex is registered there. See
+[ADR 0084](docs/decisions/0084-shared-windows-desktop.md), the
+[Windows application contract](docs/contracts/windows-application.md) and the
+[WSL runtime protocol](docs/contracts/wsl-runtime.md).
 
 ## Shared interface
 
@@ -137,15 +159,18 @@ resumes the session when there is news. See the
 
 ## State and persistence
 
-- `src-tauri/src/state.rs` owns the persisted board: projects, workspaces,
-  tabs, choices and metadata.
+- `src-tauri/crates/core` owns the board models and portable rules. Its
+  `BoardPublisher` receives storage and event ports; `src-tauri/src/board_store.rs`
+  implements file persistence and `state.rs` adapts desktop publication. See the
+  [core contract](docs/contracts/application-core.md).
 - The logical session is the transcript. The process is disposable and can be
   resumed.
 - Claude writes its own transcript; Prometeu writes the translated Codex and Antigravity lines
   in `~/.prometeu/chats/`.
-- Agent accounts and the global selection live in `<root>/accounts.json`;
-  `accounts.rs` coordinates the local profiles and the adapters run the
-  official login.
+- Agent accounts and the global selection live in `<root>/accounts.json`.
+  Registry and login rules live in `prometeu-core::accounts`; `accounts.rs`
+  composes native profiles (`prometeu-profiles`), authentication
+  (`account_login.rs`) and desktop events.
 - Team state lives in `~/.prometeu/team.json`, with private permissions.
 - Private identities, TOFU and receipts live in `team-security.json`;
   `team-channel.ts` is the encrypted-content boundary of the webview.
@@ -231,14 +256,17 @@ The detailed rules and the current state of each one are in
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | local usage and context | `src/conversation.ts`, `src/usage-presentation.ts`, `src/workspace-usage.ts`, `src/components/chat/usage.ts`, `src-tauri/src/telemetry.rs`, `src-tauri/src/telemetry/` |
 | starting from a skill | `src/kickoff.ts`, `src/launcher.ts`, `src-tauri/src/kickoff.rs`, `[method]` in `src-tauri/src/scripts.rs`; see [ADR 0057](docs/decisions/0057-skill-kickoff-and-artifact-path.md) |
-| workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
-| workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
-| workspace archive/restore | `src-tauri/src/workspace_lifecycle.rs` (state changes and stop decisions), `src-tauri/src/session.rs` (scripts, processes, publication and telemetry) |
+| workspaces | `src-tauri/src/session.rs`, `src-tauri/crates/core/src/board.rs`, `src-tauri/src/state.rs` |
+| session coordination | `src-tauri/crates/core/src/session.rs` and `session/` (policies), `src-tauri/src/chat/host.rs` (desktop effects) |
+| workspace tool selection | `src-tauri/crates/core/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
+| workspace archive/restore | `src-tauri/crates/core/src/workspace_lifecycle.rs` (state changes and stop decisions), `src-tauri/src/session.rs` (scripts, processes, publication and telemetry) |
 | Local diff review | `src/review-comments.ts` (rules), `src/review-store.ts` (local storage), `src/workspace-review.ts` (coordination), `src/review-context.ts` (text contract); see [review notes](docs/contracts/diff-review.md) |
 | Git and files | `src/workspace-changes.ts`, `src/changes-menu.ts`, `src/file-menu.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
 | collaboration | shells `src/team.ts` (desktop) and `src/mobile/` (browser, bundle for the Cloud); core `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
 | optional context evaluation | `src-tauri/src/evaluation.rs` (port), `src-tauri/src/typesafe.rs` (adapter, key), `src/context-review.ts`, `src/context-review-view.ts`, `src/typesafe.ts`, `src/typesafe-settings.ts` |
+| bounded command execution | `src-tauri/crates/core/src/command.rs` (ports), `src-tauri/crates/process/src/command.rs` and `query.rs` (Unix implementations) |
+| terminal execution | `src-tauri/crates/core/src/terminal.rs` (ports and output), `src-tauri/crates/process/src/terminal.rs` (Unix PTYs), `src-tauri/src/pty.rs` (desktop composition) |
 | terminal and preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
 
 The preview shares the center with the conversation. Inspection and capture
@@ -254,9 +282,10 @@ explicit send to the draft. See the
 - The provider identity is still called `agent` in the persisted format and in
   some payloads for compatibility, even though the type is already `ProviderId`.
 - IPC types and conversation events can still diverge between Rust and TS.
-- The extracted workspace tool use case still shares board types with
-  `state.rs`; separating that module's persistence and publication remains a
-  prerequisite for a standalone backend package.
+- Native feature composition (`chat/host.rs`, `session.rs`) still lives in
+  the desktop crate, and the Windows composition implements desktop commands one
+  at a time; gaps are listed in the
+  [Windows contract](docs/contracts/windows-application.md).
 
 These points do not authorize a mass reorganization. The accepted sequence is:
 document, introduce tested contracts and only then move implementations.

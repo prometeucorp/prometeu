@@ -165,7 +165,8 @@ Inspect pending input and history rather than automatically using a new key.
 
 Busy conversations, pending input/questions, archived/cleaned/failed workspaces
 and known active background tasks reject new MCP messages. There is no steering
-or scheduling API. Person and MCP sends share a per-conversation input gate;
+or scheduling API. The execution host owns an injected `InputGates` registry.
+Person and MCP sends share its per-conversation input gate;
 the immediate process write checks idleness again under the process lock.
 A failed spawn can retain the existing pending message for ordinary recovery.
 There are no deletion, Git publishing, approval-answer, automatic orchestration,
@@ -203,7 +204,9 @@ Log reads default to the last 16 KiB, capped at 64 KiB of retained bytes. They
 return `text`, `truncated`, `seq`, `running`, `name` and `exit_code`. Text retains
 ANSI escapes and uses lossy UTF-8 decoding at byte boundaries. `seq` belongs to
 the current PTY and is not a durable cursor. The existing 512 KiB scrollback
-limit still applies. Missing logs return `script_not_started`.
+limit still applies. Missing logs return `script_not_started`. The core terminal
+buffer and injected native factory preserve these fields; see the
+[terminal boundary](application-core.md#processes-terminals-and-commands).
 
 Preview opening emits a local `workspace-preview` event to the main webview,
 with the owned workspace and conversation IDs. The desktop rechecks their
@@ -245,6 +248,8 @@ existing normalized signals; neither promises complete visibility into every
 native child process. Native provider subagents are distinct from other
 Prometeu delegations.
 
+The core `SessionOutput` calls an injected `ExecutionObservation`; the desktop
+adapter delegates to the existing execution projection and publication.
 Execution observation updates only memory under the conversation publication
 lock, in canonical event order. The lock order is chats → conversation buffer →
 board; delegation never takes a conversation lock while holding the board.
@@ -272,7 +277,7 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
   notification handling, bounded framing and credential placement.
 - MCP materialization tests cover both provider configuration formats.
 - `e2e/tools.spec.ts` covers built-in availability without default activation.
-- `pty.rs` tests retain real process output and exit status; `e2e/browser.spec.ts`
+- `crates/process/src/terminal/tests.rs` retains real process output and exit status; `e2e/browser.spec.ts`
   covers the preview navigation event over the browser mock in Chromium;
   selected preview interactions also run in WebKit.
-- Existing `session/files.rs` tests cover path/symlink confinement.
+- Existing `crates/files/src/entries.rs` tests cover path/symlink confinement.

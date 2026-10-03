@@ -12,20 +12,14 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub(crate) mod projects;
+use prometeu_tools::catalog::{CatalogPlugin, CatalogSkill, OrganizationItem};
+pub use prometeu_tools::catalog::{CatalogState, Portable};
 
 static SYNC: Mutex<()> = Mutex::new(());
 
 /// Coordinate synchronization with commands that modify local hubs.
 pub(crate) fn guard() -> std::sync::MutexGuard<'static, ()> {
     lock(&SYNC)
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
-pub struct Portable {
-    pub id: String,
-    pub source: String,
-    #[serde(default)]
-    pub note: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -110,46 +104,6 @@ impl Doc {
             .chain(self.projects.iter().map(|p| ("projects", p.id.clone())))
             .collect()
     }
-}
-
-#[derive(Serialize)]
-pub struct CatalogPlugin {
-    #[serde(flatten)]
-    item: Portable,
-    local_id: String,
-    installed: bool,
-    source_changed: bool,
-}
-#[derive(Serialize)]
-pub struct CatalogSkill {
-    #[serde(flatten)]
-    item: skills::Skill,
-    local_id: String,
-    installed: bool,
-}
-#[derive(Serialize)]
-pub struct CatalogState {
-    connected: bool,
-    revision: Option<u64>,
-    plugins: Vec<CatalogPlugin>,
-    projects: Vec<projects::CatalogProject>,
-    mcp: Vec<String>,
-    skills: Vec<CatalogSkill>,
-    shared: BTreeMap<String, String>,
-    organization_items: Vec<OrganizationItem>,
-}
-
-#[derive(Serialize)]
-struct OrganizationItem {
-    organization: String,
-    organization_name: String,
-    revision: Option<u64>,
-    kind: String,
-    id: String,
-    description: String,
-    installed: bool,
-    // The installed local item that satisfies this definition, linked or equivalent.
-    local_id: Option<String>,
 }
 
 fn key(kind: &str, id: &str) -> String {

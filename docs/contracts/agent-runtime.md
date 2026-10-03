@@ -59,6 +59,16 @@ migration; new code uses exhaustive matching. The recognized retired `gemini`
 value is retained without fallback and cannot execute. The JSON field is still called
 `agent` for compatibility, but its normalized value is `"claude" | "codex" | "antigravity" | "gemini"`.
 
+## Native preparation
+
+Provider preparation is injected separately from conversation spawning. Native
+adapters return configuration, transcript ownership and a connection factory;
+the launcher supplies process input and control. Interruption and turn-wait
+policy stay in the adapters, and no bridge payload is introduced. Codex
+translation is shared through `prometeu-protocols::codex` by the desktop and the
+[WSL runtime](wsl-runtime.md); the host supplies language and client version. See
+the [application-core contract](application-core.md#sessions-launch-and-workers).
+
 ## Model discovery
 
 `agents` discovers installations and capabilities, returning empty model lists.
@@ -75,6 +85,8 @@ with `includeHidden: true`; `model` is the launch identifier, `hidden` maps to
 picker source. Antigravity uses `agy models`; its labels do not imply effort
 support. Discovery sends no inference prompt, is bounded to twenty seconds per
 query and reaps its subprocess group on success, failure or timeout.
+The injected query port applies that deadline across writes and every page,
+with 1 MiB total stdout.
 
 Frontend refresh runs at startup/account changes, and on picker opening after
 five minutes, with a manual refresh override. Concurrent requests per provider
@@ -194,8 +206,8 @@ detailed plugin contract is in
 
 ## Workspace launch resolution
 
-Ordinary tab creation and resume both use `Workspace::launch_with`. Tool
-selection is resolved by the core: `session.rs` composes the global layer from
+Ordinary tab creation and resume both use `session::workspace_launch_with`. Tool
+selection uses shared `core::tool_resolution`: desktop `session.rs` composes the global layer from
 the board, the project layer from the primary repository's
 `.prometeu/settings.toml` and the workspace layer into the three `SessionLaunch`
 lists, leaving out project-declared items whose hash is not approved yet
@@ -211,13 +223,17 @@ above: a change at any layer applies at the next spawn or resume of a stopped
 process and never restarts a running session. An idle process also keeps its
 captured set; sending another message alone does not reload tools.
 
-`claude.rs::launch_args` owns Claude flags and MCP/plugin/skill materialization;
-`session.rs` resolves application choices and passes `Launch` to the adapter.
-The relocated argument tests preserve existing flags, resume behavior, and
-configuration handling.
+Provider adapters own CLI flags and consume tool artifacts through injected
+`prometeu-tools::StartupTools`. `session.rs` resolves application choices and
+passes `Launch` to the adapter; plugins and standalone skills share the package
+pipeline. Desktop `tool_materialization.rs` and WSL `runtime::tools` compose the
+same `NativeTools`; the WSL provider reads current choices through
+`ToolSelection` at spawn. Existing argument fixtures and injected startup tests
+preserve flags, resume behavior, scope, environment and failure ordering. See
+[tools and packages](application-core.md#tools-and-packages).
 
 The Tauri commands for changing workspace MCP/plugins/skills delegate to
-[`workspace_tools.rs`](../../src-tauri/src/workspace_tools.rs). This application
+[`workspace_tools.rs`](../../src-tauri/crates/core/src/workspace_tools.rs). This application
 boundary validates axis selections and updates explicit board state without
 accessing processes or changing sibling tabs. The commands retain native
 argument handling, error translation and board publication. Tests run without
@@ -355,3 +371,12 @@ Authentication methods remain descriptor data: Claude/Codex advertise browser;
 Antigravity advertises `external`, with `accountNotice` explaining limits. The
 old Gemini identity is a retired persistence marker; any execution refuses with
 `err.provider.retired`. See [ADR 0052](../decisions/0052-antigravity-runtime.md).
+
+## Shared native discovery
+
+Provider descriptors and model result types live in `prometeu-core::agents`.
+The desktop and WSL runtime share `prometeu-protocols::catalog` for bounded
+queries, pagination and response validation; hosts supply the query launcher,
+prepared command and client version. `ProviderDiscovery` registers providers in
+the runtime. Windows coverage is in the
+[Windows application contract](windows-application.md).

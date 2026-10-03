@@ -7,38 +7,6 @@ use std::{
 };
 use tauri::Manager;
 
-impl Board {
-    pub fn prepare_telemetry_ids(&mut self) {
-        for p in &self.projects {
-            self.telemetry_ids.ensure("project", &p.id);
-            self.telemetry_ids.ensure("repository", &p.path);
-        }
-        for w in &self.workspaces {
-            self.telemetry_ids.ensure("workspace", &w.id);
-            self.telemetry_ids.ensure("project", &w.project);
-            for t in &w.tabs {
-                self.telemetry_ids.ensure("conversation", &t.id);
-                if let Some(action) = &t.task {
-                    self.telemetry_ids.ensure("action", &action.command);
-                }
-            }
-            for r in &w.repos {
-                self.telemetry_ids.ensure("repository", &r.path);
-                self.telemetry_ids
-                    .ensure("branch", &format!("{}\0{}", r.path, w.branch));
-                if let Some(pr) = &r.pr {
-                    if !pr.head_ref_name.is_empty() {
-                        self.telemetry_ids
-                            .ensure("branch", &format!("{}\0{}", r.path, pr.head_ref_name));
-                    }
-                }
-            }
-        }
-        for delegation in &self.delegations {
-            self.telemetry_ids.ensure("mcp-client", &delegation.owner);
-        }
-    }
-}
 /// Resolve live Git branches without holding board, chat or capture locks. The board alone keeps
 /// the names that supply opaque aliases; events contain only those aliases.
 pub fn conversation_attribution(app: &tauri::AppHandle, conversation: &str) -> Origin {

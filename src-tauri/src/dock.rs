@@ -284,21 +284,11 @@ fn release_prompts(app: &AppHandle, workspace: &str, code: Option<u32>) {
             })
             .unwrap_or_default()
     };
-    let waiting: Vec<String> = {
-        let ready = lock(&state.ready);
-        pending.into_iter().filter(|t| ready.contains(t)).collect()
-    };
-    let warning = match code {
-        Some(0) => None,
-        Some(n) => Some(i18n::pick(
-            &format!("(O setup deste worktree saiu com código {n} — veja a aba Setup; pode faltar dependência.) "),
-            &format!("(This worktree's setup exited with code {n} — see the Setup tab; a dependency may be missing.) "),
-        )),
-        None => Some(i18n::pick(
-            "(O setup deste worktree foi encerrado antes de terminar — veja a aba Setup; pode faltar dependência.) ",
-            "(This worktree's setup was stopped before it finished — see the Setup tab; a dependency may be missing.) ",
-        )),
-    };
+    let waiting: Vec<String> = pending
+        .into_iter()
+        .filter(|t| state.sessions.is_ready(t))
+        .collect();
+    let warning = prometeu_files::scripts::setup_warning(code, i18n::pick);
     for tab in &waiting {
         chat::send_prompt(app, tab, warning.clone());
     }
@@ -321,13 +311,7 @@ fn script_name(ws: &Workspace) -> String {
 
 /// Run and archive use the primary repository's environment.
 pub(crate) fn script_env(ws: &Workspace) -> Vec<(String, String)> {
-    let main = ws.primary();
-    scripts::env(
-        Path::new(&main.worktree),
-        Path::new(&main.path),
-        &script_name(ws),
-        ws.port,
-    )
+    prometeu_files::scripts::workspace_env(ws)
 }
 
 /// Assign a port lazily to older workspaces when their scripts are first requested.
@@ -335,8 +319,8 @@ pub(crate) fn ensure_port(app: &AppHandle, state: &State<AppState>, id: &str) ->
     ensure_workspace_port(
         &state.board,
         id,
-        |board| {
-            if let Err(error) = board.save() {
+        || {
+            if let Err(error) = state.save.persist(&state.board) {
                 eprintln!("não gravei a porta do workspace: {error}");
             }
         },
@@ -349,7 +333,7 @@ pub(crate) fn ensure_port(app: &AppHandle, state: &State<AppState>, id: &str) ->
 fn ensure_workspace_port(
     board: &Mutex<Board>,
     id: &str,
-    save: impl FnOnce(&Board),
+    save: impl FnOnce(),
     publish: impl FnOnce(),
 ) -> Option<u16> {
     let mut board = lock(board);
@@ -363,8 +347,8 @@ fn ensure_workspace_port(
     let taken: Vec<u16> = board.workspaces.iter().filter_map(|w| w.port).collect();
     let port = scripts::alloc_port(Path::new(&worktree), &taken)?;
     board.workspace_mut(id)?.port = Some(port);
-    save(&board);
     drop(board);
+    save();
     publish();
     Some(port)
 }
@@ -506,7 +490,10 @@ mod tests {
             let port = ensure_workspace_port(
                 &board,
                 "workspace",
-                |saved| {
+                || {
+                    let saved = board
+                        .try_lock()
+                        .expect("persistence must release the board mutation lock");
                     effects
                         .borrow_mut()
                         .push(("saved", saved.workspace("workspace").unwrap().port));
@@ -539,7 +526,7 @@ mod tests {
                 ensure_workspace_port(
                     &board,
                     id,
-                    |_| panic!("an unchanged port must not save"),
+                    || panic!("an unchanged port must not save"),
                     || panic!("an unchanged port must not publish"),
                 ),
                 expected,

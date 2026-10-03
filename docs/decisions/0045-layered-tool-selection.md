@@ -95,7 +95,7 @@ remove an inherited item at a lower layer without relisting the rest.
 
 ### Persistence
 
-- **global**: a new field on the board (`state.rs`), app-local under `<root>`,
+- **global**: a new field on the board (`crates/core/src/board.rs`), app-local under `<root>`,
   per axis.
 - **project**: a `[tools]` table in `.prometeu/settings.toml`, parsed by the
   existing `scripts.rs` reader with its per-worktree inheritance from the

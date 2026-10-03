@@ -1,4 +1,6 @@
 import { invoke } from "./ipc";
+import { onConnectionRestored } from "./connection";
+import { terminalSnapshot, type TerminalOutput } from "./terminal-output";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -44,6 +46,10 @@ export class Term {
   /// Ignore output from PTYs that are not attached to this view.
   private key: string | null = null;
   private sink: Sink = () => {};
+  private held: { bytes: number[]; seq: number }[] | null = null;
+  private sequence = -1;
+  private stopRecovery = () => {};
+  private acceptsInput = false;
 
   constructor(skin: Skin) {
     this.term = new Terminal({
@@ -71,30 +77,36 @@ export class Term {
       host.addEventListener(type, (event) => { if (lone(event.type)) event.stopPropagation(); }, true);
     }
     this.term.onData((data) => {
-      if (this.key) this.sink(this.key, data);
+      if (this.key && this.acceptsInput) this.sink(this.key, data);
     });
     new ResizeObserver(() => this.refit()).observe(host);
-    listen<[string, number[], number]>("pty", ({ payload: [session, bytes] }) => {
+    listen<[string, number[], number]>("pty", ({ payload: [session, bytes, seq] }) => {
       if (session !== this.key) return;
-      this.term.write(this.decoder.decode(new Uint8Array(bytes), { stream: true }));
+      if (this.held) this.held.push({ bytes, seq });
+      else this.write(bytes, seq);
+    });
+    this.stopRecovery();
+    this.stopRecovery = onConnectionRestored(async () => {
+      if (this.key) await this.attach(this.key, Promise.resolve(), true);
     });
   }
 
   /// Invalidate earlier opens before waiting for the process and its retained output.
-  async attach(key: string, ready: Promise<unknown>) {
+  async attach(key: string, ready: Promise<unknown>, recovering = false) {
     this.detach();
     const version = this.attachVersion;
     this.key = key;
+    this.held = [];
     try {
       await ready;
       if (version !== this.attachVersion) return;
-      const buf = await invoke("pty_buffer", { session: key });
+      const snapshot = await terminalSnapshot(key);
       if (version !== this.attachVersion) return;
-      this.term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
+      this.restore(snapshot);
       this.refit(true);
     } catch (error) {
       if (version !== this.attachVersion) return;
-      this.detach();
+      if (!recovering) this.detach();
       throw error;
     }
   }
@@ -103,17 +115,37 @@ export class Term {
   async show(key: string) {
     this.detach();
     const version = this.attachVersion;
-    const buf = await invoke("pty_buffer", { session: key });
+    const snapshot = await terminalSnapshot(key);
     if (version !== this.attachVersion) return;
-    this.term.write(new TextDecoder("utf-8").decode(new Uint8Array(buf)));
+    this.restore(snapshot);
     this.refit();
   }
 
   detach() {
     this.attachVersion++;
     this.key = null;
+    this.acceptsInput = false;
+    this.held = null;
+    this.sequence = -1;
     this.decoder = new TextDecoder("utf-8");
     this.term.reset();
+  }
+
+  private write(bytes: number[], seq: number) {
+    if (seq <= this.sequence) return;
+    this.sequence = seq;
+    this.term.write(this.decoder.decode(new Uint8Array(bytes), { stream: true }));
+  }
+
+  private restore(snapshot: TerminalOutput) {
+    this.term.write(this.decoder.decode(new Uint8Array(snapshot.data), { stream: true }));
+    this.sequence = snapshot.seq ?? -1;
+    const held = this.held ?? [];
+    this.held = null;
+    // Legacy byte buffers cannot identify overlap; keep live bytes rather than lose newer output.
+    for (const frame of held) this.write(frame.bytes, frame.seq);
+    if (snapshot.running === false) this.key = null;
+    this.acceptsInput = this.key !== null;
   }
 
   current() {
