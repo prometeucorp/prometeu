@@ -61,8 +61,9 @@ Negative:
 
 ## Evidence
 
-- `.github/workflows/ci.yml` uses hosted macOS, Linux and Windows runners and
-  `release.yml` hosted macOS/Linux runners; releases use `GITHUB_TOKEN`;
+- `.github/workflows/ci.yml` uses hosted macOS, Linux and Windows runners,
+  `windows-installer.yml` hosted Linux/Windows runners and `release.yml` hosted
+  macOS/Linux runners; releases use `GITHUB_TOKEN`;
 - `src-tauri/tauri.conf.json` points the updater to `prometeucorp/prometeu`;
 - `scripts/release.sh` publishes in the same repository;
 - the release's `verify` job validates `latest.json` against the app's public

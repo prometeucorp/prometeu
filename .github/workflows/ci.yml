@@ -1,5 +1,5 @@
 # Validate frontend types, web/Rust tests, Rust formatting, Clippy and commit messages on PRs and main
-# pushes; a manual run also builds the experimental Windows installer.
+# pushes.
 # Desktop jobs run on macOS/Linux; portable crates and the WSL shell also run on Windows. PRs from
 # forks also run here: hosted runners are disposable and the workflow holds no secrets, which keeps
 # untrusted code harmless.
@@ -10,7 +10,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -136,71 +135,6 @@ jobs:
       - run: npm run build:wsl
       - run: cargo clippy -p prometeu-core -p prometeu-protocols -p prometeu-bridge -p prometeu-wsl-desktop --features prometeu-wsl-desktop/desktop --all-targets --locked -- -D warnings
         working-directory: src-tauri
-
-  # The experimental Windows installer is built only on request: it is unsigned and release.yml does
-  # not publish it.
-  windows-runtime:
-    name: matching Linux runtime
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src-tauri
-          shared-key: windows-runtime
-
-      - run: cargo build --manifest-path src-tauri/Cargo.toml --locked -p prometeu-runtime --release
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: windows-linux-runtime
-          path: src-tauri/target/release/prometeu-runtime
-          retention-days: 1
-
-  windows-installer:
-    name: windows installer
-    needs: windows-runtime
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24.14.0
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src-tauri
-          shared-key: windows-installer
-
-      - run: npm ci
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: windows-linux-runtime
-          path: ${{ runner.temp }}/runtime-package
-
-      - run: npm run package:windows
-        env:
-          PROMETEU_WSL_RUNTIME: ${{ runner.temp }}/runtime-package/prometeu-runtime
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: windows-installer
-          path: src-tauri/target/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
-          retention-days: 7
 
   commits:
     name: mensagens de commit

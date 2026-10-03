@@ -49,10 +49,11 @@ desktop against the default WSL distribution. WSL, Git and an authenticated Code
 CLI must already be installed; the installer neither provisions them nor imports
 WSLg data. It is not part of a release.
 
-Only a manual run of the CI workflow (`workflow_dispatch`) builds it: the
-`windows-runtime` job builds the runtime on Ubuntu 22.04 and the
-`windows-installer` job embeds it and uploads the unsigned installer as a
-seven-day artifact.
+Only the manual `.github/workflows/windows-installer.yml` workflow builds it
+(Actions > Windows installer > Run workflow): one job builds the runtime on
+Ubuntu 22.04 and the other embeds it and uploads the unsigned installer as a
+seven-day artifact. `release.yml` and `scripts/release.sh` do not build or
+publish it.
 
 On a Windows machine with the Tauri prerequisites:
 
