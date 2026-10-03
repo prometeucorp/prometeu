@@ -5,12 +5,13 @@ import { fromBack, paint, t } from "./i18n";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 
-/// List assigned Linear issues and launch workspaces from them. Existing workspaces replace the create action with navigation. Reuse the backend's two-minute cache, allow forced refresh, and preserve the last successful list after failure.
+/// Show assigned and available Linear issues. Existing workspaces replace the create action with navigation. Reuse the backend's two-minute cache, allow forced refresh, and preserve the last successful list after failure.
 
 type Ctx = {
   say: (text: string, isError?: boolean) => void;
   board: () => Board;
   connected: () => boolean;
+  canAssign: () => boolean;
   /// Notify the sidebar when the issue count changes.
   redraw: () => void;
   open: (ws: Workspace) => void;
@@ -39,21 +40,29 @@ const TEAM = "prometeu:issues:time";
 let ctx: Ctx;
 let got: Issues | null = null;
 let loading = false;
+let revision = 0;
 let error = "";
 let query = "";
 let team = localStorage.getItem(TEAM) ?? "";
+let scope: "mine" | "available" = "mine";
+let claiming = false;
 let visible = false;
 let find: HTMLInputElement;
 let meta: HTMLElement;
 
 export function init(context: Ctx) {
   ctx = context;
+  buildTabs();
   buildBar();
   listen<LinearStatus>("linear", ({ payload }) => {
+    revision++;
+    loading = false;
     if (!payload.connected) {
       got = null;
       error = "";
-    } else if (!got) {
+    } else if (!payload.busy) {
+      got = null;
+      error = "";
       void refresh(false);
     }
     ctx.redraw();
@@ -88,12 +97,16 @@ export function hide() {
 }
 
 async function refresh(force: boolean) {
+  const request = ++revision;
   loading = true;
   drawMeta();
   try {
-    got = await invoke("linear_issues", { force });
+    const next = await invoke("linear_issues", { force });
+    if (request !== revision) return;
+    got = next;
     error = "";
   } catch (e) {
+    if (request !== revision) return;
     error = fromBack(e);
   }
   loading = false;
@@ -146,8 +159,50 @@ function drawMeta() {
 
 export function draw() {
   if (!visible) return;
+  drawTabs();
   drawMeta();
   drawList();
+}
+
+function buildTabs() {
+  const tabs = $("itabs");
+  tabs.setAttribute("aria-label", t("issues.scope"));
+  const list = $("ilist");
+  list.setAttribute("role", "tabpanel");
+  for (const key of ["mine", "available"] as const) {
+    const tab = template("button", "tab itab", `<span></span><span class="c"></span>`);
+    tab.setAttribute("role", "tab");
+    tab.id = `issues-${key}`;
+    tab.setAttribute("aria-controls", "ilist");
+    tab.children[0].textContent = t(key === "mine" ? "issues.mine" : "issues.available");
+    tab.addEventListener("click", () => {
+      scope = key;
+      pickTeam("");
+      draw();
+    });
+    tabs.append(tab);
+  }
+  tabs.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const buttons = tabs.querySelectorAll<HTMLButtonElement>(".itab");
+    const next = scope === "mine" ? 1 : 0;
+    buttons[next].focus();
+    buttons[next].click();
+  });
+}
+
+function drawTabs() {
+  const tabs = $("itabs").querySelectorAll<HTMLButtonElement>(".itab");
+  tabs.forEach((tab, index) => {
+    const selected = scope === (index === 0 ? "mine" : "available");
+    tab.classList.toggle("on", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    tab.children[0].textContent = t(index === 0 ? "issues.mine" : "issues.available");
+    tab.children[1].textContent = String(index === 0 ? got?.issues.length ?? 0 : got?.available.length ?? 0);
+    if (selected) $("ilist").setAttribute("aria-labelledby", tab.id);
+  });
 }
 
 function drawList() {
@@ -171,22 +226,28 @@ function drawList() {
     return;
   }
 
-  const found = got.issues.filter(matches);
-  drawTeams(found);
+  const source = scope === "mine" ? got.issues : got.available;
+  const found = source.filter(matches);
+  drawTeams(found, source);
   const hits = team ? found.filter((i) => i.team === team) : found;
   if (!hits.length) {
+    if (!query && !team && scope === "mine" && got.available.length) {
+      drawSuggestions(list, got.available);
+      return;
+    }
     list.append(
       query || team
         ? empty(t("issues.noMatch.title"), t("issues.noMatch.body"))
-        : empty(t("issues.empty.title"), t("issues.empty.body")),
+        : empty(t(scope === "mine" ? "issues.empty.title" : "issues.available.empty.title"),
+          t(scope === "mine" ? "issues.empty.body" : "issues.available.empty.body")),
     );
     return;
   }
 
   const kinds = [...KINDS, ...unknownKinds(hits)];
   for (const [kind, label] of kinds) {
-    const mine = hits.filter((i) => i.state.kind === kind).sort(byUrgency);
-    if (!mine.length) continue;
+    const grouped = hits.filter((i) => i.state.kind === kind).sort(byUrgency);
+    if (!grouped.length) continue;
     const shut = !query && folded(kind);
     const head = template(
       "button",
@@ -195,7 +256,7 @@ function drawList() {
     );
     head.children[0].innerHTML = icon(shut ? "chevron-right" : "chevron-down", 14);
     head.children[1].textContent = label;
-    head.children[2].textContent = String(mine.length);
+    head.children[2].textContent = String(grouped.length);
     head.title = t(shut ? "issues.group.show" : "issues.group.fold", { group: label });
     head.addEventListener("click", () => {
       localStorage.setItem(FOLD + kind, shut ? "0" : "1");
@@ -203,15 +264,42 @@ function drawList() {
     });
     list.append(head);
     if (shut) continue;
-    for (const issue of mine) list.append(row(issue));
+    for (const issue of grouped) list.append(row(issue, scope === "available"));
+  }
+  if (scope === "mine" && !query && got.available.length) {
+    const callout = template("div", "iavailable-callout", `<span></span><button class="ghost sm"></button>`);
+    callout.children[0].textContent = t("issues.available.count", { n: got.available.length });
+    callout.children[1].textContent = t("issues.viewAvailable");
+    callout.children[1].addEventListener("click", showAvailable);
+    list.append(callout);
   }
 }
 
+function showAvailable() {
+  scope = "available";
+  pickTeam("");
+  draw();
+  $("itabs").querySelectorAll<HTMLButtonElement>(".itab")[1].focus();
+}
+
+function drawSuggestions(list: HTMLElement, available: Issue[]) {
+  const hero = empty(t("issues.emptyQueue.title"), t("issues.emptyQueue.body"));
+  hero.classList.add("queue-empty");
+  list.append(hero);
+  const box = template("div", "isuggestions", `<div class="isuggestions-head"><strong></strong><button class="ghost sm"></button></div>`);
+  box.querySelector("strong")!.textContent = t("issues.suggestions");
+  const view = box.querySelector("button")!;
+  view.textContent = t("issues.viewAll", { n: available.length });
+  view.addEventListener("click", showAvailable);
+  for (const issue of [...available].sort(byUrgency).slice(0, 3)) box.append(row(issue, true));
+  list.append(box);
+}
+
 /// Show team filters only for multiple teams. Derive pills from the full list and counts from search matches so typing does not reshape the toolbar.
-function drawTeams(found: Issue[]) {
+function drawTeams(found: Issue[], source: Issue[]) {
   const box = $("iteams");
   box.replaceChildren();
-  const keys = [...new Set(got!.issues.map((i) => i.team).filter(Boolean))].sort();
+  const keys = [...new Set(source.map((i) => i.team).filter(Boolean))].sort();
   // Clear a selected team that disappeared from the list instead of hiding all results.
   if (team && !keys.includes(team)) pickTeam("");
   box.hidden = keys.length < 2;
@@ -263,10 +351,10 @@ function matches(i: Issue) {
   return query.split(/\s+/).every((word) => hay.includes(word));
 }
 
-function row(issue: Issue): HTMLElement {
+function row(issue: Issue, available = false): HTMLElement {
   const el = template(
     "div",
-    "irow",
+    "irow" + (available ? " available" : ""),
     `<span class="prio p${Math.min(issue.priority, 4)}"><i></i><i></i><i></i></span>` +
       `<span class="iid"></span>` +
       `<span class="ititle"><b></b><span class="iproj"></span></span>` +
@@ -291,7 +379,53 @@ function row(issue: Issue): HTMLElement {
 
   const act = el.querySelector(".iact")!;
   const owner = ctx.board().workspaces.find((w) => w.issue?.id === issue.id && !w.archived);
-  const btn = h("button", owner ? "ghost sm" : "pri sm", t(owner ? "issues.open" : "issues.create"));
+  const btn = h("button", owner ? "ghost sm" : "pri sm",
+    available ? t(ctx.canAssign() ? "issues.claim" : "issues.allowClaim") : t(owner ? "issues.open" : "issues.create")) as HTMLButtonElement;
+  if (available) {
+    if (claiming) btn.setAttribute("aria-disabled", "true");
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (claiming) return;
+      if (!ctx.canAssign()) {
+        ctx.toSettings();
+        return;
+      }
+      const keyboard = e.detail === 0;
+      let succeeded = false;
+      claiming = true;
+      $("ilist").setAttribute("aria-busy", "true");
+      $("ilist").querySelectorAll(".irow.available .iact button").forEach((action) => action.setAttribute("aria-disabled", "true"));
+      try {
+        const claimed = await invoke("linear_claim", { id: issue.id });
+        succeeded = true;
+        if (got) {
+          got = {
+            ...got,
+            issues: [claimed, ...got.issues],
+            available: got.available.filter((item) => item.id !== issue.id),
+          };
+        }
+        ctx.say(t("issues.claimed", { id: claimed.identifier }));
+        ctx.redraw();
+        draw();
+        void refresh(true);
+      } catch (e) {
+        ctx.say(fromBack(e), true);
+      } finally {
+        claiming = false;
+        $("ilist").removeAttribute("aria-busy");
+        draw();
+        if (keyboard && visible) {
+          const same = [...$("ilist").querySelectorAll<HTMLElement>(".irow.available")]
+            .find((candidate) => candidate.querySelector(".iid")?.textContent === issue.identifier);
+          (succeeded ? $("itabs").querySelectorAll<HTMLButtonElement>(".itab")[1]
+            : same?.querySelector<HTMLButtonElement>(".iact button"))?.focus();
+        }
+      }
+    });
+    act.append(btn);
+    return el;
+  }
   btn.title = owner
     ? `${owner.title} · ${owner.branch}`
     : t("issues.create.title", { branch: issue.branch_name });

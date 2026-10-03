@@ -16,6 +16,8 @@ as a short index for agents and `README.md` presents the product.
 
 ## Contracts
 
+- [Linear issue discovery and assignment](contracts/linear-issues.md): available team issues, OAuth write scope, claim flow and cache compatibility.
+
 - [Desktop presentation](contracts/desktop-presentation.md): typed snapshots, callbacks, focus and resource view lifetime.
 
 - [Local notifications](contracts/notifications.md): event selection, native delivery and silent defaults.

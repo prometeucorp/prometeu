@@ -831,6 +831,21 @@ export const PT = {
 
   /* Issues tab. */
 
+  "issues.scope": "Origem das issues",
+  "issues.mine": "Minhas",
+  "issues.available": "Disponíveis no time",
+  "issues.available.count": "{n} issues dos seus times sem responsável",
+  "issues.viewAvailable": "Ver disponíveis",
+  "issues.viewAll": "Ver todas ({n})",
+  "issues.suggestions": "Sugeridas por prioridade",
+  "issues.claim": "Pegar",
+  "issues.allowClaim": "Autorizar",
+  "issues.claimed": "Issue {id} atribuída a você",
+  "issues.emptyQueue.title": "Sua fila está vazia",
+  "issues.emptyQueue.body": "Estas issues dos seus times estão sem responsável. Pegue uma para começar.",
+  "issues.available.empty.title": "Nenhuma issue disponível",
+  "issues.available.empty.body": "Issues sem responsável dos seus times aparecem aqui.",
+
   "issues.kind.started": "Em andamento",
   "issues.kind.unstarted": "A fazer",
   "issues.kind.triage": "Triagem",
@@ -1437,6 +1452,8 @@ export const PT = {
   "team.relay.placeholder": "wss://…",
   "team.relay.save": "Salvar",
   "linear.connected": "Conectado",
+  "linear.readOnly": "somente leitura",
+  "linear.allowAssignment": "Autorizar atribuições",
   "linear.asWord": "como",
   "linear.disconnect": "Desconectar",
   "linear.disconnect.title":
@@ -1445,7 +1462,7 @@ export const PT = {
   "linear.pitch": "Conecte para criar workspaces a partir das suas issues.",
   "linear.connect": "Conectar Linear",
   "linear.connect.title":
-    "Abre o Linear no navegador para você autorizar o Prometeu. Só leitura, e só neste Mac",
+    "Abre o Linear no navegador para você autorizar leitura e atribuição de issues neste Mac",
 
   /* Status bar. */
 
@@ -1572,6 +1589,9 @@ export const PT = {
   "err.linear.garbled": "o Linear respondeu algo que não entendi: {cause}",
   "err.linear.noToken": "o Linear não mandou o token",
   "err.linear.off": "o Linear não está conectado",
+  "err.linear.writeScope": "autorize atribuições do Linear nas configurações",
+  "err.linear.notAvailable": "esta issue não está mais disponível — atualize a lista",
+  "err.linear.claimFailed": "o Linear não confirmou a atribuição",
   "err.linear.rejected": "o Linear não aceitou a conexão — conecte de novo",
   "err.linear.slowDown": "o Linear pediu calma: muitas chamadas na última hora",
   "err.linear.http": "o Linear respondeu {status}",

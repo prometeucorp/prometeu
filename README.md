@@ -43,6 +43,10 @@ optional for local work; model access comes from your own provider account.
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
   Your workspace stage stays separate from the agent's status.
+- **Linear issues.** View issues assigned to you and unassigned issues in your
+  teams. Claim one in Prometeu, then start a workspace from it. Existing
+  read-only connections need reauthorization before claiming. See the
+  [Linear issue contract](docs/contracts/linear-issues.md).
 - **Local notifications.** Opt into completion, approval/input and error alerts
   in Settings. Choose a macOS banner, a notch overlay or sound alone.
   Notifications and sound start disabled; phone push is not included.

@@ -86,6 +86,7 @@ export type Commands = {
   finish_workspace: { args: { id: string }; result: void };
   focus_tab: { args: { workspace: string; tab: string }; result: void };
   linear_connect: { args: undefined; result: T.LinearStatus };
+  linear_claim: { args: { id: string }; result: T.Issue };
   linear_disconnect: { args: undefined; result: T.LinearStatus };
   linear_issues: { args: { force: boolean }; result: T.Issues };
   linear_open: { args: { url: string }; result: void };

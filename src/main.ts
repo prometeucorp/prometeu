@@ -234,7 +234,7 @@ function showProject(project: Project, push = true) {
   draw();
 }
 
-/// Assigned Linear issues are an entry point for work.
+/// Assigned and available Linear issues are an entry point for work.
 function showIssues(push = true) {
   if (push) visit(ISSUES);
   ws.leave();
@@ -672,10 +672,11 @@ issues.init({
   say,
   board: () => state,
   connected: () => settings.linear().connected,
+  canAssign: () => settings.linear().can_assign,
   redraw: draw,
   open: (w) => openWorkspace(w),
   create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),
-  toSettings: () => showSettings(),
+  toSettings: () => { settings.showLinear(); showSettings(); },
 });
 archived.init({ board: () => state, hooks: () => hooks });
 ws.init({

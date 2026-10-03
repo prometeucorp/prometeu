@@ -88,6 +88,11 @@ stay in their existing owners. See the
 
 ## Optional account
 
+The optional Linear connection is owned by `src-tauri/src/linear.rs`. It
+queries assigned and unassigned issues in the user's teams and assigns a chosen
+issue after explicit action; `src/issues.ts` owns the screen. See the
+[Linear issue contract](docs/contracts/linear-issues.md).
+
 The optional account appears at the top of the sidebar. The `cloud.rs` backend
 connects the Mac through the browser and stores the credential privately. The
 separate `prometeu-cloud` project offers account management, organizations,

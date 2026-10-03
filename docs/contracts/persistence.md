@@ -33,6 +33,8 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | accounts and per-provider selection | `<root>/accounts.json` | `accounts.rs` |
 | additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
+| Linear OAuth credential | `<root>/linear.json` | `linear.rs`; private access and refresh tokens, account identity and granted scopes; see [Linear issues](linear-issues.md) |
+| Linear issue cache | `<root>/linear-issues.json` | `linear.rs`; private assigned and available lists with fetch time; see [Linear issues](linear-issues.md) |
 | optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
 | Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `chat.rs` |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
