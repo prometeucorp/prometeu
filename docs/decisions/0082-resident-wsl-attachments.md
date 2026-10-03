@@ -5,73 +5,58 @@ Status: Accepted
 
 ## Context
 
-Restarting the stdio host restores a transcript but loses the live turn and shell.
-The native preview needs to detach without changing execution ownership, while
-keeping Unix transport details outside portable clients and presentation.
+A runtime that lives only as long as its stdio client restores the transcript on
+restart but loses the live turn and supporting shells. Closing or reloading the
+Windows window must not change execution ownership, and Unix transport details
+must stay outside portable clients and presentation.
 
 ## Decision
 
-The Windows composition injects `ResidentWslLauncher`. It runs the same Linux
-executable as a disposable stdio proxy, which starts or attaches to a detached
-host through a private Unix socket. The original `WslLauncher` and default stdio
-mode remain available for disposable execution and compatibility tests.
+The Windows composition injects `ResidentWslLauncher`. It runs the bundled Linux
+executable as a disposable stdio proxy that starts or attaches to a detached host
+through a private Unix socket in the runtime root. The plain stdio launcher stays
+available for disposable execution and tests. Transport selection happens only
+in composition.
 
-A shared `Host` dispatches requests to the same injected conversation and terminal
-services. `DeliveryHub` implements the existing runtime event port. It discards
-unattached live delivery and detaches slow consumers rather than blocking or
-failing transcript persistence. Only one client can attach at a time. The root
-lease reserves execution ownership; transport attachment never takes it over.
-Launch configuration must match before requests can be admitted.
-The listener uses nonblocking acceptance; each accepted stream explicitly uses
-blocking worker I/O and the contract's read/write deadlines. Socket mode is set
-at the Unix adapter boundary rather than relying on platform-specific inheritance.
-
-`AttachmentClient::disconnect` releases only the connection. Explicit shutdown
-stops both children and the host; Stop remains scoped to the conversation.
-Snapshots report current readiness and generation, and terminal discovery returns
-the current ID and byte snapshot. Presentation buffers events during attachment,
-replaces snapshots, then applies only newer sequence numbers. No mutation or
-keystroke is retried automatically. Provider payloads remain at the adapter edge.
-
-Detached terminals keep draining into bounded scrollback. Reattachment resets
-output credits at the last published sequence; the renderer acknowledges its
-replacement snapshot before continuing live consumption. Neither the renderer
-nor conversation controller selects an OS, launcher or transport implementation.
+- The host owns the root lease, every conversation process and every supporting
+  shell. Proxy EOF or death, window closure, malformed input and delivery failure
+  only detach the client. Explicit shutdown stops all execution and releases the
+  root; Stop and terminal close stay scoped to one conversation or shell.
+- One client is attached at a time. A second client is rejected rather than
+  taking over. The launch configuration must match before any request runs.
+- Delivery to a client is bounded. A slow or absent client is detached or
+  skipped; execution and persistence never block on it. Reattachment restores
+  snapshots of conversations and terminals; presentation buffers events,
+  replaces snapshots and applies only newer sequences.
+- No mutation, message or keystroke is retried automatically. A lost reply has
+  an unknown outcome.
+- A changed bundled executable replaces a resident only at attachment and only
+  when the host retains no conversation, live shell, pending launch, deferred
+  application/MCP work or browser consent. A busy host keeps running and the
+  replacement waits for a later attachment. Residents without that negotiation
+  require explicit shutdown.
 
 ## Trade-offs and limits
 
-A resident host intentionally consumes resources after the window closes. The
-preview exposes a separate translated shutdown control; there is no idle expiry.
-A second client is rejected rather than silently taking control. Lost replies
-still have an unknown outcome; operation receipts and transparent retries are
-not introduced. Socket paths have the native Unix length limit.
-
-This survives client/proxy loss, not runtime death, WSL shutdown or machine reboot.
-The transcript survives; a shell cannot be recovered after host death. Cleanup
-of descendants after an uncatchable host kill remains outside this development
-slice. Bundled updates use capability-negotiated retirement at attachment: the
-serialized host admits replacement only without retained conversations, live
-shells or pending launches/application/MCP work/consent. Busy hosts defer replacement; older
-hosts without retirement support still require explicit shutdown. This avoids
-abandoning live execution when the content-addressed executable changes, at the
-cost of retaining an older build until a later safe attachment. Persisted state
-survives; stopped PTY scrollback remains memory-only. The exact compatibility
-contract is in the resident contract.
-Native Windows GUI validation and full application parity remain separate gates.
+A resident host consumes resources after the window closes; there is no idle
+expiry, forced takeover or service installation. Deferring replacement avoids
+abandoning live execution, at the cost of running an older build until a later
+idle attachment. The design survives client and proxy loss, not runtime death,
+WSL shutdown or reboot: persisted history can be resumed in a new host, but live
+processes, shells and terminal scrollback are lost. Recovery of descendants after
+an uncatchable host kill is not implemented. Socket paths have the native Unix
+length limit.
 
 ## Evidence
 
-- [Resident contract](../contracts/resident-runtime.md): ownership, framing, bounds,
-  permissions, compatibility and shutdown behavior.
-- [Executable tests](../../src-tauri/crates/runtime/tests/resident.rs): detach in
-  a turn, same generation and provider process, shell state and offline output,
-  competing attachment, configuration mismatch, malformed input, proxy death and
-  explicit shutdown and replacement admission across retained agents and both
-  terminal types. The same reconnect fixture runs through actual `wsl.exe` on opt-in.
-- [Delivery test](../../src-tauri/crates/runtime/src/resident.rs): saturated
+- [WSL runtime protocol](../contracts/wsl-runtime.md#resident-attachment):
+  handshake, bounds, permissions, snapshots and safe replacement.
+- [Resident tests](../../src-tauri/crates/runtime/tests/resident.rs): detach
+  during a turn, same generation and provider process, retained shell state and
+  offline output, competing attachment, configuration mismatch, malformed input,
+  proxy death, shutdown and replacement admission. The same reconnect fixture
+  runs through actual `wsl.exe` on opt-in.
+- [Delivery test](../../src-tauri/crates/runtime/src/resident.rs): a saturated
   consumer detaches without failing execution delivery.
-- [Session tests](../../src/wsl/session.test.ts) and
-  [terminal tests](../../src/wsl/terminal.test.ts): snapshots racing events,
-  readiness, stale identities and terminal reattachment.
-- The existing [preview browser scenario](../../e2e/wsl-preview.spec.ts) verifies
-  DOM replacement and keyboard/draft continuity across attachment.
+- `src/windows/recovery.test.ts` and `src/term.test.ts`: snapshot
+  reconciliation and stale events after reattachment.

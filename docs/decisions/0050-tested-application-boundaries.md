@@ -65,12 +65,11 @@ application, saver thread or installed agent CLI.
 Other use cases can adopt the same approach when a change needs that boundary;
 there is no requirement to wrap every function in an interface.
 
-[ADR 0085](0085-portable-board-core.md) moves board models and this use case
-into an independently tested library with injected storage and publication. The
-production desktop deployment remains local and in-process.
-[ADR 0079](0079-headless-conversation-slice.md) permits an isolated experimental
-headless conversation executable to validate the execution boundary. Process ownership, storage ownership
-and transport still need explicit contracts before a later service extraction.
+[ADR 0085](0085-portable-core.md) moves board models, this use case and the
+other application rules into an independently tested library with injected
+effects. The production desktop deployment remains local and in-process; the
+Windows composition runs the same core in a WSL runtime under
+[ADR 0084](0084-shared-windows-desktop.md).
 
 The import graph and selected global-access checks are architectural fitness
 checks, not a complete proof of purity. Their exact scope and limits are in the
