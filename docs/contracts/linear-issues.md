@@ -12,14 +12,19 @@ The sidebar and launcher counts still describe Mine only. Claiming an issue does
 not create a workspace; the newly assigned issue becomes eligible for the
 existing workspace action.
 
-`linear_issues({ force })` returns `{ issues, available, fetched_at }`. The Rust
+`linear_issues({ force })` returns `{ issues, available, fetched_at, available_error? }`. The Rust
 adapter fetches both lists through paginated GraphQL queries, with at most ten
 pages of 50 per list. The available query filters by missing assignee, active
 state and team membership in Linear. The two-minute cache persists privately in
 `linear-issues.json`. Older cache files without `available` trigger an immediate
 refresh; older binaries ignore the added field. Network fetches run outside the
 cache lock, and snapshots fetched before a claim or account change are discarded.
-Refresh errors preserve the last successful screen snapshot. Disconnect and
+If the available query fails after Mine succeeds, the response keeps Mine,
+retains previously fetched available issues when present, and sets
+`available_error`. The Available tab shows the error and offers a retry when
+there are no retained issues; the Mine count remains available. A failed Mine
+query still fails the whole request. Refresh errors preserve the last successful
+screen snapshot. Disconnect and
 successful reauthorization clear the cache.
 
 `linear_claim({ id })` requires a credential granted the `write` OAuth scope.
@@ -46,8 +51,10 @@ grant. Disconnect deletes both the credential and the issue cache.
 The browser mock implements the same commands with fictional issues and an
 in-memory claim. The feature is independent of Claude, Codex and Antigravity.
 
-Evidence: `src-tauri/src/linear.rs` tests cover old formats, scope decoding and
+Evidence: `src-tauri/src/linear.rs` tests cover old formats, scope decoding,
+partial availability failure and
 claim eligibility; `src/backend-contract.test.ts` checks IPC registration;
-`e2e/issues.spec.ts` checks pending actions, count updates, keyboard focus and
-read-only permission navigation through the browser mock. Live OAuth consent
+`e2e/issues.spec.ts` checks pending actions, count updates, keyboard focus,
+partial availability failure and read-only permission navigation through the
+browser mock. Live OAuth consent
 and mutation require a connected Linear account for manual verification.

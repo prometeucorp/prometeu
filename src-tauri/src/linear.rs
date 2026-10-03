@@ -436,6 +436,9 @@ pub struct Issues {
     /// Open, unassigned issues in teams joined by the authenticated user.
     #[serde(default)]
     pub available: Vec<Issue>,
+    /// An availability failure must not hide successfully fetched assigned issues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_error: Option<String>,
     /// Unix timestamp in seconds for relative update times.
     pub fetched_at: u64,
 }
@@ -530,7 +533,7 @@ fn issues(force: bool) -> Result<Issues, String> {
                 return Ok(c.clone());
             }
         }
-        let fresh = match fetch_issues() {
+        let fresh = match fetch_issues(cached.as_ref()) {
             Ok(fresh) => fresh,
             Err(error) => {
                 if lock(&CACHE).generation != generation {
@@ -553,15 +556,33 @@ fn issues(force: bool) -> Result<Issues, String> {
     }
 }
 
-fn fetch_issues() -> Result<Issues, String> {
+fn fetch_issues(previous: Option<&Issues>) -> Result<Issues, String> {
     let token = token()?;
     let issues = fetch_pages(&token, ISSUES_QUERY, &["viewer", "assignedIssues"])?;
-    let available = fetch_pages(&token, AVAILABLE_QUERY, &["issues"])?;
-    Ok(Issues {
+    let available = fetch_pages(&token, AVAILABLE_QUERY, &["issues"]);
+    Ok(issue_lists(issues, available, previous))
+}
+
+fn issue_lists(
+    issues: Vec<Issue>,
+    available: Result<Vec<Issue>, String>,
+    previous: Option<&Issues>,
+) -> Issues {
+    let (available, available_error) = match available {
+        Ok(available) => (available, None),
+        Err(error) => (
+            previous
+                .map(|old| old.available.clone())
+                .unwrap_or_default(),
+            Some(error),
+        ),
+    };
+    Issues {
         issues,
         available,
+        available_error,
         fetched_at: now(),
-    })
+    }
 }
 
 fn fetch_pages(token: &str, query: &str, path: &[&str]) -> Result<Vec<Issue>, String> {
@@ -835,6 +856,7 @@ mod tests {
         }))
         .unwrap();
         assert!(cached.available.is_empty());
+        assert!(cached.available_error.is_none());
         assert_eq!(
             parse_issue_cache(r#"{"issues":[],"fetched_at":123}"#)
                 .unwrap()
@@ -846,6 +868,40 @@ mod tests {
                 .unwrap()
                 .fetched_at,
             123
+        );
+    }
+
+    #[test]
+    fn available_failure_keeps_assigned_issues_and_reports_error() {
+        let assigned: Issue = serde_json::from_value(serde_json::json!({
+            "id": "assigned", "identifier": "TEAM-1", "title": "Assigned",
+            "description": null, "url": "https://linear.app/team/issue/TEAM-1/assigned",
+            "branch_name": "team-1-assigned", "priority": 0, "priority_label": "None",
+            "state": { "name": "Todo", "kind": "unstarted", "color": "#fff" },
+            "team": "TEAM", "project": null, "labels": [], "updated_at": "2026-10-03T00:00:00Z"
+        }))
+        .unwrap();
+        let fresh = issue_lists(vec![assigned.clone()], Err("available failed".into()), None);
+        assert_eq!(fresh.issues[0].identifier, "TEAM-1");
+        assert!(fresh.available.is_empty());
+        assert_eq!(fresh.available_error.as_deref(), Some("available failed"));
+        assert_eq!(
+            serde_json::to_value(&fresh).unwrap()["available_error"],
+            "available failed"
+        );
+        let mut prior_issue = assigned;
+        prior_issue.identifier = "TEAM-2".into();
+        let previous = issue_lists(vec![], Ok(vec![prior_issue]), None);
+        let retried = issue_lists(
+            fresh.issues,
+            Err("still unavailable".into()),
+            Some(&previous),
+        );
+        assert_eq!(retried.issues[0].identifier, "TEAM-1");
+        assert_eq!(retried.available[0].identifier, "TEAM-2");
+        assert_eq!(
+            retried.available_error.as_deref(),
+            Some("still unavailable")
         );
     }
 

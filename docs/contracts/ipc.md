@@ -167,7 +167,8 @@ IPC to authenticate the WebSocket.
 | `file-drag` | `file_drop.rs`, main webview | `{ type, paths, position?, id?, error? }` |
 
 `linear_issues({ force })` returns assigned and available issues with a fetch
-time. `linear_claim({ id })` returns the newly assigned issue after Linear
+time and optional `available_error` when discovery fails after Mine succeeds.
+`linear_claim({ id })` returns the newly assigned issue after Linear
 confirms its mutation. `linear_status` and `linear` include `can_assign` to
 identify credentials granted the `write` scope. See [Linear issues](linear-issues.md).
 

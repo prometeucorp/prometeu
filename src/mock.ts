@@ -2370,7 +2370,12 @@ const mockCommands: IpcHandlers = {
     if (localStorage.getItem("mock:linearIssuesFailure") === "1") {
       return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.noData" })}`);
     }
-    return new Promise((done) => setTimeout(() => done({ issues: [...ISSUES], available: [...AVAILABLE], fetched_at: Date.now() / 1000 }), 600));
+    return new Promise((done) => setTimeout(() => done({
+      issues: [...ISSUES],
+      available: localStorage.getItem("mock:linearAvailableFailure") === "1" ? [] : [...AVAILABLE],
+      available_error: localStorage.getItem("mock:linearAvailableFailure") === "1" ? t("err.linear.noData") : undefined,
+      fetched_at: Date.now() / 1000,
+    }), 600));
   },
   linear_claim({ id }) {
     if (!linear.can_assign) return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.writeScope" })}`);

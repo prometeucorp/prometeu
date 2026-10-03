@@ -149,11 +149,12 @@ function buildBar() {
 }
 
 function drawMeta() {
-  meta.classList.toggle("err", !!error && !loading);
+  const problem = error || (scope === "available" ? got?.available_error : "");
+  meta.classList.toggle("err", !!problem && !loading);
   meta.textContent = loading
     ? t("issues.busy")
-    : error
-      ? error
+    : problem
+      ? problem
       : got
         ? t("issues.updated", { when: ago(got.fetched_at * 1000) })
         : "";
@@ -228,6 +229,10 @@ function drawList() {
     if (!loading && error) {
       list.append(empty(t("issues.failed.title"), error, [t("issues.failed.action"), () => refresh(true)]));
     }
+    return;
+  }
+  if (scope === "available" && got.available_error && !got.available.length) {
+    list.append(empty(t("issues.failed.title"), got.available_error, [t("issues.failed.action"), () => refresh(true)]));
     return;
   }
 

@@ -71,3 +71,23 @@ test("a read-only Linear connection opens the assignment permission in settings"
   await page.getByRole("button", { name: "Authorize assignments" }).click();
   await expect(page.getByRole("button", { name: "Authorize assignments" })).toHaveCount(0);
 });
+
+test("an unavailable team issue list keeps assigned issues visible", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("mock:linearAvailableFailure", "1"));
+  await page.goto("/");
+  await page.evaluate(async () => {
+    type Invoke = (command: string) => Promise<unknown>;
+    const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+    await internals.invoke("linear_connect");
+  });
+
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  const tabs = page.locator("#itabs .itab");
+  await expect(tabs.first().locator(".c")).toHaveText("7");
+  await expect(page.locator("#ilist .irow").first()).toBeVisible();
+  await tabs.last().click();
+  await expect(page.locator("#ilist")).toContainText("Could not fetch");
+  await page.evaluate(() => localStorage.removeItem("mock:linearAvailableFailure"));
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.locator("#ilist .irow.available").first()).toBeVisible();
+});

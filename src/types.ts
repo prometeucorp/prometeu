@@ -344,7 +344,7 @@ export type Issue = IssueRef & {
   labels: { name: string; color: string }[];
   updated_at: string;
 };
-export type Issues = { issues: Issue[]; available: Issue[]; fetched_at: number };
+export type Issues = { issues: Issue[]; available: Issue[]; available_error?: string; fetched_at: number };
 
 /// Busy identifies browser-based authentication, which remains visible across navigation.
 export type LinearStatus = { connected: boolean; can_assign: boolean; who: LinearWho | null; busy: boolean };
