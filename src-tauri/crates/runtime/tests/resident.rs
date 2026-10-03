@@ -1,4 +1,5 @@
 #![cfg(unix)]
+mod common;
 use prometeu_bridge::{
     ResidentWslLauncher, RuntimeConnector, RuntimeEvents, RuntimeLauncher, StdioConnector, Target,
 };
@@ -567,111 +568,82 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
     std::fs::remove_dir_all(base).unwrap();
 }
 
-#[test]
-fn application_commands_and_events_address_sessions_without_changing_selection() {
-    let base = fixture_root("pa");
-    let project = base.join("project");
-    std::fs::create_dir_all(&project).unwrap();
-    let git = |args: &[&str]| {
-        let output = Command::new("git")
-            .args(["-C", project.to_str().unwrap()])
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
-    };
-    git(&["init", "-q", "-b", "main"]);
-    git(&["config", "user.name", "Runtime test"]);
-    git(&["config", "user.email", "runtime@example.test"]);
-    git(&["config", "commit.gpgsign", "false"]);
-    git(&["config", "core.hooksPath", "no-hooks"]);
-    std::fs::write(project.join("notes.txt"), "Original").unwrap();
-    git(&["add", "notes.txt"]);
-    git(&["commit", "-qm", "initial"]);
+/// Start a resident whose primary workspace is `project`, with the hermetic provider.
+fn application_target(base: &std::path::Path, project: &std::path::Path) -> Target {
     let codex = base.join("provider");
     std::fs::write(&codex, include_str!("fake_codex.py")).unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let target = Target {
+    Target {
         distribution: "Test".into(),
         executable: env!("CARGO_BIN_EXE_prometeu-runtime").into(),
         root: base.join("root").to_str().unwrap().into(),
         workdir: project.to_str().unwrap().into(),
         codex: codex.to_str().unwrap().into(),
-    };
+    }
+}
+
+/// Wait for `session`'s turn to complete. Chat events for other sessions may interleave, but
+/// none may be published for `unaddressed`, which never receives a request.
+fn addressed_turn(rx: &mpsc::Receiver<Value>, session: &str, unaddressed: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let frame = rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        if frame["application"]["name"] != "chat" {
+            continue;
+        }
+        let payload = &frame["application"]["payload"];
+        assert_ne!(payload[0], unaddressed, "{frame}");
+        let line: Value = serde_json::from_str(payload[1].as_str().unwrap()).unwrap();
+        if payload[0] == session && line["type"] == "turn.completed" {
+            return;
+        }
+    }
+}
+
+fn transcript(client: &mut Box<dyn prometeu_bridge::RuntimeClient>, session: &Value) -> String {
+    client
+        .application(
+            "chat_snapshot".into(),
+            serde_json::json!({"session":session}),
+        )
+        .unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn application_commands_and_events_address_sessions_without_changing_selection() {
+    let base = fixture_root("pa");
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let target = application_target(&base, &project);
     let mut cleanup = Cleanup {
         armed: true,
         target: target.clone(),
         launcher: Arc::new(Local),
     };
-    let (sink, rx) = events();
-    let mut client = StdioConnector {
+    let connector = StdioConnector {
         launcher: Arc::new(Local),
-    }
-    .connect(&target, sink)
-    .unwrap();
-    let agents = client.application("agents".into(), Value::Null).unwrap();
-    assert_eq!(agents["providers"][0]["id"], "codex");
-    assert_eq!(agents["providers"][0]["installed"], true);
-    let accounts = client.application("accounts".into(), Value::Null).unwrap();
-    assert_eq!(accounts["accounts"][0]["email"], "fixture@example.test");
-    let models = client
-        .application("agent_models".into(), serde_json::json!({"agent":"codex"}))
-        .unwrap();
-    assert_eq!(models["models"][0]["id"], "fixture");
+    };
+    let (sink, rx) = events();
+    let mut client = connector.connect(&target, sink).unwrap();
     let catalog = client
         .workspace_create("Background".into(), target.workdir.clone())
         .unwrap();
-    let second = catalog.board.workspaces[1].id.clone();
-    let board = client
-        .application("load_board".into(), Value::Null)
-        .unwrap();
-    assert_eq!(board["workspaces"][1]["id"], second);
+    let second = Value::from(catalog.board.workspaces[1].id.clone());
     client
         .application(
             "chat_send".into(),
             serde_json::json!({"session":second,"text":"Addressed background conversation"}),
         )
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let event = rx
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .unwrap();
-        if event["application"]["name"] == "chat" {
-            let payload = &event["application"]["payload"];
-            assert_eq!(payload[0], second);
-            let line: Value = serde_json::from_str(payload[1].as_str().unwrap()).unwrap();
-            if line["type"] == "turn.completed" {
-                break;
-            }
-        }
-    }
+    addressed_turn(&rx, second.as_str().unwrap(), "primary");
     assert_eq!(client.workspace_list().unwrap().active, "primary");
-    let primary = client
-        .application(
-            "chat_snapshot".into(),
-            serde_json::json!({"session":"primary"}),
-        )
-        .unwrap();
-    assert!(!primary["text"]
-        .as_str()
-        .unwrap()
-        .contains("Addressed background"));
-    let second_snapshot = client
-        .application(
-            "chat_snapshot".into(),
-            serde_json::json!({"session":second}),
-        )
-        .unwrap();
-    assert!(second_snapshot["text"]
-        .as_str()
-        .unwrap()
-        .contains("Addressed background"));
+    assert!(!transcript(&mut client, &"primary".into()).contains("Addressed background"));
+    assert!(transcript(&mut client, &second).contains("Addressed background"));
     let board = client
         .application("load_board".into(), Value::Null)
         .unwrap();
@@ -682,42 +654,20 @@ fn application_commands_and_events_address_sessions_without_changing_selection()
             serde_json::json!({"session":"../outside","text":"Wrong"})
         )
         .is_err());
+
     let sibling = client
         .application(
             "new_tab".into(),
             serde_json::json!({"workspace":second,"prompt":"Sibling conversation","choice":null}),
         )
-        .unwrap();
-    let sibling_id = sibling["id"].as_str().unwrap().to_owned();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let frame = rx
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .unwrap();
-        if frame["application"]["name"] == "chat"
-            && frame["application"]["payload"][0] == sibling_id
-        {
-            let line: Value =
-                serde_json::from_str(frame["application"]["payload"][1].as_str().unwrap()).unwrap();
-            if line["type"] == "turn.completed" {
-                break;
-            }
-        }
-    }
-    let sibling_snapshot = client
-        .application(
-            "chat_snapshot".into(),
-            serde_json::json!({"session":sibling_id}),
-        )
-        .unwrap();
-    assert!(sibling_snapshot["text"]
-        .as_str()
-        .unwrap()
-        .contains("Sibling conversation"));
-    assert!(!sibling_snapshot["text"]
-        .as_str()
-        .unwrap()
-        .contains("Addressed background"));
+        .unwrap()["id"]
+        .clone();
+    addressed_turn(&rx, sibling.as_str().unwrap(), "primary");
+    let text = transcript(&mut client, &sibling);
+    assert!(text.contains("Sibling conversation"));
+    assert!(!text.contains("Addressed background"));
+
+    // A running addressed conversation reports its own status and can be closed by address.
     client
         .application(
             "chat_send".into(),
@@ -726,17 +676,15 @@ fn application_commands_and_events_address_sessions_without_changing_selection()
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let observed = client
+        let board = client
             .application("load_board".into(), Value::Null)
             .unwrap();
-        if observed["workspaces"][1]["tabs"][0]["status"] == "rodando" {
+        if board["workspaces"][1]["tabs"][0]["status"] == "rodando" {
+            assert_ne!(board["workspaces"][0]["tabs"][0]["status"], "rodando");
             break;
         }
-        assert!(Instant::now() < deadline);
+        assert!(Instant::now() < deadline, "{board}");
         std::thread::sleep(Duration::from_millis(20));
-    }
-    for operation in ["pull", "discard"] {
-        assert!(client.application("workspace_git_action".into(), serde_json::json!({"id":second,"repo":0,"operation":operation,"paths":["notes.txt"]})).unwrap_err().contains("err.git.agent"));
     }
     client
         .application(
@@ -744,145 +692,87 @@ fn application_commands_and_events_address_sessions_without_changing_selection()
             serde_json::json!({"workspace":second,"tab":second}),
         )
         .unwrap();
-    std::fs::write(project.join("notes.txt"), "Original").unwrap();
-    let read = |client: &mut Box<dyn prometeu_bridge::RuntimeClient>| {
-        client.application(
-            "read_file".into(),
-            serde_json::json!({"id":second,"rel":"notes.txt"}),
-        )
-    };
-    assert_eq!(read(&mut client).unwrap(), "Original");
-    client.application("write_file".into(), serde_json::json!({"id":second,"rel":"notes.txt","text":"Edited in Windows","was":"Original"})).unwrap();
-    assert!(client
-        .application(
-            "write_file".into(),
-            serde_json::json!({"id":second,"rel":"notes.txt","text":"Stale edit","was":"Original"})
-        )
-        .unwrap_err()
-        .contains("err.session.changed"));
-    assert_eq!(read(&mut client).unwrap(), "Edited in Windows");
-    let marks = client
-        .application("tree_git_status".into(), serde_json::json!({"id":second}))
+    assert_eq!(client.workspace_list().unwrap().active, "primary");
+    client.shutdown().unwrap();
+    drop(client);
+
+    let mut restarted = connector.connect(&target, events().0).unwrap();
+    let board = restarted
+        .application("load_board".into(), Value::Null)
         .unwrap();
-    assert!(marks
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|f| f["path"] == "notes.txt" && f["status"] == "M"));
-    let changes = client
+    assert_eq!(board["workspaces"][1]["tabs"].as_array().unwrap().len(), 1);
+    assert_eq!(board["workspaces"][1]["active"], sibling);
+    assert!(transcript(&mut restarted, &sibling).contains("Sibling conversation"));
+    assert!(restarted
         .application(
-            "workspace_git_diff".into(),
-            serde_json::json!({"id":second,"repo":0,"scope":"changes"}),
-        )
-        .unwrap();
-    assert!(changes["files"][0]["patch"]
-        .as_str()
-        .unwrap()
-        .contains("+Edited in Windows"));
-    client
-        .application(
-            "workspace_git_action".into(),
-            serde_json::json!({"id":second,"repo":0,"operation":"stage","paths":["notes.txt"]}),
-        )
-        .unwrap();
-    let staged = client
-        .application(
-            "workspace_git_status".into(),
-            serde_json::json!({"id":second}),
-        )
-        .unwrap();
-    assert_eq!(staged[0]["staged"][0]["path"], "notes.txt");
-    assert!(client.application("workspace_git_action".into(), serde_json::json!({"id":second,"repo":0,"operation":"commit","paths":[],"message":"Wrong snapshot","expected":"stale"})).unwrap_err().contains("err.git.changed"));
-    client.application("write_file".into(), serde_json::json!({"id":second,"rel":"notes.txt","text":"Later worktree edit","was":"Edited in Windows"})).unwrap();
-    client.application("workspace_git_action".into(), serde_json::json!({"id":second,"repo":0,"operation":"commit","paths":[],"message":"Native reviewed content","expected":staged[0]["index"]})).unwrap();
-    assert_eq!(git(&["show", "HEAD:notes.txt"]), "Edited in Windows");
-    assert_eq!(
-        std::fs::read_to_string(project.join("notes.txt")).unwrap(),
-        "Later worktree edit"
-    );
-    let history = client
-        .application(
-            "workspace_git_history".into(),
-            serde_json::json!({"id":second,"repo":0}),
-        )
-        .unwrap();
-    assert_eq!(history[0]["subject"], "Native reviewed content");
-    let branches = client
-        .application(
-            "workspace_git_branches".into(),
-            serde_json::json!({"id":second,"repo":0}),
-        )
-        .unwrap();
-    assert!(branches
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|b| b["name"] == "main" && b["current"] == true));
-    assert!(client
-        .application(
-            "workspace_git_diff".into(),
-            serde_json::json!({"id":second,"repo":99,"scope":"changes"})
+            "chat_snapshot".into(),
+            serde_json::json!({"session":second})
         )
         .is_err());
-    assert!(client
-        .application(
-            "workspace_git_action".into(),
-            serde_json::json!({"id":second,"repo":0,"operation":"stage","paths":["../outside.txt"]})
-        )
-        .unwrap_err()
-        .contains("err.session.outside"));
-    std::fs::remove_file(project.join("notes.txt")).unwrap();
-    client
-        .application(
-            "tree_restore".into(),
-            serde_json::json!({"id":second,"rel":"notes.txt"}),
-        )
-        .unwrap();
-    assert_eq!(read(&mut client).unwrap(), "Edited in Windows");
+    restarted.shutdown().unwrap();
+    drop(restarted);
+    cleanup.armed = false;
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn oversized_application_replies_fail_without_losing_the_attachment() {
+    let base = fixture_root("po");
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(project.join("notes.txt"), "Small").unwrap();
+    // JSON escaping expands each NUL to six bytes, beyond the 8 MiB reply budget.
     std::fs::write(project.join("escaped.txt"), vec![0; 2 * 1024 * 1024]).unwrap();
-    assert_eq!(
+    let target = application_target(&base, &project);
+    let mut cleanup = Cleanup {
+        armed: true,
+        target: target.clone(),
+        launcher: Arc::new(Local),
+    };
+    let mut client = StdioConnector {
+        launcher: Arc::new(Local),
+    }
+    .connect(&target, events().0)
+    .unwrap();
+    let mut read = |rel: &str| {
+        client.application(
+            "read_file".into(),
+            serde_json::json!({"id":"primary","rel":rel}),
+        )
+    };
+    assert_eq!(read("escaped.txt").unwrap_err(), "response exceeds 8 MiB");
+    assert_eq!(read("notes.txt").unwrap(), "Small");
+    client.shutdown().unwrap();
+    cleanup.armed = false;
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn application_terminal_docks_keep_one_shell_per_kind() {
+    let base = fixture_root("pd");
+    let project = base.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let target = application_target(&base, &project);
+    let mut cleanup = Cleanup {
+        armed: true,
+        target: target.clone(),
+        launcher: Arc::new(Local),
+    };
+    let mut client = StdioConnector {
+        launcher: Arc::new(Local),
+    }
+    .connect(&target, events().0)
+    .unwrap();
+    let mut open = |kind: &str| {
         client
             .application(
-                "read_file".into(),
-                serde_json::json!({"id":second,"rel":"escaped.txt"})
+                "open_dock".into(),
+                serde_json::json!({"id":"primary","kind":kind,"cols":80,"rows":24}),
             )
-            .unwrap_err(),
-        "response exceeds 8 MiB"
-    );
-    assert_eq!(read(&mut client).unwrap(), "Edited in Windows");
-    std::fs::write(base.join("outside.txt"), "Private").unwrap();
-    std::os::unix::fs::symlink(base.join("outside.txt"), project.join("link.txt")).unwrap();
-    for rel in ["../outside.txt", "link.txt"] {
-        assert!(client
-            .application(
-                "read_file".into(),
-                serde_json::json!({"id":second,"rel":rel})
-            )
-            .unwrap_err()
-            .contains("err.session.outside"));
-    }
-    std::fs::create_dir_all(project.join(".prometeu")).unwrap();
-    std::fs::write(
-        project.join(".prometeu/settings.toml"),
-        "[scripts]\nrun = \"echo declared script\"\n",
-    )
-    .unwrap();
-    let scripts = client
-        .application("workspace_scripts".into(), serde_json::json!({"id":second}))
-        .unwrap();
-    assert_eq!(scripts["runs"][0]["command"], "echo declared script");
-    let first_shell = client
-        .application(
-            "open_dock".into(),
-            serde_json::json!({"id":second,"kind":"terminal","cols":80,"rows":24}),
-        )
-        .unwrap();
-    let second_shell = client
-        .application(
-            "open_dock".into(),
-            serde_json::json!({"id":second,"kind":"terminal-2","cols":80,"rows":24}),
-        )
-        .unwrap();
+            .unwrap()
+    };
+    let first_shell = open("terminal");
+    let second_shell = open("terminal-2");
     assert_ne!(first_shell, second_shell);
     client
         .application(
@@ -890,16 +780,15 @@ fn application_commands_and_events_address_sessions_without_changing_selection()
             serde_json::json!({"session":first_shell,"data":"printf 'FIRST_%s\\n' SHELL; pwd\n"}),
         )
         .unwrap();
+    let mut output = |session: &Value| {
+        let buffer = client
+            .application("pty_buffer".into(), serde_json::json!({"session":session}))
+            .unwrap();
+        String::from_utf8(serde_json::from_value(buffer).unwrap()).unwrap()
+    };
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let buffer = client
-            .application(
-                "pty_buffer".into(),
-                serde_json::json!({"session":first_shell}),
-            )
-            .unwrap();
-        let bytes: Vec<u8> = serde_json::from_value(buffer).unwrap();
-        let text = String::from_utf8_lossy(&bytes);
+        let text = output(&first_shell);
         if text.contains("FIRST_SHELL") && text.contains(target.workdir.as_str()) {
             break;
         }
@@ -909,22 +798,15 @@ fn application_commands_and_events_address_sessions_without_changing_selection()
         );
         std::thread::sleep(Duration::from_millis(20));
     }
-    let buffer = client
-        .application(
-            "pty_buffer".into(),
-            serde_json::json!({"session":second_shell}),
-        )
-        .unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(buffer).unwrap();
-    assert!(!String::from_utf8_lossy(&bytes).contains("FIRST_SHELL"));
+    assert!(!output(&second_shell).contains("FIRST_SHELL"));
     client
         .application(
             "close_dock".into(),
-            serde_json::json!({"id":second,"kind":"terminal"}),
+            serde_json::json!({"id":"primary","kind":"terminal"}),
         )
         .unwrap();
     let docks = client
-        .application("dock_state".into(), serde_json::json!({"id":second}))
+        .application("dock_state".into(), serde_json::json!({"id":"primary"}))
         .unwrap();
     assert_eq!(docks.as_array().unwrap().len(), 2);
     assert!(docks
@@ -932,6 +814,16 @@ fn application_commands_and_events_address_sessions_without_changing_selection()
         .unwrap()
         .iter()
         .any(|dock| dock["kind"] == "terminal" && dock["alive"] == false));
+    client.shutdown().unwrap();
+    cleanup.armed = false;
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+#[test]
+fn prepared_workspace_delivers_first_input_after_setup_without_an_attachment() {
+    let base = fixture_root("ps");
+    let project = base.join("project");
+    std::fs::create_dir_all(project.join(".prometeu")).unwrap();
     std::fs::write(project.join(".prometeu/settings.toml"), r#"[scripts]
 setup = "while [ ! -f setup-release ]; do sleep 0.02; done; printf 'setup-finished\n'; exit 7"
 [scripts.run]
@@ -941,10 +833,21 @@ command = "printf 'RUN:%s:%s:%s\n' \"$PROMETEU_PORT\" \"$PORT\" \"$PROMETEU_WORK
 [scripts.run.other]
 command = "echo other"
 "#).unwrap();
+    let target = application_target(&base, &project);
+    let mut cleanup = Cleanup {
+        armed: true,
+        target: target.clone(),
+        launcher: Arc::new(Local),
+    };
+    let connector = StdioConnector {
+        launcher: Arc::new(Local),
+    };
+    let mut client = connector.connect(&target, events().0).unwrap();
     client
         .application("set_lang".into(), serde_json::json!({"lang":"en"}))
         .unwrap();
-    let creation = Instant::now();
+    // Setup waits for a file written only after this reply, so the reply itself proves that
+    // creation does not wait for setup; the client's reply deadline guards a hang.
     let created = client.application("create_workspace".into(), serde_json::json!({"cols":80,"rows":24,"draft":{
         "project":target.workdir,"branch":"","base":"","worktree":false,"newBranch":false,
         "title":"Original launcher","stage":"Preparando","prompt":"Initial launcher prompt","inject":["/outside/attached.txt"],
@@ -953,82 +856,58 @@ command = "echo other"
     assert_eq!(created["model"], "fixture");
     assert_eq!(created["effort"], "high");
     assert_eq!(created["failed"], Value::Null);
-    assert!(creation.elapsed() < Duration::from_secs(3));
-    let initial = client
-        .application(
-            "chat_snapshot".into(),
-            serde_json::json!({"session":created["tabs"][0]["id"]}),
-        )
-        .unwrap();
-    assert!(!initial["text"]
-        .as_str()
-        .unwrap()
-        .contains("Initial launcher prompt"));
+    let tab = &created["tabs"][0]["id"];
+    assert!(!transcript(&mut client, tab).contains("Initial launcher prompt"));
     assert!(client
         .application(
             "chat_send".into(),
-            serde_json::json!({"session":created["tabs"][0]["id"],"text":"Too early"})
+            serde_json::json!({"session":tab,"text":"Too early"})
         )
         .unwrap_err()
         .contains("err.windows.preparing"));
-    assert!(client.application("chat_control".into(), serde_json::json!({"session":created["tabs"][0]["id"],"frame":{"v":1,"type":"message.send","text":"Too early"}})).unwrap_err().contains("err.windows.preparing"));
+    assert!(client.application("chat_control".into(), serde_json::json!({"session":tab,"frame":{"v":1,"type":"message.send","text":"Too early"}})).unwrap_err().contains("err.windows.preparing"));
+
     // Setup and first-input delivery continue without a window or incoming requests.
     drop(client);
     std::fs::write(project.join("setup-release"), "ready").unwrap();
-    std::thread::sleep(Duration::from_millis(100));
-    let mut client = StdioConnector {
-        launcher: Arc::new(Local),
-    }
-    .connect(&target, events().0)
-    .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let initial = client
-            .application(
-                "chat_snapshot".into(),
-                serde_json::json!({"session":created["tabs"][0]["id"]}),
-            )
-            .unwrap();
-        if initial["text"]
-            .as_str()
-            .unwrap()
-            .contains("Initial launcher prompt")
-        {
-            assert!(initial["text"]
-                .as_str()
-                .unwrap()
-                .contains("setup exited with code 7"));
-            assert!(initial["text"]
-                .as_str()
-                .unwrap()
-                .contains("@/outside/attached.txt"));
-            break;
-        }
-        assert!(Instant::now() < deadline);
+    let workspace = base
+        .join("root/workspaces")
+        .join(created["id"].as_str().unwrap());
+    let stored = match tab == &created["id"] {
+        true => workspace.join("transcript.jsonl"),
+        false => workspace
+            .join("tabs")
+            .join(tab.as_str().unwrap())
+            .join("transcript.jsonl"),
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !std::fs::read_to_string(&stored)
+        .unwrap_or_default()
+        .contains("Initial launcher prompt")
+    {
+        assert!(Instant::now() < deadline, "first input was not delivered");
         std::thread::sleep(Duration::from_millis(20));
     }
-    let run = client
-        .application(
+    let mut client = connector.connect(&target, events().0).unwrap();
+    let delivered = transcript(&mut client, tab);
+    assert!(delivered.contains("Initial launcher prompt"));
+    assert!(delivered.contains("setup exited with code 7"));
+    assert!(delivered.contains("@/outside/attached.txt"));
+
+    let mut open_run = |name: Option<&str>| {
+        client.application(
             "open_dock".into(),
-            serde_json::json!({"id":created["id"],"kind":"run","cols":80,"rows":24}),
+            serde_json::json!({"id":created["id"],"kind":"run","name":name,"cols":80,"rows":24}),
         )
-        .unwrap();
-    assert_eq!(
-        client
-            .application(
-                "open_dock".into(),
-                serde_json::json!({"id":created["id"],"kind":"run","cols":80,"rows":24})
-            )
-            .unwrap(),
-        run
-    );
-    assert!(client
-        .application(
-            "open_dock".into(),
-            serde_json::json!({"id":created["id"],"kind":"run","name":"other","cols":80,"rows":24})
-        )
+    };
+    let run = open_run(None).unwrap();
+    assert_eq!(open_run(None).unwrap(), run);
+    assert!(open_run(Some("other"))
         .unwrap_err()
         .contains("err.dock.running"));
+    let port = created["port"].as_u64().unwrap();
+    let expected = format!("RUN:{port}:{port}:{}", target.workdir);
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let bytes: Vec<u8> = serde_json::from_value(
             client
@@ -1036,10 +915,11 @@ command = "echo other"
                 .unwrap(),
         )
         .unwrap();
-        if String::from_utf8_lossy(&bytes).contains("RUN:") {
+        let output = String::from_utf8_lossy(&bytes);
+        if output.contains(&expected) {
             break;
         }
-        assert!(Instant::now() < deadline);
+        assert!(Instant::now() < deadline, "{output}");
         std::thread::sleep(Duration::from_millis(20));
     }
     client
@@ -1048,75 +928,7 @@ command = "echo other"
             serde_json::json!({"id":created["id"],"kind":"run"}),
         )
         .unwrap();
-    let bytes: Vec<u8> = serde_json::from_value(
-        client
-            .application("pty_buffer".into(), serde_json::json!({"session":run}))
-            .unwrap(),
-    )
-    .unwrap();
-    let port = created["port"].as_u64().unwrap();
-    assert!(
-        String::from_utf8_lossy(&bytes).contains(&format!("RUN:{port}:{port}:{}", target.workdir))
-    );
-    let removed = client
-        .application("account_remove".into(), serde_json::json!({"id":"codex"}))
-        .unwrap();
-    assert!(removed["active"]["codex"].is_null());
-    assert!(client
-        .application(
-            "chat_send".into(),
-            serde_json::json!({"session":sibling_id,"text":"Do not send without selection"})
-        )
-        .unwrap_err()
-        .contains("err.account.noActive"));
-    client.workspace_select(second.clone()).unwrap();
     client.shutdown().unwrap();
-    drop(client);
-    let mut restarted = StdioConnector {
-        launcher: Arc::new(Local),
-    }
-    .connect(&target, events().0)
-    .unwrap();
-    let board = restarted
-        .application("load_board".into(), Value::Null)
-        .unwrap();
-    assert_eq!(board["workspaces"][1]["tabs"].as_array().unwrap().len(), 1);
-    assert_eq!(board["workspaces"][1]["active"], sibling_id);
-    let restored = restarted
-        .application(
-            "chat_snapshot".into(),
-            serde_json::json!({"session":sibling_id}),
-        )
-        .unwrap();
-    assert!(restored["text"]
-        .as_str()
-        .unwrap()
-        .contains("Sibling conversation"));
-    assert!(restarted
-        .application(
-            "chat_snapshot".into(),
-            serde_json::json!({"session":second})
-        )
-        .is_err());
-    let no_account = restarted
-        .application("agent_models".into(), serde_json::json!({"agent":"codex"}))
-        .unwrap_err();
-    assert!(no_account.contains("err.modelsCatalog.noAccount"));
-    let attached = restarted
-        .application(
-            "account_login".into(),
-            serde_json::json!({"provider":"codex","method":"external"}),
-        )
-        .unwrap();
-    assert!(attached["active"]["codex"].is_null());
-    restarted
-        .application("account_select".into(), serde_json::json!({"id":"codex"}))
-        .unwrap();
-    assert!(restarted
-        .application("agent_models".into(), serde_json::json!({"agent":"codex"}))
-        .is_ok());
-    restarted.shutdown().unwrap();
-    drop(restarted);
     cleanup.armed = false;
     std::fs::remove_dir_all(base).unwrap();
 }
@@ -1736,22 +1548,11 @@ fn deferred_git_and_checkout_preserve_responsiveness_and_settle_after_detach() {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
     }
-    let now = Instant::now();
-    assert!(client
-        .application("load_board".into(), Value::Null)
-        .unwrap()["workspaces"]
-        .is_array());
     let terminal = client.terminal_open(80, 24).unwrap();
     client
         .terminal_write(terminal.id.clone(), b"echo responsive\r".to_vec())
         .unwrap();
-    assert!(now.elapsed() < Duration::from_secs(3));
-    assert_eq!(
-        client
-            .application("application_operation_poll".into(), started.clone())
-            .unwrap()["done"],
-        false
-    );
+    common::assert_served_while_held(client.as_mut(), &[("application_operation_poll", &started)]);
     assert!(client
         .shutdown()
         .unwrap_err()

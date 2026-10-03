@@ -181,7 +181,41 @@ fn actual_wsl_codex_recalls_after_reconnect() {
     std::fs::remove_dir_all(base).unwrap();
 }
 
-fn terminal_roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) {
+/// Run the host under `sh` to record its own exit status beside the root. The bridge kills a
+/// host that ignores EOF, which leaves no record, so cleanup needs no wall-clock bound.
+struct ExitRecordingLauncher;
+impl RuntimeLauncher for ExitRecordingLauncher {
+    fn launch(&self, target: &Target) -> Result<Child, String> {
+        Command::new("sh")
+            .args(["-c", "\"$@\"; echo $? > \"$0\""])
+            .arg(exit_record(target))
+            .args([
+                &target.executable,
+                "--root",
+                &target.root,
+                "--workdir",
+                &target.workdir,
+                "--codex",
+                &target.codex,
+            ])
+            .env_remove("PYTHONHOME")
+            .env_remove("PYTHONPATH")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())
+    }
+}
+fn exit_record(target: &Target) -> std::path::PathBuf {
+    std::path::Path::new(&target.root).with_extension("exit")
+}
+
+fn terminal_roundtrip(
+    launcher: Arc<dyn RuntimeLauncher>,
+    distribution: String,
+    records_exit: bool,
+) {
     let base = std::env::temp_dir().join(format!("prometeu-terminal-{}", uuid::Uuid::new_v4()));
     let workdir = base.join("project with spaces");
     std::fs::create_dir_all(&workdir).unwrap();
@@ -354,15 +388,18 @@ fn terminal_roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) 
     assert!(saturated, "blocked native input must fill a bounded queue");
     assert_eq!(client.terminal_snapshot(held.id.clone()).unwrap().seq, 64);
 
-    // EOF must release a reader waiting for output credits, too.
-    let closing = std::time::Instant::now();
-    // EOF must wait for PTY cleanup before releasing the runtime root.
+    // EOF must release a reader waiting for output credits, too, and wait for PTY cleanup before
+    // releasing the runtime root.
     drop(client);
-    assert!(
-        closing.elapsed() < Duration::from_secs(9),
-        "cleanup took {:?}",
-        closing.elapsed()
-    );
+    if records_exit {
+        assert_eq!(
+            std::fs::read_to_string(exit_record(&target))
+                .ok()
+                .as_deref(),
+            Some("0\n"),
+            "the host ignored EOF and the bridge killed it"
+        );
+    }
     assert!(prometeu_runtime::store::Store::open(
         &std::path::PathBuf::from(&target.root),
         &workdir
@@ -372,7 +409,7 @@ fn terminal_roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) 
 }
 #[test]
 fn terminal_bytes_resize_conversation_isolation_and_eof_cleanup() {
-    terminal_roundtrip(Arc::new(LocalLauncher), "Test".into());
+    terminal_roundtrip(Arc::new(ExitRecordingLauncher), "Test".into(), true);
 }
 #[test]
 #[ignore = "requires explicit WSL distribution with this checkout and Python 3"]
@@ -380,6 +417,7 @@ fn actual_wsl_terminal_roundtrip() {
     terminal_roundtrip(
         Arc::new(WslLauncher),
         std::env::var("PROMETEU_TEST_WSL_DISTRIBUTION").unwrap(),
+        false,
     );
 }
 

@@ -1,4 +1,5 @@
 #![cfg(unix)]
+mod common;
 use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader, Write},
@@ -260,12 +261,12 @@ fn busy_input_is_rejected_and_stop_reaps_a_group_with_inherited_output() {
         json!({"method":"command","frame":{"v":1,"type":"message.send","text":"must not queue"}})
     )["error"]
         .is_string());
-    let before = std::time::Instant::now();
+    // The held grandchild ignores SIGTERM and keeps the inherited output open for 60 s, beyond
+    // the reply deadline, so a stop that waits for it instead of reaping the group fails here.
     assert_eq!(
         client.request(4, json!({"method":"stop"}))["result"]["stopped"],
         true
     );
-    assert!(before.elapsed() < Duration::from_secs(10));
     client.shutdown();
     assert!(
         !std::fs::read_to_string(fixture.root.join("transcript.jsonl"))
@@ -1072,14 +1073,7 @@ for line in sys.stdin:
     if req.get('id') == 2: print(json.dumps({'id':2,'result':{'tools':[{'name':'fixture'}]}}),flush=True)
 "#;
     let started=client.app("mcp_operation_start",json!({"operation":{"kind":"check","server":{"id":"slow","note":"","config":{"command":"python3","args":["-c",script,gate]}}}}));
-    let now = std::time::Instant::now();
-    let board = client.app("load_board", Value::Null);
-    assert!(now.elapsed() < Duration::from_secs(3));
-    assert!(board["workspaces"].is_array());
-    assert_eq!(
-        client.app("mcp_operation_poll", started.clone())["done"],
-        false
-    );
+    common::assert_served_while_held(&mut client, &[("mcp_operation_poll", &started)]);
     std::fs::write(gate, "").unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
@@ -1152,15 +1146,13 @@ fn deferred_discovery_keeps_requests_responsive_and_preserves_catalog_errors() {
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
     }
-    let now = std::time::Instant::now();
-    assert!(client.app("load_board", Value::Null)["workspaces"].is_array());
-    assert!(now.elapsed() < Duration::from_secs(3));
-    for job in [&models, &accounts] {
-        assert_eq!(
-            client.app("application_operation_poll", job.clone())["done"],
-            false
-        );
-    }
+    common::assert_served_while_held(
+        &mut client,
+        &[
+            ("application_operation_poll", &models),
+            ("application_operation_poll", &accounts),
+        ],
+    );
     std::fs::remove_file(fixture.workdir.join("hold-discovery")).unwrap();
     for (job, field) in [(models, "models"), (accounts, "accounts")] {
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -1227,13 +1219,7 @@ fn deferred_setup_prepares_off_loop_and_preserves_existing_files_and_single_exec
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
     };
-    let now = std::time::Instant::now();
-    assert!(client.app("load_board", Value::Null)["workspaces"].is_array());
-    assert!(now.elapsed() < Duration::from_secs(3));
-    assert_eq!(
-        client.app("application_operation_poll", job.clone())["done"],
-        false
-    );
+    common::assert_served_while_held(&mut client, &[("application_operation_poll", &job)]);
     client.app(
         "open_dock",
         json!({"id":id,"kind":"terminal","cols":80,"rows":24}),
