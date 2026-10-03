@@ -100,7 +100,9 @@ persisted root identity, read through `RuntimeRoots`, wins over WebView storage.
 Packaging is Tauri's per-user NSIS installer with the product identifier
 `co.prometeu.desktop` and the root package version. Updates use the next
 installer; signing and automatic updates are separate work. The installer never
-touches WSL state or projects.
+touches WSL state or projects. The release workflow builds and publishes the
+unsigned installer alongside macOS and Linux packages. It embeds a Linux runtime
+built from the same commit; publication requires all three platform builds.
 
 ## Consequences
 

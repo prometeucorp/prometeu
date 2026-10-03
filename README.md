@@ -100,8 +100,8 @@ notification preferences expand in place.
 
 ## Install
 
-Each release contains separate downloads for **macOS on Apple Silicon** and
-**Linux x86_64** under the same version.
+Each release contains separate downloads for **macOS on Apple Silicon**,
+**Linux x86_64** and **Windows x64 (experimental)** under the same version.
 
 ### macOS
 
@@ -129,10 +129,12 @@ The Windows app opens the same interface in a native window and runs projects,
 Git, shells and Codex inside your default WSL distribution, which must already
 have Git and an authenticated Codex CLI. Only Codex is available; managed login,
 other agents, Cloud synchronization and automatic updates are not implemented.
-There are no published downloads yet: build the per-user installer with
-`npm run package:windows` ([instructions](docs/operations/release.md#windows-installer))
-and open **Prometeu** from the Start menu. Conversations and files stay in WSL;
-updating or uninstalling the Windows app does not remove them. See the
+Download [Prometeu_x64-setup.exe](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe),
+run the per-user installer and open **Prometeu** from the Start menu. The installer
+is unsigned, and updates require installing the next version manually. For local
+builds, see [packaging instructions](docs/operations/release.md#windows-installer).
+Conversations and files stay in WSL; updating or uninstalling the Windows app
+does not remove them. See the
 [Windows application contract](docs/contracts/windows-application.md) for the
 current coverage.
 

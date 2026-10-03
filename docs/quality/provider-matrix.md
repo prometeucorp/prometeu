@@ -170,9 +170,11 @@ A missing test must not become `true` by similarity between providers.
 
 ## Known limitations
 
-Desktop distribution is independent of the provider. macOS Apple Silicon and
-Linux x86_64 AppImage share one release and signed in-app updates for Claude,
-Codex and Antigravity. Other Linux installation types keep external updates.
+Desktop distribution is independent of the provider. macOS Apple Silicon,
+Linux x86_64 AppImage and experimental Windows x64 share one release. macOS and
+AppImage have signed in-app updates for Claude, Codex and Antigravity; Windows
+has only Codex and requires manual installer updates. Other Linux installation
+types keep external updates.
 Evidence: `scripts/test_release.py`, `src/update-init.test.ts` and
 `src/update.test.ts`; native installation and replacement remain manual checks
 under the [release contract](../contracts/releases.md).

@@ -1,16 +1,19 @@
 # Desktop release and update contract
 
-One version and tag (`v<version>`) identify both desktop builds in
-`prometeucorp/prometeu`. A release stays a draft until both builds, signature
-verification and native installation checks finish. The operational procedure
-is in [release](../operations/release.md); distribution choices are in
+One version and tag (`v<version>`) identify the macOS, Linux and Windows desktop
+builds in `prometeucorp/prometeu`. A release stays a draft until all builds,
+macOS and Linux signature verification and native installation checks finish.
+The operational procedure is in [release](../operations/release.md);
+distribution choices are in
 [ADR 0055](../decisions/0055-linux-desktop.md).
 
 ## Assets and manifest
 
-Stable install names are `Prometeu_aarch64.dmg` for macOS Apple Silicon and
-`Prometeu_x86_64.AppImage` for Linux x86_64. They live alongside the updater
-packages, their `.sig` files and `latest.json` in the same release.
+Stable install names are `Prometeu_aarch64.dmg` for macOS Apple Silicon,
+`Prometeu_x86_64.AppImage` for Linux x86_64 and `Prometeu_x64-setup.exe` for
+Windows x64. They live alongside the macOS and Linux updater packages, their
+`.sig` files and `latest.json` in the same release. The Windows installer is
+unsigned and has no updater entry; installing the next version is manual.
 
 The app keeps the endpoint
 `https://github.com/prometeucorp/prometeu/releases/latest/download/latest.json`.
@@ -29,18 +32,19 @@ The manifest uses Tauri's static format:
   [Tauri 2.10.1's target selection](https://github.com/tauri-apps/plugins-workspace/blob/d6a3898001a4bcc659e045f9501498751b77dbe6/plugins/updater/src/updater.rs#L567-L599)
   falls back to the generic `OS-ARCH` entry if an installer-specific entry is missing.
 
-Both builds use the existing signing key. Linux support is additive: the macOS
+The macOS and Linux builds use the existing signing key. Linux support is additive: the macOS
 asset names, endpoint, public key and platform entry remain compatible with
 installed versions. Drafts are not exposed through the latest release endpoint.
 Recovery from a published defect requires a newer version.
 
 ## Assembly ownership
 
-Platform jobs upload final signed packages as separate workflow artifacts. One
-job assembles the manifest only after both succeed, using the signatures beside
-the final files, including the repacked AppImage. It writes both generic and
+Platform jobs upload final packages as separate workflow artifacts. One
+job assembles the manifest only after all three succeed, using the signatures
+beside the final files, including the repacked AppImage. It writes both generic and
 installer-specific entries. It verifies local artifacts before upload and the
-downloaded draft afterward. Reruns fail if the release already exists: signatures,
+downloaded draft afterward. It also requires the Windows installer before and
+after upload. Reruns fail if the release already exists: signatures,
 version and notes cannot prove which commit built an older draft after a tag
 moves. Rebuilding requires manual draft removal. Uploads never replace existing
 assets, including when manual publication races with the initial draft check. The public format, asset names, URLs and updater key remain
@@ -60,13 +64,13 @@ and no available update, so UI tests never download packages.
 
 ## Verification
 
-`scripts/verify-release.py --assemble` creates the manifest from both final
-packages. The verifier checks changelog notes, both platforms, exact
-versioned URLs, assets, signature-file consistency and minisign signatures
-against the embedded key.
-`scripts/test_release.py` covers missing platforms/assets, wrong versions/URLs,
-signature failures, draft assembly, refusal to overwrite published assets and
-refusal to publish incomplete or failed builds.
+`scripts/verify-release.py --assemble` creates the manifest from both signed
+updater packages. The verifier checks changelog notes, macOS and Linux updater
+targets, exact versioned URLs, all install assets, signature-file consistency
+and minisign signatures against the embedded key.
+`scripts/test_release.py` covers missing platforms/assets, including the Windows
+installer, wrong versions/URLs, signature failures, draft assembly, refusal to
+overwrite published assets and refusal to publish incomplete or failed builds.
 `src/update-init.test.ts` preserves package-manager ownership and macOS behavior;
 `src/update.test.ts` covers download and restart. CI cannot prove native desktop
 integration or real replacement/relaunch; those require the release smoke test.
