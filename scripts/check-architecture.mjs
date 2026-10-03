@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { checkDependencies } from "./architecture-dependencies.mjs";
 
@@ -80,6 +81,26 @@ const chat = await readFile("src-tauri/src/chat.rs", "utf8");
 for (const match of chat.matchAll(/Command::new\s*\(\s*"(?:claude|codex|gemini|agy)"/g)) {
   const line = chat.slice(0, match.index).split("\n").length;
   failures.push(`src-tauri/src/chat.rs:${line}: processo de provider fora do adapter: ${match[0]}`);
+}
+
+/// ADR 0084: the Windows shell reaches execution through WSL, so it must not link the Unix execution
+/// adapters, and the portable crates stay free of Tauri. cargo tree resolves the graph without building.
+function cargoPackages(args) {
+  const tree = execFileSync(
+    "cargo",
+    ["tree", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "--edges", "normal", "--prefix", "none", ...args],
+    { encoding: "utf8" },
+  );
+  return new Set(tree.split("\n").map((line) => line.split(" ")[0]).filter(Boolean));
+}
+const windowsShell = cargoPackages([
+  "-p", "prometeu-wsl-desktop", "--features", "desktop", "--target", "x86_64-pc-windows-msvc",
+]);
+for (const crate of ["prometeu-process", "prometeu-profiles", "prometeu-tools", "prometeu-runtime"]) {
+  if (windowsShell.has(crate)) failures.push(`prometeu-wsl-desktop: Unix execution dependency in the Windows shell: ${crate}`);
+}
+for (const crate of ["prometeu-core", "prometeu-protocols", "prometeu-bridge"]) {
+  if (cargoPackages(["-p", crate, "--target", "all"]).has("tauri")) failures.push(`${crate}: portable crate depends on tauri`);
 }
 
 if (failures.length) {
