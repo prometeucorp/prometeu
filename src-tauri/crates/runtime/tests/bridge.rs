@@ -234,7 +234,7 @@ fn terminal_roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) 
     }
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("ready-terminal"));
-    assert!(text.contains(workdir.to_str().unwrap()));
+    assert!(text.contains(workdir.canonicalize().unwrap().to_str().unwrap()));
     assert!(text.contains("37 93"));
     assert!(bytes.windows(3).any(|window| window == [255, 195, 169]));
     let snapshot = client.terminal_snapshot(opened.id.clone()).unwrap();

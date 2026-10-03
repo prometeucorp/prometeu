@@ -126,6 +126,8 @@ mod tests {
             Fixture(std::env::temp_dir().join(format!("worktree ' ação-{}", uuid::Uuid::new_v4())));
         let repo = fixture.0.join("repo");
         std::fs::create_dir_all(repo.join("nested")).unwrap();
+        let alias = fixture.0.join("source alias");
+        std::os::unix::fs::symlink(&repo, &alias).unwrap();
         git(&repo, &["init", "-b", "main"]);
         git(&repo, &["config", "user.name", "Test"]);
         git(&repo, &["config", "user.email", "test@example.invalid"]);
@@ -144,14 +146,17 @@ mod tests {
         };
         let mut request = WorktreeRequest {
             title: "Feature".into(),
-            path: repo.join("nested").to_str().unwrap().into(),
+            path: alias.join("nested").to_str().unwrap().into(),
             branch: "feature/isolated".into(),
             base: "HEAD~1".into(),
         };
         let prepared = adapter
             .prepare(&uuid::Uuid::new_v4().to_string(), &request)
             .unwrap();
-        assert_eq!(prepared.project.path, repo.to_str().unwrap());
+        assert_eq!(
+            prepared.project.path,
+            repo.canonicalize().unwrap().to_str().unwrap()
+        );
         let checkout = std::path::Path::new(&prepared.path);
         assert_eq!(git(checkout, &["rev-parse", "HEAD"]), original);
         assert_eq!(

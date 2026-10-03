@@ -330,7 +330,10 @@ Rust suite; real provider authentication remains a separate manual check.
 fixtures without Tauri or a provider subscription. The synthetic provider needs
 Python 3.11 or later (`tomllib` is used to inspect provider configuration); CI
 selects Python 3.12 explicitly on both Unix hosts. CI matrices retain all platform
-results even when a sibling fails. See [run instructions](../contracts/headless-runtime.md#run) for a real
+results even when a sibling fails. Path assertions use canonical paths, and the
+worktree fixture exercises a symlinked source. Resident fixtures use private,
+canonical directories under `/tmp` to stay within Unix socket limits even when
+the host's temporary directory is long. See [run instructions](../contracts/headless-runtime.md#run) for a real
 conversation and the current limitations. Real-provider smoke testing uses an
 isolated runtime directory and the execution environment's existing Codex login.
 

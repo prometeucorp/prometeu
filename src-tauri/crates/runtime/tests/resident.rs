@@ -5,11 +5,21 @@ use prometeu_bridge::{
 use serde_json::Value;
 use std::{
     io::{BufRead, Write},
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{DirBuilderExt, PermissionsExt},
     process::{Child, Command, Stdio},
     sync::{mpsc, Arc, Mutex},
     time::{Duration, Instant},
 };
+
+fn fixture_root(prefix: &str) -> std::path::PathBuf {
+    // macOS TMPDIR can exceed Unix socket limits before the resident filename is added.
+    let root = std::path::Path::new("/tmp").join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    root.canonicalize().unwrap()
+}
 
 struct Local;
 impl RuntimeLauncher for Local {
@@ -79,7 +89,7 @@ impl Drop for Cleanup {
     }
 }
 fn roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) {
-    let base = std::env::temp_dir().join(format!("pr-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pr");
     let workdir = base.join("project with spaces");
     std::fs::create_dir_all(&workdir).unwrap();
     let codex = base.join("fake codex");
@@ -251,7 +261,7 @@ fn executable(target: &Target) -> String {
 
 #[test]
 fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle_host() {
-    let base = std::env::temp_dir().join(format!("pu-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pu");
     let workdir = base.join("project");
     std::fs::create_dir_all(&workdir).unwrap();
     let codex = base.join("provider");
@@ -366,7 +376,7 @@ fn actual_wsl_resident_reconnect() {
 
 #[test]
 fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restart() {
-    let base = std::env::temp_dir().join(format!("pw-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pw");
     let first = base.join("first project");
     let second = base.join("second ' unicode λ");
     std::fs::create_dir_all(&first).unwrap();
@@ -559,7 +569,7 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
 
 #[test]
 fn application_commands_and_events_address_sessions_without_changing_selection() {
-    let base = std::env::temp_dir().join(format!("pa-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pa");
     let project = base.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let git = |args: &[&str]| {
@@ -1113,7 +1123,7 @@ command = "echo other"
 
 #[test]
 fn registered_project_files_and_shell_work_without_a_conversation() {
-    let base = std::env::temp_dir().join(format!("pp-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pp");
     let project = base.join("source");
     let added = base.join("added ' project");
     std::fs::create_dir_all(&project).unwrap();
@@ -1481,7 +1491,7 @@ fn application_resident_starts_empty_and_restores_projects_without_a_primary_wor
                 .map_err(|e| e.to_string())
         }
     }
-    let base = std::env::temp_dir().join(format!("pa-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pa");
     let home = base.join("home");
     let project = base.join("project");
     std::fs::create_dir_all(&home).unwrap();
@@ -1611,7 +1621,7 @@ fn application_resident_starts_empty_and_restores_projects_without_a_primary_wor
 #[test]
 fn deferred_git_and_checkout_preserve_responsiveness_and_settle_after_detach() {
     use serde_json::json;
-    let base = std::env::temp_dir().join(format!("pj-{}", uuid::Uuid::new_v4()));
+    let base = fixture_root("pj");
     let project = base.join("project");
     std::fs::create_dir_all(&project).unwrap();
     let git = |args: &[&str]| {
