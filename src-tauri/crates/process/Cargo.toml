@@ -1,0 +1,13 @@
+[package]
+name = "prometeu-process"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+prometeu-core = { path = "../core" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+portable-pty = "0.9"

@@ -42,7 +42,7 @@ identity is accepted by the server directory (TOFU). See
 | Backend | Rust + Tauri | persisted state, processes, Git, files, IPC and agent translation | visual rules and interface translation |
 | Claude adapter | `claude.rs` | convert V1 commands to stream-json and stream-json to V1 events | DOM, board state or relay |
 | Antigravity adapter | `antigravity.rs` | convert native NDJSON to V1; resume native history | DOM, board state or relay |
-| Codex adapter | `codex.rs` | convert V1 commands to JSON-RPC and JSON-RPC to V1 events | DOM, board state or relay |
+| Codex adapter | `crates/protocols/src/codex.rs`, desktop `codex.rs` composition | convert V1 commands to JSON-RPC and JSON-RPC to V1 events | DOM, board state or relay |
 | Relay | Worker + Durable Object | enrollment, presence, audience, comments and forwarding | agent execution or worktree access |
 | Web mock | `src/mock.ts` | answer the same IPC for UI development and E2E | replace the Rust backend tests |
 | Prometeu Cloud (separate project) | Rails 8.1 + SQLite + ERB | optional account, organizations, invitations and tool catalogs | agent execution, general files, secrets or transcripts |
@@ -54,12 +54,30 @@ The conversation uses a contract owned by Prometeu:
 ```text
 Claude stream-json ─> claude.rs ───────────┐
                                            ├─> ConversationEventV1 ─> Pump/relay ─> timeline.ts ─> chat.ts
-Codex JSON-RPC ─> codex.rs ────────────────┤
+Codex JSON-RPC ─> protocols::codex ────────────────┤
 Antigravity ────> antigravity.rs ───────────────┘
 ```
 
-`chat.rs` stores and numbers V1 lines, emits updates and keeps the process
-alive. `timeline.ts` validates and reduces those lines into DOM-independent
+`prometeu-core::conversation` retains and numbers V1 lines through injected
+storage and event ports. `chat.rs` composes these with injected process ports;
+`prometeu-process` owns native agent spawning, pipe draining and reaping.
+`session::workers::ConversationWorkers` initializes adapters and consumes output
+through an injected executor; desktop effects handle identity-guarded closure.
+`prometeu-core::session` coordinates input recovery, account handoffs and
+canonical reactions through injected ports. `session::host::SessionHost` owns
+the live registry, readiness, admission gates and background work and composes
+that service. `session::pump::SessionPump` coordinates shared input/output capture
+and post-lock reactions; `chat/host.rs` supplies the desktop effects.
+`session::launch::LaunchService` coordinates restarts and shares its launcher
+with new tabs; `session/launch.rs` supplies desktop preparation and effects.
+`agent_launch.rs` implements injected provider preparation without a desktop
+handle; provider adapters supply canonical input and connection factories.
+`prometeu-oauth` shares PKCE and loopback callback mechanics through injected native consent; tools services retain private credentials in the execution host.
+
+`prometeu-tools` supplies injected startup-tool ports and MCP encoding through
+catalog/token and private-file dependencies. Its package backend owns derived
+homes/manifests and cache coordination through injected catalog/files/installer
+ports; `tool_materialization.rs` composes native packages and desktop MCP adapters. `timeline.ts` validates and reduces those lines into DOM-independent
 items. `chat.ts` renders the items and sends `ConversationCommandV1`. Older
 transcripts are adapted before the reducer, without rewriting.
 
@@ -67,6 +85,78 @@ The canonical protocol is the decision accepted in ADR 0002. The typed catalog
 and the capabilities from ADR 0003 are implemented as well.
 
 See [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-flow.md).
+
+## Experimental headless execution
+
+`prometeu-runtime` is a Unix development executable for Codex conversations,
+built without Tauri. It composes the same process, conversation and worker ports
+with injected provider, storage, delivery and execution dependencies.
+`prometeu-protocols` contains the shared Codex adapter; desktop supplies its own
+language callback and client version. Canonical usage types live in the core.
+
+The executable has an isolated root lock, private transcript and provider thread
+identity, typed stdio requests and stop/resume across runtime restarts. It does
+not adopt desktop roots or replace the production desktop deployment. Full Windows
+UI parity remains pending. The Windows shell ships through Tauri's per-user NSIS
+installer with its matching Linux runtime embedded. A resident attachment adapter now keeps
+execution alive across preview disconnects.
+See the [headless contract](docs/contracts/headless-runtime.md).
+
+The separate `prometeu-wsl-desktop` preview injects a portable stdio connector
+and WSL launcher, reusing the conversation reducer and Desktop components.
+Its Windows build excludes Unix execution crates. Disconnect detaches its proxy;
+the resident host retains execution. A supporting shell uses injected terminal
+ports, raw-byte snapshots and renderer acknowledgements, with reattachment through
+snapshot discovery. See the [resident contract](docs/contracts/resident-runtime.md), the
+[preview contract](docs/contracts/wsl-preview.md) and
+[ADR 0080](docs/decisions/0080-native-wsl-conversation-preview.md).
+
+The same host now retains a context per conversation session through an
+injected `ContextFactory`. `prometeu-core::workspaces` reuses board models with
+catalog storage, folder-validation and worktree-preparation ports. The Unix
+`GitWorktrees` adapter receives a bounded command runner and creates new branches
+without switching the source checkout. Selection changes live delivery and
+snapshots without stopping other contexts. The bridge exposes `WorkspaceClient`;
+presentation consumes `WorkspacePort`. See the [workspace contract](docs/contracts/wsl-workspaces.md)
+and [ADR 0083](docs/decisions/0083-wsl-workspace-catalog.md).
+
+Workspace metadata changes use `core::workspace_lifecycle`; the injected
+`WorktreeCleanup` port shares the original native Git checks and removal effects.
+Each host owns process shutdown and persistence. WSL archive/finish preserves
+history/files, and explicit cleanup retains transcripts outside the checkout.
+
+The Windows application integration now loads the existing desktop HTML and
+`src/main.ts` through an injected application transport. The separate preview is
+a diagnostic entry; full service coverage remains in progress. Git review and
+mutations use the shared `RepositoryGit` core port and `prometeu-git` native adapter,
+with the same workspace admission and model types at both host boundaries. Native
+folder selection uses the existing dialog; an injected Windows path adapter admits
+the connected distribution and delegates drive mounts to its `wslpath`. Shared
+core project registration preserves workspaces and files on removal. Startup injects
+default WSL discovery and installation of an embedded Linux package. It opens the
+existing interface without setup screens; an injected empty catalog seed leaves
+project registration in the normal desktop flow and preserves existing catalogs.
+Injected `ConnectionRecovery` and `TerminalSnapshots` restore the same views after
+attachment loss without replacing drafts or replaying input. Runtime upgrades
+negotiate idle retirement at attachment; live execution defers replacement.
+File-manager reveal resolves existing paths in WSL, then an injected native Windows
+adapter opens or selects the translated entry in Explorer through the same UI command.
+Tree mutations and ranked path search reuse the original native implementations
+through `ProjectEntries` and `ProjectSearch`; recoverable trash is an injected
+filesystem effect and search caches belong to each host.
+Binary reads share the native file service; the bridge assembles bounded WSL
+blocks into the original byte response for existing image, PDF and CSV viewers.
+An injected attachment picker, clipboard and drop adapter map native paths before
+the existing drafts and first-message formatter send them to WSL execution.
+Local resource reads and standalone skill authoring reuse `prometeu-tools` libraries
+with injected private files and package registries. Core `tool_resolution` shares
+selection, picker provenance and project approval; WSL reads current selections
+through `ToolSelection` at each Codex spawn and injects the same `NativeTools`
+package/MCP preparation used by desktop. `PluginLibrary` shares local registration,
+repository import/update and removal with injected catalog/files/command ports;
+Windows folder-source translation stays at the application boundary. Cloud
+integration is separate. See the
+[Windows application contract](docs/contracts/windows-application.md).
 
 ## Shared interface
 
@@ -130,15 +220,23 @@ resumes the session when there is news. See the
 
 ## State and persistence
 
-- `src-tauri/src/state.rs` owns the persisted board: projects, workspaces,
-  tabs, choices and metadata.
+- `src-tauri/crates/core` owns the board models and portable rules. Its
+  `BoardPublisher` receives storage and event ports; `src-tauri/src/board_store.rs`
+  implements file persistence and `state.rs` adapts desktop publication. See the
+  [core contract](docs/contracts/application-core.md).
 - The logical session is the transcript. The process is disposable and can be
   resumed.
 - Claude writes its own transcript; Prometeu writes the translated Codex and Antigravity lines
   in `~/.prometeu/chats/`.
-- Agent accounts and the global selection live in `<root>/accounts.json`;
-  `accounts.rs` coordinates the local profiles and the adapters run the
-  official login.
+- Agent accounts and the global selection live in `<root>/accounts.json`.
+  `prometeu-core::accounts` owns registry compatibility, selection and serialized
+  updates through an injected store. `account_store.rs` implements private file
+  persistence. `accounts::login::LoginService` coordinates login through injected
+  authentication and effects. `accounts.rs` composes native profiles, the desktop
+  executor and events; `account_login.rs` supplies native authentication.
+  `prometeu-profiles` owns native profile paths, credential isolation and shared
+  resource links through an injected `ProfileBackend`; `account_profiles.rs`
+  supplies desktop roots and private file writes.
 - Team state lives in `~/.prometeu/team.json`, with private permissions.
 - Private identities, TOFU and receipts live in `team-security.json`;
   `team-channel.ts` is the encrypted-content boundary of the webview.
@@ -218,13 +316,16 @@ The detailed rules and the current state of each one are in
 | conversation | `src/chat.ts`, `src/timeline.ts`, `src/chat-presentation.ts`, `src/desk.ts` |
 | agents | `src/agents.ts`, `src/launcher.ts`, `src-tauri/src/agents.rs`, `src-tauri/src/claude.rs`, `src-tauri/src/codex.rs` |
 | starting from a skill | `src/kickoff.ts`, `src/launcher.ts`, `src-tauri/src/kickoff.rs`, `[method]` in `src-tauri/src/scripts.rs`; see [ADR 0057](docs/decisions/0057-skill-kickoff-and-artifact-path.md) |
-| workspaces | `src-tauri/src/session.rs`, `src-tauri/src/state.rs` |
-| workspace tool selection | `src-tauri/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
+| workspaces | `src-tauri/src/session.rs`, `src-tauri/crates/core/src/board.rs`, `src-tauri/src/state.rs` |
+| session coordination | `src-tauri/crates/core/src/session.rs` and `session/` (policies), `src-tauri/src/chat/host.rs` (desktop effects) |
+| workspace tool selection | `src-tauri/crates/core/src/workspace_tools.rs` (use case), `src-tauri/src/session.rs` (Tauri commands) |
 | Local diff review | `src/review-comments.ts` (rules), `src/review-store.ts` (local storage), `src/workspace-review.ts` (coordination), `src/review-context.ts` (text contract); see [review notes](docs/contracts/diff-review.md) |
 | Git and files | `src/workspace-changes.ts`, `src/changes-menu.ts`, `src/file-menu.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
 | collaboration | shells `src/team.ts` (desktop) and `src/mobile/` (browser, bundle for the Cloud); core `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
 | optional context evaluation | `src-tauri/src/evaluation.rs` (port), `src-tauri/src/typesafe.rs` (adapter, key), `src/context-review.ts`, `src/context-review-view.ts`, `src/typesafe.ts`, `src/typesafe-settings.ts` |
+| bounded command execution | `src-tauri/crates/core/src/command.rs` (ports), `src-tauri/crates/process/src/command.rs` and `query.rs` (Unix implementations) |
+| terminal execution | `src-tauri/crates/core/src/terminal.rs` (ports and output), `src-tauri/crates/process/src/terminal.rs` (Unix PTYs), `src-tauri/src/pty.rs` (desktop composition) |
 | terminal and preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
 
 The preview shares the center with the conversation. Inspection and capture
@@ -240,9 +341,15 @@ explicit send to the draft. See the
 - The provider identity is still called `agent` in the persisted format and in
   some payloads for compatibility, even though the type is already `ProviderId`.
 - IPC types and conversation events can still diverge between Rust and TS.
-- The extracted workspace tool use case still shares board types with
-  `state.rs`; separating that module's persistence and publication remains a
-  prerequisite for a standalone backend package.
+- Board models and tool-selection rules now build independently in
+  `prometeu-core`, together with conversation sequencing, snapshots and
+  background-task settlement, process-supervision policy and session
+  coordination through injected effects. `prometeu-process` provides a
+  Tauri-free Unix adapter for agents, terminals and private authentication
+  processes, plus bounded catalog queries and finite commands. Workspace/launch
+  and native service composition still depend on the desktop host. A
+  standalone execution host still needs lifecycle, transport and ownership
+  contracts before deployment changes.
 
 These points do not authorize a mass reorganization. The accepted sequence is:
 document, introduce tested contracts and only then move implementations.

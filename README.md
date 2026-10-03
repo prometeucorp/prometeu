@@ -183,6 +183,14 @@ with simulated data; real agent execution, filesystem operations, and native
 macOS behavior require the desktop app. Use `PORT=1421 npm run dev` to select
 another port.
 
+### Experimental headless conversation
+
+The Unix development runtime can run a Codex conversation without the desktop,
+persist its transcript and resume after restarting. Build/run instructions and
+its NDJSON commands are in the [headless runtime contract](docs/contracts/headless-runtime.md).
+It requires a separate runtime directory; the native Windows composition connects
+to it through the [WSL application bridge](docs/contracts/windows-application.md).
+
 ### Validate changes
 
 Install the test browsers once:
@@ -210,14 +218,14 @@ Changes to native behavior also need a manual desktop check. See the
 ## Add projects from your catalog
 
 Register Git sources once in the Cloud's **Projects** tab, in your personal or
-organization catalog. In the desktop, open **Settings / Work and team / Projects on this Mac** or **Add
+organization catalog. In the desktop, open **Settings / Work and team / Projects on this computer** or **Add
 project** in the sidebar. Select projects, choose a destination folder and click
-**Add to this Mac**. Each successful clone appears in the project list. Failed
+**Add to this computer**. Each successful clone appears in the project list. Failed
 rows retain their errors and can be retried without repeating completed clones.
 
 **Link existing folder** registers an existing clone after checking its Git
 origin. **Add local folder** remains available without an account. Cloning uses
-your Mac's Git authentication and does not run setup or install dependencies.
+the execution host’s Git authentication and does not run setup or install dependencies.
 Deleting catalog definitions preserves local repositories. See the
 [catalog contract](docs/contracts/cloud-catalog.md).
 
@@ -334,3 +342,52 @@ a Prometeu account and delivers reports privately to the Prometeu team. See the
 ## License
 
 Prometeu is licensed under the [MIT License](LICENSE).
+
+### Native Windows application integration
+
+An experimental native shell can connect to the headless Codex runtime inside
+WSL. The default window now loads the existing desktop interface through an injected
+application transport. Conversation, text-file editing and shell flows have native
+acceptance coverage. The original launcher can discover the WSL Codex account/model
+and create a new-branch worktree. Setup/Run execute in WSL using the existing controls;
+The existing Git review, stage/commit and history also use WSL. MCPs and standalone
+skills can be saved in the existing Resources screen and selected for Codex
+conversations; local plugin packages use the same preparation pipeline. Global,
+project and workspace selections apply at the next process start, with the existing
+project approval. The original Resources dialogs also import Git plugins and
+marketplaces, register Windows/WSL folders, update packages and remove owned
+files. Local MCP OAuth and connection checks also reuse the original services,
+with Windows browser consent and private WSL credentials. Managed provider login,
+Cloud synchronization, agent-generated plugin creation and other services remain
+pending. Local project selection
+uses the Windows directory picker with injected WSL path conversion.
+The existing file tree can create and rename entries, move them to WSL's Linux
+trash and search paths through the shared desktop implementations. The same file
+menu reveals WSL files in Windows Explorer.
+Images, PDFs and CSV files open in the existing viewers through the shared binary
+reader, retaining its 100 MiB limit. File attachments reuse the original picker,
+draft chips and launcher; native paths and pasted images become WSL-readable references.
+The original workspace menus now rename, pin, mark unread, change a tab's model,
+archive, finish and remove workspaces. Explicit worktree cleanup keeps conversation
+history available after runtime restart.
+A complete build opens the original interface using the default installed WSL
+automatically, without a connection screen. Add projects and create conversations
+through the existing desktop controls. See
+[implemented coverage and prerequisites](docs/contracts/windows-application.md).
+See [setup and current limits](docs/contracts/wsl-preview.md). The preview includes a supporting terminal.
+It now supports saved [workspaces in existing WSL folders or new Git worktrees](docs/contracts/wsl-workspaces.md),
+each with its own conversation and terminal; selecting another workspace preserves execution.
+Interrupted attachments reconnect automatically in the existing window, retaining
+drafts, conversations and supporting shells. Bundled runtime updates wait for an
+attachment with no retained execution before replacing the host; older residents
+without this negotiation still require explicit shutdown. Native Windows
+UI acceptance passed with a synthetic provider, including window closure and
+reattachment. A separate test with authenticated WSL Codex also verified real
+replies and conversation recall after reopening the native window. Automatic
+setup and saved reconnection also passed this native acceptance. Build a per-user
+Windows installer with `npm run package:windows`; see the
+[Windows packaging instructions](docs/operations/release.md#windows-codex-installer).
+Install it and open **Prometeu** from the Windows Start menu. The default WSL must
+already contain Git and an authenticated Codex CLI. Updates currently use the next
+installer; automatic updates and full application parity remain pending. See the
+[resident contract](docs/contracts/resident-runtime.md).

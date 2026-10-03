@@ -43,6 +43,21 @@ migration; new code uses exhaustive matching. The recognized retired `gemini`
 value is retained without fallback and cannot execute. The JSON field is still called
 `agent` for compatibility, but its normalized value is `"claude" | "codex" | "antigravity" | "gemini"`.
 
+## Native preparation
+
+Provider preparation is injected separately from conversation spawning. Native
+adapters return configuration, transcript ownership and a connection factory;
+the launcher supplies process input/control and receives canonical input/output
+interfaces. Provider interruption and turn-wait policy remain in those adapters.
+This preserves the CLI and V1 protocols; it introduces no bridge payload. See
+the [application contract](application-core.md#provider-preparation-and-input).
+
+Codex translation is shared through `prometeu-protocols::codex`; desktop launch
+composition remains in `src/codex.rs`. The host supplies language selection and
+client version, preserving existing desktop behavior. The experimental
+[headless executable](headless-runtime.md) composes the same adapter for one
+conversation using native authentication/configuration, with Ask approvals.
+
 ## Model discovery
 
 `agents` discovers installations and capabilities, returning empty model lists.
@@ -59,6 +74,9 @@ with `includeHidden: true`; `model` is the launch identifier, `hidden` maps to
 picker source. Antigravity uses `agy models`; its labels do not imply effort
 support. Discovery sends no inference prompt, is bounded to twenty seconds per
 query and reaps its subprocess group on success, failure or timeout.
+The injected private query port enforces that deadline across nonblocking
+writes and every response page, with 1 MiB total stdout. Protocols stay in the
+provider adapter; see [bounded queries](application-core.md#bounded-commands-and-queries).
 
 Frontend refresh runs at startup/account changes, and on picker opening after
 five minutes, with a manual refresh override. Concurrent requests per provider
@@ -167,8 +185,8 @@ detailed plugin contract is in
 
 ## Workspace launch resolution
 
-Ordinary tab creation and resume both use `Workspace::launch_with`. Tool
-selection is resolved by the core: `session.rs` composes the global layer from
+Ordinary tab creation and resume both use `session::workspace_launch_with`. Tool
+selection uses shared `core::tool_resolution`: desktop `session.rs` composes the global layer from
 the board, the project layer from the primary repository's
 `.prometeu/settings.toml` and the workspace layer into the three `SessionLaunch`
 lists, leaving out project-declared items whose hash is not approved yet
@@ -184,13 +202,21 @@ above: a change at any layer applies at the next spawn or resume of a stopped
 process and never restarts a running session. An idle process also keeps its
 captured set; sending another message alone does not reload tools.
 
-`claude.rs::launch_args` owns Claude flags and MCP/plugin/skill materialization;
-`session.rs` resolves application choices and passes `Launch` to the adapter.
-The relocated argument tests preserve existing flags, resume behavior, and
-configuration handling.
+Provider adapters own CLI flags and consume tool artifacts through injected
+`prometeu-tools::StartupTools`. `session.rs` resolves application choices and
+passes `Launch` to the adapter; plugins and standalone skills share the package
+pipeline. MCP encoding uses injected catalog/token and private-file ports in
+`prometeu-tools`; package preparation and Codex cache installation also live in
+that native crate through injected catalog/files/installer ports. Desktop
+`tool_materialization.rs` and WSL `runtime::tools` compose the shared `NativeTools`
+implementation with their package backend and MCP adapters. The WSL provider reads
+the current catalog through injected `ToolSelection` at spawn, preserving the same
+trust and selection rules without desktop dependencies. Existing argument fixtures and injected startup tests
+preserve flags, resume behavior, scope, environment and failure ordering. See
+[ADR 0077](../decisions/0077-injected-startup-tools.md).
 
 The Tauri commands for changing workspace MCP/plugins/skills delegate to
-[`workspace_tools.rs`](../../src-tauri/src/workspace_tools.rs). This application
+[`workspace_tools.rs`](../../src-tauri/crates/core/src/workspace_tools.rs). This application
 boundary validates axis selections and updates explicit board state without
 accessing processes or changing sibling tabs. The commands retain native
 argument handling, error translation and board publication. Tests run without
@@ -222,6 +248,25 @@ line is rendered in the display language by the backend. An undeclared path is
 never named. The choice requires `workspacePluginSelection`; the core rejects it
 for other providers with `err.kickoff.unsupported`, and a skill missing from the
 installed catalog fails with `err.kickoff.missing` before a card is published.
+
+## Implemented conversation-stream boundary
+
+The shared conversation stream is in `prometeu-core::conversation`. Its
+`ConversationInput` port receives canonical commands and the replay buffer;
+the existing `Chat` adapter implements it using the provider links. Injected
+`TranscriptStore`, `ConversationEvents` and `Clock` ports cover recording,
+publication and timestamps. This is an implemented ordering boundary, while
+native preparation and feature effects remain in adapters. Start/resume now
+uses the injected `LaunchService`/`ConversationLauncher` boundary; desktop
+provider registration lives in `session/launch.rs`. See
+[launch coordination](application-core.md#session-launch-and-resume). The core
+now also owns process-supervision ports and shutdown policy;
+`prometeu-process` implements Unix spawning, group control and reaping without
+Tauri. Shared `ConversationWorkers` now initialize the adapter and consume
+translated output through an injected `TaskExecutor`, with lifecycle effects
+supplied by the host. See the [worker contract](application-core.md#conversation-workers). Claude and Codex keep protocol interruption; Antigravity uses the
+injected group interrupt. See the
+[process contract](application-core.md#process-supervision). See the [core contract](application-core.md#conversation-stream).
 
 ## Conceptual port
 
@@ -328,3 +373,25 @@ Authentication methods remain descriptor data: Claude/Codex advertise browser;
 Antigravity advertises `external`, with `accountNotice` explaining limits. The
 old Gemini identity is a retired persistence marker; any execution refuses with
 `err.provider.retired`. See [ADR 0052](../decisions/0052-antigravity-runtime.md).
+
+## Session coordination boundary
+
+The portable `SessionService` handles queued input, account handoffs and process
+recovery through injected effects. `SessionReactions` consumes canonical events
+for tab state and background settlement; provider usage translation remains in
+the desktop adapter. `SessionOutput` orders execution observation and private
+capture around transcript delivery. See the
+[core contract](application-core.md#session-coordination) and
+[ADR 0066](../decisions/0066-injected-session-coordination.md). No provider
+capability or V1 shape changes; launch resolution remains in the native host.
+
+## Shared native discovery
+
+Provider descriptors and model result types now live in `prometeu-core::agents`.
+The desktop and WSL runtime share `prometeu-protocols::catalog` for bounded private
+queries, pagination and response validation. Hosts supply the query launcher,
+prepared command/profile and client version; raw provider replies remain at the
+edge. `ProviderDiscovery` is the runtime registration port. The original desktop
+catalog tests retain coverage of profile isolation, deadlines, malformed replies,
+limits and cleanup. Windows integration coverage and account limits are in the
+[Windows application contract](windows-application.md).

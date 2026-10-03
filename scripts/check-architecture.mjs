@@ -48,7 +48,8 @@ for (const token of ["stream_event", "control_request", "control_response", "too
 
 /// ADR 0002 fitness check: the Codex adapter emits canonical V1 directly. Legacy stream-json belongs
 /// only in the Claude adapter and transcript compatibility path.
-const codex = await readFile("src-tauri/src/codex.rs", "utf8");
+const codexPath = "src-tauri/crates/protocols/src/codex.rs";
+const codex = await readFile(codexPath, "utf8");
 const legacyCodex = [
   /"(?:stream_event|control_request|control_response|tool_use|tool_result|content_block_(?:start|delta|stop))"/g,
   /"type"\s*:\s*"(?:user|assistant|result)"/g,
@@ -57,7 +58,7 @@ const legacyCodex = [
 for (const pattern of legacyCodex) {
   for (const match of codex.matchAll(pattern)) {
     const line = codex.slice(0, match.index).split("\n").length;
-    failures.push(`src-tauri/src/codex.rs:${line}: formato legado entre Codex e core: ${match[0]}`);
+    failures.push(`${codexPath}:${line}: formato legado entre Codex e core: ${match[0]}`);
   }
 }
 

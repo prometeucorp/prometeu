@@ -7,32 +7,6 @@ use std::{
 };
 use tauri::Manager;
 
-impl Board {
-    pub fn prepare_telemetry_ids(&mut self) {
-        for p in &self.projects {
-            self.telemetry_ids.ensure("project", &p.id);
-            self.telemetry_ids.ensure("repository", &p.path);
-        }
-        for w in &self.workspaces {
-            self.telemetry_ids.ensure("workspace", &w.id);
-            self.telemetry_ids.ensure("project", &w.project);
-            for t in &w.tabs {
-                self.telemetry_ids.ensure("conversation", &t.id);
-            }
-            for r in &w.repos {
-                self.telemetry_ids.ensure("repository", &r.path);
-                self.telemetry_ids
-                    .ensure("branch", &format!("{}\0{}", r.path, w.branch));
-                if let Some(pr) = &r.pr {
-                    if !pr.head_ref_name.is_empty() {
-                        self.telemetry_ids
-                            .ensure("branch", &format!("{}\0{}", r.path, pr.head_ref_name));
-                    }
-                }
-            }
-        }
-    }
-}
 pub fn workspace_scope(board: &Board, workspace: &str) -> Option<Scope> {
     let w = board.workspace(workspace)?;
     Some(Scope {

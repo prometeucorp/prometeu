@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Prometeu",
+  "version": "../../../package.json",
+  "identifier": "co.prometeu.wsl-preview",
+  "build": {
+    "beforeDevCommand": {
+      "script": "npm run dev:wsl",
+      "cwd": "../../.."
+    },
+    "devUrl": "http://localhost:1421",
+    "beforeBuildCommand": {
+      "script": "npm run build:wsl",
+      "cwd": "../../.."
+    },
+    "frontendDist": "../../../dist-wsl",
+    "features": [
+      "desktop"
+    ]
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Prometeu",
+        "url": "index.html",
+        "width": 1100,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-src blob:"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "../../icons/128x128.png",
+      "../../icons/icon.ico"
+    ]
+  }
+}

@@ -114,7 +114,7 @@ Negative:
 - `session.rs::drafts_without_a_kickoff_still_deserialize`,
   `session.rs::first_message_opens_with_the_kickoff_line` and
   `session.rs::artifact_path_follows_the_primary_repository`.
-- `state.rs::tabs_without_a_kickoff_keep_the_previous_format`.
+- `crates/core/src/board.rs::tabs_without_a_kickoff_keep_the_previous_format`.
 - `src/kickoff.test.ts`: catalog merge, the stored preference and the choice
   that survives provider switches.
 - Contracts: [agent runtime](../contracts/agent-runtime.md#skill-kickoff),

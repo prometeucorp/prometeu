@@ -67,6 +67,8 @@ npm run build:mobile
 npm run test:release
 npm run test:web
 npm run test:rust
+npm run test:core
+npm run test:profiles
 npm run test:e2e
 npm run format:check
 npm run lint:rust
@@ -96,6 +98,11 @@ the Cloud's bundle.
 
 During development, run the smallest suite that covers the change first. Use
 `npm run check` before finishing a cross-cutting change or opening a PR.
+
+`npm run test:core` tests the portable board models, tool selection and injected
+publication service without Tauri or GUI libraries. It also runs as part of
+`test:rust`; independent Linux/Windows CI guards portability. This does not
+exercise a native Windows desktop or a WSL execution bridge.
 
 ## What each level proves
 
@@ -177,7 +184,7 @@ with one UI journey through the tool selectors.
 Account/settings variations, catalog management shortcuts, header styling, tab
 visibility preferences, recent-file ranking, the file viewer's find bar and
 Command-P quick open also have no dedicated browser gate. Recent-file collection
-and ranking remain covered in `timeline.test.ts` and `session/find.rs`; in-file
+and ranking remain covered in `timeline.test.ts` and `crates/files/src/search.rs`; in-file
 matching, wraparound and marker markup in `find.test.ts`, and the palette's
 keyboard behavior in the shared `e2e/search-picker.spec.ts`; native Git/catalog
 rules keep their Rust coverage. Feedback keeps representative submission, attachment races and cancellation checks rather
@@ -263,3 +270,89 @@ contract values and Unicode samples needed to prove parsing or encoding. Tests
 cover locale selection, interpolation and structured errors, not translation
 copy quality; TypeScript checks that the English catalog implements the source
 catalog keys.
+
+## Process adapter checks
+
+`npm run test:process` runs real local Unix subprocess tests for agent spawning,
+pipe backpressure, graceful input closure, interruption, shutdown escalation,
+exit codes and abandoned-handle cleanup. It requires neither Tauri/GUI libraries
+nor installed agent CLIs. It is included in the workspace Rust suite and runs
+in an independent Linux/macOS CI job. `npm run test:core` separately checks
+shutdown policy with injected controls and keeps its Windows CI coverage.
+The same suite now includes real PTYs (input, resize, EOF, exit and group
+shutdown) and private authentication pipes (line bounds and cleanup). These
+tests do not exercise a Windows shell, WSL bootstrap or live OAuth.
+
+Bounded query/command adapter tests also run in `npm run test:process`. They use
+local synthetic children for pipe backpressure, blocked writes, total-output
+bounds, nonzero exits and descendants holding pipes. Provider fixtures remain
+in the desktop Rust suite; no CLI account or network is needed for these tests.
+
+## Native profile and tool verification
+
+`npm run test:tools` tests native MCP encoding and package preparation through
+injected catalogs, private files and installers, without Tauri or installed agents.
+It covers manifest/configuration compatibility, cache invalidation, failure cleanup
+and shared preparation ordering; a synthetic CLI checks native installer behavior.
+
+`npm run test:profiles` tests the Unix account profile adapter without Tauri,
+GUI libraries or installed CLIs. Its fixtures cover shared history, credential
+isolation, explicit roots, environment application and preparation failures.
+The Linux/macOS native adapter CI job also runs its tests and Clippy. Private
+file permissions and injection into startup/login are verified by the desktop
+Rust suite; real provider authentication remains a separate manual check.
+
+## Headless conversation verification
+
+`npm run test:runtime` runs the shared Codex adapter and actual headless executable
+fixtures without Tauri or a provider subscription. The synthetic provider needs
+Python 3. See [run instructions](../contracts/headless-runtime.md#run) for a real
+conversation and the current limitations. Real-provider smoke testing uses an
+isolated runtime directory and the execution environment's existing Codex login.
+
+## Native Windows/WSL integration
+
+`npm run test:windows:native -- CONFIG.json` exercises the original desk, file
+editor, binary viewers and terminal in WebView2 over WSL. Binary acceptance covers
+raw Tauri byte responses larger than one WSL message and the local blob CSP.
+Attachment acceptance uses real Windows file dialogs and clipboard image/file
+data; a synthetic provider reads the chosen file from WSL. The clipboard fixture
+restores its previous contents in `finally`, including on timeout. This opt-in
+native coverage targets path conversion and OS clipboard boundaries that mocks
+cannot validate; shared chips and draft interactions keep their existing tests.
+Tool acceptance uses the original picker and has the fixture provider execute a
+selected MCP definition's command with its private environment. This proves native
+configuration delivery without spending model credits; shared picker/trust browser
+tests and runtime selection/resume tests retain responsibility for portable rules.
+The default native entry is the shared
+interface; `/wsl.html` remains diagnostic coverage for the older preview.
+See [current coverage](../contracts/windows-application.md).
+
+The native acceptance config may additionally set `codex` to the absolute Linux
+path of an already authenticated Codex executable. This opt-in mode sends two
+short live inference requests in an isolated temporary project and checks the
+original ChatView before and after window reconnection. Omit `codex` for the
+synthetic-provider journey covering projects, scripts and Git. Both modes keep
+credentials in WSL and use separate runtime roots; live inference uses the selected
+CLI account's service quota. Use a separate `artifacts` directory for each mode. With live `codex`, set
+`bootstrap: true` to exercise default WSL startup without a setup screen, ordinary project selection,
+embedded runtime installation and saved automatic reconnection. This mode injects
+an isolated `PROMETEU_WINDOWS_RUNTIME_ROOT` and reuses its private WebView profile.
+
+Build the Linux runtime in WSL and run `npm run app:wsl` from a Windows checkout.
+`npm run build:app:wsl` builds the native executable without an installer or
+publishing. Running this command on Linux first builds and embeds the release
+runtime. On other build hosts, set `PROMETEU_WSL_RUNTIME` to the matching Linux
+artifact; CI supplies it from the Linux job. Without that artifact, automatic startup rejects the incomplete build. Setup, private roots, reconnect semantics and validation limits are
+in the [preview contract](../contracts/wsl-preview.md).
+`npm run build:wsl` builds only its frontend; `npm run dev` serves the deterministic
+`/wsl-preview.html` composition without WSL. `npm run test:bridge` checks the
+portable transport, and `test:runtime` includes real-process bridge tests.
+
+`npm run test:wsl:native -- CONFIG.json` runs the opt-in Windows acceptance check
+against the built executable, WebView2 and an installed WSL distribution. It
+uses a synthetic provider and an isolated root, without a provider subscription.
+See the [native acceptance instructions](../contracts/wsl-preview.md#native-windows-acceptance).
+It stays outside the default browser suite: hosted CI's Windows build has no
+configured WSL distribution, and browser mocks cannot prove native IPC, Windows
+argument encoding or execution surviving closure of the actual window.

@@ -100,3 +100,23 @@ Status: Proposed
 | [0060](0060-isolated-desktop-presentation.md) | Isolated Desktop presentation and executable compositions |
 | [0061](0061-background-energy-policy.md) | Separate display sleep from agent work |
 | [0062](0062-local-diff-review.md) | Local review notes and explicit batch submission |
+| [0063](0063-portable-board-core.md) | Portable board models and injected publication effects |
+| [0064](0064-portable-conversation-stream.md) | Portable conversation ordering with injected effects |
+| [0065](0065-injected-process-supervision.md) | Injected process supervision and a reusable Unix adapter |
+| [0066](0066-injected-session-coordination.md) | Session coordination through injected effects |
+| [0067](0067-injected-terminal-and-private-processes.md) | Injected terminals and private authentication processes |
+| [0068](0068-bounded-command-and-query-ports.md) | Bounded command and query ports |
+| [0069](0069-portable-session-host.md) | Portable session host ownership and composition |
+| [0070](0070-portable-conversation-pump.md) | Portable conversation pump and injected scheduling effects |
+| [0071](0071-injected-session-launch.md) | Shared launch settings and injected start/resume coordination |
+| [0072](0072-injected-conversation-workers.md) | Portable conversation workers and injected background execution |
+| [0073](0073-injected-provider-preparation.md) | Injected native provider preparation and canonical input |
+| [0074](0074-injected-account-registry.md) | Portable account registry with injected storage |
+| [0075](0075-injected-account-login.md) | Account login through injected authentication and effects |
+| [0076](0076-injected-native-profiles.md) | Native account profiles behind an injected backend |
+| [0077](0077-injected-startup-tools.md) | Injected native startup tools and Tauri-free MCP encoding |
+| [0078](0078-injected-native-packages.md) | Native package preparation with injected catalog, files and installation |
+| [0079](0079-headless-conversation-slice.md) | Experimental headless conversation and shared provider protocol |
+| [0080](0080-native-wsl-conversation-preview.md) | Native WSL conversation preview with injected transport |
+| [0081](0081-wsl-supporting-terminal.md) | Supporting WSL terminal with injected ports and output credits |
+| [0082](0082-resident-wsl-attachments.md) | Resident WSL execution and disposable attachments |

@@ -1,6 +1,6 @@
 # Validate frontend types, web/Rust tests, Rust formatting, Clippy and commit messages on PRs and main
 # pushes.
-# Jobs run on GitHub-hosted macOS and Linux runners. The repository is public, so PRs from forks also
+# Desktop jobs run on macOS/Linux; the independent core also runs on Windows. PRs from forks also
 # run here: hosted runners are disposable and the workflow holds no secrets, which keeps untrusted
 # code harmless.
 # Never register a self-hosted runner on this repository (ADR 0040).
@@ -19,6 +19,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  core:
+    name: application core (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: application-core-${{ matrix.os }}
+      # No Tauri build or GUI libraries: the core must remain independently usable.
+      - run: cargo test -p prometeu-core -p prometeu-protocols -p prometeu-bridge --locked
+      - run: cargo clippy -p prometeu-core -p prometeu-protocols -p prometeu-bridge --all-targets --locked -- -D warnings
+
+  process:
+    name: unix execution adapters (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: unix-process-${{ matrix.os }}
+      # Real local processes, without a webview, GUI libraries or installed agent.
+      - run: cargo test -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --locked
+      - run: cargo clippy -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --all-targets --locked -- -D warnings
+
   macos:
     name: macos
     runs-on: macos-latest
@@ -90,8 +138,60 @@ jobs:
 
       # The backend embeds the built frontend.
       - run: npm run build
+      - run: npm run build:wsl
       - run: npm run test:rust
       - run: npm run lint:rust
+
+      - name: build matching Linux runtime package
+        run: cargo build --manifest-path src-tauri/Cargo.toml --locked -p prometeu-runtime --release
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-linux-runtime
+          path: src-tauri/target/release/prometeu-runtime
+          retention-days: 1
+
+  windows-preview:
+    name: native Windows WSL installer (build only)
+    needs: linux
+    permissions:
+      contents: read
+      actions: read
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: windows-preview
+      - run: npm ci
+      - name: embed the matching Linux runtime
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ github.run_id }} --name windows-linux-runtime --dir "$env:RUNNER_TEMP/runtime-package"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "PROMETEU_WSL_RUNTIME=$env:RUNNER_TEMP/runtime-package/prometeu-runtime" >> $env:GITHUB_ENV
+      - run: npm run package:windows
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-installer
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: keep Unix execution out of the Windows shell
+        shell: pwsh
+        run: |
+          $graph = cargo tree --manifest-path src-tauri/Cargo.toml -p prometeu-wsl-desktop --features desktop --target x86_64-pc-windows-msvc --edges normal --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($graph -match 'prometeu-(process|profiles|tools|runtime) v') { throw 'Unix execution dependency in Windows shell' }
 
   commits:
     name: mensagens de commit

@@ -113,7 +113,7 @@ fn handle_connection(
     let owner = runtime.owner(token)?;
     let state = app.state::<AppState>();
     if let Some(conversation) = &owner.conversation {
-        if !lock(&state.chats)
+        if !lock(&state.sessions.conversations)
             .get(conversation)
             .is_some_and(|chat| chat.alive())
         {

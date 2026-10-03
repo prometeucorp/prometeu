@@ -26,7 +26,7 @@ installed copy still holds the link. MCPs are excluded because personal MCPs
 always install their own copy.
 
 The Resources list shows one row per resource. Its source column lists badges:
-`This Mac` when a local item exists, `Personal` (with `⇄` when linked) and each
+`This Mac` (`This computer` outside macOS) when a local item exists, `Personal` (with `⇄` when linked) and each
 organization that offers the same or an equivalent definition. A definition with
 the name of an installed item but a different definition does not get its own
 row; the installed row shows `<source> ≠` and offers `Install from <source>`,
@@ -271,7 +271,7 @@ with empty credentials.
   equivalence, GitHub source comparison and linking on share.
 - `src/catalog.test.ts`: resource-list sources, differing same-name definitions
   and grouping of missing definitions.
-- `src-tauri/src/skills.rs`: validation, directory isolation, frontmatter, both
+- `src-tauri/crates/tools/src/skills.rs`: shared validation, directory isolation, frontmatter, both
   providers' manifests and content updates.
 - `e2e/cloud.spec.ts`: explicit sharing, private copy, offline editing and
   revision-conflict flows over the mock. Organization installation rules are
@@ -286,3 +286,9 @@ with empty credentials.
   CRUD, conflict and compatibility.
 - `prometeu-cloud/test/browser/catalog.spec.js`: real Rails forms, CSRF,
   consumption of the desktop API and layout in Chromium/WebKit.
+
+The Windows application currently injects a local-only catalog source. It reports
+the same disconnected state shape as desktop and keeps local libraries available;
+it does not adopt or synchronize Cloud caches. Standalone skill mutations reuse
+the shared library, while desktop retains its existing Cloud revision checks and
+publication before local persistence. See the [Windows contract](windows-application.md).

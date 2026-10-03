@@ -13,6 +13,8 @@ general IPC to the inspected page.
   `invoke` infers the result from the command and checks its arguments. Callers
   cannot supply an arbitrary result generic. `IpcArgs`, `IpcArguments`,
   `IpcResult`, `IpcCall`, and `IpcHandlers` support typed consumers and wrappers.
+  `IpcTransport` is selected by bootstrap; Windows injects the WSL transport while
+  the existing desktop keeps Tauri. See the [Windows contract](windows-application.md).
   Command unions must travel with their corresponding arguments as an `IpcCall`
   tuple; widening the command generic cannot bypass required arguments.
 - `src/mock.ts` implements `IpcHandlers`. TypeScript checks every command's
@@ -138,7 +140,11 @@ A clipboard with neither a file nor an image returns an empty list. AppKit
 reads synchronously on the main thread. GTK requests the image asynchronously
 on the main thread; a worker converts and writes it. Linux rejects images above
 64 MiB of pixel data or PNG output and fails after 5 seconds if the clipboard
-owner does not respond. Elsewhere, it returns an empty list.
+owner does not respond. The native Windows composition injects a clipboard adapter
+that reads copied paths and writes screenshots as PNG under its app-local attachment
+cache, then returns WSL paths with the same result shape. Pixel and PNG output are
+limited to 64 MiB. See [Windows attachment behavior](windows-application.md#composition).
+Other unsupported hosts return an empty list.
 
 `src/paste.ts` calls it when the paste event carries files, and also when the
 event carries no type at all: WebKitGTK hides a pasted image from the page that
@@ -234,7 +240,17 @@ unrelated status controls.
 `chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the rest to the legacy reader; historical
 `prometheusV1Mirror` projections are ignored by the current reader. Prometeu
-does not produce those projections in new logs.
+does not produce those projections in new logs. The portable conversation stream
+now constructs `{ text, seq }` snapshots and supplies public lines to the injected
+Tauri event adapter; the command and `chat` tuple payload are unchanged.
+[Core compatibility tests](../../src-tauri/crates/core/src/conversation/stream/tests.rs)
+cover mixed history, sequence resets and the snapshot shape.
+
+Terminal byte ordering and 512 KiB retention live in the portable core; the
+desktop injects the native factory and event sink. Event names, tuples and raw
+byte arrays are unchanged. A retired terminal suppresses late output and close
+events before a replacement uses its key. See the
+[terminal boundary](application-core.md#terminals-and-private-subprocesses).
 
 ## Root of the file commands
 
@@ -252,7 +268,14 @@ The optional `files: true` argument drops directories before candidate trimming
 and that row limit, so Command-P quick open never loses a matching file to
 better-ranked directories. Omitting it keeps the composer's `@` completion
 behaviour; an older frontend that never sends it is unaffected, and
-`session/find.rs` tests that directories cannot crowd out files.
+`crates/files/src/search.rs` tests that directories cannot crowd out files.
+
+`read_bytes` returns an `ArrayBuffer` with the complete regular file, up to
+100 MiB, through the injected shared file reader. Windows preserves this public
+contract: its native adapter assembles bounded WSL blocks and returns raw Tauri
+bytes. The private block shape and change-detection limits are described in the
+[Windows contract](windows-application.md#composition). Read failures never return
+a partial buffer. Existing image, PDF and CSV viewers require no platform branch.
 
 `reveal_path` requires `rel`: an empty string opens the root, while a nonempty
 path shows one entry of the tree or, from the Changes panel, a changed file,
@@ -262,7 +285,18 @@ for both uses. Finder selects a file with `-R`; systems served by `xdg-open` hav
 selection flag, so a file there opens the folder holding it rather than the file,
 which would launch another application over it. Resolution canonicalizes the
 root, so a symlinked root opens its target and a missing root fails before the
-file manager starts.
+file manager starts. Native Windows resolves through the same WSL containment
+checks, then an injected host file manager opens the directory or selects the file
+in Explorer. The bridge consumes the internal location descriptor and retains the
+public void result. It uses WSL's path conversion for mounted drives and refuses
+Linux names that Windows would reinterpret.
+
+Windows uses the same tree and search commands through injected `ProjectEntries`
+and `ProjectSearch` services in WSL. The original native implementations and tests
+live in `crates/files/src/entries.rs` and `search.rs`; desktop command facades retain
+root admission. WSL trash is Linux system trash, with recovery metadata; an
+unsupported volume rejects and never triggers permanent deletion. See the
+[Windows coverage](windows-application.md).
 
 ### File tree actions
 
@@ -496,3 +530,80 @@ share command names. No arbitrary SQL or native provider objects cross this
 boundary. The export destination comes from the native save dialog and is a
 `.jsonl` file. Erasure always clears the entire telemetry dataset. See the
 [telemetry contract](telemetry.md) for query cohorts and privacy guarantees.
+
+## Isolated WSL preview
+
+The experimental native executable registers its own typed conversation and terminal commands in
+`src/wsl/ipc.ts`, with a `SessionPort` mock and separate Rust handlers. These are
+not production desktop commands and do not alter this registry. See the
+[WSL preview contract](wsl-preview.md) for command ownership and event framing.
+
+The Windows transport preserves structured model-catalog errors by decoding the
+runtime's reserved `application-error:<JSON>` string form in its adapter. Generic
+I/O strings and malformed encoded errors remain unchanged. Screens consume the
+same typed rejection contract; see `src/windows/transport.test.ts` and the
+[Windows contract](windows-application.md).
+
+The Windows application transport serializes `pty_write` calls per terminal before
+native worker dispatch. Each queue preserves byte order and propagates a failed
+write to its already queued suffix without replay. Different terminals remain
+independent; `src/windows/transport.test.ts` covers both ordering and rejection.
+
+The Windows native composition enables the existing directory dialog. Before
+forwarding `add_project`, its injected path adapter converts a selection in the
+connected WSL distribution or a Windows drive into a Linux path. Other-distribution
+selections reject before registration. Project-only files and terminal docks use
+the registered project ID; removing a project preserves existing workspaces and
+files. No command arguments, results or saved project fields change. See the
+[path and project contract](windows-application.md#composition).
+
+`src/wsl/ipc.ts` also types `application_open({ previous: Target | null })`, which
+returns the connected `Target`. It discovers the default WSL, installs the bundled
+runtime and attaches through the injected application connector. A matching prior
+distribution retains its root and runtime directory; an already connected window
+reuses its client. This is a Windows composition command, outside the shared desktop
+command/mock registry. Diagnostic `wsl_connect` retains explicit target selection.
+The same Windows-only registry types `application_reconnect()` returning whether
+a failed attachment was replaced. It retains the captured target and connector;
+it never rediscovers a distribution or repeats application commands. Shared
+presentation uses the injected `ConnectionRecovery` subscription instead of
+invoking this command. The injected terminal reader requests the private optional
+`pty_buffer.snapshot` extension; ordinary shared `pty_buffer` stays a byte array.
+
+The WSL application adapter also accepts existing `mcp_hub`, `plugin_hub`,
+`skill_hub`, `skill_save`, `skill_remove`, local `mcp_save`/`mcp_remove`, empty
+`mcp_logins` and `catalog_state` commands. Hub reads
+return the shared local file adapters' values; standalone skill mutations reuse
+the desktop library. The injected local-only sharing source returns the existing
+disconnected `CatalogState` shape, with no implicit Cloud publication. A non-null
+Cloud revision on `skill_save` or `mcp_save` rejects before file changes. The original
+tool selection, provenance and project trust commands also use shared core rules
+and persisted board fields. Changes apply at the next Codex process spawn; see
+[conversation tools](windows-application.md#conversation-tools). Command names,
+arguments, result shapes and browser mock behavior remain unchanged. Plugin
+management also accepts existing `plugin_look`, `plugin_save`, `plugin_install`,
+`plugin_update`, `plugin_remove` and `plugin_scrap` shapes. Native folder sources
+are translated only at the Windows boundary; Git, manifests and persistence use
+the shared execution-side library. Cloud revisions reject before local writes.
+
+The native Windows composition also implements existing workspace metadata,
+archive/finish/remove, model-choice and explicit worktree-cleanup commands with
+unchanged argument/result shapes. See [workspace lifecycle](windows-application.md#workspace-lifecycle)
+for process ownership and error behavior. No frontend or mock command is added.
+
+Windows MCP discovery, connection checks and local authentication preserve the
+existing command/result shapes above. The bridge composes native browser consent
+with private deferred runtime operations; these are internal transport messages,
+not new frontend IPC commands. Tokens are never returned in `mcp_logins` or check
+results. See [MCP transport](windows-application.md#mcp-authentication-and-checks).
+
+Windows Git and workspace creation keep these same public commands. A negotiated
+`application.operations.v1` transport extension moves Git/reference effects and
+checkout preparation off the resident request loop; native composition consumes
+the job and returns the existing result. No shared IPC/mock entry or UI polling
+is added. See [deferred application effects](windows-application.md#deferred-application-effects).
+
+`application.initialization.v1` extends the same private adapter to model/account
+discovery and manual Setup. Existing command names and results are preserved;
+ordinary terminal and Run requests keep their transport. See the deferred effects
+contract above for admission, copy preservation and old-resident compatibility.

@@ -1,7 +1,7 @@
 import * as accounts from "./accounts";
 import { button, checkbox, dropdown, field, input } from "./ui";
 export type { Group } from "./ui";
-import { open } from "@tauri-apps/plugin-dialog";
+import { pickAttachments } from "./file-input";
 import { capabilitiesOf, catalogOf, descriptor, effortsOf, isKnownModel, nativeEffort, onCatalogChange } from "./agents";
 import { choiceLabel, defaultChoice, defaultEffort, effortStep, fitsEffort } from "./model-choice";
 import { openModelPicker, openEffortPicker } from "./model-picker";
@@ -764,8 +764,12 @@ export function openLauncher(board: Board, opts: Open) {
     if (capabilitiesOf(draft.agent).attachments) pasteFiles(e, addFiles, (error) => console.warn("paste", error));
   });
   $("d-add").addEventListener("click", async () => {
-    const picked = await open({ multiple: true, title: t("launcher.attach.dialog") });
-    addFiles(Array.isArray(picked) ? picked : picked ? [picked] : []);
+    try {
+      addFiles(await pickAttachments({ title: t("launcher.attach.dialog") }));
+    } catch {
+      hint.textContent = t("chat.drop.failed");
+      hint.classList.add("bad");
+    }
   });
   takeFiles = {
     put: addFiles,

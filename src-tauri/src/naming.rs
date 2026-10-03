@@ -7,9 +7,9 @@ use crate::lock::lock;
 use crate::session::Launch;
 use crate::state::publish;
 use crate::AppState;
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use prometeu_core::command::{CommandPolicy, CommandRunner, OutputPolicy};
+use std::process::Command;
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 /// Constrain Claude to title generation so it does not treat the prompt as a request to execute.
@@ -46,7 +46,8 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
         launch.clone(),
     );
     std::thread::spawn(move || {
-        let Some(title) = ask(&prompt, &launch) else {
+        let runner = app.state::<AppState>().command_runner.clone();
+        let Some(title) = ask(runner.as_ref(), &prompt, &launch) else {
             return;
         };
         let state = app.state::<AppState>();
@@ -64,13 +65,14 @@ pub fn rename_later(app: &AppHandle, id: &str, prompt: &str, fallback: &str, lau
 
 /// Naming failures retain the existing title rather than surfacing an error for an optional
 /// enhancement.
-fn ask(prompt: &str, launch: &Launch) -> Option<String> {
+fn ask(runner: &dyn CommandRunner<Command>, prompt: &str, launch: &Launch) -> Option<String> {
     match launch.agent {
         // Use Codex's cheapest catalog model, falling back to the workspace model only when no
         // catalog exists.
         crate::state::ProviderId::Codex => {
             let model = crate::agents::codex_namer_model();
             ask_codex(
+                runner,
                 prompt,
                 if model.is_empty() {
                     &launch.model
@@ -79,13 +81,13 @@ fn ask(prompt: &str, launch: &Launch) -> Option<String> {
                 },
             )
         }
-        crate::state::ProviderId::Claude => ask_claude(prompt),
+        crate::state::ProviderId::Claude => ask_claude(runner, prompt),
         crate::state::ProviderId::Antigravity | crate::state::ProviderId::RetiredGemini => None,
     }
 }
 
 /// Use codex exec with -o to capture only the final answer without parsing terminal output.
-fn ask_codex(prompt: &str, model: &str) -> Option<String> {
+fn ask_codex(runner: &dyn CommandRunner<Command>, prompt: &str, model: &str) -> Option<String> {
     let out = std::env::temp_dir().join(format!("prometeu-nome-{}.txt", uuid::Uuid::new_v4()));
     let mut cmd = Command::new("codex");
     cmd.args([
@@ -103,24 +105,28 @@ fn ask_codex(prompt: &str, model: &str) -> Option<String> {
     // Label the instructions and source prompt because codex exec has no system-prompt flag.
     cmd.arg(format!("{SYSTEM}\n\nPedido:\n{prompt}"));
     cmd.current_dir(crate::paths::home());
-    // Close stdin so codex exec does not wait indefinitely for additional input.
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
     let profile = crate::accounts::active(crate::state::ProviderId::Codex).ok()?;
-    profile.prepare().ok()?;
-    profile.apply(&mut cmd).ok()?;
-    let child = cmd.spawn().ok();
-    let title = child
-        .and_then(|mut c| wait(&mut c).then(|| std::fs::read_to_string(&out).ok()))
-        .flatten();
+    crate::accounts::prepare_profile(&profile).ok()?;
+    crate::accounts::apply_profile(&profile, &mut cmd).ok()?;
+    let title = runner
+        .run(
+            &mut cmd,
+            &[],
+            CommandPolicy {
+                timeout: TIMEOUT,
+                stdout: OutputPolicy::Discard,
+                stderr: OutputPolicy::Discard,
+            },
+        )
+        .ok()
+        .filter(|output| output.success)
+        .and_then(|_| std::fs::read_to_string(&out).ok());
     let _ = std::fs::remove_file(&out);
     clean(&title?)
 }
 
 /// Use Claude's single-prompt mode with the naming request supplied through stdin.
-fn ask_claude(prompt: &str) -> Option<String> {
+fn ask_claude(runner: &dyn CommandRunner<Command>, prompt: &str) -> Option<String> {
     let mut cmd = Command::new("claude");
     cmd.args([
         "-p",
@@ -142,38 +148,31 @@ fn ask_claude(prompt: &str) -> Option<String> {
             cmd.env_remove(k);
         }
     }
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-
     let profile = crate::accounts::active(crate::state::ProviderId::Claude).ok()?;
-    profile.prepare().ok()?;
-    profile.apply(&mut cmd).ok()?;
-    let mut child = cmd.spawn().ok()?;
-    child.stdin.take()?.write_all(prompt.as_bytes()).ok()?;
-    if !wait(&mut child) {
-        return None;
-    }
-    let out = child.wait_with_output().ok()?;
-    out.status
-        .success()
-        .then(|| clean(&String::from_utf8_lossy(&out.stdout)))?
+    crate::accounts::prepare_profile(&profile).ok()?;
+    crate::accounts::apply_profile(&profile, &mut cmd).ok()?;
+    title_from_command(runner, &mut cmd, prompt)
 }
 
-/// Wait only until the naming deadline. Return false on timeout or process failure instead of
-/// retaining one stalled thread per workspace.
-fn wait(child: &mut std::process::Child) -> bool {
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
-            _ => {
-                let _ = child.kill();
-                return false;
-            }
-        }
-    }
+fn title_from_command(
+    runner: &dyn CommandRunner<Command>,
+    command: &mut Command,
+    prompt: &str,
+) -> Option<String> {
+    let output = runner
+        .run(
+            command,
+            prompt.as_bytes(),
+            CommandPolicy {
+                timeout: TIMEOUT,
+                stdout: OutputPolicy::Capture { limit: 1_048_576 },
+                stderr: OutputPolicy::Discard,
+            },
+        )
+        .ok()?;
+    output
+        .success
+        .then(|| clean(&String::from_utf8_lossy(&output.stdout)))?
 }
 
 /// Accept only short single-line titles, trimming wrapping quotes and final punctuation. Reject
@@ -212,5 +211,49 @@ mod tests {
     fn rejects_empty_text_and_paragraphs() {
         assert!(clean("   ").is_none());
         assert!(clean(&"word ".repeat(20)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod command_port_tests {
+    use super::*;
+    use prometeu_core::command::{CommandError, CommandOutput};
+    struct Runner(bool);
+    impl CommandRunner<Command> for Runner {
+        fn run(
+            &self,
+            _: &mut Command,
+            input: &[u8],
+            policy: CommandPolicy,
+        ) -> Result<CommandOutput, CommandError> {
+            assert_eq!(input, b"name this task");
+            assert_eq!(policy.timeout, TIMEOUT);
+            assert_eq!(policy.stdout, OutputPolicy::Capture { limit: 1_048_576 });
+            assert_eq!(policy.stderr, OutputPolicy::Discard);
+            match self.0 {
+                true => Ok(CommandOutput {
+                    success: true,
+                    stdout: b"\"Fix terminal output.\"\n".to_vec(),
+                    stderr: vec![],
+                }),
+                false => Err(CommandError::Timeout),
+            }
+        }
+    }
+    #[test]
+    fn injected_naming_results_keep_title_cleaning_and_timeout_fallback() {
+        assert_eq!(
+            title_from_command(&Runner(true), &mut Command::new("unused"), "name this task")
+                .as_deref(),
+            Some("Fix terminal output")
+        );
+        assert_eq!(
+            title_from_command(
+                &Runner(false),
+                &mut Command::new("unused"),
+                "name this task"
+            ),
+            None
+        );
     }
 }

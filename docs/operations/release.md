@@ -31,6 +31,48 @@ self-hosted runner in this repository: the code is public and a fork's PR
 controls what the job runs. See
 [ADR 0040](../decisions/0040-open-source.md).
 
+## Windows Codex installer
+
+The Windows shell reuses Tauri's NSIS installer with `currentUser` installation,
+Start menu shortcuts and the WebView2 bootstrapper when WebView2 is missing.
+It embeds the matching Linux runtime and opens the original desktop against the
+default WSL distribution. WSL, Git and an authenticated Codex CLI must already be
+installed; the installer does not provision them or import the WSLg app's data.
+
+On a Windows build machine with the Tauri prerequisites and dependencies installed:
+
+```powershell
+$env:PROMETEU_WSL_RUNTIME = 'C:\build\prometeu-runtime'
+npm run package:windows
+```
+
+Supply the Linux x86_64 release runtime built from the same source. The Linux CI
+job builds this package on Ubuntu 22.04; the Windows job embeds it and uploads the
+unsigned `windows-installer` CI artifact for seven days. This does not publish a
+release. The output is `src-tauri/target/release/bundle/nsis/*-setup.exe`.
+
+Linux builders with NSIS and cargo-xwin installed can also run:
+
+```sh
+npm run package:windows -- --runner cargo-xwin --target x86_64-pc-windows-msvc
+```
+
+That command builds the matching Linux runtime automatically. Its installer is
+under `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/`. Building the
+runtime on newer Linux distributions can raise the required glibc version.
+
+Run the installer and open **Prometeu** from the Windows Start menu. The default
+installation directory is `%LOCALAPPDATA%\Prometeu`. For an update, close the
+Windows window and run the next installer. Conversations and project files remain
+in WSL; replacing or uninstalling the Windows shell does not delete them. Runtime
+replacement respects active execution as described in the
+[resident contract](../contracts/resident-runtime.md). Automatic Windows updates
+and signing for public distribution remain outside this initial package.
+
+Validate an installed executable with `scripts/test-windows-application.mjs`
+using the [native acceptance configurations](../contracts/windows-application.md#verification).
+The hosted CI build does not prove native installation or WSL execution.
+
 ## Create a release
 
 ```sh

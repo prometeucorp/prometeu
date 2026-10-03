@@ -58,13 +58,44 @@ The complete dependency rules are in
 - `src/chat.ts`: presentation and interaction of the conversation.
 - `src/desk.ts`: the desk, the home screen — one `ChatView` per running
   conversation.
-- `src-tauri/src/chat.rs`: process, transport, buffer, numbering and lifecycle.
+- `src-tauri/crates/core/src/conversation/`: buffer, numbering, snapshots and background settlement with injected effects.
+- `src-tauri/crates/core/src/session/` and `session.rs`: input recovery, account handoffs, canonical reactions and ordered observations through injected effects.
+- `src-tauri/src/chat.rs` and `chat/host.rs`: conversation composition and desktop session adapters.
+- `src-tauri/crates/core/src/process.rs`: process ports, identity and shutdown policy.
+- `src-tauri/crates/core/src/command.rs`: bounded command/query ports; `crates/process/src/command.rs` and `query.rs` implement native I/O and cleanup.
+- `src-tauri/crates/process/`: Tauri-free Unix spawning, pipe drains, PTYs, private authentication pipes, signals and reaping.
+- `src-tauri/crates/core/src/terminal.rs` and `auxiliary.rs`: terminal byte ordering and private subprocess policies with injected effects; `src-tauri/src/pty.rs` composes desktop terminal events.
+- `src-tauri/src/transcript_store.rs`: app-managed and provider-owned transcript adapters.
 - `src-tauri/src/claude.rs`: Claude's stream-json adapter.
-- `src-tauri/src/codex.rs`: Codex's JSON-RPC adapter.
+- `src-tauri/crates/protocols/src/codex.rs`: shared Codex JSON-RPC adapter; `src-tauri/src/codex.rs` supplies desktop launch composition.
+- `src-tauri/crates/runtime/src/resident.rs`: private Unix attachments, bounded client delivery and resident proxy composition.
+- `src-tauri/crates/core/src/workspaces.rs`: saved in-place workspace catalog through storage and folder ports; `runtime/src/host.rs` retains injected execution contexts and `src/wsl/workspaces.ts` coordinates presentation selection.
+- `src-tauri/crates/core/src/workspace_lifecycle.rs`: shared workspace metadata and cleanup ports; `crates/git/src/cleanup.rs` supplies native checks/removal and `runtime/src/lifecycle.rs` composes WSL process shutdown and persistence.
+- `src-tauri/crates/core/src/git.rs` and `crates/git/`: shared Git contracts/admission and native review/index/history/conflict adapters, injected in both hosts.
+- `src-tauri/crates/files/src/scripts.rs`: shared native workspace hydration, ports and script environment; `runtime/src/dock.rs` composes Setup/Run and deferred first input.
+- `src-tauri/crates/runtime/src/terminal.rs`: supporting shell composition, output credits and observed cleanup.
+- `src-tauri/crates/runtime/src/worktrees.rs`: Unix Git worktree preparation through the core workspace port and injected bounded commands.
+- `src-tauri/crates/bridge/`: portable typed session client with injected WSL transport, native path translation, environment discovery and bundled-runtime installation ports.
+- `src-tauri/crates/wsl-desktop/` and `src/windows/`: native Windows composition of the existing desktop interface through injected WSL application commands; `src/wsl/` remains diagnostic presentation.
+- `src-tauri/crates/files/`: native project text I/O, tree mutations, ranked path search and repository declarations shared by desktop and WSL through injected ports.
+- `src-tauri/crates/runtime/src/application.rs`: addressed desktop command/event adaptation over injected WSL contexts and project services.
+- `src-tauri/crates/runtime/`: experimental Unix headless conversation executable; injected provider/process/storage/events/tasks, isolated root and development stdio contract.
+- `src-tauri/crates/core/src/session/launch.rs`: shared launch settings and injected resume coordination.
+- `src-tauri/src/session/launch.rs`: desktop launch preparation and lifecycle effects.
+- `src-tauri/crates/core/src/session/provider.rs`: provider preparation and canonical input ports.
+- `src-tauri/src/agent_launch.rs`: native provider registration and prepared process configuration.
+- `src-tauri/crates/oauth/`: shared PKCE and callback mechanics; native browser consent is injected, while `tools/src/mcp_auth.rs` retains private WSL/desktop credentials.
+- `src-tauri/crates/tools/`: Tauri-free local skill and plugin libraries, bounded repository import/update, catalog response types, startup-tool ports, MCP encoding and package preparation with injected catalogs, private writes and cache installation; `src-tauri/src/tool_materialization.rs` composes native packages and desktop MCP adapters.
+- `src-tauri/crates/core/src/accounts.rs`: portable account registry and injected storage; `src-tauri/src/account_store.rs` implements private file persistence.
+- `src-tauri/crates/core/src/accounts/login.rs`: login admission, cancellation and revision commits through authentication/effect ports.
+- `src-tauri/src/accounts.rs`: account facade and desktop login composition; `src-tauri/src/account_login.rs` supplies native authentication.
+- `src-tauri/crates/profiles/`: Tauri-free Unix profile preparation and child environments; `src-tauri/src/account_profiles.rs` supplies roots/private writes and `main.rs` injects startup/login backends.
 - `src-tauri/src/session.rs`: use cases and workspace/tab lifecycle.
-- `src-tauri/src/workspace_tools.rs`: tool selection validation and workspace updates,
+- `src-tauri/crates/core/src/tool_resolution.rs`: shared tool resolution, provenance and project trust; runtime `tools.rs` injects current selections and native startup artifacts.
+- `src-tauri/crates/core/src/workspace_tools.rs`: tool selection validation and workspace updates,
   with explicit state and effects; Tauri commands stay in `session.rs`.
-- `src-tauri/src/state.rs`: the board's persisted state.
+- `src-tauri/crates/core/`: portable board models, selection rules and injected publication.
+- `src-tauri/src/state.rs` and `board_store.rs`: desktop board events and file storage adapters.
 - `src/team.ts`: the collaboration desktop shell (team.json, organizations,
   Tauri ports, facade).
 - `src/team-member.ts` and `src/team-*.ts`: the portable collaboration core and

@@ -19,7 +19,7 @@ hierarchy or interface for every feature.
    [Codex](../../src-tauri/src/codex.rs). Keep external payloads there. Emit the
    existing [canonical events](../contracts/conversation-events-v1.md); change
    that contract only when the common behavior needs a new event or command.
-4. For a new provider, extend `ProviderId` in [Rust state](../../src-tauri/src/state.rs)
+4. For a new provider, extend `ProviderId` in [Rust board model](../../src-tauri/crates/core/src/board.rs)
    and [frontend types](../../src/types.ts), then cover discovery, accounts,
    launch/resume and shutdown. Follow exhaustive matches through their callers;
    an unavailable installation must not disable other providers.
@@ -47,7 +47,7 @@ check the installed CLI separately for login, real process startup and resume.
 
 1. Locate the authority in the backend. Keep decisions testable with explicit
    state and effects; the Tauri command adapts arguments, errors and publication.
-   [Workspace tool selection](../../src-tauri/src/workspace_tools.rs) is a small
+   [Workspace tool selection](../../src-tauri/crates/core/src/workspace_tools.rs) is a small
    example: `selection` validates an axis and `change` receives the board and
    validated selection, while [the commands](../../src-tauri/src/session.rs)
    handle native arguments, translate `Invalid` and publish.
@@ -73,9 +73,10 @@ npm run test:web -- src/ipc.test.ts
 npm run typecheck
 ```
 
-The workspace use case still depends on board types from `state.rs`. It is not a
-standalone crate. See [ADR 0050](../decisions/0050-tested-application-boundaries.md)
-before extending that boundary.
+The workspace tool use case and board models live in the independent
+`prometeu-core` crate. Supply effects through application-owned ports and keep
+Tauri at the command edge. See the [core contract](../contracts/application-core.md)
+and [ADR 0063](../decisions/0063-portable-board-core.md) before extending that boundary.
 
 ## Connect features or change collaboration
 

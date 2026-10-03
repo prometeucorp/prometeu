@@ -137,3 +137,13 @@ creation, but does not query GitHub and does not run models. Evidence:
 [`actions.rs`](../../src-tauri/src/actions.rs),
 [`github.rs`](../../src-tauri/src/github.rs),
 [`actions.spec.ts`](../../e2e/actions.spec.ts).
+
+## Bounded GitHub monitor commands
+
+Background `gh` queries use an injected finite-command runner with a 30-second
+I/O/exit deadline and 8 MiB per captured stream. Writes and both reads progress
+without blocking each other; timeout/overflow cleans up the owned process group.
+A descendant retaining a pipe cannot hold the monitor indefinitely. Existing
+JSON parsing and timeout/response error codes stay in `github.rs`; oversized
+stderr now returns the response error instead of a truncated diagnostic.
+See [bounded commands](application-core.md#bounded-commands-and-queries).

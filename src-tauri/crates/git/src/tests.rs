@@ -333,7 +333,10 @@ fn commit_requires_reviewed_index_and_leaves_unstaged_content_untouched() {
         Some(&reviewed),
         None,
     );
-    assert_eq!(result.unwrap_err(), i18n::t("err.git.changed"));
+    assert_eq!(
+        result.unwrap_err(),
+        prometeu_core::error::code("err.git.changed")
+    );
     assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
     repo.write("untracked.txt", "keep\n");
     let reviewed = fingerprint(&repo.0).unwrap();
@@ -405,7 +408,7 @@ fn publish_and_push_use_explicit_branch_despite_global_push_settings() {
     repo.git(&["remote", "add", "origin", bare.to_str().unwrap()]);
     assert_eq!(
         repo.act(GitAction::Push, &[]).unwrap_err(),
-        i18n::t("err.git.upstream")
+        prometeu_core::error::code("err.git.upstream")
     );
     assert!(action(
         &repo.0,
@@ -454,7 +457,7 @@ fn publish_and_push_use_explicit_branch_despite_global_push_settings() {
     repo.write("a.txt", "uncommitted\n");
     assert_eq!(
         repo.act(GitAction::Pull, &[]).unwrap_err(),
-        i18n::t("err.git.dirtyPull")
+        prometeu_core::error::code("err.git.dirtyPull")
     );
     assert_eq!(repo.read("a.txt"), "uncommitted\n");
 }
@@ -534,7 +537,7 @@ fn conflict_sources_keep_whitespace_and_resolution_refuses_stale_text() {
     repo.write("conflict.txt", "external edit\n");
     assert_eq!(
         resolve(&repo.0, "conflict.txt", &snapshot.current, "resolved\n").unwrap_err(),
-        i18n::t("err.session.changed")
+        prometeu_core::error::code("err.session.changed")
     );
     assert_eq!(repo.read("conflict.txt"), "external edit\n");
     resolve(&repo.0, "conflict.txt", "external edit\n", "resolved\n").unwrap();
@@ -610,16 +613,16 @@ fn discard_restores_the_index_version_and_removes_only_listed_untracked_files() 
 
     assert_eq!(
         repo.act(GitAction::Discard, &[]),
-        Err(i18n::t("err.git.selection"))
+        Err(prometeu_core::error::code("err.git.selection"))
     );
     // A path without unstaged work has nothing to discard; staged content is not the target.
     assert_eq!(
         repo.act(GitAction::Discard, &["only-staged.txt"]),
-        Err(i18n::t("err.git.changed"))
+        Err(prometeu_core::error::code("err.git.changed"))
     );
     assert_eq!(
         repo.act(GitAction::Discard, &["ignored.log"]),
-        Err(i18n::t("err.git.changed"))
+        Err(prometeu_core::error::code("err.git.changed"))
     );
     assert!(repo.act(GitAction::Discard, &["../a.txt"]).is_err());
 

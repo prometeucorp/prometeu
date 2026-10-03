@@ -29,11 +29,25 @@ sequenceDiagram
     UI->>UI: Timeline.push(line)
 ```
 
-`Launch` gathers agent, model, effort, plan mode, MCP, plugins and skills. A tab
+The core's `Launch` gathers agent, model, effort, plan mode, MCP, plugins and skills.
+`LaunchService` coordinates resume through injected preparation, spawning and
+lifecycle effects. New tabs use the same launcher but publish their tab before
+signaling readiness. `session/launch.rs` composes desktop preparation and effects;
+injected `ProviderPreparation` in `agent_launch.rs` selects native configuration
+and a protocol factory without launching the conversation. After spawning, the
+factory connects input/translation and supplies the adapter’s turn-wait policy.
+See the [provider contract](../contracts/application-core.md#provider-preparation-and-input); the [launch contract](../contracts/application-core.md#session-launch-and-resume)
+describes failure ordering. A tab
 can override the workspace's agent/model/effort. Ordinary tabs resolve tools
 from the global, trusted project and workspace layers for their effective
 provider. [Tasks](../contracts/actions.md) keep a resolved copy of the profile,
 including tools, instructions and permissions.
+
+After native spawning establishes pipe drains, `ConversationWorkers` initializes
+the adapter and schedules output consumers through the host's executor. Stdout
+closure waits for process termination and waiter cleanup before the desktop
+checks identity and publishes closure. See the
+[worker contract](../contracts/application-core.md#conversation-workers).
 
 Materialization belongs to the edge. Claude receives MCP and plugins through
 its own files and flags; Codex receives the MCP table through an override and
@@ -91,9 +105,12 @@ writes the V1 events in its own transcript.
 
 ### Common path
 
-`Pump.feed` validates JSON, records the line, assigns its transport sequence,
-and emits `chat` while holding the conversation's `Lines` mutex. Snapshots
-use that same mutex, so transcript and live delivery agree on order.
+`Pump.feed` delegates JSON parsing and observation ordering to the core's
+`SessionOutput`, which records through `Lines`. The stream
+filters private telemetry, retains the line and assigns its transport sequence
+through injected transcript and event ports. The host holds the same mutex
+through recording, `chat` delivery and snapshots. See the
+[stream contract](../contracts/application-core.md#conversation-stream).
 
 Sending a command holds this mutex across the child write and recording of
 local user/echo events. A successful send records those events before a fast
@@ -101,12 +118,17 @@ child response can acquire the mutex. A failed write records no user event,
 allowing the pending message to be retried. Independent stdout/stderr readers
 continue draining into channels while command writes hold publication locks,
 preventing pipe backpressure from deadlocking the child. Queued lines drain
-before the existing EOF cleanup; prolonged stalls can grow queue memory.
+before exit cleanup; prolonged stalls can grow queue memory. The independent
+`prometeu-process` crate owns these drains and native reaping through injected
+process ports. EOF alone no longer marks a live child stopped. Signals and reap
+attempts share a lock, preventing shutdown from targeting a recycled PID.
+See the [process contract](../contracts/application-core.md#process-supervision).
 State reactions run after releasing
 the conversation locks, except the in-memory delegation execution projection:
 it records canonical order under the buffer lock and publishes afterward.
 See [embedded MCP](../contracts/embedded-mcp.md) for lock ordering. See [ADR 0023](../decisions/0023-ordered-publication.md)
-and concurrency tests in `src-tauri/src/chat.rs`.
+and concurrency tests in `src-tauri/crates/core/src/conversation/stream/tests.rs`;
+`src-tauri/src/chat.rs` retains file and native pipe integration tests.
 
 The `Timeline` reducer turns V1 events into user items, assistant messages,
 tool blocks, requests, results, context and warnings. It is pure: it does not
@@ -130,7 +152,7 @@ continue to preserve selection, expanded cards and comment anchors.
 
 Native subagents outlive the turn that started them, so a conversation settles
 only when the turn has ended *and* `background.changed` reports no task.
-`chat.rs` holds the tab in `Rodando` and keeps queued input waiting until then;
+`SessionReactions` holds the tab in `Rodando` and keeps queued input waiting until then;
 the delegation execution holds `running` with its outcome already recorded. An
 interruption settles everything at once, since it ends the children too. See
 [ADR 0056](../decisions/0056-background-tasks-hold-completion.md).
@@ -170,9 +192,17 @@ in the [notification contract](../contracts/notifications.md) and
 
 ## Input and control
 
-A local message goes through `chat_send`. If the process is ready, it is sent
+A local message goes through `chat_send` and the injected core `SessionService`.
+The desktop's `SessionHost<Chat>` owns the shared registry, admission gates,
+readiness and background work and composes that service through lifecycle ports.
+Removal clears transient state; exit publication is guarded by process identity
+under the registry lock. See [host ownership](../contracts/application-core.md#session-host-ownership).
+If the process is ready, it is sent
 immediately; otherwise it stays in `pending_prompt` and the process is resumed.
 The message enters the buffer before the events it triggers.
+`SessionPump` owns command/output capture ordering; native effects are injected
+from `chat/host.rs`. It schedules pending input after settlement and setup checks,
+with reactions outside capture and transcript locks.
 
 Interruptions and answers to questions or permissions use
 `ConversationCommandV1` and go through `chat_control`.
@@ -208,12 +238,13 @@ navigates; resolving the root closes the thread for everyone.
 
 | State | Owner | Note |
 | --- | --- | --- |
-| workspaces, tabs and agent choice | `state.rs` | persisted in `board.json` |
-| in-memory process and buffer | `chat.rs` | disposable |
+| workspaces, tabs and agent choice | `crates/core/src/board.rs` | persisted in `board.json` |
+| in-memory process | `prometeu-process`, composed by `chat.rs` | injected control and owning waiter; disposable |
+| replay buffer and snapshots | `crates/core/src/conversation/stream.rs` | injected storage/events; host supplies the ordering mutex |
 | Codex JSON-RPC thread | `codex.rs` + `Tab.agent_session` | required for resume |
 | drawn items | `timeline.ts` | derived from the transcript |
 | conversation DOM | `chat.ts` | presentation |
-| transport sequence | `chat.rs` | not the event's persisted identity |
+| transport sequence | `crates/core/src/conversation/stream.rs` | not the event's persisted identity |
 | presence and audience | relay | collaboration state |
 | comments, resolution and inbox | relay | persisted overlay, separate from the transcript |
 

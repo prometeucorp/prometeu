@@ -80,6 +80,12 @@ capability checks and draft persistence. Updating model, tool or busy indicators
 does not replace the textarea. Desk and workspace keep their existing shared
 draft behavior. `attachmentChip` reports removal without accessing files.
 
+Workspace entry may await a conversation snapshot. A supporting shell selected
+during that wait retains the center and keyboard focus when attachment finishes;
+loading a transcript cannot supersede the person's later tab selection. The
+native Windows journey delays that snapshot deliberately and checks focus before
+typing, protecting a retained composer draft from unintended submission.
+
 Git file rows and groups receive display data, selected/collapsed state and
 callbacks. `commitForm` only handles message input and empty-message validation;
 the host supplies availability and validates the actual operation. Staging,
@@ -153,3 +159,9 @@ The isolated chat and Git stories are available for visual inspection; they have
 no dedicated E2E scenario. Existing product journeys cover their integration.
 
 See the [agent composition recipe](../architecture/desktop-composition.md).
+
+The request card's `allowAlways` callback is optional. Hosts that cannot change
+permission policy omit it; the card then omits permanent approval and plan-bypass
+actions while retaining one-request approval, denial and question responses.
+The native WSL preview uses this narrower contract. Existing Desktop consumers
+continue to supply the callback and retain their behavior.

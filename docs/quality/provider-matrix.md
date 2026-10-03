@@ -45,8 +45,8 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | Capability | Claude | Codex | Antigravity | Main evidence |
 | --- | --- | --- | --- | --- |
 | grouped settings and searchable resource library | shared UI; existing account and tool capabilities | same UI and existing capabilities | same navigation; external account notice and unsupported tool execution remain unchanged | `src/settings-navigation.test.ts`, `e2e/settings.spec.ts`, existing accounts, Cloud, MCP and notifications scenarios |
-| create, rename, trash and restore from the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-menu.test.ts` for the menus; `src/tree-moves.test.ts` for the tab strip, drafts and expanded folders following a moved entry, while their wiring in `workspace.ts` and `viewer.ts` was checked by hand in the browser mock and is not covered in E2E; `session/files.rs` tests for names, Git metadata, conflicts, case-only renames on a case-sensitive disk and symlinks; `restore_deleted` tests in `session/git_tests.rs` for staged content and deletions; the system trash and case-insensitive disks are not exercised in tests |
-| Git marks in the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-git.test.ts`, `src/git-refresh.test.ts`, `tree_marks` and single-flight tests in `session/git_tests.rs`; `e2e/audit-regressions.spec.ts` verifies file-row stability after saving, while mark colors are not covered in E2E |
+| create, rename, trash and restore from the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-menu.test.ts` for the menus; `src/tree-moves.test.ts` for the tab strip, drafts and expanded folders following a moved entry, while their wiring in `workspace.ts` and `viewer.ts` was checked by hand in the browser mock and is not covered in E2E; `crates/files/src/entries.rs` tests for names, Git metadata, conflicts, case-only renames on a case-sensitive disk and symlinks; `restore_deleted` tests in `crates/git/src/tests.rs` for staged content and deletions; `runtime/tests/resident.rs` exercises WSL tree/search IPC and recoverable Linux trash using isolated XDG data; case-insensitive disks are not exercised in Linux tests |
+| Git marks in the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-git.test.ts`, `src/git-refresh.test.ts`, `tree_marks` and single-flight tests in `crates/git/src/tests.rs`; `e2e/audit-regressions.spec.ts` verifies file-row stability after saving, while mark colors are not covered in E2E |
 | copy a complete Markdown code block, including diff fences | shared presentation | shared presentation | shared presentation | `src/markdown.test.ts`, `e2e/markdown.spec.ts`; clipboard success and failure over the browser mock |
 | public bug reporting and private feedback with an account, image and capture | independent of the CLI | independent of the CLI | shared application behavior | `e2e/feedback.spec.ts`, the Cloud's `FeedbackTest` tests; opening the system browser, native capture and real GitHub require a manual smoke test |
 | organizations, invitations and institutional sharing | the same relay V4; local execution | the same relay V4; local execution | shared application behavior | `team-organizations.test.ts`, `worker.integration.test.ts`, `e2e/organizations.spec.ts`, Rails integration/browser |
@@ -67,17 +67,29 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | accounts and global selection in the footer | adapted through `CLAUDE_CONFIG_DIR` | adapted through `CODEX_HOME` | single external agy account, explicit attachment | `accounts.rs`, `e2e/accounts.spec.ts` |
 | grouped workspace creation and readable account controls | shared fields; plan mode available | same layout with model search and native effort | same layout; unsupported plan, effort and tool controls stay absent; attached agy profile shows attachment status | `e2e/launcher-layout.spec.ts`, `e2e/accounts.spec.ts`, `e2e/model-picker.spec.ts`; English, narrow windows, Chromium/WebKit |
 | removing every account and an empty selection | supported; preserves the CLI's login | supported; preserves the CLI's login | supported; preserves external login | `accounts.rs`, `e2e/accounts.spec.ts`; directories and credentials stay local |
-| login through the app | the CLI's `auth login` and the browser | the app-server's `account/login/start` and the browser | Unavailable; official interactive agy login | identity fixtures in `claude.rs` and `codex/account.rs`; OAuth with two real accounts still requires manual validation |
-| switching accounts between turns | resuming the shared transcript | resuming the shared rollout/index | Unavailable; externally managed identity | `chat.rs`, profile tests; an authenticated continuation between two real accounts is not yet proven by the suite |
+| login through the app | injected native `auth login` and browser | injected native `account/login/start` and browser | attachment only; official interactive agy login | `crates/core/src/accounts/login/tests.rs`: lifecycle ordering, cancellation, revision/error/busy guards and host isolation; identity fixtures in `claude.rs` and `codex/account.rs`; OAuth with two real accounts still requires manual validation |
+| switching accounts between turns | resuming the shared transcript | resuming the shared rollout/index | Unavailable; externally managed identity | `crates/core/src/session/tests.rs`, profile tests; an authenticated continuation between two real accounts is not yet proven by the suite |
 | quotas per account | live stream and internal endpoint; selected account has a shorter native polling budget | live app-server event, bounded separate app-server probe and internal fallback | native `/usage` child; used and remaining by model group; completion uses an exit notification rather than a 20 ms loop | `usage.rs`, `usage_scheduler.rs` controlled-clock/generation and cancelled-login resumption tests, `antigravity.rs` bounded-child test, `statusbar.test.ts`, `e2e/accounts.spec.ts`; real provider launch counts still need a controlled native run |
 | live model catalog | native `list_models` control request | native paginated app-server `model/list`, including additional models | native `agy models` | `agents/catalog.rs`, `agents.test.ts`; per-agent errors and stale state |
-| starting a session | native | adapted to JSON-RPC | native NDJSON; real text smoke passed | `chat.rs`, `codex.rs` |
-| resuming a session | Claude's id/transcript | the app-server's thread | explicit native conversation ID | `session.rs`, Rust tests |
+| session host ownership | shared portable registry; native account/turn observations | same ownership with Codex observations | same ownership; waits for the current turn through its adapter | `crates/core/src/session/host/tests.rs`: isolation, stale exit, replay, retirement, queued recovery and account handoff; production headless host still pending |
+| injected native profiles | shared history/resources with isolated credentials and filtered child environment | shared rollouts/index with private authentication and filtered child environment | external environment unchanged; managed preparation unsupported | `crates/profiles/src/{claude,codex,tests}.rs` run without Tauri; `account_profiles.rs` verifies private writes; startup/login injection fixtures preserve failure propagation |
+| injected startup tools | strict MCP path and merged plugin/skill flags | captured profile/scope, derived home, canonical/hook IDs and MCP environment | no materialization; unsupported selections still rejected | `crates/tools/src/tests.rs` verifies secrets/defaults/errors without Tauri; `agent_launch.rs` checks injected artifacts and ordering; existing MCP/plugin fixtures retain file/install compatibility |
+| native package backend | local/remote flags and explicit home expansion | native derived homes, manifest overlays, cache versions and injected installation | no package support | `crates/tools/src/packages/tests.rs` covers compatibility, defaults, cache failures and shared serialization; `package_installer.rs` verifies native CLI arguments; `plugins.rs` checks private writes |
+| resident WSL reconnect | not exposed | live generation, ongoing turn and same shell survive client detach; no mutation retries | not exposed | `crates/runtime/tests/resident.rs`, session/terminal presentation tests; [contract](../contracts/resident-runtime.md) |
+| WSL workspaces | not exposed | saved existing-folder and new-branch Git worktree workspaces, independent conversation/shell contexts, selection and work stages; multiple tabs through shared application commands; no existing-branch worktree creation yet | not exposed | `core/src/workspaces.rs`, `runtime/src/worktrees.rs`, `runtime/tests/resident.rs`, `src/wsl/workspaces.test.ts`, preview keyboard flow and native Windows runner; [contract](../contracts/wsl-workspaces.md) |
+| shared native Windows interface | not exposed | existing desk/ChatView, addressed tabs, shared file editor and native supporting terminal over WSL; original launcher creation on new-branch worktrees, live account/model discovery and persistent external-account selection; Setup/Run with deferred first input and shared hydration/environment; shared Git review, stage/commit, history, branches and conflicts; native project directory selection, Explorer reveal and project-only files/shells, independent of provider; authenticated Codex replies and recall after native-window reattachment verified; injected automatic WSL discovery/runtime preparation and saved reconnection; managed login pending | not exposed | `scripts/test-windows-application.mjs`, `src/ipc.test.ts`, runtime resident/event tests, desktop file/script suites; [coverage](../contracts/windows-application.md) |
+| WSL supporting terminal | independent of provider; not exposed for Claude yet | supporting shell, raw bytes, resize, bounded output credits and independent close | independent of provider; not exposed for Antigravity yet | `crates/runtime/tests/bridge.rs`, `src/wsl/terminal.test.ts`, preview browser keyboard flow; [contract](../contracts/headless-runtime.md#supporting-terminal) |
+| native WSL conversation preview | not exposed | message stream, requests, stop/resume via injected bridge; WSL transport and real Codex recall passed; Windows WebView2 acceptance passed with a synthetic provider, including window closure and reattachment | not exposed | `scripts/test-wsl-native.mjs`, `crates/runtime/tests/bridge.rs`, `src/wsl/session.test.ts`, `e2e/wsl-preview.spec.ts`; [limits](../contracts/wsl-preview.md) |
+| experimental headless executable | not yet exposed | launch, canonical messaging, stop and same-thread resume; native account/configuration | not yet exposed | `crates/protocols/src/codex.rs` shared fixtures, `crates/runtime/tests/lifecycle.rs` executable tests, real Codex two-turn recall across runtime restart |
+| injected account registry | external and managed registrations; optional selection | external and managed registrations; optional selection | explicit external registration only | `crates/core/src/accounts/tests.rs`: failure atomicity in memory, concurrent updates, independent hosts and opaque records; `account_store.rs`: private files and unreadable storage; existing `accounts.rs` fixtures retain provider-specific validation and visible snapshots |
+| starting a session | stream-json adapter with shared workers | JSON-RPC adapter with shared workers | NDJSON adapter with shared workers; real text smoke passed | `crates/core/src/session/workers/tests.rs`: initialization, output/exit ordering, filtering and scheduling failure; native process tests and existing provider fixtures |
+| provider preparation and input | stream-json; read-only native history; input may arrive during a turn | JSON-RPC; canonical app log; closed writer releases the pipe while reader state survives | NDJSON; canonical app log; idle-only messages and process interruption | `agent_launch.rs` preparation/resume/store tests without Claude/Codex binaries; all three provider `canonical_input_*` tests; existing native argument fixtures |
+| resuming a session | transcript existence, otherwise fresh with the same ID | saved app-server thread, otherwise fresh | saved native conversation ID, otherwise fresh | `crates/core/src/session/launch/tests.rs`: preparation/spawn failure, queue retention, publication/readiness and permission overrides; existing `session.rs` and provider fixtures retain launch compatibility |
 | model search and favorites | same picker, native labels | same picker; additional models opt-in | same picker, separate provider identity even for overlapping IDs | `e2e/model-picker.spec.ts`, `e2e/search-picker.spec.ts`; Chromium/WebKit |
 | workspace tools with tab model/effort overrides | same selections for new and resumed tabs | same selections for new and resumed tabs | shared application behavior | `session.rs::new_and_resumed_tabs_preserve_workspace_tools_with_model_overrides` |
 | tools in mixed-provider tabs and actions | CLI base follows the effective Claude provider and configured home | hub-only universe even in a Claude workspace | Adapted; see verification boundary | `session.rs::tool_resolution_uses_the_tab_provider_and_configured_claude_home`, `e2e/tools.spec.ts` |
 | tool reset and project trust | null restores inheritance; decisions bind to the displayed hash, including empty declarations | same contract | Adapted; see verification boundary | `session.rs::tool_axis_ipc_preserves_absent_null_and_replacement`, `session.rs::project_tools_require_approval_and_invalidate_it_when_hash_changes`, `e2e/tools.spec.ts` |
-| ordered prompt, transcript, and live delivery | shared conversation mutex | shared conversation mutex | Adapted; see verification boundary | concurrent delivery, fast-response, and failed-write regressions in `chat.rs` |
+| ordered prompt, transcript, and live delivery | shared portable pump and conversation mutex | same pump with JSON-RPC translation at the edge | same pump with NDJSON translation at the edge | `crates/core/src/session/pump/tests.rs`: capture order, deferred reactions, scheduling, private usage, retirement and failed writes; concurrent delivery and fast-response regressions in `chat.rs` |
 | choosing a model | native through a flag | adapted in `thread/start`/`thread/resume` | native --model slug | `session.rs`, `codex.rs` |
 | effort levels | only advertised native levels plus provider default | only advertised native levels; legacy ultracode maps to ultra | no effort control without advertised levels | `model-choice.test.ts`, `e2e/model-picker.spec.ts` |
 | conversation footer adapted to the width | model and activity separated from the tools; remote control highlighted when active | the same UI | Adapted; see verification boundary | `e2e/composer.spec.ts`, Chromium/WebKit, English and narrow frames |
@@ -94,7 +106,7 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | MCP selection per workspace | the CLI's strict config | table and environment assembled by the app | Unavailable | `mcp.rs`, `codex.rs`; a preparation error prevents the spawn |
 | MCP connection checks and local OAuth, including Cloud definitions | shared hub actions; token supplied at process launch | same hub actions and local token | MCP execution unavailable | `e2e/mcp.spec.ts` simulates checks, login retry, logout and independence from Cloud revisions; real browser consent requires manual validation |
 | plugin selection per workspace | session flags | marketplace + config isolated per workspace | Unavailable | `plugins.rs`, the CLI smoke test, `codex.rs`, `launcher.ts`, E2E |
-| local and account skills | a package with SKILL.md through the plugin selection | the same package with a native manifest | Unavailable | `skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; installation does not activate automatically |
+| local and account skills | a package with SKILL.md through the plugin selection | the same package with a native manifest | Unavailable | `crates/tools/src/skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; installation does not activate automatically |
 | start a conversation from a skill with the declared artifact path | package added to the first conversation's resolved `--plugin-dir` set; opening line in the first message | package added to the derived marketplace of that conversation; same opening line | Unavailable; no hub tool selection | `kickoff.rs` tests, `session.rs::first_message_opens_with_the_kickoff_line`, `session.rs::artifact_path_follows_the_primary_repository`, `scripts.rs::method_artifacts_are_inherited_normalized_and_never_invented`, `src/kickoff.test.ts`; plugin-shipped skills must come from a local folder; the method is not re-announced to later tabs; a resume whose skill was removed continues without it and warns |
 | layered selection (global, project, workspace) per axis | resolved at spawn before the adapter | resolved at spawn before the adapter | Adapted; see verification boundary | `selection.rs` resolve tests, `session.rs::provenance_classifies_each_hub_item`, `session.rs::project_tools_require_approval_and_invalidate_it_when_hash_changes` and `session.rs::tool_axis_payload_is_validated_before_persistence`; the project `[tools]` layer is gated on trust-on-first-use of its hash, an undecided item stays `pending` and a rejected one stays `rejected` (both resolved yet not injected), and the setters refuse a malformed payload or an id on the wrong axis |
 | CLI-inherited MCP base (ADR 0046) | discovered from `~/.claude.json` and the working directory's `.mcp.json` plus its ancestors, nearest first; visible in the picker with the `cli` provenance and removable as a workspace delta; a declared axis materializes the whole effective set through the strict config | no discovered base; the CLI keeps loading its own configuration outside the picker | Unavailable | `selection.rs::cli_base_participates_in_the_chain`, `mcp.rs` inherited/universe tests and `mcp.rs::missing_selected_servers_prevent_materialization`, `session.rs::provenance_classifies_inherited_cli_configuration`, `src/mcp.test.ts`, mixed-provider picker and inheritance reset in `e2e/tools.spec.ts` |
@@ -103,7 +115,7 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | the browser's visual context | a tag in the draft and the history; complete HTML, CSS, URL and PNG mention on send | the same interface and textual contract | Adapted; see verification boundary | `browser-context.test.ts`, `e2e/browser-inspector.spec.ts`, `e2e/browser.spec.ts`, `browser.rs` tests; WKWebView capture and the AppKit gesture still require native verification |
 | unknown external event | ignored by the adapter | ignored by the adapter | Adapted; see verification boundary | `conversation.test.ts`, `claude.rs`/`codex.rs` tests |
 | the CLI's subagents | a sidechain off-screen; tasks in `background.changed` | `collabAgentToolCall.agentsStates`, `subAgentActivity` and known child events update the tasks; the children's content stays isolated | no child session signal; the turn settles on its terminal | `claude.rs`; isolation, spawn, activity and partial-state tests in `codex.rs` |
-| a turn that ends while its subagents run | tab, Stop button, queued input, delegation execution and notice all wait for the drain ([ADR 0056](../decisions/0056-background-tasks-hold-completion.md)) | the same rule over the same normalized signal | settles on the terminal, since no task is ever reported | `chat.rs::work_tests`; each adapter's real output drives the same rule in `claude.rs` and `codex.rs`; held-completion and interruption tests in `delegation.rs`; `src/timeline.test.ts`, `src/alert.test.ts`; Stop control in `e2e/composer.spec.ts` |
+| a turn that ends while its subagents run | tab, Stop button, queued input, delegation execution and notice all wait for the drain ([ADR 0056](../decisions/0056-background-tasks-hold-completion.md)) | the same rule over the same normalized signal | settles on the terminal, since no task is ever reported | `crates/core/src/conversation/work.rs::work_tests`; each adapter's real output drives the same rule in `claude.rs` and `codex.rs`; held-completion and interruption tests in `delegation.rs`; `src/timeline.test.ts`, `src/alert.test.ts`; Stop control in `e2e/composer.spec.ts` |
 | local notifications and Dock attention indicators | completion, error and request events; silent until opt-in | same rule over canonical live events | completion/error over canonical events; interactive requests unavailable | `src/alert.test.ts`, `src/notifications.test.ts`, `e2e/notifications.spec.ts`; native verification limits in [notifications](../contracts/notifications.md) |
 | live sharing | V1 after normalization | V1 after normalization | shared application behavior | `team*.test.ts`, E2E over the mock |
 | remote control from the owner's devices | the same relay v4; execution stays local | the same relay v4; execution stays local | shared application behavior | `team-channel.test.ts`, `team-organizations.test.ts`, `e2e/organizations.spec.ts` |
@@ -112,10 +124,10 @@ version. Full semantics are in the [contract](../contracts/telemetry.md).
 | desk with several conversations at once | adapted (the same conversation screen) | adapted (the same conversation screen) | shared application behavior | `desk.test.ts`, E2E over the mock |
 | streamed conversation painting and hidden-window catch-up | shared V1 presentation; subagent work state still updates the composer | same V1 presentation and work-state rule | same presentation; no native child-task signal | `src/timeline.test.ts`, `e2e/critical-flows.spec.ts` in Chromium/WebKit for streaming and hidden catch-up, `e2e/markdown.spec.ts` for final Markdown and copy; WebKit timing limits in [energy profile](energy-profile.md) |
 | sleep preference during local agent work | `agent` keeps display awake through native child-task settlement; macOS `agent-system` keeps only the system awake | same rule over Codex's normalized child signals | same choices, but no native child-task signal to extend a settled turn | `src/statusbar.test.ts`, `awake.rs` command/transition tests, [ADR 0061](../decisions/0061-background-energy-policy.md); AC `pmset` check only, battery unavailable |
-| Git: unified/side-by-side review, stage, discard, commit, remotes, branches, conflicts and the changed-file menu | adapted by the app; independent of the CLI | adapted by the app; independent of the CLI | shared application behavior | `session/git_tests.rs`, `diff.test.ts`, `changes-menu.test.ts`, `e2e/git.spec.ts` in Chromium/WebKit and a large review in `e2e/critical-flows.spec.ts`; the `git.md` contract |
+| Git: unified/side-by-side review, stage, discard, commit, remotes, branches, conflicts and the changed-file menu | adapted by the app; independent of the CLI | adapted by the app; independent of the CLI | shared application behavior | `crates/git/src/tests.rs`, `diff.test.ts`, `changes-menu.test.ts`, `e2e/git.spec.ts` in Chromium/WebKit and a large review in `e2e/critical-flows.spec.ts`; the `git.md` contract |
 | Worktree from an existing branch | app creates the worktree before starting the CLI | same behavior | shared application behavior | `session.rs::new_branches_start_from_the_selected_base` verifies local and remote refs; `e2e/launcher-layout.spec.ts` exercises the selector; [Git contract](../contracts/git.md) |
 | Markdown file reader, source editor and PDF, CSV, image preview | shared file viewer; independent of the CLI | shared file viewer; independent of the CLI | shared application behavior | `e2e/critical-flows.spec.ts`; SVG retains source editing and gains preview from the draft; raster preview uses existing `read_bytes` IPC and browser image decoder |
-| find in the open file and quick open by name | shared file viewer and `find_paths`; independent of the CLI | shared file viewer and `find_paths`; independent of the CLI | shared application behavior | `find.test.ts` for matching, smart case, wraparound and marker markup; `session/find.rs` for path ranking; the viewer find bar and Command-P palette have no dedicated E2E gate |
+| find in the open file and quick open by name | shared file viewer and `find_paths`; independent of the CLI | shared file viewer and `find_paths`; independent of the CLI | shared application behavior | `find.test.ts` for matching, smart case, wraparound and marker markup; `crates/files/src/search.rs` for path ranking and host cache isolation; the viewer find bar and Command-P palette have no dedicated E2E gate |
 | scoped worktree cleanup after archiving or finishing | independent of the CLI | independent of the CLI | shared application behavior | `e2e/audit-regressions.spec.ts`, `session.rs` cleanup tests; blocked worktrees require explicit force selection |
 | agents per workspace in the sidebar | each tab's brand and status | each tab's brand and status | Adapted; see verification boundary | sidebar flows in `e2e/critical-flows.spec.ts`; a remote one uses the owner's avatar, without inferring the provider |
 ## Rule for a new feature
@@ -195,7 +207,7 @@ Runtime status is ephemeral and does not imply HTTP readiness.
 Evidence: `delegation.rs` and `embedded_mcp.rs` unit tests, built-in
 materialization tests in `mcp.rs`, and the opt-in picker test in
 `e2e/tools.spec.ts`. Workspace controls and log limits are tested in
-`delegation.rs`/`embedded_mcp.rs`, real PTY exit/output retention in `pty.rs`, and
+`delegation.rs`/`embedded_mcp.rs`, real PTY exit/output retention in `crates/process/src/terminal/tests.rs`, and
 preview navigation in `e2e/browser.spec.ts` on Chromium, with selected browser
 interactions repeated on WebKit.
 Browser tests use the catalog mock and do not run models.
@@ -244,3 +256,188 @@ provider capability, IPC or V1 event. `review-comments.test.ts`,
 `e2e/git.spec.ts` and `e2e/mobile.spec.ts` cover representative keyboard/reload
 and portable history behavior. These tests do not assert that a provider follows
 every note or that a queued batch has been received by the model.
+
+## Portable board foundation
+
+Claude, Codex and Antigravity share the same board models, tool-selection rules
+and injected persistence/publication service. The extraction changes no provider
+capability. `crates/core/src/board.rs`, `workspace_tools.rs` and
+`publication/tests.rs` under `src-tauri/` cover compatibility and ordering;
+`src-tauri/src/board_store.rs` covers backup and root isolation. Independent
+Linux/Windows core CI proves this library boundary, not Windows agent execution
+or desktop support. See the [core contract](../contracts/application-core.md).
+
+## Portable conversation stream
+
+All three providers use the same injected command, replay, snapshot and event
+ordering rules. Claude uses read-only provider history; Codex and Antigravity
+use the private app-managed file writer. Core tests in
+`src-tauri/crates/core/src/conversation/stream/tests.rs` cover accepted-input
+ordering, disconnected delivery, storage failure, telemetry filtering, Unicode
+retention and mixed-history/snapshot compatibility. Background settlement tests
+live beside `Work` in `conversation/work.rs`. Native file tests live in
+`src-tauri/src/transcript_store.rs`; `chat.rs` retains the real pipe backpressure
+and file-ordering regressions. This extraction adds no provider capability or
+Windows runtime support.
+
+## Injected agent process supervision
+
+Claude, Codex and Antigravity now share `ProcessLauncher`, `ProcessControl`,
+`ProcessWait` and the same core shutdown policy through the desktop composition.
+Provider commands retain their arguments, environment and working directory.
+Claude and Codex interrupt through their protocols; Antigravity requests the
+Unix group's interrupt through the injected control. Provider capabilities and
+transcript formats are unchanged.
+
+`src-tauri/crates/core/src/process.rs` tests escalation decisions and replacement
+identity without native effects. `src-tauri/crates/process/src/tests.rs` tests
+real Unix input closure, interruption, output draining under input backpressure,
+child/grandchild escalation, EOF before process exit and abandoned-waiter
+cleanup. The existing `chat.rs` ordering and `agent_launch.rs` environment regressions and provider
+fixtures exercise the desktop integration. These are synthetic subprocesses,
+not live model sessions. PTYs and private authentication now use separate ports
+in the same crate; other auxiliary probes remain outside this extraction.
+Windows/WSL execution is still pending.
+
+## Portable session coordination
+
+All providers use `SessionService` for queue recovery and `SessionReactions`
+for canonical board updates. Account switching remains supported by Claude and
+Codex; Antigravity retains its externally managed account. Claude and Codex
+background tasks hold completion until drain; Antigravity has no independent
+child signal and settles on its terminal. Resumed assistant activity invalidates
+a held completion in the shared reaction path.
+
+`src-tauri/crates/core/src/session/tests.rs` covers account handoffs, setup,
+orphaned queues, failed-send restoration, status/stage separation, canonical
+reactions and independent admission gates. `session/output.rs` tests observation,
+transcript and private capture ordering, including failed input and stale output.
+The desktop supplies effects through `chat/host.rs`; existing provider, account,
+telemetry and delegation suites retain adapter coverage. These tests exercise
+injected policies, not real authenticated account continuation or a WSL host.
+
+## Terminal and private subprocess boundaries
+
+Supporting shells, setup and Run use the same injected terminal factory for all
+providers. `crates/core/src/terminal/tests.rs` covers byte retention, sequence
+reconciliation, locked delivery and retired-output suppression.
+`crates/process/src/terminal/tests.rs` uses real Unix PTYs for input, resizing,
+exit status, child/descendant shutdown, EOF before exit and abandoned waiters.
+
+Claude and Codex authentication use an injected private subprocess transport;
+Antigravity continues using its externally managed identity. Core auxiliary
+policy tests cover cancellation, deadlines and failed exits; native auxiliary
+tests cover private pipes, stderr suppression, line bounds and child cleanup.
+`accounts.rs` cancellation and `codex/account.rs` protocol tests retain desktop
+integration evidence. No live OAuth, Windows PTY or WSL lifecycle is claimed.
+Catalog and bounded command helpers now use the ports described below; other
+short-lived commands retain their existing implementations.
+
+## Bounded catalog and command adapters
+
+Claude, Codex and Antigravity catalogs use the same injected private query port;
+provider requests, pagination and parsing are shared in `crates/protocols/src/catalog.rs`;
+`agents/catalog.rs` retains desktop profile preparation and selection.
+`agents/catalog_tests.rs` retains empty/error, whole-query deadline, profile,
+pagination and cleanup fixtures. Claude/Codex naming uses the finite-command
+runner; other providers retain their fallback titles without inference. GitHub
+action polling and preparation fetches are provider-independent.
+
+`crates/process/src/command/tests.rs` and `query/tests.rs` cover real local
+subprocess backpressure, blocked writes, output bounds, exit status, inherited
+pipes and cleanup without Tauri. `naming.rs::command_port_tests`,
+`github.rs::command_port_tests` and `session.rs::fetch_port_tests` inject runners
+to verify fallback/error compatibility. Existing real-Git preparation tests
+exercise the native runner. This does not prove live model inference, remote
+GitHub/network behavior or Windows/WSL execution.
+
+Default Windows startup uses the installed default WSL without a connection screen.
+`bridge::bootstrap` tests default selection and matching-root preservation;
+`core::workspaces` tests empty application catalogs and old primary-catalog reload.
+The native application journey passed on 2026-10-01 with the original empty desk,
+ordinary project import/launcher, authenticated inference and reconnection.
+Runtime application-event tests require session identity before reporting readiness. Codex external-account coverage is unchanged;
+other provider integrations remain pending as listed above.
+
+Windows local MCP/plugin/skill hubs load through the shared adapters; standalone
+skills can be authored and removed in the existing Resources screen. The runtime
+resource and resident IPC tests cover private persistence, restart and retained
+files. MCP definitions can also be saved and removed locally. Codex conversations
+use shared global/project/workspace selection, exact-hash project approval and
+MCP/plugin/skill preparation at spawn. `runtime/tests/lifecycle.rs` verifies live
+process immutability, stopped resume, preparation failure, private secrets and
+restart persistence; core catalog tests cover failed writes and launcher presets.
+The native journey exercises the original picker and configured command/environment
+through a fixture provider. These tests do not prove live model tool use. Other
+WSL providers, built-in delegation and agent-generated
+plugin creation remain unavailable. Plugin import/update and local
+registration/removal now use the shared library; real-Git runtime tests cover
+marketplaces, divergence, ownership and activation, and native acceptance drives
+the existing Resources dialogs and Windows folder-source translation. The Windows
+catalog source is local-only; desktop Cloud behavior is unchanged.
+
+Windows MCP discovery, checks and OAuth now share the original native services.
+The Windows browser owns consent/callbacks; WSL stores and refreshes tokens for
+Codex startup. Claude desktop consumes the same authorization service; other WSL
+providers and Antigravity tool execution remain unavailable. `oauth` callback
+fixtures, tools persistence/cancellation tests, bridge no-replay tests and real
+runtime lifecycle tests cover state validation, PKCE, registration reuse, refresh,
+restart, private encoding and request responsiveness. The native journey covers
+the original Resources actions with a hermetic OAuth server, not an external
+personal account or live model tool use.
+
+Windows file viewing is independent of the provider. The existing image, PDF and
+CSV viewers receive the original `read_bytes` buffer through bounded WSL blocks.
+`files/src/bytes.rs`, `bridge/src/files.rs` and `runtime/tests/resident.rs` cover
+containment, the 100 MiB limit, byte preservation and failed/changed transfers;
+the native application journey covers a 9 MiB image, CSV and PDF through WebView2.
+Windows Codex attachments use the existing path-reference contract through the
+injected picker, clipboard and drop adapter. Tests cover conversion, pending-drop
+identity and deferred launcher input; native acceptance uses real dialogs and
+clipboard data and a synthetic WSL provider that reads the selected Windows file.
+This does not prove model interpretation of images or pointer-driven OLE dragging.
+Claude and Antigravity execution remain unexposed in the Windows composition.
+The per-user Windows NSIS package embeds the matching WSL runtime for this Codex
+flow. `scripts/fixtures/windows-install.ps1` checks registration and the Start menu
+shortcut; the live native journey optionally reinstalls the package before
+checking conversation recall. This does not enable managed login, other providers
+or automatic Windows updates.
+
+Windows attachment recovery reuses local ChatView and Term snapshots in the same
+document. `windows/recovery.test.ts`, `term.test.ts` and resident integration tests
+cover coalesced retries, stale events, sequence reconciliation, exited docks and
+safe runtime retirement with retained agents/shells. The native acceptance journey
+kills only its isolated proxy during a synthetic Codex reply, then verifies the
+unsent draft, one completed reply, unchanged provider launch count and retained
+shell environment. This needs WebView2/Tauri/WSL to establish the document was not
+reloaded and live events reconcile with snapshots; a mock cannot prove those
+boundaries. It also delays workspace attachment until a shell is selected, then
+verifies completion preserves terminal focus rather than exposing an unsent
+composer draft to terminal keystrokes. No additional provider/model claim is made.
+Other WSL providers remain unexposed; Cloud sessions keep their existing recovery
+mechanism.
+
+Windows workspace lifecycle reuses the existing menus and shared rules: rename,
+pin/unread, tab rename, model/effort retune, archive/finish/remove and confirmed
+worktree cleanup. Codex retune preserves provider identity; Claude and Antigravity
+remain unexposed in this composition. `runtime/tests/lifecycle.rs` exercises actual
+process/shell isolation, archive scripts, explicit force and transcript reopening
+after cleanup and runtime restart. `core::workspaces` covers failed-save rollback;
+the original desktop cleanup tests cover shared Git admission and branch retention.
+
+Windows deferred Git and checkout preparation remain provider-neutral effects; the
+execution composition still admits Codex only. `runtime/tests/resident.rs` tests
+`deferred_git_and_checkout_preserve_responsiveness_and_settle_after_detach` with real
+Git hooks, terminal requests and detached completion. Core tests preserve catalog
+edits across preparation; bridge tests retain old-resident synchronous behavior and
+forbid replay after uncertain start/poll. Queue tests cover bounds, worker failure,
+result size, expiration and consume-once semantics.
+
+Windows initialization uses the same provider-neutral discovery/copy ports; only
+Codex is registered for execution. Deferred model/account discovery and manual Setup
+are separately negotiated. `runtime/tests/lifecycle.rs` holds provider replies and
+native settings reads while querying the board/opening a terminal, and checks copy
+preservation, catalog errors, busy admission and single Setup execution. Bridge tests
+verify old-resident fallback before any effect and preserve terminal/Run commands.
+Initial hydration runs before catalog commit; provider start and new-tab model
+validation still execute on the owner.

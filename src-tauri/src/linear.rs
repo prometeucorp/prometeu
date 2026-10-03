@@ -355,15 +355,6 @@ pub fn status() -> Status {
 
 /* ---------- issues ---------- */
 
-/// Persist only issue identity, links, and card metadata; keep the remaining fields in the cache.
-#[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
-pub struct IssueRef {
-    pub id: String,
-    pub identifier: String,
-    pub title: String,
-    pub url: String,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct IssueState {
     pub name: String,
