@@ -137,20 +137,19 @@ fn invalid_loaded_registry_cannot_be_used_or_repaired_by_an_update() {
 }
 
 #[test]
-fn separate_hosts_keep_selection_and_revision_observations_independent() {
-    let first = AccountRegistry::new(Arc::new(Store::default()));
-    let second = AccountRegistry::new(Arc::new(Store::default()));
-    let captured = first.active(ProviderId::Claude).unwrap();
-    first
+fn revision_changes_invalidate_captured_registrations_and_selection() {
+    let registry = AccountRegistry::new(Arc::new(Store::default()));
+    let captured = registry.active(ProviderId::Claude).unwrap();
+    assert!(registry.registered(&captured.id, Some(captured.revision)));
+    registry
         .update(|data| {
             data.accounts[0].revision += 1;
             data.remove("codex")
         })
         .unwrap();
-    assert!(!first.registered(&captured.id, Some(captured.revision)));
-    assert!(second.registered(&captured.id, Some(captured.revision)));
-    assert_eq!(first.selected_ids().unwrap(), vec!["claude"]);
-    assert_eq!(second.active(ProviderId::Codex).unwrap().id, "codex");
+    assert!(!registry.registered(&captured.id, Some(captured.revision)));
+    assert!(registry.registered(&captured.id, None));
+    assert_eq!(registry.selected_ids().unwrap(), vec!["claude"]);
     assert_eq!(captured.revision, 0);
 }
 

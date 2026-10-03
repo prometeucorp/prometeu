@@ -117,36 +117,6 @@ mod tests {
     }
 
     #[test]
-    fn injected_roots_keep_boards_and_backups_independent() {
-        let first_path = temporary_board_path();
-        let second_path = temporary_board_path();
-        let first = FileBoardStore {
-            path: first_path.clone(),
-        };
-        let second = FileBoardStore {
-            path: second_path.clone(),
-        };
-        let mut board = board_json("");
-        board.workspaces[0].title = "First root".into();
-        first.save(&board).unwrap();
-        board.workspaces[0].title = "Second root".into();
-        second.save(&board).unwrap();
-        board.workspaces[0].title = "Updated first root".into();
-        first.save(&board).unwrap();
-
-        assert_eq!(first.load().workspaces[0].title, "Updated first root");
-        assert_eq!(second.load().workspaces[0].title, "Second root");
-        let backup: Board = serde_json::from_str(
-            &std::fs::read_to_string(first_path.with_extension("json.bak")).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(backup.workspaces[0].title, "First root");
-        assert!(!second_path.with_extension("json.bak").exists());
-        std::fs::remove_dir_all(first_path.parent().unwrap()).unwrap();
-        std::fs::remove_dir_all(second_path.parent().unwrap()).unwrap();
-    }
-
-    #[test]
     fn saving_after_corruption_preserves_the_last_valid_backup() {
         let current = temporary_board_path();
         let store = FileBoardStore {

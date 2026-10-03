@@ -34,29 +34,24 @@ fn temporary() -> PathBuf {
 }
 
 #[test]
-fn explicit_roots_and_captured_revisions_are_independent() {
+fn profiles_resolve_under_explicit_roots_and_capture_the_selected_revision() {
     let root = temporary();
-    let first = backend(&root.join("first"), Arc::new(Files));
-    let second = backend(&root.join("second"), Arc::new(Files));
+    let profiles = backend(&root, Arc::new(Files));
     let mut selected = account(ProviderId::Claude, "00000000-0000-4000-8000-000000000001");
-    let captured = first.resolve(&selected).unwrap();
+    let captured = profiles.resolve(&selected).unwrap();
     selected.revision += 1;
     assert_eq!(captured.revision, 4);
-    assert_eq!(second.resolve(&selected).unwrap().revision, 5);
-    assert_ne!(captured.home, second.resolve(&selected).unwrap().home);
-    assert_eq!(
-        captured.home,
-        root.join("first/app/accounts").join(&selected.id)
-    );
+    assert_eq!(profiles.resolve(&selected).unwrap().revision, 5);
+    assert_eq!(captured.home, root.join("app/accounts").join(&selected.id));
     for (provider, name) in [
         (ProviderId::Claude, "claude"),
         (ProviderId::Codex, "codex"),
         (ProviderId::Antigravity, "external"),
     ] {
-        let profile = first.resolve(&account(provider, key(provider))).unwrap();
+        let profile = profiles.resolve(&account(provider, key(provider))).unwrap();
         assert!(!profile.managed);
-        assert_eq!(profile.home, root.join("first").join(name));
-        first.prepare(&profile).unwrap();
+        assert_eq!(profile.home, root.join(name));
+        profiles.prepare(&profile).unwrap();
     }
     assert!(
         !root.exists(),

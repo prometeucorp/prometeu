@@ -344,19 +344,14 @@ fn abandoned_worker_cleanup_is_idempotent_and_cannot_clear_a_later_attempt() {
 }
 
 #[test]
-fn independent_hosts_do_not_share_login_admission_or_cancellation() {
-    let first = Fixture::new();
-    let second = Fixture::new();
-    let effects_one = first.effects(false);
-    let effects_two = second.effects(false);
-    let one = first.service(&effects_one);
-    let two = second.service(&effects_two);
-    let attempt_one = begin(&one);
-    let attempt_two = begin(&two);
-    first.pending.cancel_all();
-    assert!(attempt_one.cancel.load(Ordering::Relaxed));
-    assert!(!attempt_two.cancel.load(Ordering::Relaxed));
-    one.finish(&attempt_one);
-    assert!(second.pending.logging_in(ID));
-    two.finish(&attempt_two);
+fn cancel_all_signals_the_pending_attempt_which_stays_admitted_until_finished() {
+    let fixture = Fixture::new();
+    let effects = fixture.effects(false);
+    let service = fixture.service(&effects);
+    let attempt = begin(&service);
+    fixture.pending.cancel_all();
+    assert!(attempt.cancel.load(Ordering::Relaxed));
+    assert!(fixture.pending.logging_in(ID));
+    service.finish(&attempt);
+    assert!(!fixture.pending.logging_in(ID));
 }

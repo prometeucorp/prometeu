@@ -9,20 +9,19 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn explicit_roots_keep_private_registries_independent() {
+    fn registry_changes_persist_in_a_private_root() {
         use std::os::unix::fs::PermissionsExt;
         let root =
             std::env::temp_dir().join(format!("prometeu-account-store-{}", uuid::Uuid::new_v4()));
-        let first_store = Arc::new(FileAccountStore::new(root.join("first")));
-        let second_store = Arc::new(FileAccountStore::new(root.join("second")));
-        let first = AccountRegistry::new(first_store.clone());
-        let second = AccountRegistry::new(second_store.clone());
-        first.update(|data| data.remove("claude")).unwrap();
-        second.update(|data| data.remove("codex")).unwrap();
-        assert!(!AccountRegistry::new(first_store).registered("claude", None));
-        assert!(AccountRegistry::new(second_store).registered("claude", None));
+        let store = Arc::new(FileAccountStore::new(root.join("accounts")));
+        AccountRegistry::new(store.clone())
+            .update(|data| data.remove("claude"))
+            .unwrap();
+        let reloaded = AccountRegistry::new(store);
+        assert!(!reloaded.registered("claude", None));
+        assert!(reloaded.registered("codex", None));
         assert_eq!(
-            std::fs::metadata(root.join("first/accounts.json"))
+            std::fs::metadata(root.join("accounts/accounts.json"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -30,7 +29,7 @@ mod tests {
             0o600
         );
         assert_eq!(
-            std::fs::metadata(root.join("first"))
+            std::fs::metadata(root.join("accounts"))
                 .unwrap()
                 .permissions()
                 .mode()

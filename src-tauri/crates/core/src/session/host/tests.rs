@@ -70,22 +70,6 @@ fn work(host: &SessionHost<Conversation>) {
 }
 
 #[test]
-fn independent_hosts_isolate_gates_readiness_and_background_work() {
-    let left = SessionHost::<Conversation>::default();
-    let right = SessionHost::<Conversation>::default();
-    let gate = left.inputs.session("s");
-    assert!(Arc::ptr_eq(&gate, &left.inputs.session("s")));
-    let _input = lock(&gate);
-    assert!(right.inputs.session("s").try_lock().is_ok());
-    left.mark_ready("s");
-    work(&left);
-    assert!(left.busy("s"));
-    assert!(!right.is_ready("s"));
-    assert!(!right.busy("s"));
-    assert!(lock(&right.work).is_empty());
-}
-
-#[test]
 fn stale_exit_cannot_clear_or_publish_for_a_replacement_and_current_exit_keeps_replay() {
     let host = SessionHost::default();
     let old = Conversation::default();

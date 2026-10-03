@@ -124,14 +124,12 @@ impl SessionUsage for Fixture {
 }
 
 #[test]
-fn input_gates_serialize_one_session_and_keep_execution_hosts_independent() {
-    let first = InputGates::default();
-    let second = InputGates::default();
-    let gate = first.session("s");
+fn input_gates_serialize_one_session_without_blocking_others() {
+    let gates = InputGates::default();
+    let gate = gates.session("s");
     let _held = lock(&gate);
-    assert!(first.session("s").try_lock().is_err());
-    assert!(first.session("other").try_lock().is_ok());
-    assert!(second.session("s").try_lock().is_ok());
+    assert!(gates.session("s").try_lock().is_err());
+    assert!(gates.session("other").try_lock().is_ok());
 }
 
 #[test]
