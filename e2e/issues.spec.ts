@@ -7,7 +7,9 @@ test("claiming a team issue keeps keyboard focus after the available row disappe
     type Invoke = (command: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
     const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
     const original = internals.invoke;
+    (window as unknown as { __linearOpenCalls: number }).__linearOpenCalls = 0;
     internals.invoke = function (command, args, options) {
+      if (command === "linear_open") (window as unknown as { __linearOpenCalls: number }).__linearOpenCalls++;
       if (command !== "linear_claim") return original.call(this, command, args, options);
       return new Promise(resolve => setTimeout(resolve, 500)).then(() => original.call(this, command, args, options));
     };
@@ -27,6 +29,7 @@ test("claiming a team issue keeps keyboard focus after the available row disappe
   await expect(tabs.first().locator(".c")).toHaveText("8");
   await expect(tabs.last().locator(".c")).toHaveText("2");
   await expect(tabs.last()).toBeFocused();
+  expect(await page.evaluate(() => (window as unknown as { __linearOpenCalls: number }).__linearOpenCalls)).toBe(0);
 
   await tabs.first().click();
   await expect(page.locator("#ilist .irow", { hasText: "MOA-211" })).toBeVisible();
@@ -48,7 +51,23 @@ test("a read-only Linear connection opens the assignment permission in settings"
   await expect(page.locator("#settingsView")).toBeVisible();
   await expect(page.getByRole("button", { name: "Authorize assignments" })).toBeVisible();
 
-  await page.evaluate(() => localStorage.removeItem("mock:linearReadOnly"));
+  await page.evaluate(() => {
+    localStorage.setItem("mock:linearConnectFailure", "1");
+    localStorage.setItem("mock:linearIssuesFailure", "1");
+  });
+  await page.getByRole("button", { name: "Authorize assignments" }).click();
+  await expect(page.getByRole("button", { name: "Authorize assignments" })).toBeEnabled();
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  await expect(page.locator("#itabs .itab").first().locator(".c")).toHaveText("7");
+  await expect(page.locator("#ilist .irow").first()).toBeVisible();
+  await page.locator("#itabs .itab").last().click();
+  await page.locator("#ilist .irow.available").first().getByRole("button", { name: "Authorize" }).click();
+
+  await page.evaluate(() => {
+    localStorage.removeItem("mock:linearConnectFailure");
+    localStorage.removeItem("mock:linearIssuesFailure");
+    localStorage.removeItem("mock:linearReadOnly");
+  });
   await page.getByRole("button", { name: "Authorize assignments" }).click();
   await expect(page.getByRole("button", { name: "Authorize assignments" })).toHaveCount(0);
 });

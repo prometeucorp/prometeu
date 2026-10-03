@@ -682,6 +682,7 @@ issues.init({
   say,
   board: () => state,
   connected: () => settings.linear().connected,
+  accountId: () => settings.linear().who?.id ?? "",
   canAssign: () => settings.linear().can_assign,
   redraw: draw,
   open: (w) => openWorkspace(w),

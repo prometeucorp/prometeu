@@ -11,6 +11,7 @@ type Ctx = {
   say: (text: string, isError?: boolean) => void;
   board: () => Board;
   connected: () => boolean;
+  accountId: () => string;
   canAssign: () => boolean;
   /// Notify the sidebar when the issue count changes.
   redraw: () => void;
@@ -47,24 +48,28 @@ let team = localStorage.getItem(TEAM) ?? "";
 let scope: "mine" | "available" = "mine";
 let claiming = false;
 let visible = false;
+let accountId = "";
 let find: HTMLInputElement;
 let meta: HTMLElement;
 
 export function init(context: Ctx) {
   ctx = context;
+  accountId = ctx.accountId();
   buildTabs();
   buildBar();
   listen<LinearStatus>("linear", ({ payload }) => {
     revision++;
     loading = false;
+    const nextAccountId = payload.who?.id ?? "";
     if (!payload.connected) {
       got = null;
       error = "";
     } else if (!payload.busy) {
-      got = null;
+      if (accountId !== nextAccountId) got = null;
       error = "";
       void refresh(false);
     }
+    accountId = nextAccountId;
     ctx.redraw();
     draw();
   });
@@ -375,7 +380,7 @@ function row(issue: Issue, available = false): HTMLElement {
   // Row clicks open Linear; buttons own other actions.
   const openLinear = () => invoke("linear_open", { url: issue.url }).catch((e) => ctx.say(fromBack(e), true));
   el.addEventListener("click", openLinear);
-  el.addEventListener("keydown", (e) => e.key === "Enter" && openLinear());
+  el.addEventListener("keydown", (e) => e.key === "Enter" && e.target === el && openLinear());
 
   const act = el.querySelector(".iact")!;
   const owner = ctx.board().workspaces.find((w) => w.issue?.id === issue.id && !w.archived);

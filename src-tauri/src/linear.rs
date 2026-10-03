@@ -108,8 +108,7 @@ pub async fn linear_disconnect(app: AppHandle) -> Status {
                 .send();
         }
         let mut cache = lock(&CACHE);
-        *cache = None;
-        let _ = std::fs::remove_file(issues_path());
+        clear_issues(&mut cache);
         std::fs::remove_file(path()).map_err(i18n::io)
     })
     .await;
@@ -154,8 +153,7 @@ fn connect() -> Result<Auth, String> {
     auth.who = whoami(&auth.access_token)?;
     let mut cache = lock(&CACHE);
     save(&auth)?;
-    *cache = None;
-    let _ = std::fs::remove_file(issues_path());
+    clear_issues(&mut cache);
     Ok(auth)
 }
 
@@ -448,7 +446,21 @@ const FRESH: u64 = 120;
 const PAGES: usize = 10;
 
 /// Keep the list in memory and persist a copy for immediate display after restart.
-static CACHE: Mutex<Option<Issues>> = Mutex::new(None);
+struct IssueCache {
+    generation: u64,
+    snapshot: Option<Issues>,
+}
+
+static CACHE: Mutex<IssueCache> = Mutex::new(IssueCache {
+    generation: 0,
+    snapshot: None,
+});
+
+fn clear_issues(cache: &mut IssueCache) {
+    cache.generation = cache.generation.wrapping_add(1);
+    cache.snapshot = None;
+    let _ = std::fs::remove_file(issues_path());
+}
 
 const ISSUES_QUERY: &str = r#"query Mine($after: String) {
   viewer {
@@ -502,21 +514,43 @@ pub async fn linear_issues(force: bool) -> Result<Issues, String> {
 }
 
 fn issues(force: bool) -> Result<Issues, String> {
-    let mut cache = lock(&CACHE);
-    let cached = cache.clone().or_else(load_issues);
-    if let Some(c) = &cached {
-        if !force && c.fetched_at + FRESH > now() {
-            *cache = Some(c.clone());
-            return Ok(c.clone());
+    loop {
+        let (generation, snapshot) = {
+            let cache = lock(&CACHE);
+            (cache.generation, cache.snapshot.clone())
+        };
+        let cached = snapshot.or_else(load_issues);
+        if let Some(c) = &cached {
+            if !force && c.fetched_at.saturating_add(FRESH) > now() {
+                let mut cache = lock(&CACHE);
+                if cache.generation != generation {
+                    continue;
+                }
+                cache.snapshot = Some(c.clone());
+                return Ok(c.clone());
+            }
         }
+        let fresh = match fetch_issues() {
+            Ok(fresh) => fresh,
+            Err(error) => {
+                if lock(&CACHE).generation != generation {
+                    continue;
+                }
+                return Err(error);
+            }
+        };
+        let mut cache = lock(&CACHE);
+        // A claim or account change invalidates any snapshot fetched before it completed.
+        if cache.generation != generation {
+            continue;
+        }
+        cache.snapshot = Some(fresh.clone());
+        // A cache write failure must not discard a successfully fetched list.
+        if let Ok(body) = serde_json::to_string(&fresh) {
+            let _ = paths::write_private(&issues_path(), &body);
+        }
+        return Ok(fresh);
     }
-    let fresh = fetch_issues()?;
-    *cache = Some(fresh.clone());
-    // A cache write failure must not discard a successfully fetched list.
-    if let Ok(body) = serde_json::to_string(&fresh) {
-        let _ = paths::write_private(&issues_path(), &body);
-    }
-    Ok(fresh)
 }
 
 fn fetch_issues() -> Result<Issues, String> {
@@ -569,6 +603,7 @@ fn claim(id: &str) -> Result<Issue, String> {
     let token = token()?;
     let current = graphql(&token, CLAIMABLE_QUERY, serde_json::json!({ "id": id }))?;
     ensure_claimable(&current["issue"])?;
+    // Linear has no conditional issueUpdate; another client can assign the issue after this check.
     let updated = graphql(
         &token,
         CLAIM_QUERY,
@@ -582,8 +617,7 @@ fn claim(id: &str) -> Result<Issue, String> {
     }
     let raw: Raw = serde_json::from_value(updated["issueUpdate"]["issue"].clone())
         .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
-    *cache = None;
-    let _ = std::fs::remove_file(issues_path());
+    clear_issues(&mut cache);
     Ok(raw.into())
 }
 
@@ -605,7 +639,17 @@ fn issues_path() -> PathBuf {
 }
 
 fn load_issues() -> Option<Issues> {
-    serde_json::from_str(&std::fs::read_to_string(issues_path()).ok()?).ok()
+    parse_issue_cache(&std::fs::read_to_string(issues_path()).ok()?)
+}
+
+fn parse_issue_cache(body: &str) -> Option<Issues> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let has_available = value.get("available").is_some();
+    let mut issues: Issues = serde_json::from_value(value).ok()?;
+    if !has_available {
+        issues.fetched_at = 0;
+    }
+    Some(issues)
 }
 
 /// Open only Linear issue URLs in the system browser; reject other destinations and schemes.
@@ -791,6 +835,18 @@ mod tests {
         }))
         .unwrap();
         assert!(cached.available.is_empty());
+        assert_eq!(
+            parse_issue_cache(r#"{"issues":[],"fetched_at":123}"#)
+                .unwrap()
+                .fetched_at,
+            0
+        );
+        assert_eq!(
+            parse_issue_cache(r#"{"issues":[],"available":[],"fetched_at":123}"#)
+                .unwrap()
+                .fetched_at,
+            123
+        );
     }
 
     #[test]

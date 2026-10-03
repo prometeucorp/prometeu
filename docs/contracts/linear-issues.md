@@ -16,10 +16,11 @@ existing workspace action.
 adapter fetches both lists through paginated GraphQL queries, with at most ten
 pages of 50 per list. The available query filters by missing assignee, active
 state and team membership in Linear. The two-minute cache persists privately in
-`linear-issues.json`. Older cache files without `available` read as an empty
-list; a subsequent refresh fills it. Older binaries ignore the added field.
-Refresh errors preserve the last successful
-screen snapshot. Disconnect and successful reauthorization clear the cache.
+`linear-issues.json`. Older cache files without `available` trigger an immediate
+refresh; older binaries ignore the added field. Network fetches run outside the
+cache lock, and snapshots fetched before a claim or account change are discarded.
+Refresh errors preserve the last successful screen snapshot. Disconnect and
+successful reauthorization clear the cache.
 
 `linear_claim({ id })` requires a credential granted the `write` OAuth scope.
 It checks the current issue before mutation: unassigned, active and in a team
@@ -28,13 +29,15 @@ ID and returns the updated `Issue`. The UI disables further claim actions while
 the request runs, updates the list after success, and refreshes from Linear.
 Failure leaves the issue visible with an error; no local assignment is invented.
 Linear does not expose a conditional assignment mutation, so another assignee
-could change the issue between the check and update. The mutation response must
-confirm success. The backend invalidates its cache after a successful claim.
+could change the issue between the check and update. The direct claim action
+accepts this residual risk. The mutation response must confirm success. The
+backend invalidates its cache after a successful claim.
 
 New OAuth authorization requests `read,write` with PKCE. Existing credentials
 without recorded scopes remain connected for reading and must be reauthorized
 before claiming. Reauthorization retains the old credential if authorization
-fails. `linear_status` and the `linear` event expose `can_assign`; they never
+fails. A failed reauthorization keeps the visible issue snapshot until a later
+refresh succeeds. `linear_status` and the `linear` event expose `can_assign`; they never
 expose tokens. Older `linear.json` files without `scopes` or `who.id` deserialize
 with safe defaults; older binaries ignore the new fields. A refresh response
 that omits scopes preserves the recorded

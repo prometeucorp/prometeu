@@ -2344,8 +2344,14 @@ const mockCommands: IpcHandlers = {
   linear_connect() {
     linear = { ...linear, busy: true };
     emit("linear", linear);
-    return new Promise((done) =>
+    return new Promise((done, fail) =>
       setTimeout(() => {
+        if (localStorage.getItem("mock:linearConnectFailure") === "1") {
+          linear = { ...linear, busy: false };
+          emit("linear", linear);
+          fail(`i18n:${JSON.stringify({ code: "err.linear.denied" })}`);
+          return;
+        }
         linear = {
           connected: true,
           can_assign: localStorage.getItem("mock:linearReadOnly") !== "1",
@@ -2360,6 +2366,9 @@ const mockCommands: IpcHandlers = {
   linear_issues() {
     if (!linear.connected) {
       return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.off" })}`);
+    }
+    if (localStorage.getItem("mock:linearIssuesFailure") === "1") {
+      return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.noData" })}`);
     }
     return new Promise((done) => setTimeout(() => done({ issues: [...ISSUES], available: [...AVAILABLE], fetched_at: Date.now() / 1000 }), 600));
   },

@@ -72,6 +72,8 @@ for discovery and require reauthorization for assignment. Linear's `write`
 scope is broader than issue assignment; Prometeu uses it only for an explicit
 local claim action and does not ask for admin access. See the
 [Linear contract](../contracts/linear-issues.md).
+The direct claim remains available despite a cross-client race: Linear's
+`issueUpdate` cannot condition assignment on the issue remaining unassigned.
 
 ## Evidence
 
