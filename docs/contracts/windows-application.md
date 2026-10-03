@@ -250,7 +250,7 @@ installer.
   `wsl_command.rs`, `paths.rs`, `application.rs`, `files.rs`, `operations.rs`,
   `mcp.rs`), `src/windows/*.test.ts` and `src/ipc.test.ts`.
 - Runtime over the application transport: `crates/runtime/tests/resident.rs`
-  (files, docks, Git, accounts, catalogs, deferred effects, recovery) and
+  (addressing, files, docks, deferred Git, catalogs, recovery) and
   `lifecycle.rs` (tools, plugins, MCP OAuth with a hermetic server, lifecycle).
 - Shared adapters keep their desktop suites in `crates/files`, `crates/git`,
   `crates/tools` and `crates/core`.

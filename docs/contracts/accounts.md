@@ -205,9 +205,9 @@ selection are discarded.
 
 - `crates/core/src/accounts/login/tests.rs`: login and reconnection ordering,
   active-turn refusal, cancellation, authentication/persistence failures, busy
-  restrictions, external attachment and independent hosts through injected effects.
+  restrictions and external attachment through injected effects.
 - `crates/core/src/accounts/tests.rs`: registry failures, concurrent updates,
-  host isolation, empty selection and opaque-provider compatibility through
+  revision checks, empty selection and opaque-provider compatibility through
   injected storage; `account_store.rs` checks private files and corrupt storage.
 - `crates/core/src/auxiliary.rs` and `crates/process/src/auxiliary/tests.rs`: private
   authentication transport, cancellation/deadline policies and native cleanup;

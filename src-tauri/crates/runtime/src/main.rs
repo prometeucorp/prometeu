@@ -295,7 +295,7 @@ fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     while let Some(key) = args.next() {
         if key == "--help" {
-            println!("prometeu-runtime --root EMPTY_OR_RUNTIME_DIRECTORY --workdir DIRECTORY [--codex EXECUTABLE] [--model MODEL] [--shell EXECUTABLE] [--transport stdio|resident|serve] [--catalog workspace|application]\nExperimental workspace host; addressed conversation sessions. See docs/contracts/headless-runtime.md.");
+            println!("prometeu-runtime --root EMPTY_OR_RUNTIME_DIRECTORY --workdir DIRECTORY [--codex EXECUTABLE] [--model MODEL] [--shell EXECUTABLE] [--transport stdio|resident|serve] [--catalog workspace|application]\nExperimental workspace host; addressed conversation sessions. See docs/contracts/wsl-runtime.md.");
             return Ok(());
         }
         if ![

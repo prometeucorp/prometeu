@@ -318,7 +318,8 @@ retain their existing adapters. Real-repository preparation tests and injected
 
 ## Windows application verification
 
-`runtime/tests/resident.rs` runs these commands over the application transport,
-including deferred execution with real hooks; the opt-in native journey stages and
-commits through the original Changes panel. Git keeps its original process
-lifetime, without a new timeout or hook cancellation.
+`runtime/tests/resident.rs` runs status, commit and base reads over the application
+transport, including deferred execution with real hooks, while `crates/git` covers
+the commands themselves; the opt-in native journey stages and commits through the
+original Changes panel. Git keeps its original process lifetime, without a new
+timeout or hook cancellation.
