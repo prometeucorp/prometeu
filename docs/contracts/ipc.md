@@ -13,6 +13,8 @@ general IPC to the inspected page.
   `invoke` infers the result from the command and checks its arguments. Callers
   cannot supply an arbitrary result generic. `IpcArgs`, `IpcArguments`,
   `IpcResult`, `IpcCall`, and `IpcHandlers` support typed consumers and wrappers.
+  `IpcTransport` is selected by bootstrap; Windows injects the WSL transport while
+  the existing desktop keeps Tauri. See the [Windows contract](windows-application.md).
   Command unions must travel with their corresponding arguments as an `IpcCall`
   tuple; widening the command generic cannot bypass required arguments.
 - `src/mock.ts` implements `IpcHandlers`. TypeScript checks every command's
@@ -174,7 +176,9 @@ A clipboard with neither a file nor an image returns an empty list. AppKit
 reads synchronously on the main thread. GTK requests the image asynchronously
 on the main thread; a worker converts and writes it. Linux rejects images above
 64 MiB of pixel data or PNG output and fails after 5 seconds if the clipboard
-owner does not respond. Elsewhere, it returns an empty list.
+owner does not respond. Windows returns WSL paths with the same shape (see
+[host effects](windows-application.md#paths-and-host-effects)). Elsewhere, it
+returns an empty list.
 
 `src/paste.ts` calls it when the paste event carries files, and also when the
 event carries no type at all: WebKitGTK hides a pasted image from the page that
@@ -270,7 +274,11 @@ unrelated status controls.
 `chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the rest to the legacy reader; historical
 `prometheusV1Mirror` projections are ignored by the current reader. Prometeu
-does not produce those projections in new logs.
+does not produce those projections in new logs. Snapshots are built by the
+portable conversation stream; its
+[compatibility tests](../../src-tauri/crates/core/src/conversation/stream/tests.rs)
+cover mixed history, sequence resets and the snapshot shape. A retired terminal
+suppresses late output and close events before a replacement uses its key.
 
 ## Root of the file commands
 
@@ -288,7 +296,11 @@ The optional `files: true` argument drops directories before candidate trimming
 and that row limit, so Command-P quick open never loses a matching file to
 better-ranked directories. Omitting it keeps the composer's `@` completion
 behaviour; an older frontend that never sends it is unaffected, and
-`session/find.rs` tests that directories cannot crowd out files.
+`crates/files/src/search.rs` tests that directories cannot crowd out files.
+
+`read_bytes` returns an `ArrayBuffer` with the complete regular file, up to
+100 MiB, and never a partial buffer. Windows assembles it from bounded WSL blocks
+([limits](windows-application.md#deadlines-and-transport-limits)).
 
 `reveal_path` requires `rel`: an empty string opens the root, while a nonempty
 path shows one entry of the tree or, from the Changes panel, a changed file,
@@ -298,7 +310,8 @@ for both uses. Finder selects a file with `-R`; systems served by `xdg-open` hav
 selection flag, so a file there opens the folder holding it rather than the file,
 which would launch another application over it. Resolution canonicalizes the
 root, so a symlinked root opens its target and a missing root fails before the
-file manager starts.
+file manager starts. On Windows the same checks run in WSL and Explorer reveals
+the translated path; see [host effects](windows-application.md#paths-and-host-effects).
 
 ### File tree actions
 
@@ -552,3 +565,27 @@ mutex. Workspace consumers coalesce invalidations and query their current scope.
 It is not a relay event and does not carry records or identifiers. Turn capture
 commits before its existing board publication; refresh does not depend on a
 visible status change.
+
+## Windows composition
+
+The native Windows shell carries the commands of this registry unchanged to the
+WSL runtime; no shared command, argument, result or mock entry is added for it.
+Coverage, private transport extensions (deferred operations, binary blocks, the
+optional `pty_buffer` snapshot) and limits are in the
+[Windows contract](windows-application.md). Relevant to this registry:
+
+- The transport decodes the runtime's reserved `application-error:<JSON>` string
+  back into the structured rejection screens already handle; other strings pass
+  through unchanged.
+- `pty_write` calls are serialized per terminal; a failed write rejects its
+  queued suffix without replay. Both are covered in `src/windows/transport.test.ts`.
+- Folder selections are converted to Linux paths before `add_project`; other
+  distributions reject before registration.
+- Host-only commands typed in `src/windows/host.ts`, outside this registry and
+  the mock: `application_open({ previous })` discovers the default WSL, installs
+  the bundled runtime, attaches and returns the `Target`;
+  `application_reconnect()` replaces only a failed attachment to the captured
+  target; `application_paths` translates picker and drop paths.
+- `wsl_connect`, `wsl_disconnect` and `wsl_shutdown` exist only for
+  `scripts/test-windows-application.mjs`, which swaps the startup connection for
+  a fixture target. They are not part of the product interface.

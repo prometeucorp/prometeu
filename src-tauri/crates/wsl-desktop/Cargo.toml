@@ -1,0 +1,31 @@
+[package]
+name = "prometeu-wsl-desktop"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+
+[features]
+default = []
+desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-dialog"]
+
+[[bin]]
+name = "prometeu-wsl-desktop"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[build-dependencies]
+sha2 = "0.10"
+tauri-build = { version = "2", optional = true , features = [] }
+
+[dependencies]
+prometeu-oauth = { path = "../oauth" }
+tauri-plugin-dialog = { version = "2", optional = true }
+prometeu-bridge = { path = "../bridge" }
+serde_json = "1"
+tauri = { version = "2", optional = true , features = [] }
+
+[target.'cfg(windows)'.dependencies]
+arboard = "3.6.1"
+png = "0.17"
+uuid = { version = "1", features = ["v4"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }

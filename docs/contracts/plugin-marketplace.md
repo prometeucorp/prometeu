@@ -6,6 +6,12 @@ This contract defines how a single Prometeu catalog feeds Claude Code and Codex
 sessions. The hub is product state; each CLI's manifests, arguments and caches
 are adapter details.
 
+Materialization, registration, Git import and skill authoring live in the
+Tauri-free `prometeu-tools` crate behind injected ports, shared by the desktop
+and the WSL runtime; the captured profile, configuration scope, canonical IDs and
+hook IDs keep their meaning. See
+[tools and packages](application-core.md#tools-and-packages).
+
 ## Hub
 
 The registry lives in `<root>/plugins.json` and keeps the existing shape:
@@ -154,7 +160,7 @@ Codex receives only local folders. `.zip` and URL are still supported by Claude,
 but an attempt to use them in a Codex session fails before starting and explains
 which plugin must be installed as a folder.
 
-For every explicit selection, including `[]`, `plugins.rs`:
+For every explicit selection, including `[]`, `NativePackages` in the tools crate:
 
 1. derives a stable home in `<root>/codex-workspaces/<workspace-hash>/` from the
    SHA-256 of the workspace's persisted ID; using the ID keeps even two
@@ -283,3 +289,68 @@ The virtual `prometeu` server is present in the selectable universe, never in
 the implicit CLI base or automatically selected by installation. Its definition
 is app-owned and cannot be edited/removed/shared. Only selected sessions receive
 a private process credential. See [embedded MCP](embedded-mcp.md).
+
+## Shared local resource libraries
+
+`prometeu-tools::skills::SkillLibrary` owns the existing standalone-skill validation,
+package collision checks, frontmatter/manifests and registration sequence. Hosts
+inject its root, `PackageFiles` and `SkillPackages`; its `Skills` port exposes local
+read/save/remove. Desktop keeps the catalog guard, optional Cloud publication and
+existing Codex cache cleanup in its adapter. The WSL adapter serializes requests
+through its host and unregisters generated packages without deleting their files.
+Both hosts materialize selected packages through the shared startup services.
+
+`PluginLibrary` implements the `Plugins` port for source inspection, registration,
+Git import, update and removal. A single discovered package is registered; a
+marketplace returns candidates for the existing selection dialog. Registration
+never activates a package. Import accepts existing Git URLs and GitHub shorthand;
+local folders and archive sources keep the original inspection contract. Codex
+still rejects archive/URL packages at startup and needs a local folder.
+
+Hosts serialize library mutations. Desktop retains its Cloud guard/publication
+ordering and best-effort Codex cache cleanup. WSL serializes through its request
+handler, rejects Cloud revisions before mutation and rebuilds derived homes from
+the current catalog at the next spawn; removing an entry does not proactively
+purge its installed Codex cache. Each Git command uses the injected bounded runner
+with a twenty-second deadline and 256 KiB per captured stream. This bounds stalled
+network/credential operations below the bridge reply deadline; long downloads can
+fail explicitly. The current runtime request handler still waits for the command.
+
+Updates use `pull --ff-only` and preserve local divergence. Removal preserves
+manual sources, shared directories and paths resolving outside the app's plugin
+store. Marketplace entries and scans do not register package directories resolving
+outside the clone. Abandoned clones can be discarded only inside that store and when unused.
+Failed preparation or persistence propagates an error; existing filesystem-first
+ordering remains, so there is no rollback across clone/deletion and registry writes.
+
+The existing desktop fixtures retain discovery, URL and catalog compatibility;
+`runtime/tests/lifecycle.rs` verifies real Git import, marketplace choice,
+updates/divergence, ownership, restart and activation through the provider pipeline.
+`tools/src/plugins.rs` tests failed commands/writes and containment; bridge tests
+cover native-path translation without changing URLs or Linux tilde semantics.
+
+`McpCatalog` and `PackageCatalog` expose actual local hub files; the desktop still
+adds its own virtual built-in MCP at composition. The WSL runtime does not advertise
+an embedded server it cannot run. Existing catalog formats and fallback reads are
+unchanged. `tools/src/skills.rs`, `tools/src/catalog.rs`, `runtime/src/resources.rs`
+and the resident integration tests cover compatibility and private-file behavior.
+
+## Local MCP authentication
+
+Both hosts share discovery, check and OAuth services from `prometeu-tools`.
+`Authorization` receives `AuthStorage`; the private-file implementation retains
+`mcp-auth.json` keyed by server ID with client ID, token endpoint, resource,
+access/refresh token and expiry. Refresh preserves an omitted replacement refresh
+token, and login reuses registration only for the same endpoint and resource.
+Credential mutation is serialized and failed persistence is returned. Pending
+PKCE verifiers stay in memory, expire after five minutes and are consumed once.
+Logout also invalidates pending authorization for that server.
+
+Desktop and Windows inject native consent; Windows receives only authorization
+URL/state and returns the callback code to WSL. Provider startup obtains tokens
+through the existing `McpSources` interface and secret encoding. Active processes
+retain their captured token. Local checks use the shared HTTP exchange and an
+injected bounded query launcher; no agent is started for inspection. Read-only
+CLI import discovery remains separate from provider-specific inherited selection.
+See the [Windows transport contract](windows-application.md#mcp-authentication-and-checks)
+for deferred operation limits and compatibility tests.

@@ -100,8 +100,8 @@ notification preferences expand in place.
 
 ## Install
 
-Each release contains separate downloads for **macOS on Apple Silicon** and
-**Linux x86_64** under the same version.
+Each release contains separate downloads for **macOS on Apple Silicon**,
+**Linux x86_64** and **Windows x64 (experimental)** under the same version.
 
 ### macOS
 
@@ -122,6 +122,21 @@ The AppImage is built on Ubuntu 22.04. See the [Linux guide](docs/operations/lin
 for runtime requirements, Arch and Debian source packages, ARM64 builds and
 platform differences. macOS and AppImage installations offer in-app updates;
 other Linux installations use their package manager or a rebuild.
+
+### Windows (experimental)
+
+The Windows app opens the same interface in a native window and runs projects,
+Git, shells and Codex inside your default WSL distribution, which must already
+have Git and an authenticated Codex CLI. Only Codex is available; managed login,
+other agents, Cloud synchronization and automatic updates are not implemented.
+Download [Prometeu_x64-setup.exe](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe),
+run the per-user installer and open **Prometeu** from the Start menu. The installer
+is unsigned, and updates require installing the next version manually. For local
+builds, see [packaging instructions](docs/operations/release.md#windows-installer).
+Conversations and files stay in WSL; updating or uninstalling the Windows app
+does not remove them. See the
+[Windows application contract](docs/contracts/windows-application.md) for the
+current coverage.
 
 ### Connect an agent
 
@@ -189,6 +204,12 @@ with simulated data; real agent execution, filesystem operations, and native
 macOS behavior require the desktop app. Use `PORT=1421 npm run dev` to select
 another port.
 
+### Run the WSL runtime
+
+The Unix execution host used by Windows can also run alone on Linux, WSL or
+macOS. See [development](docs/operations/development.md#native-windowswsl-integration)
+and the [WSL runtime protocol](docs/contracts/wsl-runtime.md).
+
 ### Validate changes
 
 Install the test browsers once:
@@ -216,14 +237,14 @@ Changes to native behavior also need a manual desktop check. See the
 ## Add projects from your catalog
 
 Register Git sources once in the Cloud's **Projects** tab, in your personal or
-organization catalog. In the desktop, open **Settings / Work and team / Projects on this Mac** or **Add
+organization catalog. In the desktop, open **Settings / Work and team / Projects on this computer** or **Add
 project** in the sidebar. Select projects, choose a destination folder and click
-**Add to this Mac**. Each successful clone appears in the project list. Failed
+**Add to this computer**. Each successful clone appears in the project list. Failed
 rows retain their errors and can be retried without repeating completed clones.
 
 **Link existing folder** registers an existing clone after checking its Git
 origin. **Add local folder** remains available without an account. Cloning uses
-your Mac's Git authentication and does not run setup or install dependencies.
+the execution host’s Git authentication and does not run setup or install dependencies.
 Deleting catalog definitions preserves local repositories. See the
 [catalog contract](docs/contracts/cloud-catalog.md).
 

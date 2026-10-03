@@ -5,145 +5,114 @@ use crate::lock::lock;
 use crate::mcp_access::Client;
 use crate::state::{Board, Status};
 use crate::{chat, conversation, dock, pty, session, AppState};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::process::Command;
 use tauri::{AppHandle, Emitter, Manager};
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Execution {
-    pub id: String,
-    pub state: String,
-    pub source: String,
-    pub accepted_at: u64,
-    pub outcome: Option<String>,
-    pub request_hash: Option<String>,
-}
+pub use prometeu_core::delegation::{Delegation, Execution};
 
-impl Execution {
-    fn new(source: &str) -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            state: "queued".into(),
-            source: source.into(),
-            accepted_at: conversation::now(),
-            outcome: None,
-            request_hash: None,
-        }
+fn new_execution(source: &str) -> Execution {
+    Execution {
+        id: uuid::Uuid::new_v4().to_string(),
+        state: "queued".into(),
+        source: source.into(),
+        accepted_at: conversation::now(),
+        outcome: None,
+        request_hash: None,
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Delegation {
-    /// The delegated agent and its conversation share one stable identity in this first version.
-    pub id: String,
-    pub owner: String,
-    pub workspace: String,
-    pub task: String,
-    /// Caller-supplied key prevents retrying creation from creating a second worktree.
-    pub request_key: String,
-    pub request_hash: String,
-    pub repository_heads: BTreeMap<String, String>,
-    #[serde(default)]
-    pub permission: Option<crate::actions::Permission>,
-    pub executions: Vec<Execution>,
-    /// None means no authoritative background signal has been observed in this process lifetime.
-    pub background: Option<Vec<Value>>,
-    pub requests: Vec<Value>,
-}
-
-impl Delegation {
-    pub fn reconcile_restart(&mut self, pending: bool) {
-        self.background = None;
-        self.requests.clear();
-        for run in &mut self.executions {
-            if run.state == "running" || (run.state == "queued" && !pending) {
-                run.state = "stopped".into();
-            }
+fn observe_delegation(delegation: &mut Delegation, event: &Value) -> bool {
+    // A resumed turn invalidates the outcome recorded while background tasks held completion;
+    // otherwise a later drain would report the old result for a turn still running.
+    if conversation::agent_activity(event) {
+        if let Some(run) = delegation
+            .executions
+            .last_mut()
+            .filter(|r| r.state == "running")
+        {
+            run.outcome = None;
         }
     }
-
-    fn observe(&mut self, event: &Value) -> bool {
-        // A resumed turn invalidates the outcome recorded while background tasks held completion;
-        // otherwise a later drain would report the old result for a turn still running.
-        if conversation::agent_activity(event) {
-            if let Some(run) = self.executions.last_mut().filter(|r| r.state == "running") {
-                run.outcome = None;
-            }
-        }
-        match event["type"].as_str() {
-            Some("session.state") if event["state"] == "busy" => {
-                // Accepted follow-ups do not identify a separate provider turn. Keep the active
-                // execution until its terminal event rather than orphaning its coordinator ID.
-                if self
-                    .executions
-                    .last()
-                    .is_none_or(|r| !matches!(r.state.as_str(), "queued" | "running"))
-                {
-                    self.executions.push(Execution::new("conversation"));
-                }
-                self.executions.last_mut().unwrap().state = "running".into();
-            }
-            Some("session.state") if event["state"] == "starting" => {
-                self.background = None;
-                self.requests.clear();
-            }
-            Some("assistant.started")
-                if self
-                    .executions
-                    .last()
-                    .is_none_or(|r| r.state == "completed" || r.state == "stopped") =>
+    match event["type"].as_str() {
+        Some("session.state") if event["state"] == "busy" => {
+            // Accepted follow-ups do not identify a separate provider turn. Keep the active
+            // execution until its terminal event rather than orphaning its coordinator ID.
+            if delegation
+                .executions
+                .last()
+                .is_none_or(|r| !matches!(r.state.as_str(), "queued" | "running"))
             {
-                let mut run = Execution::new("background");
-                run.state = "running".into();
-                self.executions.push(run);
+                delegation.executions.push(new_execution("conversation"));
             }
-            Some("turn.completed") => {
-                // Native subagents outlive the main turn. Record the outcome, but hold completion
-                // until they drain: a caller must never read a finished execution from a
-                // conversation that still rejects its next message as busy.
-                // An interruption ends the children too; the last observation of them is stale.
-                let interrupted = event["outcome"] == "interrupted";
-                if interrupted {
-                    self.background = None;
-                }
-                let running = working(&self.background);
-                if let Some(run) = self.executions.last_mut().filter(|r| r.state == "running") {
-                    run.outcome = event["outcome"].as_str().map(str::to_string);
-                    if !running {
-                        run.state = "completed".into();
-                    }
-                }
-                self.requests.clear();
-            }
-            Some("background.changed") => {
-                self.background = event["tasks"].as_array().cloned();
-                // Draining alone never completes a turn; only a held terminal settles here.
-                if !working(&self.background) {
-                    if let Some(run) = self
-                        .executions
-                        .last_mut()
-                        .filter(|r| r.state == "running" && r.outcome.is_some())
-                    {
-                        run.state = "completed".into();
-                    }
-                }
-            }
-            Some("request.opened") => {
-                self.requests
-                    .retain(|r| r["requestId"] != event["requestId"]);
-                self.requests.push(event.clone());
-            }
-            Some("request.closed") => {
-                self.requests
-                    .retain(|r| r["requestId"] != event["requestId"]);
-            }
-            _ => return false,
+            delegation.executions.last_mut().unwrap().state = "running".into();
         }
-        true
+        Some("session.state") if event["state"] == "starting" => {
+            delegation.background = None;
+            delegation.requests.clear();
+        }
+        Some("assistant.started")
+            if delegation
+                .executions
+                .last()
+                .is_none_or(|r| r.state == "completed" || r.state == "stopped") =>
+        {
+            let mut run = new_execution("background");
+            run.state = "running".into();
+            delegation.executions.push(run);
+        }
+        Some("turn.completed") => {
+            // Native subagents outlive the main turn. Record the outcome, but hold completion
+            // until they drain: a caller must never read a finished execution from a
+            // conversation that still rejects its next message as busy.
+            // An interruption ends the children too; the last observation of them is stale.
+            let interrupted = event["outcome"] == "interrupted";
+            if interrupted {
+                delegation.background = None;
+            }
+            let running = working(&delegation.background);
+            if let Some(run) = delegation
+                .executions
+                .last_mut()
+                .filter(|r| r.state == "running")
+            {
+                run.outcome = event["outcome"].as_str().map(str::to_string);
+                if !running {
+                    run.state = "completed".into();
+                }
+            }
+            delegation.requests.clear();
+        }
+        Some("background.changed") => {
+            delegation.background = event["tasks"].as_array().cloned();
+            // Draining alone never completes a turn; only a held terminal settles here.
+            if !working(&delegation.background) {
+                if let Some(run) = delegation
+                    .executions
+                    .last_mut()
+                    .filter(|r| r.state == "running" && r.outcome.is_some())
+                {
+                    run.state = "completed".into();
+                }
+            }
+        }
+        Some("request.opened") => {
+            delegation
+                .requests
+                .retain(|r| r["requestId"] != event["requestId"]);
+            delegation.requests.push(event.clone());
+        }
+        Some("request.closed") => {
+            delegation
+                .requests
+                .retain(|r| r["requestId"] != event["requestId"]);
+        }
+        _ => return false,
     }
+    true
 }
 
 /// Called while the conversation buffer lock establishes event order. Mutate only memory here;
@@ -155,7 +124,7 @@ pub fn observe(app: &AppHandle, id: &str, event: &Value) {
         .iter_mut()
         .find(|d| d.id == id)
     {
-        d.observe(event);
+        observe_delegation(d, event);
     };
 }
 
@@ -253,7 +222,7 @@ fn source(
     };
     Ok((
         repos,
-        parent.launch_of(conversation, &session::ResolvedTools::default()),
+        session::workspace_launch_of(parent, conversation, &session::ResolvedTools::default()),
     ))
 }
 
@@ -478,7 +447,7 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
         request_hash: digest(&args.to_string()),
         repository_heads,
         permission,
-        executions: vec![Execution::new("coordinator")],
+        executions: vec![new_execution("coordinator")],
         background: None,
         requests: vec![],
     };
@@ -643,7 +612,7 @@ pub fn call(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Resul
             Ok(json!({"requested":true, "url":format!("http://localhost:{port}")}))
         }
         "send_message" => {
-            let gate = chat::input_gate(id);
+            let gate = chat::input_gate(&state, id);
             let _input = lock(&gate);
             let (delegation, workspace) = {
                 let board = lock(&state.board);
@@ -667,7 +636,7 @@ pub fn call(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Resul
                 return Ok(json!({"execution": run}));
             }
             check_send(&workspace, &delegation)?;
-            let mut run = Execution::new("coordinator");
+            let mut run = new_execution("coordinator");
             run.id = run_id.clone();
             run.request_hash = Some(digest(text));
             lock(&state.board)
@@ -692,7 +661,7 @@ pub fn call(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Resul
                 crate::state::publish(app);
                 return Err(error);
             }
-            let result = chat::send(app.clone(), app.state(), id.into(), text.into(), true);
+            let result = chat::send(app.clone(), id.into(), text.into(), true);
             let mut board = lock(&state.board);
             let pending = board
                 .tab_mut(id)
@@ -795,7 +764,7 @@ mod tests {
             request_hash: "hash".into(),
             repository_heads: BTreeMap::new(),
             permission: None,
-            executions: vec![Execution::new("coordinator")],
+            executions: vec![new_execution("coordinator")],
             background: None,
             requests: vec![],
         }
@@ -963,14 +932,17 @@ mod tests {
         let mut d = delegation();
         let run_id = d.executions[0].id.clone();
         assert!(d.background.is_none());
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
-        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}),
+        );
+        observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":"ok"}));
         assert_eq!(d.executions[0].id, run_id);
         assert_eq!(d.executions[0].state, "running");
         assert_eq!(d.executions[0].outcome.as_deref(), Some("ok"));
         assert_eq!(d.background.as_ref().unwrap().len(), 1);
-        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        observe_delegation(&mut d, &json!({"type":"background.changed","tasks":[]}));
         assert_eq!(d.executions.len(), 1);
         assert_eq!(d.executions[0].state, "completed");
         assert_eq!(d.background, Some(vec![]));
@@ -980,13 +952,16 @@ mod tests {
     fn a_held_execution_never_reports_completion_while_sends_are_rejected() {
         let mut workspace = board().workspaces.remove(1);
         let mut d = delegation();
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
-        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}),
+        );
+        observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":"ok"}));
         workspace.tabs[0].status = Status::Rodando;
         assert_ne!(d.executions[0].state, "completed");
         assert!(check_send(&workspace, &d).is_err());
-        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        observe_delegation(&mut d, &json!({"type":"background.changed","tasks":[]}));
         workspace.tabs[0].status = Status::Pronta;
         assert_eq!(d.executions[0].state, "completed");
         assert!(check_send(&workspace, &d).is_ok());
@@ -995,9 +970,15 @@ mod tests {
     #[test]
     fn an_interruption_completes_the_execution_without_waiting_for_background_tasks() {
         let mut d = delegation();
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
-        d.observe(&json!({"type":"turn.completed","outcome":"interrupted"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}),
+        );
+        observe_delegation(
+            &mut d,
+            &json!({"type":"turn.completed","outcome":"interrupted"}),
+        );
         assert_eq!(d.executions[0].state, "completed");
         assert_eq!(d.executions[0].outcome.as_deref(), Some("interrupted"));
         assert!(d.background.is_none());
@@ -1006,16 +987,19 @@ mod tests {
     #[test]
     fn a_resumed_turn_discards_the_outcome_its_background_tasks_were_holding() {
         let mut d = delegation();
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
-        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}),
+        );
+        observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":"ok"}));
         assert_eq!(d.executions[0].outcome.as_deref(), Some("ok"));
-        d.observe(&json!({"type":"assistant.started"}));
+        observe_delegation(&mut d, &json!({"type":"assistant.started"}));
         assert!(d.executions[0].outcome.is_none());
-        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        observe_delegation(&mut d, &json!({"type":"background.changed","tasks":[]}));
         assert_eq!(d.executions.len(), 1);
         assert_eq!(d.executions[0].state, "running");
-        d.observe(&json!({"type":"turn.completed","outcome":"error"}));
+        observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":"error"}));
         assert_eq!(d.executions[0].state, "completed");
         assert_eq!(d.executions[0].outcome.as_deref(), Some("error"));
     }
@@ -1023,9 +1007,12 @@ mod tests {
     #[test]
     fn draining_background_alone_does_not_complete_an_unfinished_turn() {
         let mut d = delegation();
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}));
-        d.observe(&json!({"type":"background.changed","tasks":[]}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"background.changed","tasks":[{"id":"child","description":"review","toolId":null}]}),
+        );
+        observe_delegation(&mut d, &json!({"type":"background.changed","tasks":[]}));
         assert_eq!(d.executions[0].state, "running");
         assert!(d.executions[0].outcome.is_none());
     }
@@ -1033,11 +1020,17 @@ mod tests {
     #[test]
     fn requests_and_process_restarts_do_not_invent_completion() {
         let mut d = delegation();
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"request.opened","requestId":"q1","kind":"question"}));
-        d.observe(&json!({"type":"request.opened","requestId":"q1","kind":"question"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"request.opened","requestId":"q1","kind":"question"}),
+        );
+        observe_delegation(
+            &mut d,
+            &json!({"type":"request.opened","requestId":"q1","kind":"question"}),
+        );
         assert_eq!(d.requests.len(), 1);
-        d.observe(&json!({"type":"request.closed","requestId":"q1"}));
+        observe_delegation(&mut d, &json!({"type":"request.closed","requestId":"q1"}));
         assert!(d.requests.is_empty());
         d.reconcile_restart(false);
         assert_eq!(d.executions[0].state, "stopped");
@@ -1050,8 +1043,8 @@ mod tests {
         let mut d = delegation();
         let id = d.executions[0].id.clone();
         d.reconcile_restart(true);
-        d.observe(&json!({"type":"session.state","state":"starting"}));
-        d.observe(&json!({"type":"session.state","state":"busy"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"starting"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
         assert_eq!(d.executions.len(), 1);
         assert_eq!(d.executions[0].id, id);
         assert_eq!(d.executions[0].state, "running");
@@ -1060,13 +1053,16 @@ mod tests {
     #[test]
     fn subsequent_person_turns_and_background_continuations_get_distinct_executions() {
         let mut d = delegation();
-        d.observe(&json!({"type":"session.state","state":"busy"}));
-        d.observe(&json!({"type":"turn.completed","outcome":"interrupted"}));
-        d.observe(&json!({"type":"session.state","state":"busy"}));
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+        observe_delegation(
+            &mut d,
+            &json!({"type":"turn.completed","outcome":"interrupted"}),
+        );
+        observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
         assert_eq!(d.executions[1].source, "conversation");
-        d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
-        d.observe(&json!({"type":"assistant.started"}));
-        d.observe(&json!({"type":"assistant.started"}));
+        observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":"ok"}));
+        observe_delegation(&mut d, &json!({"type":"assistant.started"}));
+        observe_delegation(&mut d, &json!({"type":"assistant.started"}));
         assert_eq!(d.executions.len(), 3);
         assert_eq!(d.executions[2].source, "background");
         assert_eq!(d.executions[2].state, "running");
@@ -1078,11 +1074,11 @@ mod tests {
         for outcome in ["ok", "error", "interrupted"] {
             let mut d = delegation();
             let id = d.executions[0].id.clone();
-            d.observe(&json!({"type":"session.state","state":"busy"}));
-            d.observe(&json!({"type":"assistant.started"}));
+            observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+            observe_delegation(&mut d, &json!({"type":"assistant.started"}));
             for _ in 0..2 {
-                d.observe(&json!({"type":"session.state","state":"busy"}));
-                d.observe(&json!({"type":"assistant.started"}));
+                observe_delegation(&mut d, &json!({"type":"session.state","state":"busy"}));
+                observe_delegation(&mut d, &json!({"type":"assistant.started"}));
             }
             assert_eq!(d.executions.len(), 1);
             assert_eq!(d.executions[0].id, id);
@@ -1092,14 +1088,14 @@ mod tests {
             // Persisted execution identities retain the same completion behavior.
             let mut d: Delegation =
                 serde_json::from_value(serde_json::to_value(d).unwrap()).unwrap();
-            d.observe(&json!({"type":"turn.completed","outcome":outcome}));
+            observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":outcome}));
             assert_eq!(d.executions[0].id, id);
             assert_eq!(d.executions[0].state, "completed");
             assert_eq!(d.executions[0].outcome.as_deref(), Some(outcome));
 
             // A provider that responds again after completion gets a separate observed execution.
-            d.observe(&json!({"type":"assistant.started"}));
-            d.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+            observe_delegation(&mut d, &json!({"type":"assistant.started"}));
+            observe_delegation(&mut d, &json!({"type":"turn.completed","outcome":"ok"}));
             assert_eq!(d.executions.len(), 2);
             assert_ne!(d.executions[1].id, id);
             assert!(d.executions.iter().all(|run| run.state == "completed"));
@@ -1115,7 +1111,11 @@ mod tests {
             effort: "high".into(),
         });
         let (provider, model, effort) = worker_choice(
-            board.workspaces[0].launch_of("coordinator", &session::ResolvedTools::default()),
+            session::workspace_launch_of(
+                &board.workspaces[0],
+                "coordinator",
+                &session::ResolvedTools::default(),
+            ),
             &json!({}),
         )
         .unwrap();
@@ -1123,14 +1123,22 @@ mod tests {
         assert_eq!(model, "chosen-model");
         assert_eq!(effort, "high");
         let (provider, model, effort) = worker_choice(
-            board.workspaces[0].launch_of("coordinator", &session::ResolvedTools::default()),
+            session::workspace_launch_of(
+                &board.workspaces[0],
+                "coordinator",
+                &session::ResolvedTools::default(),
+            ),
             &json!({"provider":"claude"}),
         )
         .unwrap();
         assert_eq!(provider, crate::state::ProviderId::Claude);
         assert!(model.is_empty() && effort.is_empty());
         assert!(worker_choice(
-            board.workspaces[0].launch_of("coordinator", &session::ResolvedTools::default()),
+            session::workspace_launch_of(
+                &board.workspaces[0],
+                "coordinator",
+                &session::ResolvedTools::default()
+            ),
             &json!({"provider":"unknown"})
         )
         .is_err());

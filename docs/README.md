@@ -16,6 +16,9 @@ as a short index for agents and `README.md` presents the product.
 
 ## Contracts
 
+- [Portable application core](contracts/application-core.md): core ports, their desktop and WSL adapters and implementation obligations.
+- [Native Windows application](contracts/windows-application.md): shared interface over WSL, command coverage, deadlines and paths.
+- [WSL runtime protocol](contracts/wsl-runtime.md): framing, capabilities, resident attachment, storage and compatibility.
 - [Desktop presentation](contracts/desktop-presentation.md): typed snapshots, callbacks, focus and resource view lifetime.
 
 - [Local notifications](contracts/notifications.md): event selection, native delivery and silent defaults.
@@ -113,6 +116,9 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0061](decisions/0061-background-energy-policy.md): explicit system-only inhibition while a macOS agent works.
 - [ADR 0062](decisions/0062-local-diff-review.md): local review notes and explicit batch submission.
 - [ADR 0063](decisions/0063-account-connectors-in-the-mcp-base.md): the account's claude.ai connectors join the inherited MCP base.
+- [ADR 0082](decisions/0082-resident-wsl-attachments.md): resident WSL execution with disposable attachments.
+- [ADR 0084](decisions/0084-shared-windows-desktop.md): shared desktop interface over an injected WSL runtime.
+- [ADR 0085](decisions/0085-portable-core.md): portable core with injected effects.
 
 ## Local telemetry
 
@@ -161,8 +167,10 @@ current system until the corresponding implementation is accepted.
 
 ## Implementation records
 
-- [Local usage and context insights implementation plan](superpowers/plans/2026-10-01-issue-131-usage-insights.md).
-
+- [Windows desktop and injected WSL runtime plan](superpowers/plans/2026-09-27-windows-wsl-runtime.md) (in progress; shared interface and installer implemented, parity pending).
 - [Diff review design](superpowers/specs/2026-09-26-diff-review-design.md).
 - [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).
+
+- [Local usage and context insights implementation plan](superpowers/plans/2026-10-01-issue-131-usage-insights.md).
+
 - [Review calibration implementation plan](superpowers/plans/2026-09-27-review-calibration.md).

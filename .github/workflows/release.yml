@@ -1,7 +1,7 @@
-# Build both platforms in parallel on GitHub-hosted runners, then assemble one verified draft
+# Build macOS, Linux and Windows on GitHub-hosted runners, then assemble one verified draft
 # release in this repository. Notes come from the version's CHANGELOG.md section.
 # Drafts do not reach the updater's releases/latest/download/latest.json endpoint. Install and review the
-# draft DMG and AppImage before running sh scripts/release.sh publish.
+# draft DMG, AppImage and Windows installer before running sh scripts/release.sh publish.
 # The updater accepts only newer versions; recovery from a published defect requires a newer release.
 # workflow_dispatch verifies a release build from main without publishing or consuming a version.
 #
@@ -265,9 +265,78 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  windows-runtime:
+    name: Build matching WSL runtime
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: windows-runtime
+
+      - run: cargo build --manifest-path src-tauri/Cargo.toml --locked -p prometeu-runtime --release
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-linux-runtime
+          path: src-tauri/target/release/prometeu-runtime
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-installer:
+    name: Build Windows installer
+    needs: windows-runtime
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: windows-installer
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: windows-linux-runtime
+          path: ${{ runner.temp }}/runtime-package
+
+      - run: npm run package:windows
+        env:
+          PROMETEU_WSL_RUNTIME: ${{ runner.temp }}/runtime-package/prometeu-runtime
+
+      - name: Prepare Windows release asset
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe)
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer" }
+          New-Item -ItemType Directory -Path pkg | Out-Null
+          Copy-Item $installers[0].FullName pkg/Prometeu_x64-setup.exe
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows
+          path: pkg/Prometeu_x64-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+
   verify:
     name: Assemble and verify draft
-    needs: [build, linux]
+    needs: [build, linux, windows-installer]
     if: github.ref_type == 'tag'
     runs-on: macos-latest
     # Drafts are visible only to write access, so downloading one needs contents: write.
@@ -290,7 +359,7 @@ jobs:
           merge-multiple: true
           path: pkg
 
-      - name: Assemble manifest and verify both updater packages
+      - name: Assemble manifest and verify release assets
         run: python3 scripts/verify-release.py --assemble "$VERSION" "$REPO" pkg
 
       - name: Verify Apple notarization before uploading

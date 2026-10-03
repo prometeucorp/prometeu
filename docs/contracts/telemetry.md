@@ -129,7 +129,9 @@ Main-agent completion closes its telemetry turn independently of children.
 The conversation's existing readiness/Stop/notification/delegation rules remain
 those of [ADR 0056](../decisions/0056-background-tasks-hold-completion.md).
 
-Each Pump has a capture-order mutex. Output and accepted input hold that gate
+Each Pump has a capture-order mutex. The core `SessionOutput` and
+`capture_command` coordinate injected telemetry ports; `chat/host.rs` adapts
+these to the existing capture service and SQLite. Output and accepted input hold that gate
 through publication and capture; SQLite runs only after releasing transcript and
 chat locks. Reactions run after releasing the capture gate too, so reentrant
 commands cannot deadlock it. Existing fast-response and pipe-deadlock tests still
@@ -394,3 +396,8 @@ Follow the [E2E scope policy](../operations/development.md#e2e-scope): aggregati
 and persistence are checked below the browser; settings reuses already-tested
 shared controls and confirmation dialogs. Provider differences also appear in the
 [provider matrix](../quality/provider-matrix.md).
+
+Canonical usage and measurement types are shared from
+`prometeu-core::conversation::usage`. The desktop retains database ownership and
+persisted formats; the WSL runtime filters private telemetry through the same
+conversation stream and has no telemetry database.

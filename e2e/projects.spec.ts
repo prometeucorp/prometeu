@@ -19,7 +19,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator("#tiles .tile").first()).toBeVisible();
   await page.locator("#settings").click();
   await page.locator(".setnavitem", { hasText: "Work and team" }).click();
-  await page.getByRole("button", { name: "Add to this Mac" }).click();
+  await page.getByRole("button", { name: "Add to this computer" }).click();
 });
 
 test("Git projects open without a selected button and keep compact actions readable", { tag: "@webkit" }, async ({ page }) => {
@@ -35,14 +35,14 @@ test("Git projects open without a selected button and keep compact actions reada
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 480 });
     expect(await dialog.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-    const save = dialog.getByRole("button", { name: "Add to this Mac", exact: true });
+    const save = dialog.getByRole("button", { name: "Add to this computer", exact: true });
     await expect(save).toBeVisible();
     const bounds = (await save.boundingBox())!;
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(480);
   }
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "Add to this Mac", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Add to this computer", exact: true })).toBeFocused();
 });
 
 test("Git projects clone in a batch, retain success and retry only failures", async ({ page }) => {
@@ -50,11 +50,11 @@ test("Git projects clone in a batch, retain success and retry only failures", as
   const personal = dialog.getByRole("checkbox", { name: /personal-app/ });
   const shared = dialog.getByRole("checkbox", { name: /team-app/ });
   await expect(shared).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Add to this Mac" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Add to this computer" })).toBeDisabled();
   await personal.check(); await shared.check();
   await dialog.getByRole("button", { name: "Choose destination folder" }).click();
   await page.evaluate(() => localStorage.setItem("mock:projectFail", "team-app"));
-  await dialog.getByRole("button", { name: "Add to this Mac" }).click();
+  await dialog.getByRole("button", { name: "Add to this computer" }).click();
   await expect(dialog.getByRole("alert")).toContainText("Some projects failed");
   const failure = dialog.locator(".setrow", { hasText: "team-app" }).getByRole("status");
   await expect(failure).toContainText("Repository access denied");
@@ -64,7 +64,7 @@ test("Git projects clone in a batch, retain success and retry only failures", as
   await expect(shared).toBeChecked();
   await expect(dialog).toContainText("/tmp/projects/personal-app");
   await page.evaluate(() => localStorage.removeItem("mock:projectFail"));
-  await dialog.getByRole("button", { name: "Add to this Mac" }).click();
+  await dialog.getByRole("button", { name: "Add to this computer" }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.locator("#railbody")).toContainText("personal-app");
   await expect(page.locator("#railbody")).toContainText("team-app");

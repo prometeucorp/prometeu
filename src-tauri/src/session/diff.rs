@@ -6,16 +6,7 @@ use crate::AppState;
 use std::path::Path;
 use tauri::State;
 
-#[derive(serde::Serialize)]
-pub struct FileChange {
-    pub path: String,
-    pub added: u32,
-    pub removed: u32,
-    pub new_file: bool,
-    pub deleted: bool,
-    pub dirty: bool,
-    pub patch: String,
-}
+pub use prometeu_core::git::FileChange;
 
 #[tauri::command(async)]
 pub fn workspace_branch(state: State<AppState>, id: String) -> Option<String> {

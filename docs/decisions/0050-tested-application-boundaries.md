@@ -34,7 +34,7 @@ boundaries. Type-only edges do not create runtime cycles. Focused fixtures
 exercise both forbidden and allowed dependencies. The existing provider and
 canonical-protocol checks remain in place.
 
-`workspace_tools.rs` owns validation and updates for a workspace's MCP, plugin
+`crates/core/src/workspace_tools.rs` owns validation and updates for a workspace's MCP, plugin
 or skill selection. Validation accepts JSON null for inheritance or a valid
 `Selection` object with identifiers belonging to the requested axis. The
 update receives the board mutex, workspace id, axis and validated selection.
@@ -65,11 +65,11 @@ application, saver thread or installed agent CLI.
 Other use cases can adopt the same approach when a change needs that boundary;
 there is no requirement to wrap every function in an interface.
 
-The backend still uses board types from `state.rs`, which also contains Tauri
-publication and persistence. This is an application boundary inside the
-existing crate, not an independently deployable service. Process ownership,
-storage ownership and transport would need explicit contracts before a later
-service extraction.
+[ADR 0085](0085-portable-core.md) moves board models, this use case and the
+other application rules into an independently tested library with injected
+effects. The production desktop deployment remains local and in-process; the
+Windows composition runs the same core in a WSL runtime under
+[ADR 0084](0084-shared-windows-desktop.md).
 
 The import graph and selected global-access checks are architectural fitness
 checks, not a complete proof of purity. Their exact scope and limits are in the
@@ -85,7 +85,7 @@ the earlier format migration remains governed by
 
 - [Frontend composition](../../src/main.ts) and
   [settings coordination](../../src/settings.ts).
-- [Workspace tool use case and validation tests](../../src-tauri/src/workspace_tools.rs).
-- [Workspace lifecycle rules and preservation tests](../../src-tauri/src/workspace_lifecycle.rs).
+- [Workspace tool use case and validation tests](../../src-tauri/crates/core/src/workspace_tools.rs).
+- [Workspace lifecycle rules and preservation tests](../../src-tauri/crates/core/src/workspace_lifecycle.rs).
 - [Architecture check](../../scripts/check-architecture.mjs).
 - [Agent runtime contract](../contracts/agent-runtime.md).

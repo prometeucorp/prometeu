@@ -67,6 +67,9 @@ npm run build:mobile
 npm run test:release
 npm run test:web
 npm run test:rust
+npm run test:core
+npm run test:process
+npm run test:runtime
 npm run test:contracts
 npm run test:e2e
 npm run format:check
@@ -78,7 +81,9 @@ npm run check
 desktop and mobile builds/typecheck, the whole test suite and Clippy with
 warnings as errors. It is the same main validation as CI.
 `npm run architecture:check` first runs its
-dependency-checker fixtures with Node's test runner, then checks the repository.
+dependency-checker fixtures with Node's test runner, then checks the repository,
+including the Rust crate graph through `cargo tree` (see
+[Rust crates](../architecture/dependency-rules.md#rust-crates)).
 
 The phone app is a separate bundle: `npm run build:mobile` generates
 `dist-mobile/` from `src/mobile/`; in `prometeu-cloud`,
@@ -191,7 +196,7 @@ with one UI journey through the tool selectors.
 Account/settings variations, catalog management shortcuts, header styling, tab
 visibility preferences, recent-file ranking, the file viewer's find bar and
 Command-P quick open also have no dedicated browser gate. Recent-file collection
-and ranking remain covered in `timeline.test.ts` and `session/find.rs`; in-file
+and ranking remain covered in `timeline.test.ts` and `crates/files/src/search.rs`; in-file
 matching, wraparound and marker markup in `find.test.ts`, and the palette's
 keyboard behavior in the shared `e2e/search-picker.spec.ts`; native Git/catalog
 rules keep their Rust coverage. Feedback keeps representative submission, attachment races and cancellation checks rather
@@ -281,3 +286,76 @@ contract values and Unicode samples needed to prove parsing or encoding. Tests
 cover locale selection, interpolation and structured errors, not translation
 copy quality; TypeScript checks that the English catalog implements the source
 catalog keys.
+
+## Portable crates and native adapters
+
+These suites run without Tauri, GUI libraries, installed agent CLIs or network;
+`npm run test:rust` includes all of them.
+
+- `npm run test:core`: portable rules and ports with injected fakes.
+- `npm run test:process`: real local subprocesses, PTYs and private pipes
+  (backpressure, blocked writes, output bounds, escalation, EOF before exit,
+  abandoned waiters). Unix only.
+- `npm run test:profiles` and `npm run test:tools`: account profiles, MCP
+  encoding and package preparation through injected files, catalogs and a
+  synthetic installer CLI.
+- `npm run test:bridge`: the portable WSL client, paths and bootstrap.
+- `npm run test:runtime`: the shared Codex adapter and the real runtime
+  executable, bridge and resident host with a synthetic provider. It needs
+  Python 3.11 or later (`tomllib`). Resident fixtures use short canonical paths
+  under `/tmp` because of Unix socket limits; native XDG trash recovery runs only
+  on Linux.
+
+## Native Windows/WSL integration
+
+Build and run the WSL runtime alone (Linux, WSL or macOS):
+
+```sh
+cargo build --manifest-path src-tauri/Cargo.toml -p prometeu-runtime --locked
+src-tauri/target/debug/prometeu-runtime --root /tmp/prometeu-runtime --workdir "$PWD"
+```
+
+Use an empty root on first run; desktop roots are rejected. Send one
+[framed request](../contracts/wsl-runtime.md#framing) per line, for example
+`{"v":1,"id":1,"action":{"method":"start"}}`, and wait for `session.identity`
+before a `command` carrying `message.send`. Codex uses the environment's own
+login and configuration.
+
+For the Windows app, run `npm run app:wsl` from a Windows checkout with Node,
+Rust (MSVC) and WebView2. `npm run build:app:wsl` builds the executable without
+an installer. On Linux both commands first build and embed the release runtime;
+elsewhere set `PROMETEU_WSL_RUNTIME` to a matching Linux x86_64 artifact, or
+automatic startup rejects the build. `npm run build:wsl` builds only the
+frontend. Packaging is in [release](release.md#windows-installer).
+
+`npm run test:windows:native -- CONFIG.json` is the opt-in acceptance journey.
+It drives the original desk, editor, viewers, terminal, launcher, Setup/Run, Git,
+resources and attachments through WebView2, native IPC, real Windows dialogs,
+clipboard and Explorer, and an installed WSL distribution, using a synthetic
+provider in isolated roots. Optional configuration:
+
+- `codex`: absolute Linux path of an authenticated Codex; sends two short live
+  requests and checks recall after window reconnection (uses the CLI's quota).
+- `bootstrap: true` (with `codex`): exercises default WSL discovery, embedded
+  runtime installation and saved reconnection with an isolated
+  `PROMETEU_WINDOWS_RUNTIME_ROOT`.
+- `installer`: reinstalls that NSIS package between the two windows
+  (`scripts/fixtures/windows-install.ps1`); run only against an installation you
+  chose.
+
+Use a separate `artifacts` directory per mode. The clipboard fixture restores its
+contents afterwards. This journey stays outside the default suites: hosted CI
+has no WSL distribution, and mocks cannot prove native IPC, Windows argument
+encoding, path translation or execution surviving window closure.
+
+The ignored `actual_wsl_*` Rust tests run the bridge, terminal and resident
+reconnect through real `wsl.exe` (from WSL interop or Windows):
+
+```sh
+PROMETEU_TEST_WSL_DISTRIBUTION=Ubuntu-24.04 \
+  cargo test --manifest-path src-tauri/Cargo.toml -p prometeu-runtime \
+  --test resident actual_wsl_resident_reconnect -- --ignored
+```
+
+`actual_wsl_codex_recalls_after_reconnect` in `--test bridge` also needs
+`PROMETEU_TEST_CODEX` and makes two real model requests.

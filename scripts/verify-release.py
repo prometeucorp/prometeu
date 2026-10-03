@@ -1,4 +1,4 @@
-"""Verify the draft's updater packages against the public key embedded in the app."""
+"""Verify the draft's assets and updater signatures against the app's public key."""
 
 import argparse
 import base64
@@ -48,6 +48,8 @@ def verify(version, repo, directory, public_key, expected_notes):
         raise ValueError("latest.json must include macOS and Linux")
     if not (directory / "Prometeu_aarch64.dmg").is_file():
         raise ValueError("Missing Prometeu_aarch64.dmg")
+    if not (directory / "Prometeu_x64-setup.exe").is_file():
+        raise ValueError("Missing Prometeu_x64-setup.exe")
 
     # New Tauri clients may select installer-specific entries; validate those as well.
     packages = {

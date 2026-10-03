@@ -1,8 +1,8 @@
 # Validate frontend types, web/Rust tests, Rust formatting, Clippy and commit messages on PRs and main
 # pushes.
-# Jobs run on GitHub-hosted macOS and Linux runners. The repository is public, so PRs from forks also
-# run here: hosted runners are disposable and the workflow holds no secrets, which keeps untrusted
-# code harmless.
+# Desktop jobs run on macOS/Linux; portable crates and the WSL shell also run on Windows. PRs from
+# forks also run here: hosted runners are disposable and the workflow holds no secrets, which keeps
+# untrusted code harmless.
 # Never register a self-hosted runner on this repository (ADR 0040).
 name: CI
 
@@ -40,6 +40,10 @@ jobs:
         with:
           workspaces: src-tauri
           shared-key: desktop-macos
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
 
       - run: npm ci
 
@@ -86,12 +90,51 @@ jobs:
           workspaces: src-tauri
           shared-key: desktop-linux-ubuntu-22.04
 
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
       - run: npm ci
 
       # The backend embeds the built frontend.
       - run: npm run build
+      - run: npm run build:wsl
       - run: npm run test:rust
       - run: npm run lint:rust
+
+  # The portable crates run their tests on Windows and the WSL shell compiles without an embedded
+  # runtime. The macOS and Linux jobs already cover every workspace crate on Unix.
+  windows:
+    name: windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.14.0
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: windows
+
+      - run: npm ci
+
+      - run: cargo test -p prometeu-core -p prometeu-protocols -p prometeu-bridge --locked
+        working-directory: src-tauri
+
+      # The shell embeds the built frontend.
+      - run: npm run build:wsl
+      - run: cargo clippy -p prometeu-core -p prometeu-protocols -p prometeu-bridge -p prometeu-wsl-desktop --features prometeu-wsl-desktop/desktop --all-targets --locked -- -D warnings
+        working-directory: src-tauri
 
   commits:
     name: mensagens de commit

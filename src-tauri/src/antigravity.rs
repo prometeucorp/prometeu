@@ -1,5 +1,6 @@
 //! Antigravity's native NDJSON boundary; its CLI owns authentication and native history.
-use crate::{accounts, chat, conversation, i18n, lock::lock, paths, session::Launch};
+use crate::{accounts, conversation, i18n, lock::lock, paths};
+use prometeu_core::session::launch::Launch;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
@@ -218,50 +219,48 @@ fn launch_args(
     }
     Ok(args)
 }
-pub fn spawn(
-    app: &tauri::AppHandle,
+pub fn prepare(
     id: &str,
-    _workspace: &str,
     cwd: &Path,
     resume: Option<String>,
     launch: &Launch,
-) -> Result<chat::Chat, String> {
+    profiles: &dyn prometeu_profiles::ProfileBackend,
+) -> Result<crate::agent_launch::PreparedAgent, String> {
     let args = launch_args(resume.as_deref(), cwd, launch)?;
     if !installed() {
         return Err(i18n::t("err.antigravity.version"));
     }
-    let profile = accounts::active(crate::state::ProviderId::Antigravity)?;
+    let profile = profiles.resolve(&accounts::selected(crate::state::ProviderId::Antigravity)?)?;
     let mut cmd = Command::new("agy");
     cmd.args(args).current_dir(cwd);
     let instructions = launch.instructions.clone();
-    let io = chat::ProcessIo::new(
-        stderr_line,
-        move |stdin| {
-            let link = Arc::new(Mutex::new(Link::new(Box::new(stdin), resume, instructions)));
+    let resumed = resume.is_some();
+    let log = paths::chat_log(id);
+    Ok(crate::agent_launch::PreparedAgent {
+        command: cmd,
+        store: Arc::new(crate::transcript_store::FileTranscriptStore::new(
+            log.clone(),
+            log,
+        )),
+        profile,
+        connect: Box::new(move |stdin, process| {
+            let link = Arc::new(Mutex::new(Link::new(stdin, resume, instructions)));
             let reader = link.clone();
-            (
-                chat::Wire::Antigravity(link),
-                Box::new(move |line: &str| {
+            prometeu_core::session::provider::AgentProtocol {
+                input: Box::new(Input { link, process }),
+                translate: Box::new(move |line: &str| {
                     lock(&reader)
                         .on_line(line)
                         .into_iter()
-                        .map(|v| v.to_string())
+                        .map(|event| event.to_string())
                         .collect()
-                }) as chat::Translate,
-            )
-        },
-        profile,
-    );
-    let log = paths::chat_log(id);
-    chat::launch(
-        app,
-        id,
-        cmd,
-        &log,
-        Some(log.clone()),
-        "err.antigravity.spawn",
-        io,
-    )
+                }),
+            }
+        }),
+        stderr_line,
+        spawn_error: "err.antigravity.spawn",
+        resumed,
+    })
 }
 fn event(kind: &str, fields: Value) -> Value {
     conversation::event(kind, conversation::now(), fields)
@@ -651,9 +650,90 @@ impl Link {
     }
 }
 
+struct Input {
+    link: Arc<Mutex<Link>>,
+    process: Arc<dyn prometeu_core::process::ProcessControl>,
+}
+impl prometeu_core::conversation::stream::ConversationInput for Input {
+    fn send(&mut self, command: &Value, _: &str) -> Result<Vec<Value>, String> {
+        if command["v"] == 1 && command["type"] == "turn.interrupt" {
+            let events = lock(&self.link).interrupted();
+            self.process.interrupt();
+            Ok(events)
+        } else {
+            lock(&self.link).write(command)
+        }
+    }
+}
+impl prometeu_core::session::provider::AgentInput for Input {
+    fn close(&mut self) {
+        lock(&self.link).close();
+    }
+    fn requires_idle(&self) -> bool {
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_input_interrupts_process_and_closes_shared_writer() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        #[derive(Default)]
+        struct Control(AtomicUsize);
+        impl prometeu_core::process::ProcessControl for Control {
+            fn system_id(&self) -> u32 {
+                panic!("unexpected process inspection")
+            }
+            fn running(&self) -> bool {
+                panic!("unexpected process inspection")
+            }
+            fn interrupt(&self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            fn terminate(&self) {
+                panic!("unexpected termination")
+            }
+            fn kill(&self) {
+                panic!("unexpected kill")
+            }
+            fn wait_exit(&self, _: Duration) -> bool {
+                panic!("unexpected wait")
+            }
+        }
+        let (link, output) = link();
+        let reader = Arc::new(Mutex::new(link));
+        let process = Arc::new(Control::default());
+        let mut input: Box<dyn prometeu_core::session::provider::AgentInput> = Box::new(Input {
+            link: reader.clone(),
+            process: process.clone(),
+        });
+        assert!(input.requires_idle());
+        input
+            .send(&json!({"v":1,"type":"message.send","text":"hello"}), "")
+            .unwrap();
+        assert_eq!(output.take().len(), 1);
+        assert!(input
+            .send(&json!({"v":1,"type":"turn.interrupt"}), "")
+            .unwrap()
+            .is_empty());
+        assert_eq!(process.0.load(Ordering::SeqCst), 1);
+        assert!(output.take().is_empty());
+        assert_eq!(
+            result(&mut lock(&reader), "SUCCESS", "").last().unwrap()["outcome"],
+            "interrupted"
+        );
+        input.close();
+        assert!(input
+            .send(
+                &json!({"v":1,"type":"message.send","text":"after close"}),
+                ""
+            )
+            .is_err());
+        assert!(output.take().is_empty());
+    }
 
     #[test]
     fn bounded_discovery_reaps_success_and_times_out_a_hung_child() {
@@ -1080,7 +1160,7 @@ mod tests {
                 events.extend(link.on_line(&native.to_string()));
             }
         }
-        let events = chat::contract_public_events(events);
+        let events = crate::chat::contract_public_events(events);
         let fixture = json!({"provenance":"Canonical V1 conversion of the recorded Antigravity CLI 1.2.7 tool, native resume, and SIGINT NDJSON fixtures. Timestamps and turn durations are zeroed; the independent interrupted conversation has a distinct fixture identity.","events":events});
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src/antigravity/fixtures/canonical-events.json");

@@ -7,6 +7,10 @@ rust-version = "1.88"
 # in the Info.plist embedded by tauri-build; see tauri.dev.conf.json for development.
 default-run = "Prometeu"
 
+[workspace]
+members = ["crates/oauth", "crates/git", "crates/files", "crates/core", "crates/process", "crates/profiles", "crates/tools", "crates/protocols", "crates/runtime", "crates/bridge", "crates/wsl-desktop"]
+resolver = "2"
+
 [[bin]]
 name = "Prometeu"
 path = "src/main.rs"
@@ -15,6 +19,11 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+prometeu-oauth = { path = "crates/oauth" }
+prometeu-git = { path = "crates/git" }
+prometeu-core = { path = "crates/core" }
+prometeu-files = { path = "crates/files" }
+prometeu-protocols = { path = "crates/protocols" }
 # The unstable feature enables child webviews (Window::add_child). The browser tab
 # overlays a system webview on the window center; see browser.rs.
 tauri = { version = "2", features = ["unstable"] }
@@ -45,8 +54,6 @@ base64 = "0.22"
 # Codex plugin cache versions must remain valid semver even when a compatible
 # manifest supplies an arbitrary version string.
 semver = "1"
-# Tree deletions go to the system trash so untracked work stays recoverable.
-trash = "5"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 # Reuse Tauri bindings to receive screenshots before they exist as files.
@@ -64,3 +71,8 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 png = "0.17"
+
+[target.'cfg(unix)'.dependencies]
+prometeu-process = { path = "crates/process" }
+prometeu-profiles = { path = "crates/profiles" }
+prometeu-tools = { path = "crates/tools" }
