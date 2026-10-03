@@ -193,6 +193,8 @@ CLI discovery and connection checks; inspection receives the existing bounded
 query port. The desktop keeps its browser adapter; Windows injects native browser
 consent and owns the loopback listener, while WSL retains the verifier and tokens.
 This avoids reliance on WSL loopback forwarding for authentication callbacks.
+The shared callback reader assembles complete HTTP headers under byte/time bounds
+before validating state or code, so TCP fragmentation does not change the result.
 
 Consent and multi-request HTTP discovery can exceed the ordinary thirty-second
 transport deadline. The runtime therefore exposes a bounded, in-memory deferred

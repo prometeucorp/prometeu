@@ -115,6 +115,32 @@ pub fn request_target(req: &str) -> Option<String> {
     (method == "GET").then(|| target.to_string())
 }
 
+fn callback_target(stream: &mut TcpStream, deadline: Instant) -> std::io::Result<Option<String>> {
+    let mut headers = [0; 8192];
+    let mut length = 0;
+    while length < headers.len() {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|duration| !duration.is_zero())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::TimedOut, "callback headers timed out")
+            })?;
+        stream.set_read_timeout(Some(remaining))?;
+        let read = stream.read(&mut headers[length..])?;
+        if read == 0 {
+            return Ok(None);
+        }
+        length += read;
+        if headers[..length]
+            .windows(4)
+            .any(|bytes| bytes == b"\r\n\r\n")
+        {
+            return Ok(request_target(&String::from_utf8_lossy(&headers[..length])));
+        }
+    }
+    Ok(None)
+}
+
 /// Wait for the callback until the deadline. Return 404 for unrelated paths, such as favicon.ico,
 /// and continue waiting.
 pub fn wait_for_code(
@@ -131,11 +157,12 @@ pub fn wait_for_code(
         match listener.accept() {
             Ok((mut stream, _)) => {
                 let _ = stream.set_nonblocking(false);
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-                let mut buf = vec![0u8; 8192];
-                let n = stream.read(&mut buf).unwrap_or(0);
-                let Some(target) = request_target(&String::from_utf8_lossy(&buf[..n])) else {
+                let request_deadline = deadline.min(Instant::now() + Duration::from_secs(2));
+                let Some(target) = callback_target(&mut stream, request_deadline)
+                    .ok()
+                    .flatten()
+                else {
                     respond(&mut stream, "404 Not Found", "");
                     continue;
                 };
@@ -285,6 +312,63 @@ pub fn mcp_page(language: &str, ok: bool, why: &str) -> String {
 #[cfg(test)]
 mod callback_tests {
     use super::*;
+    #[test]
+    fn callback_rejects_truncated_and_oversized_headers() {
+        for headers in [
+            b"GET /mcp?state=expected&code=partial".to_vec(),
+            vec![b'x'; 8192],
+        ] {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let address = listener.local_addr().unwrap();
+            let task = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                callback_target(&mut stream, Instant::now() + Duration::from_secs(2))
+            });
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream.write_all(&headers).unwrap();
+            stream.shutdown(std::net::Shutdown::Write).unwrap();
+            assert!(task.join().unwrap().unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn callback_waits_for_fragmented_headers_before_accepting_code() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = std::thread::spawn(move || {
+            wait_for_code(
+                &listener,
+                "/mcp",
+                "expected",
+                Instant::now() + Duration::from_secs(3),
+                &|_, _| String::new(),
+            )
+        });
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .write_all(b"GET /mcp?state=expected&code=par")
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(150)))
+            .unwrap();
+        let error = stream.read(&mut [0; 1]).unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        ));
+        stream
+            .write_all(b"tial%20code HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200"));
+        assert_eq!(task.join().unwrap().unwrap(), "partial code");
+    }
+
     #[test]
     fn callback_ignores_wrong_state_and_unrelated_requests_then_decodes_code() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();

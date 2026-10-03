@@ -387,7 +387,10 @@ opens the system browser using a literal HTTP(S) URL, validates callback state a
 passes the code to WSL. The verifier and access/refresh tokens stay in WSL. This
 avoids depending on Windows-to-WSL loopback forwarding for the callback. The
 callback and authorization state expire after five minutes; invalid-state requests
-cannot cancel consent. Completion consumes state once; decline or native failure
+cannot cancel consent. Shared loopback parsing waits for the complete HTTP header,
+bounded to 8 KiB and two seconds (or the earlier consent deadline); fragmented TCP
+delivery cannot accept a partial code or prematurely close the browser connection.
+Completion consumes state once; decline or native failure
 cancels it. Closing the app does not replay a token exchange on reconnect.
 
 Private transport operations adapt the long-running use case without changing UI
