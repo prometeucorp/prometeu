@@ -1285,35 +1285,6 @@ fn registered_project_files_and_shell_work_without_a_conversation() {
             serde_json::json!({"id":id,"rel":"outside-link"})
         )
         .is_err());
-    client
-        .application(
-            "trash_path".into(),
-            serde_json::json!({"id":id,"rel":"outside-link"}),
-        )
-        .unwrap();
-    assert!(added.join("outside-link").symlink_metadata().is_err());
-    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "Outside stays");
-    client
-        .application(
-            "trash_path".into(),
-            serde_json::json!({"id":id,"rel":"reviews"}),
-        )
-        .unwrap();
-    assert!(!added.join("reviews").exists());
-    let trash = base.join("root/test-desktop-data/Trash");
-    assert_eq!(
-        std::fs::read_to_string(trash.join("files/reviews/REVIEW.md")).unwrap(),
-        "Recover this draft"
-    );
-    assert!(
-        std::fs::read_to_string(trash.join("info/reviews.trashinfo"))
-            .unwrap()
-            .contains("reviews")
-    );
-    assert_eq!(
-        std::fs::read_link(trash.join("files/outside-link")).unwrap(),
-        outside
-    );
     for (command, args) in [
         (
             "create_path",
@@ -1460,6 +1431,63 @@ fn registered_project_files_and_shell_work_without_a_conversation() {
     );
     assert!(added.join("notes.txt").exists());
     assert!(project.is_dir());
+    client.shutdown().unwrap();
+    cleanup.armed = false;
+    std::fs::remove_dir_all(base).unwrap();
+}
+
+// XDG trash is a Linux adapter contract. Other hosts' native trash can require a GUI
+// and cannot be isolated by XDG_DATA_HOME. Shared admission uses injected-trash tests.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_resident_trash_preserves_directory_contents_and_symlink_targets() {
+    let base = fixture_root("pt");
+    let project = base.join("project");
+    std::fs::create_dir_all(project.join("reviews")).unwrap();
+    std::fs::write(project.join("reviews/REVIEW.md"), "Recover this draft").unwrap();
+    let outside = base.join("outside.txt");
+    std::fs::write(&outside, "Outside stays").unwrap();
+    std::os::unix::fs::symlink(&outside, project.join("outside-link")).unwrap();
+    let target = Target {
+        distribution: "Test".into(),
+        executable: env!("CARGO_BIN_EXE_prometeu-runtime").into(),
+        root: base.join("root").to_str().unwrap().into(),
+        workdir: project.to_str().unwrap().into(),
+        codex: "/unused-provider".into(),
+    };
+    let mut cleanup = Cleanup {
+        armed: true,
+        target: target.clone(),
+        launcher: Arc::new(Local),
+    };
+    let connector = StdioConnector {
+        launcher: Arc::new(Local),
+    };
+    let mut client = connector.connect(&target, events().0).unwrap();
+    for rel in ["outside-link", "reviews"] {
+        client
+            .application(
+                "trash_path".into(),
+                serde_json::json!({"id":target.workdir,"rel":rel}),
+            )
+            .unwrap();
+        assert!(project.join(rel).symlink_metadata().is_err());
+    }
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "Outside stays");
+    let trash = base.join("root/test-desktop-data/Trash");
+    assert_eq!(
+        std::fs::read_to_string(trash.join("files/reviews/REVIEW.md")).unwrap(),
+        "Recover this draft"
+    );
+    assert!(
+        std::fs::read_to_string(trash.join("info/reviews.trashinfo"))
+            .unwrap()
+            .contains("reviews")
+    );
+    assert_eq!(
+        std::fs::read_link(trash.join("files/outside-link")).unwrap(),
+        outside
+    );
     client.shutdown().unwrap();
     cleanup.armed = false;
     std::fs::remove_dir_all(base).unwrap();

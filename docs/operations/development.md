@@ -335,7 +335,11 @@ worktree fixture exercises a symlinked source. Resident fixtures use private,
 canonical directories under `/tmp` to stay within Unix socket limits even when
 the host's temporary directory is long. The saturated-terminal fixture replaces
 the shell with its output producer so cleanup exercises the supervised process
-group independently of interactive shell job control. See [run instructions](../contracts/headless-runtime.md#run) for a real
+group independently of interactive shell job control. Native XDG trash recovery
+runs in a separate Linux-only resident test; project file/shell integration and
+injected-trash admission/failure tests run on both Unix hosts. The macOS system
+trash requires desktop services and does not use the isolated XDG fixture.
+See [run instructions](../contracts/headless-runtime.md#run) for a real
 conversation and the current limitations. Real-provider smoke testing uses an
 isolated runtime directory and the execution environment's existing Codex login.
 
