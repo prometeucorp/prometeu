@@ -299,7 +299,9 @@ nor installed agent CLIs. It is included in the workspace Rust suite and runs
 in an independent Linux/macOS CI job. `npm run test:core` separately checks
 shutdown policy with injected controls and keeps its Windows CI coverage.
 The same suite now includes real PTYs (input, resize, EOF, exit and group
-shutdown) and private authentication pipes (line bounds and cleanup). These
+shutdown) and private authentication pipes (line bounds and cleanup). Its Python 3
+PTY fixture explicitly detaches the controlling terminal before closing stdio,
+so EOF while the child remains alive does not depend on Linux-only behavior. These
 tests do not exercise a Windows shell, WSL bootstrap or live OAuth.
 
 Bounded query/command adapter tests also run in `npm run test:process`. They use
@@ -325,7 +327,9 @@ Rust suite; real provider authentication remains a separate manual check.
 
 `npm run test:runtime` runs the shared Codex adapter and actual headless executable
 fixtures without Tauri or a provider subscription. The synthetic provider needs
-Python 3. See [run instructions](../contracts/headless-runtime.md#run) for a real
+Python 3.11 or later (`tomllib` is used to inspect provider configuration); CI
+selects Python 3.12 explicitly on both Unix hosts. CI matrices retain all platform
+results even when a sibling fails. See [run instructions](../contracts/headless-runtime.md#run) for a real
 conversation and the current limitations. Real-provider smoke testing uses an
 isolated runtime directory and the execution environment's existing Codex login.
 

@@ -22,6 +22,7 @@ jobs:
   core:
     name: application core (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-2022]
     runs-on: ${{ matrix.os }}
@@ -46,6 +47,7 @@ jobs:
   process:
     name: unix execution adapters (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -63,6 +65,9 @@ jobs:
         with:
           workspaces: src-tauri
           shared-key: unix-process-${{ matrix.os }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
       # Real local processes, without a webview, GUI libraries or installed agent.
       - run: cargo test -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --locked
       - run: cargo clippy -p prometeu-process -p prometeu-profiles -p prometeu-tools -p prometeu-runtime --all-targets --locked -- -D warnings
@@ -88,6 +93,10 @@ jobs:
         with:
           workspaces: src-tauri
           shared-key: desktop-macos
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
 
       - run: npm ci
 
@@ -133,6 +142,10 @@ jobs:
         with:
           workspaces: src-tauri
           shared-key: desktop-linux-ubuntu-22.04
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
 
       - run: npm ci
 
