@@ -194,7 +194,8 @@ credentials stay in `mcp-auth.json` under the runtime root. Windows injects
 browser with a literal HTTP(S) URL, validates state and passes the code to WSL,
 where the verifier and tokens stay. Callback and state expire after five minutes
 (at most eight pending); invalid state cannot cancel consent. The loopback reader
-waits for the complete HTTP header (8 KiB, 2 s or the earlier consent deadline).
+keeps the request line (8 KiB) and drains the complete HTTP header, which shared
+loopback cookies can enlarge (256 KiB, 2 s or the earlier consent deadline).
 State is consumed once; nothing is replayed after reconnecting. The bridge polls
 without holding the session mutex and verifies the captured target on each
 request.

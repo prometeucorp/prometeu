@@ -115,10 +115,18 @@ pub fn request_target(req: &str) -> Option<String> {
     (method == "GET").then(|| target.to_string())
 }
 
+const REQUEST_LINE_LIMIT: usize = 8 * 1024;
+const HEADER_LIMIT: usize = 256 * 1024;
+
+/// Keep only the request line, then drain the remaining headers so closing the socket does not reset
+/// the browser's connection. Loopback cookies are shared across ports and can make headers large.
 fn callback_target(stream: &mut TcpStream, deadline: Instant) -> std::io::Result<Option<String>> {
-    let mut headers = [0; 8192];
-    let mut length = 0;
-    while length < headers.len() {
+    let mut chunk = [0; 8192];
+    let mut line = Vec::new();
+    let mut target = None;
+    let mut tail = Vec::new();
+    let mut total = 0;
+    while total < HEADER_LIMIT {
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .filter(|duration| !duration.is_zero())
@@ -126,17 +134,28 @@ fn callback_target(stream: &mut TcpStream, deadline: Instant) -> std::io::Result
                 std::io::Error::new(std::io::ErrorKind::TimedOut, "callback headers timed out")
             })?;
         stream.set_read_timeout(Some(remaining))?;
-        let read = stream.read(&mut headers[length..])?;
+        let read = stream.read(&mut chunk)?;
         if read == 0 {
             return Ok(None);
         }
-        length += read;
-        if headers[..length]
-            .windows(4)
-            .any(|bytes| bytes == b"\r\n\r\n")
-        {
-            return Ok(request_target(&String::from_utf8_lossy(&headers[..length])));
+        total += read;
+        if target.is_none() {
+            line.extend_from_slice(&chunk[..read]);
+            let Some(end) = line.windows(2).position(|bytes| bytes == b"\r\n") else {
+                if line.len() >= REQUEST_LINE_LIMIT {
+                    return Ok(None);
+                }
+                continue;
+            };
+            target = Some(request_target(&String::from_utf8_lossy(&line[..end])));
+            tail = line.split_off(end);
+        } else {
+            tail.extend_from_slice(&chunk[..read]);
         }
+        if tail.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            return Ok(target.flatten());
+        }
+        tail.drain(..tail.len().saturating_sub(3));
     }
     Ok(None)
 }
@@ -316,7 +335,8 @@ mod callback_tests {
     fn callback_rejects_truncated_and_oversized_headers() {
         for headers in [
             b"GET /mcp?state=expected&code=partial".to_vec(),
-            vec![b'x'; 8192],
+            vec![b'x'; REQUEST_LINE_LIMIT],
+            [b"GET /mcp HTTP/1.1\r\n".to_vec(), vec![b'x'; HEADER_LIMIT]].concat(),
         ] {
             let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
             let address = listener.local_addr().unwrap();
@@ -367,6 +387,27 @@ mod callback_tests {
         stream.read_to_string(&mut response).unwrap();
         assert!(response.starts_with("HTTP/1.1 200"));
         assert_eq!(task.join().unwrap().unwrap(), "partial code");
+    }
+
+    #[test]
+    fn callback_accepts_code_behind_large_loopback_cookies() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            callback_target(&mut stream, Instant::now() + Duration::from_secs(2))
+        });
+        let mut stream = TcpStream::connect(address).unwrap();
+        let cookie = "x".repeat(32 * 1024);
+        write!(
+            stream,
+            "GET /mcp?state=expected&code=ok HTTP/1.1\r\nCookie: a={cookie}\r\n\r\n"
+        )
+        .unwrap();
+        assert_eq!(
+            task.join().unwrap().unwrap().as_deref(),
+            Some("/mcp?state=expected&code=ok")
+        );
     }
 
     #[test]
