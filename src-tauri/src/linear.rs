@@ -519,6 +519,20 @@ pub async fn linear_issues(force: bool) -> Result<Issues, String> {
 }
 
 fn issues(force: bool) -> Result<Issues, String> {
+    if !force {
+        let (generation, snapshot) = {
+            let cache = lock(&CACHE);
+            (cache.generation, cache.snapshot.clone())
+        };
+        if let Some(cached) = snapshot.or_else(load_issues) {
+            if cached.fetched_at.saturating_add(FRESH) > now() {
+                let mut cache = lock(&CACHE);
+                if cache.generation == generation {
+                    return Ok(cache.snapshot.get_or_insert(cached).clone());
+                }
+            }
+        }
+    }
     let _refresh = lock(&REFRESH);
     loop {
         let (generation, snapshot) = {

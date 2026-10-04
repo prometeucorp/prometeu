@@ -18,8 +18,9 @@ pages of 50 per list. The available query filters by missing assignee, active
 state and team membership in Linear. The two-minute cache persists privately in
 `linear-issues.json`. Older cache files without `available` trigger an immediate
 refresh; older binaries ignore the added field. Network fetches run outside the
-cache lock. Refreshes serialize through a separate lock so an older fetch cannot
-publish after a newer one; claims remain independent. Snapshots fetched before
+cache lock. Fresh cached reads bypass the separate refresh lock. Network
+refreshes serialize so an older fetch cannot publish after a newer one; claims
+remain independent. Snapshots fetched before
 a claim or account change are discarded.
 If the available query fails after Mine succeeds, the response keeps Mine,
 retains previously fetched available issues when present, and sets
