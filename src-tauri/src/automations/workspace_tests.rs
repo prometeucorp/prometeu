@@ -45,7 +45,7 @@ impl CommandRunner<Command> for LocalRunner {
                 .unwrap()
                 .strip_prefix("refs/pull/42/head:")
                 .unwrap();
-            Command::new("git")
+            isolate_git_config(&mut Command::new("git"))
                 .current_dir(request.get_current_dir().unwrap())
                 .args([
                     "update-ref",
@@ -55,7 +55,7 @@ impl CommandRunner<Command> for LocalRunner {
                 .output()
         } else {
             assert!(!args.iter().any(|arg| arg.contains("://")));
-            request.output()
+            isolate_git_config(request).output()
         }
         .map_err(|error| CommandError::Io(error.to_string()))?;
         Ok(CommandOutput {
@@ -167,8 +167,27 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+/// Test Git processes read only each temporary repository's local configuration. Apply this
+/// after production command construction, which intentionally clears inherited config overrides.
+/// Preserve its private GIT_INDEX_FILE and other repository-specific execution settings.
+fn isolate_git_config(command: &mut Command) -> &mut Command {
+    let overrides: Vec<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .chain(command.get_envs().map(|(key, _)| key.to_owned()))
+        .filter(|key| key == "GIT_CONFIG" || key.to_string_lossy().starts_with("GIT_CONFIG_"))
+        .collect();
+    for key in overrides {
+        command.env_remove(key);
+    }
+    command
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_ATTR_NOSYSTEM", "1")
+}
+
 fn local_git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = isolate_git_config(&mut Command::new("git"))
         .args(["-c", "core.hooksPath=/dev/null"])
         .args(args)
         .current_dir(dir)
@@ -414,4 +433,35 @@ fn configured_checkout_filter_is_refused_without_executing_it() {
         .starts_with("automation_git_filters_unsupported"));
     assert!(!sentinel.exists());
     assert!(!reservation.path.exists());
+}
+
+#[test]
+fn fixture_commands_ignore_parent_global_and_environment_git_filters() {
+    let fixture = Fixture::new();
+    let config = fixture.root.join("parent-gitconfig");
+    std::fs::write(
+        &config,
+        "[filter \"ci-global\"]\n\tclean = false\n\tsmudge = false\n\tprocess = false\n",
+    )
+    .unwrap();
+    for test in [
+        "automations::workspace::tests::github_uses_fetched_event_head_and_never_selected_clone_head",
+        "automations::workspace::tests::configured_checkout_filter_is_refused_without_executing_it",
+    ] {
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture"])
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .env("GIT_CONFIG_SYSTEM", &config)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "filter.ci-environment.process")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success() && String::from_utf8_lossy(&child.stdout).contains(test),
+            "fixture failed under parent Git filters:\n{}\n{}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+    }
 }

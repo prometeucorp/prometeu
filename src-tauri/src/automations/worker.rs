@@ -13,7 +13,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,6 +23,7 @@ const MAX_FILE: usize = 256 * 1024;
 const MAX_MESSAGE: usize = 2 * MAX_FILE + 16 * 1024;
 const MAX_OUTPUT: usize = 2 * 1024 * 1024;
 const MAX_ENTRIES: usize = 20_000;
+const MAX_GIT_CONTROL: u64 = 64 * 1024 * 1024;
 const MAX_CALLS: usize = 100;
 const TIMEOUT: Duration = Duration::from_secs(300);
 const ROOT_ENV: &str = "PROMETEU_AUTOMATION_ROOT";
@@ -565,6 +566,8 @@ struct Stamp {
     changed: (i64, i64),
     mode: u32,
     links: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_sha256: Option<String>,
 }
 impl Stamp {
     fn is_directory(&self) -> bool {
@@ -581,7 +584,41 @@ impl Stamp {
             changed: (m.ctime(), m.ctime_nsec()),
             mode: m.mode(),
             links: m.nlink(),
+            content_sha256: None,
         })
+    }
+
+    fn git_control(file: &File) -> Result<Self, String> {
+        let mut stamp = Self::of(file)?;
+        if stamp.is_directory() {
+            return Ok(stamp);
+        }
+        if stamp.size > MAX_GIT_CONTROL {
+            return Err("automation_git_metadata_limit".into());
+        }
+        // Control bytes may change without distinguishable filesystem timestamps.
+        // Positional reads preserve the cursor used to resolve HEAD/commondir.
+        let mut hash = Sha256::new();
+        let mut offset = 0;
+        let mut buffer = [0; 8192];
+        loop {
+            let count = file
+                .read_at(&mut buffer, offset)
+                .map_err(|_| "automation_git_metadata_unreadable")?;
+            if count == 0 {
+                break;
+            }
+            offset += count as u64;
+            if offset > MAX_GIT_CONTROL {
+                return Err("automation_git_metadata_limit".into());
+            }
+            hash.update(&buffer[..count]);
+        }
+        if Self::of(file)? != stamp {
+            return Err("automation_user_intervention".into());
+        }
+        stamp.content_sha256 = Some(format!("{:x}", hash.finalize()));
+        Ok(stamp)
     }
 }
 
@@ -756,7 +793,7 @@ fn git_snapshot(root: &Path, entries: &mut BTreeMap<PathBuf, Stamp>) -> Result<(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(_) => return Err("automation_git_metadata_unreadable".into()),
     };
-    entries.insert(PathBuf::from(".git"), Stamp::of(&git)?);
+    entries.insert(PathBuf::from(".git"), Stamp::git_control(&git)?);
     let directory = if git
         .metadata()
         .map_err(|_| "automation_git_metadata_unreadable")?
@@ -773,11 +810,11 @@ fn git_snapshot(root: &Path, entries: &mut BTreeMap<PathBuf, Stamp>) -> Result<(
     };
     let mut common = directory.clone();
     if let Some(file) = git_file(&directory.join("commondir"))? {
-        entries.insert(PathBuf::from(".git/commondir"), Stamp::of(&file)?);
+        entries.insert(PathBuf::from(".git/commondir"), Stamp::git_control(&file)?);
         common = directory.join(small_text(file)?.trim());
     }
     let head = git_file(&directory.join("HEAD"))?.ok_or("automation_git_metadata_invalid")?;
-    entries.insert(PathBuf::from(".git/HEAD"), Stamp::of(&head)?);
+    entries.insert(PathBuf::from(".git/HEAD"), Stamp::git_control(&head)?);
     let head = small_text(head)?;
     let mut paths = vec![
         ("index".to_owned(), directory.join("index")),
@@ -794,7 +831,7 @@ fn git_snapshot(root: &Path, entries: &mut BTreeMap<PathBuf, Stamp>) -> Result<(
     }
     for (key, path) in paths {
         if let Some(file) = git_file(&path)? {
-            entries.insert(PathBuf::from(".git").join(key), Stamp::of(&file)?);
+            entries.insert(PathBuf::from(".git").join(key), Stamp::git_control(&file)?);
         }
     }
     Ok(())
@@ -1563,6 +1600,20 @@ mod tests {
     }
 
     #[test]
+    fn git_control_digests_refuse_oversized_files_without_reading_them() {
+        let directory = PrivateDirectory::new().unwrap();
+        let path = directory.0.join("index");
+        File::create(&path)
+            .unwrap()
+            .set_len(MAX_GIT_CONTROL + 1)
+            .unwrap();
+        assert_eq!(
+            Stamp::git_control(&File::open(&path).unwrap()).unwrap_err(),
+            "automation_git_metadata_limit"
+        );
+    }
+
+    #[test]
     fn worktree_metadata_indirection_and_changes_during_staging_are_checked() {
         let (directory, _) = fixture(true);
         let control = PrivateDirectory::new().unwrap();
@@ -1577,13 +1628,24 @@ mod tests {
             valid_tools(&["write_file".into()], true).unwrap(),
         )
         .unwrap();
-        let initial = fingerprint(&broker.baseline).unwrap();
+        let head_path = Path::new(".git/HEAD");
+        let initial_head = broker.baseline[head_path].clone();
         fs::write(directory.0.join("staged"), "our staged bytes").unwrap();
         assert!(broker
             .unchanged_during_write(Path::new("staged"), Path::new(""))
             .is_ok());
         fs::write(control.0.join("HEAD"), "bbbbbbbb\n").unwrap();
-        assert_ne!(fingerprint(&broker.snapshot().unwrap()).unwrap(), initial);
+        let current_head = broker.snapshot().unwrap()[head_path].clone();
+        assert_ne!(current_head.content_sha256, initial_head.content_sha256);
+        // Reproduce a coarse-timestamp filesystem deterministically: only the
+        // control-file content digest distinguishes the old and current HEAD.
+        broker.baseline.insert(
+            head_path.into(),
+            Stamp {
+                content_sha256: initial_head.content_sha256,
+                ..current_head
+            },
+        );
         assert!(broker
             .unchanged_during_write(Path::new("staged"), Path::new(""))
             .is_err());

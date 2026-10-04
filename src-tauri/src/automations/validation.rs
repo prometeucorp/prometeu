@@ -988,8 +988,15 @@ mod tests {
         fs::hard_link(outside.0.join("file"), root.0.join("linked")).unwrap();
         assert!(inspect(&root.0).is_err());
         fs::remove_file(root.0.join("linked")).unwrap();
-        let _socket = std::os::unix::net::UnixListener::bind(root.0.join("host.sock")).unwrap();
-        assert!(inspect(&root.0).is_err());
+        // macOS's per-user temporary prefix can exceed sockaddr_un.sun_path.
+        let socket_root = Scratch(Path::new("/tmp").join(format!("pv-{}", uuid::Uuid::new_v4())));
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&socket_root.0)
+            .unwrap();
+        let _socket =
+            std::os::unix::net::UnixListener::bind(socket_root.0.join("host.sock")).unwrap();
+        assert!(inspect(&socket_root.0).is_err());
     }
 
     #[test]

@@ -117,7 +117,10 @@ an automation worker. Proposal generation currently uses tool-free Claude.
 The broker exposes `list_files`, `read_file`, explicitly authorized `write_file`,
 and `run_checks` only when fixed commands are configured in the node. It rejects
 traversal, symlinks and Git metadata paths. Writes require the last observed
-content hash and check filesystem/Git metadata for intervention. These checks are
+content hash and check filesystem/Git metadata for intervention. Content digests
+for Git control files ensure same-size HEAD or ref changes
+remain detectable when filesystem timestamps coincide. Control-file reads are
+bounded to 64 MiB per file. These checks are
 not an atomic compare-and-swap against every external process. Detected changes,
 conversation activity, cancellation or revoked grants stop further broker work
 and require reconciliation. File operations are bounded to 256 KiB UTF-8,

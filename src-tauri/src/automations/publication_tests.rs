@@ -80,14 +80,14 @@ impl CommandRunner<Command> for Runner {
                     local_git(&self.remote, &["update-ref", "refs/heads/feature", &parent]);
                 }
             }
-            Command::new("git")
+            isolate_git_config(&mut Command::new("git"))
                 .args(["-c", "core.hooksPath=/dev/null"])
                 .args(&local)
                 .current_dir(request.get_current_dir().unwrap())
                 .output()
         } else {
             assert!(!args.iter().any(|arg| arg.contains("://")));
-            request.output()
+            isolate_git_config(request).output()
         }
         .map_err(|error| CommandError::Io(error.to_string()))?;
         Ok(CommandOutput {
@@ -193,8 +193,27 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+/// Test Git processes read only each temporary repository's local configuration. Apply this
+/// after production command construction, which intentionally clears inherited config overrides.
+/// Preserve its private GIT_INDEX_FILE and other repository-specific execution settings.
+fn isolate_git_config(command: &mut Command) -> &mut Command {
+    let overrides: Vec<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .chain(command.get_envs().map(|(key, _)| key.to_owned()))
+        .filter(|key| key == "GIT_CONFIG" || key.to_string_lossy().starts_with("GIT_CONFIG_"))
+        .collect();
+    for key in overrides {
+        command.env_remove(key);
+    }
+    command
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_ATTR_NOSYSTEM", "1")
+}
+
 fn local_git(root: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = isolate_git_config(&mut Command::new("git"))
         .args(["-c", "core.hooksPath=/dev/null"])
         .args(args)
         .current_dir(root)
@@ -481,4 +500,35 @@ fn branch_intervention_during_commit_cannot_change_personal_or_reserved_branch()
         std::fs::read_to_string(fixture.reservation.path.join("file.txt")).unwrap(),
         "fixed\n"
     );
+}
+
+#[test]
+fn fixture_commands_ignore_parent_git_configuration_without_weakening_local_guards() {
+    let fixture = Fixture::new(false);
+    let config = fixture.root.join("parent-gitconfig");
+    std::fs::write(
+        &config,
+        "[filter \"ci-global\"]\n\tclean = false\n\tprocess = false\n[url \"https://unrelated.invalid/\"]\n\tinsteadOf = https://github.com/\n",
+    )
+    .unwrap();
+    for test in [
+        "automations::publication::tests::publishes_exact_validated_commit_to_original_branch_using_atomic_lease",
+        "automations::publication::tests::clean_filter_is_refused_and_hooks_are_disabled",
+    ] {
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", test, "--nocapture"])
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .env("GIT_CONFIG_SYSTEM", &config)
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "filter.ci-environment.clean")
+            .env("GIT_CONFIG_VALUE_0", "false")
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success() && String::from_utf8_lossy(&child.stdout).contains(test),
+            "fixture failed under parent Git config:\n{}\n{}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+    }
 }
