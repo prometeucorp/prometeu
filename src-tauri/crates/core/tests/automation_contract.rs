@@ -105,6 +105,10 @@ fn automation_wire_fixture_matches_actual_serialization() {
     if std::env::var_os("PROMETEU_UPDATE_CONTRACT_FIXTURES").is_some() {
         std::fs::write(path, serialized).unwrap();
     } else {
-        assert_eq!(std::fs::read_to_string(path).expect("regenerate the automation contract fixture"),serialized,"Automation wire serialization changed; review the shared TypeScript contract and regenerate with PROMETEU_UPDATE_CONTRACT_FIXTURES=1");
+        // Git may check out CRLF on Windows; preserve every other contract byte.
+        let checked_in = std::fs::read_to_string(path)
+            .expect("regenerate the automation contract fixture")
+            .replace("\r\n", "\n");
+        assert_eq!(checked_in,serialized,"Automation wire serialization changed; review the shared TypeScript contract and regenerate with PROMETEU_UPDATE_CONTRACT_FIXTURES=1");
     }
 }
