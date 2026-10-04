@@ -23,6 +23,7 @@ import { initCodeCopy } from "./markdown";
 import * as feedback from "./feedback";
 import { current, fromBack, paint, t } from "./i18n";
 import * as issues from "./issues";
+import { githubIssue } from "./github-issues-model";
 import * as mcp from "./mcp";
 import * as plugins from "./plugins";
 import { PrScanPolicy } from "./pr-refresh";
@@ -687,6 +688,7 @@ issues.init({
   redraw: draw,
   open: (w) => openWorkspace(w),
   create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),
+  createGitHub: (item, project, git) => launch(project, githubIssue(item), git),
   toSettings: () => { settings.showLinear(); showSettings(); },
 });
 archived.init({ board: () => state, hooks: () => hooks });

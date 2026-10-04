@@ -35,6 +35,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
 | Linear OAuth credential | `<root>/linear.json` | `linear.rs`; private access and refresh tokens, account identity and granted scopes; see [Linear issues](linear-issues.md) |
 | Linear issue cache | `<root>/linear-issues.json` | `linear.rs`; private assigned and available lists with fetch time; see [Linear issues](linear-issues.md) |
+| GitHub repository selection | `<root>/github-issues.json` | `github_issues.rs`; private per-account repository names, no tokens or issue bodies; see [GitHub issues](github-issues.md) |
 | optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
 | Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |

@@ -169,6 +169,13 @@ Removing the selected account blocks new input and launches; attaching the
 external account again does not select it. Managed OAuth profiles are not
 implemented.
 
+## GitHub discovery
+
+The GitHub inbox commands (`github_identity`, `github_issues`, `github_repositories`,
+`github_issue_open`, `github_projects`, `github_prepare`) currently have desktop
+and browser-mock adapters only. The WSL runtime reports them unsupported; this
+does not claim native Windows GitHub discovery or PR launch support.
+
 ## Conversation tools
 
 Codex startup reads the current catalog through `ToolSelection` at each spawn and

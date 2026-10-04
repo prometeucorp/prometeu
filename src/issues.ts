@@ -1,9 +1,13 @@
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
-import { fromBack, paint, t } from "./i18n";
+import { fromBack, t } from "./i18n";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, empty, h, template } from "./util";
+import { button } from "./ui";
+import { issueTab, issueSearch, issueRefresh, issueFilter } from "./issues-controls";
+import { githubIssues } from "./github-issues";
+import type { GitHubItem, GitHubPrepared } from "./types";
 
 /// Show assigned and available Linear issues. Existing workspaces replace the create action with navigation. Reuse the backend's two-minute cache, allow forced refresh, and preserve the last successful list after failure.
 
@@ -17,6 +21,7 @@ type Ctx = {
   redraw: () => void;
   open: (ws: Workspace) => void;
   create: (issue: Issue) => void;
+  createGitHub: (item: GitHubItem, project: string, git?: GitHubPrepared) => void;
   toSettings: () => void;
 };
 
@@ -51,9 +56,29 @@ let visible = false;
 let accountId = "";
 let find: HTMLInputElement;
 let meta: HTMLElement;
+let provider: "linear" | "github" = localStorage.getItem("prometeu:issues:provider") === "github" ? "github" : "linear";
+let github: ReturnType<typeof githubIssues>;
 
 export function init(context: Ctx) {
   ctx = context;
+  github = githubIssues($("github-issues-pane"), { ...ctx, create: ctx.createGitHub });
+  const providers = $("iproviders");
+  providers.setAttribute("aria-label", t("issues.providers"));
+  for (const [id, label] of [["linear", "Linear"], ["github", "GitHub"]] as const) {
+    const control = issueTab(label, () => {
+      provider = id; localStorage.setItem("prometeu:issues:provider", id); showProvider();
+    });
+    control.id = `issues-provider-${id}`;
+    control.setAttribute("aria-controls", `${id}-issues-pane`);
+    $(`${id}-issues-pane`).setAttribute("aria-labelledby", control.id);
+    providers.append(control);
+  }
+  providers.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? "linear" : event.key === "End" ? "github" : provider === "linear" ? "github" : "linear";
+    $("issues-provider-" + next).click(); $("issues-provider-" + next).focus();
+  });
   accountId = ctx.accountId();
   buildTabs();
   buildBar();
@@ -77,7 +102,11 @@ export function init(context: Ctx) {
 }
 
 /// Null means Linear is unavailable, so the sidebar hides its count.
-export const count = () => (ctx?.connected() && got ? got.issues.length : null);
+export const count = () => {
+  const linear = ctx?.connected() && got ? got.issues.length : null;
+  const assigned = github?.count() ?? null;
+  return linear === null && assigned === null ? null : (linear ?? 0) + (assigned ?? 0);
+};
 
 /// Launcher data: null means no Linear connection; an empty list while busy means loading.
 export const list = () => (ctx?.connected() ? (got?.issues ?? []) : null);
@@ -92,13 +121,25 @@ export function load(): Promise<void> {
 
 export function show() {
   visible = true;
+  showProvider();
+}
+
+function showProvider() {
+  for (const id of ["linear", "github"] as const) {
+    const control = $("issues-provider-" + id);
+    control.setAttribute("aria-selected", String(provider === id)); control.tabIndex = provider === id ? 0 : -1;
+    control.classList.toggle("on", provider === id);
+  }
+  $("linear-issues-pane").hidden = provider !== "linear";
+  if (provider === "github") { github.show(); return; }
+  github.hide();
   void load();
   draw();
-  find.focus();
 }
 
 export function hide() {
   visible = false;
+  github.hide();
 }
 
 async function refresh(force: boolean) {
@@ -123,15 +164,14 @@ async function refresh(force: boolean) {
 
 function buildBar() {
   const bar = $("ibar");
-  bar.innerHTML = `
-    <label class="ifind">${icon("search", 14)}<input spellcheck="false" /></label>
-    <span class="spacer"></span>
-    <span class="imeta" id="imeta"></span>
-    <button class="ico" id="irefresh" data-t-title="issues.refresh">${icon("rotate")}</button>`;
-  paint(bar);
-  find = bar.querySelector("input")!;
-  find.placeholder = t("issues.search");
-  meta = bar.querySelector("#imeta")!;
+  const search = issueSearch(t("issues.search"));
+  find = search.control;
+  meta = h("span", "imeta"); meta.id = "imeta"; meta.setAttribute("role", "status");
+  const refreshButton = issueRefresh(t("issues.refresh"), () => {
+    if (ctx.connected() && !loading) void refresh(true);
+  });
+  refreshButton.id = "irefresh";
+  bar.replaceChildren(search.root, h("span", "spacer"), meta, refreshButton);
   find.addEventListener("input", () => {
     query = find.value.trim().toLowerCase();
     drawList();
@@ -142,9 +182,6 @@ function buildBar() {
       query = "";
       drawList();
     }
-  });
-  bar.querySelector("#irefresh")!.addEventListener("click", () => {
-    if (ctx.connected() && !loading) void refresh(true);
   });
 }
 
@@ -165,6 +202,7 @@ function drawMeta() {
 
 export function draw() {
   if (!visible) return;
+  if (provider === "github") { github.draw(); return; }
   drawTabs();
   drawMeta();
   drawList();
@@ -176,16 +214,13 @@ function buildTabs() {
   const list = $("ilist");
   list.setAttribute("role", "tabpanel");
   for (const key of ["mine", "available"] as const) {
-    const tab = template("button", "tab itab", `<span></span><span class="c"></span>`);
-    tab.setAttribute("role", "tab");
-    tab.id = `issues-${key}`;
-    tab.setAttribute("aria-controls", "ilist");
-    tab.children[0].textContent = t(key === "mine" ? "issues.mine" : "issues.available");
-    tab.addEventListener("click", () => {
+    const tab = issueTab(t(key === "mine" ? "issues.mine" : "issues.available"), () => {
       scope = key;
       pickTeam("");
       draw();
     });
+    tab.id = `issues-${key}`;
+    tab.setAttribute("aria-controls", "ilist");
     tabs.append(tab);
   }
   tabs.addEventListener("keydown", (event) => {
@@ -206,6 +241,7 @@ function drawTabs() {
     tab.setAttribute("aria-selected", String(selected));
     tab.tabIndex = selected ? 0 : -1;
     tab.children[0].textContent = t(index === 0 ? "issues.mine" : "issues.available");
+    (tab.children[1] as HTMLElement).hidden = false;
     tab.children[1].textContent = String(index === 0 ? got?.issues.length ?? 0 : got?.available.length ?? 0);
     if (selected) $("ilist").setAttribute("aria-labelledby", tab.id);
   });
@@ -322,12 +358,10 @@ function drawTeams(found: Issue[], source: Issue[]) {
   const pills = h("div", "tpills");
   for (const key of ["", ...keys]) {
     const mine = key ? found.filter((i) => i.team === key) : found;
-    const pill = template("button", "tpill" + (key === team ? " on" : ""), `<span></span><span class="c"></span>`);
-    pill.children[0].textContent = key || t("issues.team.all");
-    pill.children[1].textContent = String(mine.length);
-    pill.addEventListener("click", () => {
+    const pill = issueFilter(key || t("issues.team.all"), mine.length, key === team, () => {
       pickTeam(key);
       drawList();
+      [...box.querySelectorAll<HTMLButtonElement>(".tpill")].find(control => control.getAttribute("aria-pressed") === "true")?.focus();
     });
     pills.append(pill);
   }
@@ -389,8 +423,8 @@ function row(issue: Issue, available = false): HTMLElement {
 
   const act = el.querySelector(".iact")!;
   const owner = ctx.board().workspaces.find((w) => w.issue?.id === issue.id && !w.archived);
-  const btn = h("button", owner ? "ghost sm" : "pri sm",
-    available ? t(ctx.canAssign() ? "issues.claim" : "issues.allowClaim") : t(owner ? "issues.open" : "issues.create")) as HTMLButtonElement;
+  const btn = button(available ? t(ctx.canAssign() ? "issues.claim" : "issues.allowClaim") : t("issues.open"), undefined, "ghost");
+  btn.classList.add("sm");
   if (available) {
     if (claiming) btn.setAttribute("aria-disabled", "true");
     btn.addEventListener("click", async (e) => {
@@ -425,7 +459,7 @@ function row(issue: Issue, available = false): HTMLElement {
         claiming = false;
         $("ilist").removeAttribute("aria-busy");
         draw();
-        if (keyboard && visible) {
+        if (keyboard && visible && provider === "linear") {
           const same = [...$("ilist").querySelectorAll<HTMLElement>(".irow.available")]
             .find((candidate) => candidate.querySelector(".iid")?.textContent === issue.identifier);
           (succeeded ? $("itabs").querySelectorAll<HTMLButtonElement>(".itab")[1]

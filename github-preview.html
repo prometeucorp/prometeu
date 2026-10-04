@@ -1,0 +1,607 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Issues · Prometeu</title>
+  <!-- Standalone proposal. Shared controls and tokens are embedded below; no network or application state. -->
+  <style id="shared-styles">/* Shared Prometeu design tokens. */
+:root {
+  color-scheme: dark;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --control-height: 32px;
+  --button-height: 28px;
+  --label-size: 12px;
+  --hint-size: 11.5px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 18px;
+  --text-title: 32px;
+  --shadow: 0 16px 48px rgb(0 0 0 / .18);
+  --bg: #141110;
+  --bg-side: #1b1917;
+  --bg-raised: #201e1c;
+  --bg-raised-2: #2b2826;
+  --bg-raised-3: #373533;
+  --bg-btn: #52504e;
+  --line: #2b2826;
+  --line-side: #32302f;
+  --line-raised: #373533;
+  --line-ghost: #434140;
+  --fg: #eae8e6;
+  --fg-2: #a4a09d;
+  --fg-3: #756f6c;
+  --tab-line: #d8c2b3;
+  /* Warm brown distinguishes user messages from neutral surfaces. */
+  --bubble: #281e1d;
+  --pri: #eae8e6;
+  --pri-fg: #141110;
+  --accent: #ff6b3d;
+  --run: #4fb8b0;   --run-bg: #16302e;
+  --wait: #e0a030;  --wait-bg: #33270f;
+  --done: #5fbf73;  --done-bg: #16301d;
+  --err: #e06c6c;   --err-bg: #341a1a;
+  /* Subtle diff backgrounds preserve syntax-highlighting contrast. */
+  --add-bg: #18291d;
+  --del-bg: #2c1a1a;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+}
+
+
+
+/* Opt-in components avoid global button, form or layout rules. */
+.ui-comfortable { --control-height: 44px; --button-height: 44px; --label-size: 13px; --hint-size: 12px; }
+.ui-comfortable .mrow { min-height: var(--control-height); }
+.ui-button {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2); min-height: var(--button-height); height: auto; padding: 0 var(--space-4);
+  border: 1px solid var(--line-ghost); border-radius: var(--r); background: none; color: var(--fg);
+  font: inherit; font-weight: 500; line-height: 1.4; text-decoration: none; cursor: pointer;
+}
+.ui-button:hover { background: var(--bg-raised); }
+.ui-button.pri { background: var(--pri); border-color: transparent; color: var(--pri-fg); }
+.ui-button.pri:hover { background: #fff; }
+.ui-button.ghost { border-color: transparent; color: var(--fg-2); }
+.ui-button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
+.ui-button.danger { border-color: var(--err); color: var(--err); }
+.ui-button.danger:hover { background: var(--err-bg); }
+.ui-button[aria-disabled="true"] { opacity: .45; cursor: wait; }
+.ui-button:focus-visible, .ui-input:focus-visible, .ui-select:focus-visible,
+.ui-check > input[type="checkbox"]:focus-visible, .ui-link:focus-visible, .ui-nav-link:focus-visible {
+  outline: 2px solid var(--tab-line); outline-offset: 3px;
+}
+.ui-link { color: var(--fg); text-underline-offset: 4px; }
+.ui-link:hover { color: var(--accent); }
+.ui-card { padding: var(--space-6); border: 1px solid var(--line-raised); border-radius: var(--r-xl); background: var(--bg-side); }
+.ui-stack { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.ui-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.ui-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px var(--space-2); border: 1px solid var(--line-raised); border-radius: var(--r); color: var(--fg-2); font-size: var(--text-sm); line-height: 1.5; }
+.ui-badge.success { color: var(--done); background: var(--done-bg); border-color: transparent; }
+.ui-notice { margin: 0; padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); color: var(--fg-2); background: var(--bg-raised); line-height: 1.6; overflow-wrap: anywhere; }
+.ui-notice.success { color: var(--done); background: var(--done-bg); }
+.ui-notice.error { color: var(--err); background: var(--err-bg); }
+.ui-notice.warning { color: var(--wait); background: var(--wait-bg); }
+.ui-eyebrow { color: var(--accent); font: 500 var(--text-sm)/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.ui-nav-link { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); border-radius: var(--r); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); line-height: 20px; }
+.ui-nav-link:hover, .ui-nav-link[aria-current] { color: var(--fg); background: var(--bg-raised); }
+.ui-nav-link[aria-current] { font-weight: 500; box-shadow: inset 2px 0 var(--tab-line); }
+/* Avatar images fall back to person or organization glyphs. */
+.ui-avatar { --avatar: 24px; flex: none; display: inline-grid; place-items: center; width: var(--avatar); height: var(--avatar); border-radius: 50%; overflow: hidden; background: var(--bg-raised-2); color: var(--fg-2); vertical-align: middle; }
+.ui-avatar.md { --avatar: 32px; }
+.ui-avatar.lg { --avatar: 40px; }
+.ui-avatar.org { border-radius: var(--r); background: color-mix(in srgb, var(--accent) 18%, var(--bg-raised)); color: var(--accent); }
+.ui-avatar > img { width: 100%; height: 100%; object-fit: cover; }
+.ui-avatar > .ic { width: 58%; height: 58%; }
+.ui-button > .ui-avatar { margin-left: calc(var(--space-2) * -1); }
+/* Underlined tabs share the desktop selection marker. */
+.ui-tabs { display: flex; gap: var(--space-1); overflow-x: auto; border-bottom: 1px solid var(--line-raised); }
+.ui-tabs > a { flex: none; padding: var(--space-2) var(--space-3); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); line-height: 20px; }
+.ui-tabs > a:hover { color: var(--fg); }
+.ui-tabs > a[aria-current] { color: var(--fg); font-weight: 500; box-shadow: inset 0 -2px var(--tab-line); }
+.ui-tabs > a:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+
+/* Fields, selectors and forms share control dimensions. */
+.ui-button:disabled, .ui-select:disabled { opacity: .45; cursor: not-allowed; }
+.ui-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ui-label { font-size: var(--label-size); color: var(--fg-2); }
+.ui-hint { margin: 0; font-size: var(--hint-size); color: var(--fg-2); line-height: 1.5; }
+.ui-error, .ui-hint.ui-error { color: var(--err); }
+.ui-error:empty { display: none; }
+.ui-input, .ui-select { min-height: var(--control-height); padding: 7px 10px; border: 1px solid var(--line-raised); border-radius: var(--r); background: var(--bg); color: var(--fg); font: inherit; }
+.ui-input { box-sizing: border-box; width: 100%; min-width: 0; user-select: text; }
+.ui-input::placeholder { color: var(--fg-3); }
+textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
+.ui-input:disabled { opacity: .45; cursor: not-allowed; }
+.ui-input[aria-invalid="true"], .ui-select[aria-invalid="true"] { border-color: var(--err); }
+.ui-select { box-sizing: border-box; display: inline-flex; align-items: center; width: 100%; height: auto; text-align: left; justify-content: space-between; gap: var(--space-2); cursor: pointer; }
+.ui-select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-select-field { position: relative; }
+.ui-native-select { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; padding: 0; border: 0; }
+.ui-select-menu { max-height: 40vh; max-width: calc(100vw - 16px); overflow-y: auto; }
+.ui-select-menu .mrow { flex: none; }
+.ui-check { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--label-size); color: var(--fg-2); line-height: 20px; }
+.ui-check > input[type="checkbox"] { appearance: none; width: 16px; height: 16px; margin: 2px 0 0; padding: 0; flex: none; border: 1px solid var(--line-ghost); border-radius: 4px; background: var(--bg); display: grid; place-content: center; }
+.ui-check > input[type="checkbox"]:checked { background: var(--pri); border-color: var(--pri); }
+.ui-check > input[type="checkbox"]:checked::after { content: ""; width: 7px; height: 4px; border: solid var(--pri-fg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
+.ui-check > input[type="checkbox"]:disabled { opacity: .45; }
+.ui-check > span { min-width: 0; overflow-wrap: anywhere; }
+.ui-switch > input[type="checkbox"] { width: 34px; height: 20px; border-radius: 20px; display: block; position: relative; background: var(--bg-raised-3); cursor: pointer; }
+.ui-switch > input[type="checkbox"]::after { content: ""; display: block; position: absolute; width: 14px; height: 14px; top: 2px; left: 2px; border: 0; border-radius: 50%; background: var(--fg); transform: none; }
+.ui-switch > input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.ui-switch > input[type="checkbox"]:checked::after { width: 14px; height: 14px; border: 0; background: var(--fg); transform: translateX(14px); }
+.ui-switch > input[type="checkbox"]:disabled { cursor: default; }
+.ui-radio > input[type="radio"] { width: 14px; height: 14px; padding: 0; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.ui-radio > input:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 3px; }
+.ui-disclosure { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--space-3); }
+.ui-disclosure summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+.ui-disclosure summary:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 4px; }
+.ui-disclosure summary::marker { color: var(--fg-3); }
+.ui-disclosure[open] > summary { margin-bottom: var(--space-4); }
+.ui-disclosure > .ui-field { margin-top: var(--space-3); }
+
+/* Dialogs and menus work independently of application CSS. */
+.sheet.ui-dialog { box-sizing: border-box; width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; margin: auto; color: var(--fg); background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl); box-shadow: var(--shadow); font: inherit; }
+.sheet.ui-dialog[open] { display: flex; flex-direction: column; }
+.ui-dialog .sheettop { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); flex: none; height: auto; min-height: 44px; padding: var(--space-6); border-bottom: 1px solid var(--line-raised); }
+.ui-dialog::backdrop { background: rgb(0 0 0 / .5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.ui-dialog > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ui-dialog .sheettop b { font-size: 18px; font-weight: 600; }
+.ui-dialog .sheettop b:focus { outline: none; }
+.ui-form-body { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); min-height: 0; overflow-y: auto; }
+.ui-form-body > .ui-button { align-self: flex-start; }
+.ui-dialog .ui-button { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; }
+.ui-dialog .ui-form-footer { display: flex; align-items: center; flex-wrap: wrap; flex: none; border-top: 1px solid var(--line-raised); padding: var(--space-4) var(--space-6); gap: var(--space-3); justify-content: flex-end; }
+.ui-dialog .ui-form-footer .ui-error { order: -1; flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; }
+.menu, .upop {
+  position: fixed; z-index: 30; min-width: 200px; padding: 5px;
+  background: var(--bg-raised-2); border: 1px solid var(--line-ghost);
+  border-radius: var(--r-lg); box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.85);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.menu hr { border: none; border-top: 1px solid var(--line-raised); margin: 4px 6px; width: auto; }
+.mrow {
+  border: 1px solid transparent; font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; height: 30px; width: 100%;
+  padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg);
+  font-weight: 400; justify-content: flex-start;
+}
+.mrow:hover, .mrow.sel { background: var(--bg-raised-3); }
+.mrow .mg { display: flex; color: var(--fg-2); width: 16px; flex: none; }
+.mrow .ml { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.mrow .mh { font-size: 12px; color: var(--fg-3); }
+.mrow .mbadge { flex: none; padding: 1px 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
+.mrow .ic { flex: none; }
+/* Disabled items remain visible with an explanation in the shortcut position. */
+.mrow.off, .mrow.off:hover { color: var(--fg-3); background: none; cursor: default; }
+.mrow.off .mg { opacity: 0.5; }
+.mrow.danger { color: var(--err); }
+.mrow.danger:hover { background: var(--err-bg); }
+.mrow.danger .mg { color: var(--err); }
+.menu .ic, .ui-select .ic { flex: none; display: block; }
+.menu:focus { outline: none; }
+.mrow:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.ui-password { display: flex; align-items: stretch; gap: var(--space-2); }
+.ui-password > .ui-input { flex: 1; width: 0; }
+.ui-password > .ui-button { flex: none; }
+.ui-menu-fallback summary { cursor: pointer; }
+.ui-menu-fallback > div { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.ui-menu-fallback hr { width: 100%; margin: 0; border: none; border-top: 1px solid var(--line-raised); }
+.ui-menu-fallback form { display: contents; }
+.ui-menu-fallback form > .ui-button { justify-content: flex-start; padding: 0; min-height: 0; border: none; font-weight: 400; }
+
+/* Feedback stays in the browser top layer, including above application dialogs. */
+.ui-feedback { z-index: 2147483647; position: fixed; inset: auto max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) auto; margin: 0; padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; overflow: visible; max-width: calc(100vw - 32px); }
+.ui-feedback-panel { width: 360px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); overflow: auto; margin-bottom: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: 0 16px 48px rgb(0 0 0 / .4); box-sizing: border-box; }
+.ui-feedback-panel.ui-feedback-dropping { border-color: var(--accent); }
+.ui-feedback-panel[hidden], .ui-feedback [hidden] { display: none; }
+.ui-feedback-panel, .ui-feedback-panel form, .ui-feedback-notice, .ui-feedback-public, .ui-feedback-attachments { display: flex; flex-direction: column; gap: var(--space-3); }
+.ui-feedback-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.ui-feedback .ui-feedback-trigger { display: flex; margin-left: auto; border-radius: var(--r-lg); }
+.ui-feedback img { max-width: 100%; max-height: 160px; object-fit: contain; }
+.ui-feedback p { margin: 0; }
+.ui-feedback input[type=file] { width: 100%; min-width: 0; }
+
+.ui-feedback-capturing { visibility: hidden; }
+
+.ui-feedback-kinds { display: flex; gap: var(--space-2); }
+.ui-feedback-kinds > button { flex: 1; }
+.ui-feedback-kinds [aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+
+.ui-feedback button:disabled { opacity: .5; cursor: wait; }
+
+/* Search and footer stay fixed while the collection scrolls independently. */
+.ui-search-picker { box-sizing: border-box; width: 380px; min-width: 0; max-width: calc(100vw - 16px); max-height: min(480px, calc(100dvh - 16px)); gap: var(--space-2); padding: var(--space-2); }
+.ui-search-picker-search { flex: none; width: 100%; box-sizing: border-box; }
+.ui-search-picker-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: var(--space-3); scrollbar-width: thin; scrollbar-gutter: stable; }
+.ui-search-picker-row { display: flex; align-items: center; gap: var(--space-1); padding-right: var(--space-1); border-radius: var(--r); }
+.ui-search-picker-choice { display: flex; align-items: center; flex: 1; min-width: 0; min-height: 44px; height: auto; padding: var(--space-2); border: 0; border-radius: var(--r); background: transparent; color: var(--fg); font: inherit; line-height: 1.5; white-space: normal; text-align: left; cursor: pointer; }
+.ui-search-picker-choice:hover, .ui-search-picker-choice:focus-visible { background: var(--bg-raised-3); }
+.ui-search-picker-choice:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.ui-search-picker-choice:disabled { opacity: .5; cursor: default; }
+.ui-search-picker-text { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow-wrap: anywhere; gap: 2px; }
+.ui-search-picker-check { flex: none; width: 18px; color: var(--accent); }
+.ui-search-picker-secondary.ui-button { flex: none; width: var(--button-height); min-height: var(--button-height); height: var(--button-height); padding: 0; font-size: 18px; line-height: 1; }
+.ui-search-picker-secondary:focus-visible { outline-offset: -2px; }
+.ui-search-picker-secondary[aria-pressed=true] { color: var(--accent); }
+.ui-search-picker-group { padding: var(--space-3) var(--space-2) var(--space-2); color: var(--fg-2); font-size: 11px; }
+.ui-search-picker-status { white-space: pre-line; flex: none; padding: 0 var(--space-2); overflow-wrap: anywhere; }
+.ui-search-picker-status:empty, .ui-search-picker-footer:empty { display: none; }
+.ui-search-picker-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--line-raised); }
+</style>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 var(--font); }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    [hidden] { display: none !important; }
+    .windowbar { height: 44px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 20px; padding: 0 20px; background: var(--bg-side); color: var(--fg-2); font-size: 11px; }
+    .lights { display: flex; gap: 8px; }
+    .lights i { width: 10px; height: 10px; border-radius: 50%; background: #ec6a5e; }
+    .lights i:nth-child(2) { background: #f5bf4f; }
+    .lights i:nth-child(3) { background: #62c554; }
+    .windowbar .demo-label { margin-left: auto; }
+    .shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: calc(100vh - 44px); }
+    .sidebar { background: var(--bg-side); border-right: 1px solid var(--line); padding: 28px 16px; display: flex; flex-direction: column; gap: 28px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 650; padding: 0 10px; letter-spacing: -.5px; }
+    .brand-mark { color: var(--accent); font-size: 25px; }
+    .eyebrow { font: 10px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--fg-2); }
+    .sidebar .eyebrow { padding: 0 10px; margin-bottom: 10px; }
+    .nav-item { display: flex; gap: 10px; align-items: center; padding: 8px 10px; color: var(--fg-2); border-radius: var(--r); }
+    .nav-item.active { background: var(--bg-raised-2); color: var(--fg); }
+    .nav-item.active .nav-glyph { color: var(--accent); }
+    .nav-glyph { width: 17px; text-align: center; }
+    .nav-count { margin-left: auto; color: var(--fg-2); font-size: 11px; }
+    .sidebar-note { margin-top: auto; padding: 12px 10px 0; font-size: 11px; color: var(--fg-2); }
+    .workspace-link { text-align: left; justify-content: flex-start; width: 100%; font-size: 11px; padding: 7px 10px; }
+    .main { min-width: 0; padding: 36px 38px 20px; }
+    .breadcrumb { color: var(--fg-2); font-size: 11px; margin-bottom: 22px; }
+    .heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+    h1 { margin: 0 0 6px; font-size: 28px; font-weight: 620; letter-spacing: -.9px; }
+    p { margin: 0; }
+    .muted { color: var(--fg-2); }
+    .heading-actions { display: flex; align-items: center; gap: 12px; }
+    .account { font: 11px var(--mono); color: var(--fg-2); white-space: nowrap; }
+    .account::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--done); margin-right: 7px; }
+    .tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--line-raised); overflow-x: auto; }
+    .tabs button { border: 0; border-radius: 0; white-space: nowrap; padding: 12px 0; color: var(--fg-2); gap: 9px; font-size: 12px; }
+    .tabs button[aria-pressed="true"] { color: var(--fg); box-shadow: inset 0 -2px var(--tab-line); }
+    .tabs button:hover { background: transparent; color: var(--fg); }
+    .count { padding: 1px 6px; background: var(--bg-raised-2); border-radius: 4px; font: 10px/1.6 var(--mono); color: var(--fg-2); }
+    .toolbar { display: flex; align-items: center; gap: 12px; padding: 20px 0 14px; }
+    .toolbar .ui-input { max-width: 310px; font-size: 12px; }
+    .toolbar .scope-select { max-width: 220px; }
+    .scope-select { color: var(--fg); background: var(--bg-side); border: 1px solid var(--line-ghost); border-radius: var(--r); min-height: 32px; padding: 4px 10px; width: 100%; }
+    .scope-select:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 3px; }
+    .toolbar .ui-button { margin-left: auto; font-size: 12px; white-space: nowrap; }
+    .scope-hint { font-size: 11px; color: var(--fg-2); margin-bottom: 22px; }
+    .scopes { display: flex; gap: 8px; padding-top: 16px; overflow-x: auto; }
+    .scopes .ui-button { font-size: 12px; white-space: nowrap; gap: 8px; }
+    .scopes .ui-button[aria-pressed="true"] { background: var(--bg-raised-2); color: var(--fg); }
+    .content { min-width: 0; }
+    .list { min-width: 0; }
+    .list-heading { display: flex; justify-content: space-between; padding: 0 8px 11px; color: var(--fg-2); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+    /* Match the compact Linear rows in src/style.css: identifier, title/project, state, action, age. */
+    .item { display: grid; grid-template-columns: 22px 64px minmax(0,1fr) auto auto 56px; align-items: center; gap: 12px; min-height: 38px; padding: 0 8px; border-radius: var(--r); position: relative; }
+    .item:hover, .item:focus-within { background: var(--bg-raised); }
+    .item-link { position: absolute; inset: 0; border-radius: inherit; z-index: 1; }
+    .item-link:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+    .item-icon { display: flex; color: var(--done); }
+    .item-icon svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+    .item-id { font: 12px var(--mono); color: var(--fg-2); white-space: nowrap; }
+    .item-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-title { font-weight: 400; }
+    .item-project { color: var(--fg-2); font-size: 12px; margin-left: 8px; }
+    .item-state { display: flex; align-items: center; gap: 6px; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+    .state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--done); }
+    .item-age { font-size: 12px; color: var(--fg-2); text-align: right; white-space: nowrap; }
+    .signal.bad { color: var(--err); }
+    .signal { font-size: 11px; color: var(--done); }
+    .signal.waiting { color: var(--wait); }
+    .row-action { position: relative; z-index: 2; font-size: 12px; padding: 0 8px; white-space: nowrap; }
+    .group-title { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; margin: 8px 0 0; color: var(--fg-2); font-size: 13px; font-weight: 500; }
+    .priority { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+    .priority i { width: 3px; border-radius: 1px; background: var(--fg-2); height: 5px; }
+    .priority i:nth-child(2) { height: 8px; }.priority i:nth-child(3) { height: 12px; }
+    .footer { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 32px; font-size: 10px; color: var(--fg-2); }
+    .empty { text-align: center; padding: 60px 24px; border-top: 1px solid var(--line); }
+    .empty h2 { font-size: 16px; margin: 0 0 8px; }
+    .empty p { color: var(--fg-2); font-size: 12px; }
+    .empty .ui-button { margin-top: 18px; }
+    .repo-choice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .repo-choice small { color: var(--fg-2); font-size: 10px; }
+    .ui-dialog { width: min(560px, calc(100vw - 32px)); }
+    .ui-form-body { display: grid; gap: 16px; }
+    .ui-form-body p { font-size: 12px; color: var(--fg-2); }
+    .workspace-context { font: 11px/1.7 var(--mono); color: var(--fg-2); padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); overflow-wrap: anywhere; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--bg-raised); padding: 12px 18px; border: 1px solid var(--line-ghost); border-radius: var(--r-lg); box-shadow: var(--shadow); max-width: calc(100vw - 32px); z-index: 20; }
+    @media(min-width: 1500px) { .main { padding: 44px 55px 24px; } }
+    @media(max-width: 1180px) { .shell { grid-template-columns: 175px minmax(0,1fr); } .main { padding: 28px 24px; } .item-project { display: block; margin: 2px 0 0; } .item { min-height: 52px; } }
+    @media(max-width: 930px) { .shell { grid-template-columns: 1fr; } .sidebar { display: none; } }
+    @media(max-width: 670px) { .main { padding: 24px 16px; } .heading { align-items: flex-start; } .heading-actions { flex-direction: column; align-items: flex-end; gap: 8px; } .heading .muted { max-width: 220px; font-size: 12px; } .toolbar { flex-wrap: wrap; gap: 8px; } .toolbar .ui-input { max-width: none; flex-basis: 100%; } .toolbar .scope-select { flex: 1; max-width: none; width: 100px; } .footer { flex-direction: column; gap: 4px; } .windowbar { padding: 0 12px; gap: 10px; } .demo-label { font-size: 9px; } .item { grid-template-columns: 17px minmax(0,1fr) auto; gap: 8px; padding: 10px 6px; } .item-id { grid-column: 2; font-size: 10px; } .item-copy { grid-column: 2; white-space: normal; } .item-state, .item-age { display: none; } .row-action { grid-column: 3; grid-row: 1 / 3; font-size: 11px; } .item-project { font-size: 10px; overflow-wrap: anywhere; } }
+  </style>
+</head>
+<body>
+  <div class="windowbar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span>prometeu</span><span class="demo-label" data-i18n="prototype"></span></div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span>prometeu</div>
+      <div><div class="eyebrow" data-i18n="work"></div>
+        <div class="nav-item"><span class="nav-glyph" aria-hidden="true">▦</span><span data-i18n="desk"></span></div>
+        <div class="nav-item active" aria-current="page"><span class="nav-glyph" aria-hidden="true">◒</span>Issues<span class="nav-count">12</span></div>
+      </div>
+      <div><div class="eyebrow">Workspaces</div><div id="workspace-list"></div></div>
+      <div class="sidebar-note"><strong>@gustavo</strong><br><span data-i18n="exampleAccount"></span></div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb"><span data-i18n="work"></span> &nbsp; / &nbsp; Issues</div>
+      <header class="heading"><div><h1>Issues</h1><p class="muted" data-i18n="intro"></p></div><div class="heading-actions"><span class="account">@gustavo</span><div id="refresh"></div></div></header>
+      <nav id="providers" class="tabs"></nav>
+      <nav id="tabs" class="scopes"></nav>
+      <div class="toolbar" id="toolbar"></div>
+      <p class="scope-hint" id="scope-hint"></p>
+      <div class="content"><section class="list" aria-labelledby="list-title"><div class="list-heading"><span id="list-title"></span><span id="result-count" aria-live="polite"></span></div><div id="list"></div></section></div>
+      <footer class="footer"><span data-i18n="localOnly"></span><span id="updated" data-i18n="updated"></span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <!-- Generated from src/ui.ts with esbuild; the prototype uses the actual shared primitives. -->
+  <script>var PreviewUI=(()=>{var w=Object.defineProperty;var B=Object.getOwnPropertyDescriptor;var N=Object.getOwnPropertyNames;var O=Object.prototype.hasOwnProperty;var U=(e,t)=>{for(var n in t)w(e,n,{get:t[n],enumerable:!0})},K=(e,t,n,r)=>{if(t&&typeof t=="object"||typeof t=="function")for(let s of N(t))!O.call(e,s)&&s!==n&&w(e,s,{get:()=>t[s],enumerable:!(r=B(t,s))||r.enumerable});return e};var R=e=>K(w({},"__esModule",{value:!0}),e);var j={};U(j,{button:()=>E,checkbox:()=>P,field:()=>$,formDialog:()=>q,input:()=>S});var u=null,A,C,i=null,v=!1,L=null,D=new WeakMap,I=new WeakMap;var W=new Set;function d(){let e=u!==null,t=v&&u?.contains(document.activeElement);u?.remove(),u=null,A=void 0;let n=C;C=void 0,n?.(),i=null,document.removeEventListener("mousedown",V,!0),document.removeEventListener("keydown",z,!0),window.removeEventListener("blur",d),t&&L?.isConnected&&L.focus(),L=null,e&&setTimeout(()=>u===null&&W.forEach(r=>r()),0)}function V(e){e.target.closest(".menu")||d()}function z(e){if(e.key==="Escape")e.preventDefault(),e.stopPropagation(),d();else if(A)A(e);else if(e.key==="ArrowDown"||e.key==="ArrowUp")e.preventDefault(),e.stopPropagation(),F(e.key==="ArrowDown"?1:-1);else if(e.key==="Enter"&&i)e.preventDefault(),e.stopPropagation(),i.click();else if(v&&(e.key==="Home"||e.key==="End")&&u){e.preventDefault(),e.stopPropagation();let t=k(i?.parentElement??u);h(e.key==="Home"?t[0]:t[t.length-1])}else if(e.key==="ArrowRight"&&i&&D.has(i))e.preventDefault(),e.stopPropagation(),h(k(D.get(i)())[0]);else if(e.key==="ArrowLeft"&&i?.parentElement&&I.has(i.parentElement)){e.preventDefault(),e.stopPropagation();let t=i.parentElement,n=I.get(t);t.remove(),n.setAttribute("aria-expanded","false"),h(n)}else v&&e.key==="Tab"&&d()}function h(e){i?.classList.remove("sel"),i=e??null,i?.classList.add("sel"),v&&i?.focus()}function k(e){return[...e.children].filter(t=>t.matches(".mrow:not(.off)"))}function F(e){if(!u)return;let t=k(i?.isConnected?i.parentElement:u);if(!t.length)return;let n=i?t.indexOf(i):-1,r=n<0?e>0?0:t.length-1:(n+e+t.length)%t.length;h(t[r]),t[r].scrollIntoView({block:"nearest"})}function a(e,t,n=""){let r=document.createElement(e);return r.className=t,r.textContent=n,r}function E(e,t=()=>{},n="outline"){let r=document.createElement("button");return r.className=`ui-button ${n} md`,r.type="button",r.textContent=e,r.onclick=()=>{r.focus(),t()},r}function S(e="",t=!1){let n=document.createElement(t?"textarea":"input");return n.className="ui-input",n.value=e,n instanceof HTMLTextAreaElement&&(n.rows=5),n}function $(e,t,n=""){let r=a("div","ui-field"),s=t.matches("input, textarea, select, button")?t:t.querySelector("input, textarea, select, button");s.id||(s.id=`ui-field-${crypto.randomUUID()}`),s.setAttribute("aria-label",e);let l=a("label","ui-label",e);if(l.setAttribute("for",s.id),r.append(l,t),n){let c=a("span","ui-hint",n);c.id=`ui-hint-${crypto.randomUUID()}`,s.setAttribute("aria-describedby",c.id),r.append(c)}return r}function P(e,t){let n=document.createElement("input");n.type="checkbox",n.checked=t;let r=a("label","ui-check");return r.append(n,a("span","",e)),{control:n,label:r}}function q(e){let t=null,n=document.createElement("dialog");n.className="sheet ui-dialog",n.setAttribute("aria-label",e.title);let r=document.createElement("form"),s=a("div","sheettop"),l=a("b","",e.title);l.tabIndex=-1,l.setAttribute("autofocus",""),s.append(l);let c=a("div","ui-form-body"),M=a("div","sheetbar ui-form-footer"),f=a("span","ui-hint ui-error");f.setAttribute("role","alert");let b=()=>{if(!n.isConnected)return;d(),n.close(),n.remove(),e.closed?.();let o=t;o&&!o.isConnected&&(o=o.id?document.getElementById(o.id):o.dataset.focus?document.querySelector(`[data-focus="${CSS.escape(o.dataset.focus)}"]`):null),o?.focus()},m=E(e.save,()=>{},e.variant??"pri");m.type="submit";let x=E(e.cancel,b);M.append(x,f,m),r.append(s,c,M),n.append(r);let g=!1;return r.onsubmit=async o=>{if(o.preventDefault(),!g){g=!0,m.disabled=x.disabled=!0,r.setAttribute("aria-busy","true"),f.textContent="";try{await e.submit(),b()}catch(p){f.textContent=e.error(p)}finally{g=!1,m.disabled=x.disabled=!1,r.removeAttribute("aria-busy")}}},n.addEventListener("cancel",o=>{o.preventDefault(),g||b()}),n.addEventListener("keydown",o=>{if(o.key!=="Tab")return;d();let p=Array.from(r.querySelectorAll("button, input, textarea, select, summary, [tabindex]")).filter(y=>!y.matches(":disabled")&&y.tabIndex>=0&&y.getClientRects().length),T=p[0],H=p[p.length-1];o.shiftKey&&(document.activeElement===T||document.activeElement===l)?(o.preventDefault(),H?.focus()):!o.shiftKey&&(document.activeElement===H||document.activeElement===l)&&(o.preventDefault(),T?.focus())}),{root:n,body:c,save:m,close:b,open(){if(n.isConnected)return;t=document.activeElement instanceof HTMLElement?document.activeElement:null,document.body.append(n),n.showModal();let o=c.querySelector('input:not([type="hidden"]):enabled, textarea:enabled, button:enabled, select:enabled');o?.matches('textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])')?o.focus():l.focus()}}}return R(j);})();
+</script>
+  <script>
+    const { button, input, field, checkbox, formDialog } = PreviewUI;
+    const locale = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'pt-BR';
+    const labels = {
+      'pt-BR': {
+        prototype: 'PROTÓTIPO INTERATIVO · DADOS FICTÍCIOS', work: 'Seu trabalho', desk: 'Mesa',
+        exampleAccount: 'Conta de exemplo', intro: 'Seu trabalho no Linear e no GitHub, no mesmo lugar.',
+        providers: 'Origem das issues', scopes: 'Filtrar itens', available: 'Disponíveis no time', allTeams: 'Todos os times',
+        linearMineHint: 'Issues atribuídas a você. Clique no item para abrir no Linear.',
+        availableHint: 'Issues sem responsável nos seus times. Clique no item para abrir no Linear.',
+        started: 'Em andamento', unstarted: 'A fazer', backlog: 'Backlog',
+        mine: 'Minhas issues', repositories: 'Dos repositórios', authored: 'Minhas PRs', reviews: 'Para revisar',
+        refresh: 'Atualizar', search: 'Buscar por título, número ou repositório…', allRepos: 'Todos os repositórios',
+        chooseRepos: 'Escolher repositórios', selectedRepos: 'Repositórios escolhidos', save: 'Salvar seleção', cancel: 'Cancelar',
+        repoHelp: 'Escolha os repositórios cujas issues abertas você quer acompanhar. Suas issues e PRs continuam aparecendo nas outras abas.',
+        local: 'Projeto local', remote: 'Sem projeto local', mineHint: 'Issues abertas atribuídas a você, em qualquer repositório acessível.',
+        repositoriesHint: 'Issues abertas dos repositórios escolhidos, com ou sem responsável.',
+        authoredHint: 'Pull requests abertas por você, incluindo rascunhos.', reviewsHint: 'Pull requests abertas com pedido de revisão para você.',
+        create: 'Criar workspace', open: 'Abrir workspace', review: 'Revisar em workspace', resume: 'Continuar em workspace', show: 'Ver detalhes',
+        result: '{n} itens', noMatch: 'Nenhum resultado', noMatchBody: 'Tente outra busca ou outro repositório.',
+        noRepos: 'Escolha o que acompanhar', noReposBody: 'Adicione repositórios para ver suas issues abertas aqui.',
+        clear: 'Limpar filtros', responsible: 'Responsável', author: 'Autor', status: 'Status', branch: 'Branch', labels: 'Labels',
+        unassigned: 'Sem responsável', openState: 'Aberta', draft: 'Rascunho', requested: 'Sua revisão solicitada',
+        approved: 'Aprovada', waiting: 'Aguardando revisão', changes: 'Alterações solicitadas', checks: 'Checks',
+        passing: 'Passaram', failing: 'Falharam', pending: 'Em execução', updatedAgo: 'há {n} h',
+        issueNote: 'Leva título, descrição e link da issue para o novo workspace. A atribuição no GitHub não muda.',
+        prNote: 'Abre a branch da PR em um workspace. A revisão só é publicada quando você decidir.',
+        ownPrNote: 'Retoma o trabalho na branch da sua PR, em um workspace dedicado.',
+        viewGithub: 'Ver no GitHub ↗', localOnly: 'Prévia local. Nenhuma alteração é enviada ao Linear ou ao GitHub.',
+        updated: 'Dados de exemplo · atualizados agora', refreshed: 'Dados de exemplo atualizados.',
+        newWorkspace: 'Novo workspace', reviewWorkspace: 'Workspace de revisão', project: 'Projeto local',
+        projectPlaceholder: 'Escolha o clone local deste repositório', agent: 'Agente', workspaceName: 'Nome do workspace',
+        context: 'Contexto inicial', createPreview: 'Criar na prévia', workspaceCreated: 'Workspace criado na prévia.',
+        workspaceOpened: 'Workspace aberto na prévia: {name}', previewNote: 'Esta simulação não cria arquivos nem inicia um agente.',
+        source: 'Origem', directory: 'Pasta do repositório', directoryHint: 'Na integração real, você seleciona ou clona o repositório antes de criar o workspace.',
+        pathRequired: 'Informe um caminho absoluto para a pasta local.', back: 'Voltar à lista', linked: 'Workspace vinculado',
+      },
+      en: {
+        prototype: 'INTERACTIVE PROTOTYPE · SAMPLE DATA', work: 'Your work', desk: 'Desk',
+        exampleAccount: 'Example account', intro: 'Your work in Linear and GitHub, in one place.',
+        providers: 'Issue providers', scopes: 'Filter items', available: 'Available in my teams', allTeams: 'All teams',
+        linearMineHint: 'Issues assigned to you. Click an item to open it in Linear.',
+        availableHint: 'Unassigned issues in your teams. Click an item to open it in Linear.',
+        started: 'In progress', unstarted: 'To do', backlog: 'Backlog',
+        mine: 'My issues', repositories: 'From repositories', authored: 'My PRs', reviews: 'To review',
+        refresh: 'Refresh', search: 'Search by title, number or repository…', allRepos: 'All repositories',
+        chooseRepos: 'Choose repositories', selectedRepos: 'Selected repositories', save: 'Save selection', cancel: 'Cancel',
+        repoHelp: 'Choose repositories whose open issues you want to follow. Your issues and PRs still appear in the other tabs.',
+        local: 'Local project', remote: 'No local project', mineHint: 'Open issues assigned to you, across all accessible repositories.',
+        repositoriesHint: 'Open issues from selected repositories, with or without an assignee.',
+        authoredHint: 'Pull requests opened by you, including drafts.', reviewsHint: 'Open pull requests requesting your review.',
+        create: 'Create workspace', open: 'Open workspace', review: 'Review in workspace', resume: 'Continue in workspace', show: 'View details',
+        result: '{n} items', noMatch: 'No results', noMatchBody: 'Try another search or repository.',
+        noRepos: 'Choose what to follow', noReposBody: 'Add repositories to see their open issues here.',
+        clear: 'Clear filters', responsible: 'Assignee', author: 'Author', status: 'Status', branch: 'Branch', labels: 'Labels',
+        unassigned: 'Unassigned', openState: 'Open', draft: 'Draft', requested: 'Your review requested',
+        approved: 'Approved', waiting: 'Awaiting review', changes: 'Changes requested', checks: 'Checks',
+        passing: 'Passed', failing: 'Failed', pending: 'Running', updatedAgo: '{n}h ago',
+        issueNote: 'Includes the issue title, description and link in the new workspace. GitHub assignment stays unchanged.',
+        prNote: 'Opens the PR branch in a workspace. Publish your review when you decide.',
+        ownPrNote: 'Continue working on your PR branch in a dedicated workspace.',
+        viewGithub: 'View on GitHub ↗', localOnly: 'Local preview. No changes are sent to Linear or GitHub.',
+        updated: 'Sample data · updated now', refreshed: 'Sample data refreshed.',
+        newWorkspace: 'New workspace', reviewWorkspace: 'Review workspace', project: 'Local project',
+        projectPlaceholder: 'Choose the local clone of this repository', agent: 'Agent', workspaceName: 'Workspace name',
+        context: 'Initial context', createPreview: 'Create in preview', workspaceCreated: 'Workspace created in preview.',
+        workspaceOpened: 'Workspace opened in preview: {name}', previewNote: 'This simulation does not create files or start an agent.',
+        source: 'Source', directory: 'Repository directory', directoryHint: 'In the real integration, select or clone the repository before creating a workspace.',
+        pathRequired: 'Enter an absolute path to the local directory.', back: 'Back to list', linked: 'Linked workspace',
+      },
+    };
+    const t = (key, params = {}) => labels[locale][key].replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? ''));
+    const $ = id => document.getElementById(id);
+    const el = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
+    document.documentElement.lang = locale;
+    document.querySelectorAll('[data-i18n]').forEach(node => node.textContent = t(node.dataset.i18n));
+
+    const repos = [
+      { name: 'prometeucorp/prometeu', path: '/Projects/prometeu' },
+      { name: 'prometeucorp/prometeu-cloud', path: '/Projects/prometeu-cloud' },
+      { name: 'acme/design-system', path: '' },
+    ];
+    // Fictional content stays in its original language, independently of the interface locale.
+    const issues = [
+      { number: 428, repo: repos[0].name, title: 'Restore terminal state when reopening a workspace', assignee: 'gustavo', label: 'bug', hours: 1, description: 'Reopening a workspace should restore the terminal working directory and keep its previous output available. Currently, the terminal starts in the project root.', branch: 'fix/428-restore-terminal' },
+      { number: 421, repo: repos[0].name, title: 'Search across archived conversations', assignee: 'gustavo', label: 'enhancement', hours: 2, description: 'Include archived conversations in global search, with a clear indication of their workspace and archived state.', branch: 'feat/421-archived-search' },
+      { number: 186, repo: repos[1].name, title: 'Show invitation status in the team directory', assignee: 'gustavo', label: 'enhancement', hours: 4, description: 'Help organization owners see pending invitations and their expiry without leaving the team directory.', branch: 'feat/186-invitation-status' },
+      { number: 93, repo: repos[2].name, title: 'Keep focus visible inside nested dialogs', assignee: 'gustavo', label: 'bug', hours: 6, description: 'Keyboard focus should stay visible and return to the trigger when a nested dialog closes.', branch: 'fix/93-dialog-focus' },
+      { number: 433, repo: repos[0].name, title: 'Add repository shortcuts to the launcher', assignee: null, label: 'enhancement', hours: 2, description: 'Offer recently used repositories in the launcher so starting a workspace takes fewer steps.', branch: 'feat/433-repository-shortcuts' },
+      { number: 429, repo: repos[0].name, title: 'Improve empty state for first-time users', assignee: 'marina', label: 'design', hours: 3, description: 'Explain how to create the first workspace and connect an issue provider.', branch: 'feat/429-empty-state' },
+      { number: 191, repo: repos[1].name, title: 'Allow organization owners to resend invitations', assignee: null, label: 'enhancement', hours: 5, description: 'Add an explicit resend action for pending organization invitations.', branch: 'feat/191-resend-invitations' },
+    ].map(item => ({ ...item, kind: 'issue' }));
+    const prs = [
+      { number: 436, repo: repos[0].name, title: 'Preserve drafts when switching workspaces', author: 'gustavo', state: 'waiting', checks: 'passing', hours: 1, branch: 'fix/preserve-workspace-drafts', description: 'Keeps unsent input attached to each conversation when navigating between workspaces.' },
+      { number: 194, repo: repos[1].name, title: 'Handle expired organization invitations', author: 'gustavo', state: 'changes', checks: 'failing', hours: 2, branch: 'fix/expired-invitations', description: 'Shows recovery actions for expired invitations. A reviewer requested an additional compatibility check.' },
+      { number: 432, repo: repos[0].name, title: 'Add quick filters to the workspace list', author: 'gustavo', state: 'draft', checks: 'pending', hours: 4, branch: 'feat/workspace-filters', description: 'Work in progress: filters for active, waiting and completed workspaces.' },
+      { number: 438, repo: repos[0].name, title: 'Keep review comments across file renames', author: 'marina', state: 'requested', checks: 'passing', hours: 1, branch: 'fix/review-file-renames', description: 'Preserves local review comments after a file is renamed. Please review path matching and comment positioning.' },
+      { number: 196, repo: repos[1].name, title: 'Add a searchable organization switcher', author: 'rafael', state: 'requested', checks: 'passing', hours: 3, branch: 'feat/organization-switcher', description: 'Adds search to the organization menu while preserving keyboard navigation.' },
+    ].map(item => ({ ...item, kind: 'pr' }));
+    const linearIssues = [
+      { number: 142, identifier: 'ENG-142', team: 'Engineering', project: 'Desktop', repo: repos[0].name, title: 'Keep terminal sessions alive when switching tabs', assignee: 'gustavo', state: 'started', hours: 1, branch: 'gustavo/eng-142-terminal-sessions', description: 'Preserve terminal sessions while moving between conversation tabs.' },
+      { number: 138, identifier: 'ENG-138', team: 'Engineering', project: 'Desktop', repo: repos[0].name, title: 'Improve workspace keyboard navigation', assignee: 'gustavo', state: 'unstarted', hours: 3, branch: 'gustavo/eng-138-workspace-navigation', description: 'Keep focus consistent while navigating the workspace list with a keyboard.' },
+      { number: 57, identifier: 'CLD-57', team: 'Cloud', project: 'Team management', repo: repos[1].name, title: 'Show pending invitations in the team directory', assignee: 'gustavo', state: 'backlog', hours: 5, branch: 'gustavo/cld-57-pending-invitations', description: 'Display pending organization invitations alongside active members.' },
+      { number: 145, identifier: 'ENG-145', team: 'Engineering', project: 'Desktop', repo: repos[0].name, title: 'Explain repository selection in the launcher', assignee: null, state: 'unstarted', hours: 2, branch: 'gustavo/eng-145-repository-selection', description: 'Help new users select the repository for their first workspace.' },
+      { number: 61, identifier: 'CLD-61', team: 'Cloud', project: 'Team management', repo: repos[1].name, title: 'Add an invitation expiry reminder', assignee: null, state: 'backlog', hours: 6, branch: 'gustavo/cld-61-invitation-reminder', description: 'Indicate when an organization invitation is about to expire.' },
+    ].map(item => ({ ...item, provider: 'linear', kind: 'issue' }));
+    const key = item => `${item.provider ?? 'github'}/${item.repo}/${item.kind}/${item.number}`;
+    const url = item => item.provider === 'linear' ? `https://linear.app/prometeu/issue/${item.identifier}` : `https://github.com/${item.repo}/${item.kind === 'issue' ? 'issues' : 'pull'}/${item.number}`;
+    let provider = 'github', tab = 'mine', query = '', repoFilter = '';
+    let chosen = new Set([repos[0].name, repos[1].name]);
+    const workspaces = new Map([[key(issues[1]), { name: 'Archived search', branch: issues[1].branch }], [key(prs[0]), { name: 'Preserve workspace drafts', branch: prs[0].branch }]]);
+    function source(name = tab) {
+      if (provider === 'linear') return linearIssues.filter(item => name === 'mine' ? item.assignee === 'gustavo' : !item.assignee);
+      if (name === 'mine') return issues.filter(item => item.assignee === 'gustavo');
+      if (name === 'repositories') return issues.filter(item => chosen.has(item.repo));
+      return prs.filter(item => name === 'authored' ? item.author === 'gustavo' : item.state === 'requested');
+    }
+    function filtered() {
+      const words = query.toLowerCase().trim().split(/\s+/);
+      return source().filter(item => (!repoFilter || (provider === 'linear' ? item.team : item.repo) === repoFilter) && words.every(word => `${item.title} ${item.repo} ${item.identifier ?? `#${item.number}`} ${item.project ?? ''} ${item.label ?? ''}`.toLowerCase().includes(word)));
+    }
+    let toastTimer;
+    function say(text) { clearTimeout(toastTimer); $('toast').textContent = text; $('toast').hidden = false; toastTimer = setTimeout(() => $('toast').hidden = true, 4000); }
+    function selectControl(options, label) {
+      const select = el('select', 'scope-select'); select.setAttribute('aria-label', label);
+      options.forEach(([value, text]) => { const option = el('option', '', text); option.value = value; select.append(option); });
+      return select;
+    }
+    const search = input(); search.placeholder = t('search'); search.setAttribute('aria-label', t('search'));
+    search.oninput = () => { query = search.value; drawList(); };
+    search.onkeydown = event => { if (event.key === 'Escape') { search.value = query = ''; drawList(); } };
+    const filter = selectControl([['', t('allRepos')], ...repos.map(repo => [repo.name, repo.name])], t('allRepos'));
+    filter.onchange = () => { repoFilter = filter.value; drawList(); };
+    const repoButton = button(t('chooseRepos'), chooseRepositories); repoButton.id = 'choose-repositories';
+    $('toolbar').append(search, filter, repoButton);
+    $('refresh').append(button(t('refresh'), () => { say(t('refreshed')); $('updated').textContent = t('updated'); }, 'ghost'));
+    const tabs = new Map();
+    for (const name of ['mine', 'available', 'repositories', 'authored', 'reviews']) {
+      const control = button('', () => { tab = name; query = search.value = ''; repoFilter = filter.value = ''; draw(); }, 'ghost');
+      control.append(el('span', '', t(name)), el('span', 'count')); control.id = `tab-${name}`;
+      tabs.set(name, control); $('tabs').append(control);
+    }
+    const providers = new Map();
+    $('providers').setAttribute('aria-label', t('providers'));
+    $('tabs').setAttribute('aria-label', t('scopes'));
+    for (const [id, label] of [['linear', 'Linear'], ['github', 'GitHub']]) {
+      const control = button(label, () => { provider = id; tab = 'mine'; query = search.value = ''; repoFilter = ''; updateFilter(); draw(); }, 'ghost');
+      providers.set(id, control); $('providers').append(control);
+    }
+    function updateFilter() {
+      const options = provider === 'linear' ? [['', t('allTeams')], ['Engineering', 'Engineering'], ['Cloud', 'Cloud']] : [['', t('allRepos')], ...repos.map(repo => [repo.name, repo.name])];
+      filter.replaceChildren(...options.map(([value, label]) => { const option = el('option', '', label); option.value = value; return option; }));
+      filter.setAttribute('aria-label', t(provider === 'linear' ? 'allTeams' : 'allRepos'));
+    }
+    function draw() {
+      providers.forEach((control, id) => control.setAttribute('aria-pressed', String(provider === id)));
+      tabs.forEach((control, name) => {
+        control.hidden = provider === 'linear' ? !['mine', 'available'].includes(name) : name === 'available';
+        control.setAttribute('aria-pressed', String(tab === name)); control.lastChild.textContent = source(name).length;
+      });
+      $('scope-hint').textContent = t(provider === 'linear' && tab === 'mine' ? 'linearMineHint' : `${tab}Hint`);
+      repoButton.hidden = provider === 'linear';
+      repoButton.textContent = `${t('chooseRepos')} (${chosen.size})`;
+      drawList(); drawWorkspaces();
+    }
+    function drawList() {
+      const items = filtered();
+      $('list-title').textContent = t(tab); $('result-count').textContent = t('result', { n: items.length });
+      $('list').replaceChildren();
+      const groups = provider === 'linear' ? ['started', 'unstarted', 'backlog'] : ['all'];
+      for (const group of groups) {
+        const members = group === 'all' ? items : items.filter(item => item.state === group);
+        if (!members.length) continue;
+        if (group !== 'all') {
+          const heading = el('h2', 'group-title', t(group)); heading.append(el('span', 'count', members.length)); $('list').append(heading);
+        }
+        for (const item of members) {
+          const row = el('article', 'item'); row.dataset.item = key(item);
+          const link = el('a', 'item-link'); link.href = url(item); link.target = '_blank'; link.rel = 'noopener noreferrer'; link.setAttribute('aria-label', item.title); link.title = url(item);
+          const glyph = el('span', 'item-icon'); glyph.setAttribute('aria-hidden', 'true');
+          glyph.innerHTML = item.provider === 'linear' ? '<span class="priority"><i></i><i></i><i></i></span>' : item.kind === 'issue' ? '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none"/></svg>' : '<svg viewBox="0 0 20 20"><circle cx="5" cy="4" r="2"/><circle cx="5" cy="16" r="2"/><circle cx="15" cy="16" r="2"/><path d="M5 6v8m10 0V8c0-3-5-4-5-4m0 0 3-2m-3 2 3 2"/></svg>';
+          const copy = el('div', 'item-copy');
+          copy.title = `${item.title} · ${item.project ?? item.repo}`;
+          copy.append(el('span', 'item-title', item.title), el('span', 'item-project', item.project ?? item.repo));
+          const state = el('span', 'item-state');
+          state.append(el('i', 'state-dot'), el('span', '', t(item.state ?? 'openState')));
+          if (item.checks) {
+            const check = el('span', `signal ${item.checks === 'failing' ? 'bad' : item.checks === 'pending' ? 'waiting' : ''}`, item.checks === 'passing' ? '✓' : item.checks === 'failing' ? '×' : '◷');
+            check.setAttribute('aria-label', `${t('checks')}: ${t(item.checks)}`); check.title = `${t('checks')}: ${t(item.checks)}`; state.append(check);
+          }
+          const action = button(t('open'), () => openWorkspace(item), 'ghost');
+          action.classList.add('row-action'); action.dataset.focus = `launch-${key(item)}`;
+          row.append(link, glyph, el('span', 'item-id', item.identifier ?? `#${item.number}`), copy, state, action, el('span', 'item-age', t('updatedAgo', { n: item.hours }))); $('list').append(row);
+        }
+      }
+      if (!items.length) {
+        const noRepos = tab === 'repositories' && !chosen.size;
+        const empty = el('div', 'empty'); empty.append(el('h2', '', t(noRepos ? 'noRepos' : 'noMatch')), el('p', '', t(noRepos ? 'noReposBody' : 'noMatchBody')),
+          button(t(noRepos ? 'chooseRepos' : 'clear'), noRepos ? chooseRepositories : () => { search.value = query = ''; filter.value = repoFilter = ''; drawList(); }));
+        $('list').append(empty);
+      }
+    }
+    function chooseRepositories() {
+      const choices = new Map();
+      const dialog = formDialog({ title: t('selectedRepos'), save: t('save'), cancel: t('cancel'), error: String,
+        submit: async () => { chosen = new Set([...choices].filter(([, control]) => control.checked).map(([name]) => name)); draw(); },
+      });
+      dialog.body.append(el('p', '', t('repoHelp')));
+      for (const repo of repos) {
+        const check = checkbox(repo.name, chosen.has(repo.name)); choices.set(repo.name, check.control);
+        const row = el('div', 'repo-choice'); row.append(check.label, el('small', '', t(repo.path ? 'local' : 'remote'))); dialog.body.append(row);
+      }
+      dialog.open();
+    }
+    function openWorkspace(item) {
+      const existing = workspaces.get(key(item));
+      if (existing) {
+        const dialog = formDialog({ title: existing.name, save: t('back'), cancel: t('cancel'), error: String, submit: async () => {} });
+        dialog.body.append(el('p', '', t('workspaceOpened', { name: existing.name })), el('div', 'workspace-context', `${item.repo}\n${existing.branch}`), el('p', '', t('previewNote')));
+        dialog.open(); return;
+      }
+      const repo = repos.find(repo => repo.name === item.repo);
+      const name = input(item.title); name.required = true;
+      const directory = input(repo.path); directory.required = true; directory.placeholder = '/Projects/repository';
+      directory.pattern = '/.+'; directory.title = t('pathRequired');
+      const branch = input(item.branch); branch.required = true; branch.readOnly = item.kind === 'pr';
+      const agent = selectControl([['codex', 'Codex'], ['claude', 'Claude'], ['antigravity', 'Antigravity']], t('agent'));
+      const context = input(`${item.title}\n${url(item)}\n\n${item.description}`, true);
+      const dialog = formDialog({ title: t(item.state === 'requested' ? 'reviewWorkspace' : 'newWorkspace'), save: t('createPreview'), cancel: t('cancel'), error: String,
+        submit: async () => { workspaces.set(key(item), { name: name.value, branch: branch.value, directory: directory.value, agent: agent.value, context: context.value }); draw(); say(t('workspaceCreated')); },
+      });
+      dialog.body.append(el('div', 'workspace-context', `${t('source')}: ${item.identifier ?? `${item.repo} #${item.number}`}`), field(t('workspaceName'), name), field(t('directory'), directory, repo.path ? '' : t('directoryHint')), field(t('branch'), branch), field(t('agent'), agent), field(t('context'), context), el('p', '', t('previewNote')));
+      dialog.open();
+    }
+    function drawWorkspaces() {
+      $('workspace-list').replaceChildren();
+      workspaces.forEach((workspace, id) => {
+        const item = [...issues, ...prs, ...linearIssues].find(item => key(item) === id);
+        const control = button(workspace.name, () => openWorkspace(item), 'ghost'); control.classList.add('workspace-link');
+        $('workspace-list').append(control);
+      });
+    }
+    draw();
+  </script>
+</body>
+</html>

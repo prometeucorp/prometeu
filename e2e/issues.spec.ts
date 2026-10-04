@@ -1,5 +1,92 @@
 import { expect, test } from "@playwright/test";
 
+// The workspace journey needs a browser: row navigation must not swallow its nested action,
+// Provider tabs must retain focus and identical control geometry; native dialogs must restore focus
+// after asynchronous content replacement. These CSS and focus regressions need a real browser.
+test("GitHub issues and requested PR reviews launch workspaces without opening the source link", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("prometeu:model-choice", JSON.stringify({ agent: "codex", model: "gpt-5.6-sol" }));
+    localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
+      { id: "codex", provider: "codex", email: "user@example.com", plan: "pro", connected: true, revision: 0 },
+    ], active: { codex: "codex" }, login: null }));
+  });
+  await page.goto("/");
+  await expect(page.locator("#deskView")).toBeVisible();
+  const visited: string[] = [];
+  page.on("console", message => { if (message.text().startsWith("open in GitHub:")) visited.push(message.text()); });
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  const measurements = () => page.locator('.issue-provider-pane:not([hidden])').evaluate(pane => {
+    const size = (selector: string) => {
+      const node = pane.querySelector<HTMLElement>(selector)!;
+      const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+      return { height: rect.height, font: style.fontSize, line: style.lineHeight };
+    };
+    return { search: size('.ifind'), searchWidth: pane.querySelector('.ifind')!.getBoundingClientRect().width,
+      input: size('.ifind input'), tab: size('.itab'), count: getComputedStyle(pane.querySelector('.itab .c')!).fontSize,
+      toolbar: size('.ibar'), refresh: size('.ibar .icon-button') };
+  });
+  const linearControls = await measurements();
+  await page.locator("#issues-provider-github").click();
+  await expect(page.locator("#issues-provider-github")).toBeFocused();
+  await expect(page.locator("#github-issues-pane .ifind input")).not.toBeFocused();
+  expect(await measurements()).toEqual(linearControls);
+  await expect(page.locator("#github-mine .c")).toHaveText("2");
+  await expect(page.locator("#github-repositories .c")).toHaveText("0");
+  await expect(page.locator("#github-authored .c")).toHaveText("2");
+  await expect(page.locator("#github-reviews .c")).toHaveText("1");
+  await page.locator("#issues-provider-linear").click();
+  await expect(page.locator("#issues-provider-linear")).toBeFocused();
+  await expect(page.locator("#linear-issues-pane .ifind input")).not.toBeFocused();
+  await page.locator("#issues-provider-linear").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#issues-provider-github")).toBeFocused();
+  const row = page.locator("#github-list .irow", { hasText: "Restore terminal state" });
+  await expect(row).toBeVisible();
+  const repositoryFilters = page.locator("#github-issues-pane .tpills");
+  await repositoryFilters.getByRole("button", { name: "acme/design-system" }).click();
+  await expect(page.locator("#github-list .irow")).toHaveCount(1);
+  await expect(repositoryFilters.getByRole("button", { name: "acme/design-system" })).toBeFocused();
+  await repositoryFilters.getByRole("button", { name: "All repositories" }).click();
+  await row.focus(); await page.keyboard.press("Enter");
+  await expect.poll(() => visited.length).toBe(1);
+  await row.getByRole("button", { name: "Open workspace", exact: true }).click();
+  await expect(page.locator(".launcher")).toBeVisible();
+  await expect(page.locator("#d-project")).toContainText("prometeu");
+  await expect(page.locator("#d-issue")).toContainText("prometeucorp/prometeu#428");
+  await page.locator("#d-go").click();
+  await expect(page.locator("#veil")).toBeHidden();
+  expect(visited).toHaveLength(1);
+
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  await page.getByRole("button", { name: "Choose repositories", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Choose repositories" });
+  await dialog.getByRole("checkbox", { name: "prometeucorp/prometeu", exact: true }).check();
+  await page.evaluate(() => localStorage.setItem("mock:githubLogin", "another-user"));
+  await dialog.getByRole("button", { name: "Save selection", exact: true }).click();
+  await expect(dialog).toContainText("Your GitHub account changed.");
+  expect(await page.evaluate(() => localStorage.getItem("mock:githubRepositories:another-user"))).toBeNull();
+  await page.evaluate(() => localStorage.removeItem("mock:githubLogin"));
+  await dialog.getByRole("button", { name: "Save selection", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Choose repositories", exact: true })).toBeFocused();
+  await page.locator("#github-repositories").click();
+  await expect(page.locator("#github-list .irow")).toHaveCount(2);
+
+  await page.locator("#github-repositories").focus();
+  await page.keyboard.press("End");
+  await expect(page.locator("#github-reviews")).toBeFocused();
+  await page.locator("#github-list .irow").getByRole("button", { name: "Open workspace", exact: true }).click();
+  await expect(page.locator("#d-basename")).toContainText("prometeu-pr-438/github-pr-438-preview");
+  await expect(page.locator("#d-wt")).toBeChecked();
+  await expect(page.locator("#d-nb")).not.toBeChecked();
+  await expect(page.locator("#d-nb")).toBeDisabled();
+  await expect(page.locator("#d-project")).toBeDisabled();
+  await expect(page.locator("#d-base")).toBeDisabled();
+  await page.locator("#d-go").click();
+  await expect(page.locator("#veil")).toBeHidden();
+  expect(visited).toHaveLength(1);
+});
+
 test("claiming a team issue keeps keyboard focus after the available row disappears", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#deskView")).toBeVisible();
