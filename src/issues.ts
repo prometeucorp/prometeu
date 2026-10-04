@@ -1,10 +1,11 @@
 import { invoke } from "./ipc";
 import { listen } from "@tauri-apps/api/event";
 import { icon } from "./icons";
-import { fromBack, paint, t } from "./i18n";
+import { fromBack, t } from "./i18n";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 import { button } from "./ui";
+import { issueTab, issueSearch, issueRefresh, issueFilter } from "./issues-controls";
 import { githubIssues } from "./github-issues";
 import type { GitHubItem, GitHubPrepared } from "./types";
 
@@ -64,10 +65,10 @@ export function init(context: Ctx) {
   const providers = $("iproviders");
   providers.setAttribute("aria-label", t("issues.providers"));
   for (const [id, label] of [["linear", "Linear"], ["github", "GitHub"]] as const) {
-    const control = button(label, () => {
+    const control = issueTab(label, () => {
       provider = id; localStorage.setItem("prometeu:issues:provider", id); showProvider();
-    }, "ghost");
-    control.classList.add("tab"); control.id = `issues-provider-${id}`; control.setAttribute("role", "tab");
+    });
+    control.id = `issues-provider-${id}`;
     control.setAttribute("aria-controls", `${id}-issues-pane`);
     $(`${id}-issues-pane`).setAttribute("aria-labelledby", control.id);
     providers.append(control);
@@ -134,7 +135,6 @@ function showProvider() {
   github.hide();
   void load();
   draw();
-  find.focus();
 }
 
 export function hide() {
@@ -164,15 +164,14 @@ async function refresh(force: boolean) {
 
 function buildBar() {
   const bar = $("ibar");
-  bar.innerHTML = `
-    <label class="ifind">${icon("search", 14)}<input spellcheck="false" /></label>
-    <span class="spacer"></span>
-    <span class="imeta" id="imeta"></span>
-    <button class="ico" id="irefresh" data-t-title="issues.refresh">${icon("rotate")}</button>`;
-  paint(bar);
-  find = bar.querySelector("input")!;
-  find.placeholder = t("issues.search");
-  meta = bar.querySelector("#imeta")!;
+  const search = issueSearch(t("issues.search"));
+  find = search.control;
+  meta = h("span", "imeta"); meta.id = "imeta"; meta.setAttribute("role", "status");
+  const refreshButton = issueRefresh(t("issues.refresh"), () => {
+    if (ctx.connected() && !loading) void refresh(true);
+  });
+  refreshButton.id = "irefresh";
+  bar.replaceChildren(search.root, h("span", "spacer"), meta, refreshButton);
   find.addEventListener("input", () => {
     query = find.value.trim().toLowerCase();
     drawList();
@@ -183,9 +182,6 @@ function buildBar() {
       query = "";
       drawList();
     }
-  });
-  bar.querySelector("#irefresh")!.addEventListener("click", () => {
-    if (ctx.connected() && !loading) void refresh(true);
   });
 }
 
@@ -218,16 +214,13 @@ function buildTabs() {
   const list = $("ilist");
   list.setAttribute("role", "tabpanel");
   for (const key of ["mine", "available"] as const) {
-    const tab = template("button", "tab itab", `<span></span><span class="c"></span>`);
-    tab.setAttribute("role", "tab");
-    tab.id = `issues-${key}`;
-    tab.setAttribute("aria-controls", "ilist");
-    tab.children[0].textContent = t(key === "mine" ? "issues.mine" : "issues.available");
-    tab.addEventListener("click", () => {
+    const tab = issueTab(t(key === "mine" ? "issues.mine" : "issues.available"), () => {
       scope = key;
       pickTeam("");
       draw();
     });
+    tab.id = `issues-${key}`;
+    tab.setAttribute("aria-controls", "ilist");
     tabs.append(tab);
   }
   tabs.addEventListener("keydown", (event) => {
@@ -248,6 +241,7 @@ function drawTabs() {
     tab.setAttribute("aria-selected", String(selected));
     tab.tabIndex = selected ? 0 : -1;
     tab.children[0].textContent = t(index === 0 ? "issues.mine" : "issues.available");
+    (tab.children[1] as HTMLElement).hidden = false;
     tab.children[1].textContent = String(index === 0 ? got?.issues.length ?? 0 : got?.available.length ?? 0);
     if (selected) $("ilist").setAttribute("aria-labelledby", tab.id);
   });
@@ -364,12 +358,10 @@ function drawTeams(found: Issue[], source: Issue[]) {
   const pills = h("div", "tpills");
   for (const key of ["", ...keys]) {
     const mine = key ? found.filter((i) => i.team === key) : found;
-    const pill = template("button", "tpill" + (key === team ? " on" : ""), `<span></span><span class="c"></span>`);
-    pill.children[0].textContent = key || t("issues.team.all");
-    pill.children[1].textContent = String(mine.length);
-    pill.addEventListener("click", () => {
+    const pill = issueFilter(key || t("issues.team.all"), mine.length, key === team, () => {
       pickTeam(key);
       drawList();
+      [...box.querySelectorAll<HTMLButtonElement>(".tpill")].find(control => control.getAttribute("aria-pressed") === "true")?.focus();
     });
     pills.append(pill);
   }

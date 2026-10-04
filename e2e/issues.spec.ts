@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 // The workspace journey needs a browser: row navigation must not swallow its nested action,
-// and provider tabs/native dialogs must preserve focus while asynchronous content is replaced.
+// Provider tabs must retain focus and identical control geometry; native dialogs must restore focus
+// after asynchronous content replacement. These CSS and focus regressions need a real browser.
 test("GitHub issues and requested PR reviews launch workspaces without opening the source link", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem("prometeu:model-choice", JSON.stringify({ agent: "codex", model: "gpt-5.6-sol" }));
@@ -14,11 +15,34 @@ test("GitHub issues and requested PR reviews launch workspaces without opening t
   const visited: string[] = [];
   page.on("console", message => { if (message.text().startsWith("open in GitHub:")) visited.push(message.text()); });
   await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  const measurements = () => page.locator('.issue-provider-pane:not([hidden])').evaluate(pane => {
+    const size = (selector: string) => {
+      const node = pane.querySelector<HTMLElement>(selector)!;
+      const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+      return { height: rect.height, font: style.fontSize, line: style.lineHeight };
+    };
+    return { search: size('.ifind'), searchWidth: pane.querySelector('.ifind')!.getBoundingClientRect().width,
+      input: size('.ifind input'), tab: size('.itab'), count: getComputedStyle(pane.querySelector('.itab .c')!).fontSize,
+      toolbar: size('.ibar'), refresh: size('.ibar .icon-button') };
+  });
+  const linearControls = await measurements();
+  await page.locator("#issues-provider-github").click();
+  await expect(page.locator("#issues-provider-github")).toBeFocused();
+  await expect(page.locator("#github-issues-pane .ifind input")).not.toBeFocused();
+  expect(await measurements()).toEqual(linearControls);
+  await page.locator("#issues-provider-linear").click();
+  await expect(page.locator("#issues-provider-linear")).toBeFocused();
+  await expect(page.locator("#linear-issues-pane .ifind input")).not.toBeFocused();
   await page.locator("#issues-provider-linear").focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.locator("#issues-provider-github")).toBeFocused();
   const row = page.locator("#github-list .irow", { hasText: "Restore terminal state" });
   await expect(row).toBeVisible();
+  const repositoryFilters = page.locator("#github-issues-pane .tpills");
+  await repositoryFilters.getByRole("button", { name: "acme/design-system" }).click();
+  await expect(page.locator("#github-list .irow")).toHaveCount(1);
+  await expect(repositoryFilters.getByRole("button", { name: "acme/design-system" })).toBeFocused();
+  await repositoryFilters.getByRole("button", { name: "All repositories" }).click();
   await row.focus(); await page.keyboard.press("Enter");
   await expect.poll(() => visited.length).toBe(1);
   await row.getByRole("button", { name: "Open workspace", exact: true }).click();

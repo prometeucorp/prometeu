@@ -11,7 +11,10 @@ Personal scopes span all accessible repositories; the repository selection only
 controls the repository scope. Review requests use GitHub's
 `review-requested:<login>` search qualifier, including applicable team requests.
 
-Rows use the existing compact Linear layout. Clicking a row, or pressing Enter
+Both providers use the same compact search field, scope tabs, refresh button
+and filter pills from `src/issues-controls.ts`. Switching provider tabs retains
+focus on the selected tab instead of focusing search. Rows use the existing
+compact Linear layout. Clicking a row, or pressing Enter
 while the row has focus, opens its canonical source URL in the system browser.
 The separate Open workspace button reuses a live workspace or opens the existing
 launcher with title, description and URL. There is no details panel. Discovery

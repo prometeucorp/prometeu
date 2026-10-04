@@ -837,6 +837,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "github.reviews": "To review",
   "github.refresh": "Refresh GitHub",
   "github.repositories.choose": "Choose repositories",
+  "github.repositories.label": "Repositories",
   "github.repositories.all": "All repositories",
   "github.repositories.empty": "Choose what to follow",
   "github.repositories.hint": "Follow open issues from selected repositories. Your issues and PRs still appear in the other tabs.",

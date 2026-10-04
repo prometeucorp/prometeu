@@ -852,6 +852,7 @@ export const PT = {
   "github.reviews": "Para revisar",
   "github.refresh": "Atualizar GitHub",
   "github.repositories.choose": "Escolher repositórios",
+  "github.repositories.label": "Repositórios",
   "github.repositories.all": "Todos os repositórios",
   "github.repositories.empty": "Escolha o que acompanhar",
   "github.repositories.hint": "Acompanhe issues abertas dos repositórios escolhidos. Suas issues e PRs continuam aparecendo nas outras abas.",

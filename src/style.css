@@ -798,30 +798,26 @@ body.noside .side { display: none; }
 }
 @media (max-width: 380px) { .launcher-fields { grid-template-columns: 1fr; } }
 
-/* Linear issues. */
+/* Issues providers share compact controls and row geometry. */
 
 .issue-provider-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-#github-issues-pane .ibar { flex-wrap: wrap; min-height: 42px; height: auto; padding-block: 6px; }
-#github-issues-pane .ibar .ui-input { width: min(320px, 100%); }
-#github-issues-pane .imeta { max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
 #github-issues-pane .github-glyph { display: flex; color: var(--done); }
-.github-row .iact { opacity: 1; }
 .github-row:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
-@media (max-width: 900px) {
-  #github-list .irow { grid-template-columns: 22px 48px minmax(0, 1fr) auto; }
-  #github-list .istate, #github-list .iago { display: none; }
-}
 
+.issues .tab.ui-button { font-size: 13px; line-height: normal; }
+.issues .tab.ui-button:hover { background: none; }
+.issues .ibar .icon-button { width: 24px; height: 24px; min-height: 0; padding: 0; }
 .itab .c { flex: none; color: var(--fg-3); font-size: 12px; }
 
 /* Search sits on the left; fetch time and refresh sit on the right. */
 .ibar { gap: 8px; padding: 0 12px; }
 .ibar .ifind {
   display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px;
-  width: min(360px, 100%); background: var(--bg); border: 1px solid var(--line-raised);
+  width: min(360px, 100%); flex-shrink: 0; background: var(--bg); border: 1px solid var(--line-raised);
   border-radius: var(--r); color: var(--fg-3);
 }
-.ibar .ifind input { border: none; background: none; padding: 0; height: 100%; }
+.ibar .ifind input { border: none; background: none; padding: 0; height: 100%; min-height: 0; }
+.ibar .ifind:has(input:focus-visible) { outline: 2px solid var(--tab-line); outline-offset: 1px; }
 .ibar .ifind input:focus-visible { outline: none; }
 .ibar .imeta { font-size: 12px; color: var(--fg-3); white-space: nowrap; }
 .ibar .imeta.err { color: var(--err); }
@@ -842,7 +838,7 @@ body.noside .side { display: none; }
 }
 .iteams .tpills::-webkit-scrollbar { display: none; }
 .iteams .tpill {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px;
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px; min-height: 0;
   padding: 0 10px; border-radius: calc(var(--r) - 2px); background: none;
   color: var(--fg-2); font-size: 12px; white-space: nowrap;
 }
@@ -908,8 +904,8 @@ body.noside .side { display: none; }
 .isuggestions .irow { min-height: 48px; height: auto; border-radius: 0; }
 .isuggestions .irow + .irow { border-top: 1px solid var(--line); }
 @media (max-width: 900px) {
-  #ilist .irow { grid-template-columns: 22px 64px minmax(0, 1fr) auto; }
-  #ilist .irow .istate, #ilist .irow .iago { display: none; }
+  .issue-provider-pane .irow { grid-template-columns: 22px 64px minmax(0, 1fr) auto; }
+  .issue-provider-pane .irow .istate, .issue-provider-pane .irow .iago { display: none; }
 }
 /* Archived workspaces. */
 
