@@ -129,12 +129,11 @@ fn handle_connection(
         return Err("invalid_arguments".into());
     }
     let _call = lock(&runtime.calls);
-    let result = delegation::call(
-        app,
-        &owner,
-        request["name"].as_str().ok_or("invalid_tool")?,
-        &request["arguments"],
-    )?;
+    let result = if name.starts_with("automations_") {
+        crate::automations::mcp_call(app, &owner, name, &request["arguments"])?
+    } else {
+        delegation::call(app, &owner, name, &request["arguments"])?
+    };
     if result.to_string().len() > 768 * 1024 {
         return Err("response_too_large: request fewer items".into());
     }
@@ -242,6 +241,14 @@ pub fn tools() -> Vec<Value> {
     let text = json!({"type":"string", "minLength":1});
     let index = json!({"type":"integer", "minimum":0});
     vec![
+        tool("automations_catalog", "List typed workflow operations, node contracts and supported execution capabilities. No models or external calls.", json!({}), &[], true),
+        tool("automations_list", "List workflow drafts and execution history within this client's authorized projects.", json!({}), &[], true),
+        tool("automations_get", "Read a workflow and its immutable revisions and runs within an authorized project.", json!({"id":text}), &["id"], true),
+        tool("automations_validate", "Validate a typed workflow graph without saving or executing it.", json!({"workflow":{"type":"object"}}), &["workflow"], true),
+        tool("automations_simulate", "Walk a workflow with explicit event and node-output fixtures. Never calls APIs, models or mutations.", json!({"workflow":{"type":"object"},"fixture":{"type":"object"}}), &["workflow","fixture"], true),
+        tool("automations_save", "Save a disabled workflow draft for review in Automations. Requires an authorized project and expected revision (0 for new). Cannot grant write/merge permission or activate a routine. Present changes to the person before applying a proposal.", json!({"workflow":{"type":"object"},"expectedRevision":index}), &["workflow","expectedRevision"], false),
+        tool("automations_pause", "Pause an authorized workflow. Activation and human approvals remain in the desktop interface.", json!({"id":text}), &["id"], false),
+        tool("automations_delete", "Remove an authorized disabled workflow definition while retaining its execution history.", json!({"id":text}), &["id"], false),
         tool("list_projects", "List registered projects this client can use. Pass a returned project_id to delegate when no conversation context is attached.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
         tool("delegate", "Create a task-bound agent in its own isolated workspace using an allowed project_id or the attached conversation's repositories. Returns immediately while preparation runs. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
@@ -369,6 +376,8 @@ fn valid_args(schema: &Value, args: &Value) -> bool {
                 n >= property["minimum"].as_u64().unwrap_or(0)
                     && n <= property["maximum"].as_u64().unwrap_or(u64::MAX)
             }),
+            Some("object") => value.is_object(),
+            Some("boolean") => value.is_boolean(),
             _ => false,
         }
     })
@@ -394,6 +403,52 @@ pub fn stdio() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automation_tools_expose_drafts_without_human_grants() {
+        let catalog = tools();
+        for name in [
+            "automations_catalog",
+            "automations_save",
+            "automations_validate",
+            "automations_simulate",
+            "automations_pause",
+        ] {
+            assert!(catalog.iter().any(|tool| tool["name"] == name));
+        }
+        for name in [
+            "automations_approve",
+            "automations_run",
+            "automations_resume",
+            "automations_activate",
+        ] {
+            assert!(!catalog.iter().any(|tool| tool["name"] == name));
+        }
+        let save = catalog
+            .iter()
+            .find(|tool| tool["name"] == "automations_save")
+            .unwrap();
+        assert!(valid_args(
+            &save["inputSchema"],
+            &json!({"workflow":{}, "expectedRevision":0})
+        ));
+        assert!(!valid_args(
+            &save["inputSchema"],
+            &json!({"workflow":"not a graph", "expectedRevision":0})
+        ));
+        assert!(!valid_args(
+            &save["inputSchema"],
+            &json!({"workflow":{}, "expectedRevision":0, "approved":true})
+        ));
+        let pause = catalog
+            .iter()
+            .find(|tool| tool["name"] == "automations_pause")
+            .unwrap();
+        assert!(!valid_args(
+            &pause["inputSchema"],
+            &json!({"id":"workflow", "paused":false})
+        ));
+    }
 
     fn request(method: &str, params: Value) -> Value {
         json!({"jsonrpc":"2.0","id":7,"method":method,"params":params})
@@ -424,7 +479,7 @@ mod tests {
         let reply = protocol
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
-        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 13);
+        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 21);
         let reply = protocol
             .reply(
                 request(

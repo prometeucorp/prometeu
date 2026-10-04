@@ -302,3 +302,26 @@ provider capability, IPC or V1 event. `review-comments.test.ts`,
 `e2e/git.spec.ts` and `e2e/mobile.spec.ts` cover representative keyboard/reload
 and portable history behavior. These tests do not assert that a provider follows
 every note or that a queued batch has been received by the model.
+
+## Versioned automations
+
+Graph editing, local conditions, simulation, polling and deterministic GitHub
+actions are independent of the conversation provider. Jev classification uses
+the existing optional TypeSafe account, not a Claude or Codex session.
+
+The restricted automation worker supports Claude and Codex through a dedicated
+file/check broker. Fixed checks require OS sandboxing; commit and publication are
+separate deterministic operations with independent grants. Claude supports its
+native turn and USD limits; Codex bounds broker calls and refuses configured USD
+caps it cannot enforce. Codex also rejects unexpected ambient configuration
+layers. Antigravity workers are unavailable. Proposal generation uses tool-free
+Claude. Authentication, capability failures and unknown costs remain explicit.
+The executor is native desktop only; Windows/WSL shows an unsupported-runtime
+state rather than claiming that a successful shell build includes the executor.
+
+Tests: `src-tauri/crates/core/src/automation.rs`,
+`src-tauri/src/automations/`, `src/automations-model.test.ts`,
+`src/mock-automations.test.ts`, and `e2e/automations.spec.ts`. The browser test
+protects pointer dragging and focus/unsaved-edit preservation, which pure graph
+tests cannot prove; it does not validate real provider calls or remote effects.
+See the [contract](../contracts/automations.md).

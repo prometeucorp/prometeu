@@ -163,6 +163,17 @@ resumes the session when there is news. See the
 [contract](docs/contracts/actions.md) and
 [ADR 0009](docs/decisions/0009-reusable-actions.md).
 
+## Versioned automations
+
+`prometeu-core::automation` owns typed workflow graphs, immutable run snapshots,
+validation, simulation and execution transitions. `src-tauri/src/automations`
+composes local storage, polling, provider evaluation and bounded effect adapters.
+`src/automations.ts` edits the same graph using the desktop design system.
+Authenticated MCP clients can propose scoped disabled drafts; activation and
+human approvals remain explicit desktop actions. Existing Actions are preserved.
+See the [automation contract](docs/contracts/automations.md) and
+[ADR 0087](docs/decisions/0087-versioned-automation-workflows.md).
+
 ## State and persistence
 
 - `src-tauri/crates/core` owns the board models and portable rules. Its
