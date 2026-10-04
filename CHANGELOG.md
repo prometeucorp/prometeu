@@ -4,6 +4,20 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.24.0] - 2026-10-04
+
+### New
+
+- **linear:** Claim unassigned team issues
+
+### Fixes
+
+- **mcp:** Preserve connector selection across account failures
+- **linear:** Preserve issue lists during reauthorization
+- **linear:** Keep assigned issues when discovery fails
+- **linear:** Keep issue lists current during refreshes
+- **linear:** Show cached issues during refresh
+
 ## [0.23.1] - 2026-10-03
 
 ### Fixes
