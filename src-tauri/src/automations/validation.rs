@@ -4,7 +4,9 @@ use prometeu_core::command::{CommandError, CommandPolicy, CommandRunner, OutputP
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, Write};
+#[cfg(target_os = "linux")]
+use std::io::Write;
+use std::io::{Read, Seek};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -837,7 +839,9 @@ fn network_filter(_: Platform, _: &Path) -> Result<Option<File>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
     use prometeu_core::command::CommandOutput;
+    #[cfg(target_os = "linux")]
     use std::sync::Mutex;
 
     fn spec(executable: &str, args: &[&str]) -> ValidationCommand {
@@ -1025,10 +1029,12 @@ mod tests {
         assert!(dependency(&root.0, Some(&source.0), &commands, Platform::Linux).is_err());
     }
 
+    #[cfg(target_os = "linux")]
     struct FakeRunner {
         calls: Mutex<Vec<Vec<String>>>,
         replies: Mutex<Vec<Result<CommandOutput, CommandError>>>,
     }
+    #[cfg(target_os = "linux")]
     impl CommandRunner<Command> for FakeRunner {
         fn run(
             &self,
@@ -1049,6 +1055,7 @@ mod tests {
             self.replies.lock().unwrap().remove(0)
         }
     }
+    #[cfg(target_os = "linux")]
     fn reply(success: bool) -> Result<CommandOutput, CommandError> {
         Ok(CommandOutput {
             success,
