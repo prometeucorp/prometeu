@@ -30,6 +30,10 @@ test("GitHub issues and requested PR reviews launch workspaces without opening t
   await expect(page.locator("#issues-provider-github")).toBeFocused();
   await expect(page.locator("#github-issues-pane .ifind input")).not.toBeFocused();
   expect(await measurements()).toEqual(linearControls);
+  await expect(page.locator("#github-mine .c")).toHaveText("2");
+  await expect(page.locator("#github-repositories .c")).toHaveText("0");
+  await expect(page.locator("#github-authored .c")).toHaveText("2");
+  await expect(page.locator("#github-reviews .c")).toHaveText("1");
   await page.locator("#issues-provider-linear").click();
   await expect(page.locator("#issues-provider-linear")).toBeFocused();
   await expect(page.locator("#linear-issues-pane .ifind input")).not.toBeFocused();

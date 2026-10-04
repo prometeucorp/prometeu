@@ -7,8 +7,11 @@ Status: current desktop contract. Decision: [ADR 0086](../decisions/0086-github-
 Issues contains Linear and GitHub provider tabs. GitHub has four scopes:
 assigned open issues, open issues in selected repositories, authored open PRs
 (including drafts), and open PRs requesting the authenticated user's review.
-Personal scopes span all accessible repositories; the repository selection only
-controls the repository scope. Review requests use GitHub's
+Opening the GitHub provider fetches all four scopes, so their counts are available
+without visiting each tab. Switching scopes reads the loaded lists; reopening
+the integration revalidates them through the backend cache, and explicit refresh
+updates every scope. Personal scopes span all accessible repositories; the
+repository selection only controls the repository scope. Review requests use GitHub's
 `review-requested:<login>` search qualifier, including applicable team requests.
 
 Both providers use the same compact search field, scope tabs, refresh button
@@ -36,9 +39,11 @@ The identity is checked through `gh api user` before each list/cache access and
 repository selection write. Saving a selection also checks the login that opened
 the dialog; an external account switch cannot overwrite another account’s settings.
 Changing accounts clears the backend list cache.
-Any failed frontend refresh clears retained GitHub results and offers retry,
-so a failed query after an external account switch cannot retain another
-account's private list. Linear failure behavior remains unchanged.
+Each batch replaces retained results: successful scopes remain available, while
+failed scopes clear their previous results and offer retry. Results with different
+account identities or a failed authentication check are rejected together,
+preventing lists from two accounts from being combined. Linear failure behavior
+remains unchanged.
 
 The REST search query is passed as one argument, never through a shell. Each
 subprocess has a 30-second deadline, an 8 MiB stdout limit and a 1 MiB stderr
@@ -117,7 +122,8 @@ Rust tests in `github_issues.rs` cover search qualifiers, repository/URL validat
 pagination, old `IssueRef` compatibility and fork PR preparation against an
 upstream remote. `github.rs` covers explicit PR identity; `session.rs` covers
 worktree preparation. `src/github-issues-model.test.ts` covers source preservation,
-safe issue branch names and workspace reuse without identity collisions.
+safe issue branch names, workspace reuse without identity collisions, eager
+loading of all scopes, partial failures/retry and account switches during a batch.
 
 `e2e/issues.spec.ts` extends the workspace creation journey: provider keyboard
 navigation, source-link versus nested workspace-button event routing, native

@@ -1,4 +1,4 @@
-import type { GitHubItem, Issue, Workspace } from "./types";
+import type { GitHubItem, GitHubIssues, GitHubScope, Issue, Workspace } from "./types";
 
 // Preserve the existing workspace reference format; namespace GitHub IDs at the adapter boundary.
 export function githubIssue(item: GitHubItem): Issue {
@@ -15,4 +15,26 @@ export function githubWorkspace(item: GitHubItem, workspaces: Workspace[]): Work
   return workspaces.find(workspace => !workspace.archived && !workspace.cleaned && (
     workspace.issue?.id === item.id || workspace.issue?.url === item.url
   ));
+}
+
+export const githubScopes = ["mine", "repositories", "authored", "reviews"] as const;
+
+// Fetch the whole inbox together; a failed scope must not hide successful scopes or retain old data.
+export async function loadGitHubInbox(fetch: (scope: GitHubScope) => Promise<GitHubIssues>) {
+  const results = await Promise.allSettled(githubScopes.map(fetch));
+  const lists = new Map<GitHubScope, GitHubIssues>();
+  const errors = new Map<GitHubScope, unknown>();
+  let account: GitHubIssues | undefined;
+  for (const [index, result] of results.entries()) {
+    const scope = githubScopes[index];
+    if (result.status === "rejected") {
+      // A lost CLI identity invalidates the whole batch, including earlier successful queries.
+      if (result.reason === 'i18n:{"code":"err.github.auth"}') throw result.reason;
+      errors.set(scope, result.reason); continue;
+    }
+    account ??= result.value;
+    if (result.value.login !== account.login) throw 'i18n:{"code":"err.github.accountChanged"}';
+    lists.set(scope, result.value);
+  }
+  return { lists, errors, login: account?.login ?? "", repositories: account?.repositories ?? [] };
 }

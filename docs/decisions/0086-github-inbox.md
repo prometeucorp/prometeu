@@ -28,9 +28,12 @@ and login. Provider differences remain at the adapter and feature boundaries;
 the launcher retains one workspace creation path.
 
 Separate account/scoped caches avoid mixing personal and repository lists.
-Bounded pagination keeps subprocess work finite and reports partial results.
-Clearing results after failed refreshes trades offline list continuity for
-avoiding stale private content after an account switch outside the app.
+Opening the integration requests all four scopes so every tab has its count
+without being visited. Bounded pagination keeps subprocess work finite and
+reports partial results. Failed scopes drop their previous results while
+successfully revalidated scopes remain available. Mixed account identities or
+authentication failure clear the whole batch, trading offline list continuity
+for avoiding stale private content after an account switch outside the app.
 
 Synthetic PR branches support forks and protect local branches from accidental
 reset. They require an explicit PR URL rather than branch-name discovery and do

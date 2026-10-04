@@ -5,7 +5,7 @@ import { button, checkbox, field, formDialog, input, select } from "./ui";
 import { issueAction, issueTab, issueSearch, issueRefresh, issueFilter } from "./issues-controls";
 import { icon } from "./icons";
 import { empty, h, template } from "./util";
-import { githubWorkspace } from "./github-issues-model";
+import { githubScopes, githubWorkspace, loadGitHubInbox } from "./github-issues-model";
 import type { Board, GitHubItem, GitHubIssues, GitHubPrepared, GitHubScope, Workspace } from "./types";
 
 type Context = {
@@ -18,8 +18,9 @@ type Context = {
 
 export function githubIssues(host: HTMLElement, ctx: Context) {
   let scope: GitHubScope = "mine", login = "", selected: string[] = [], query = "", repository = "";
-  let visible = false, loading = false, revision = 0, error = "", opening = false;
+  let visible = false, loading = false, revision = 0, opening = false;
   const snapshots = new Map<GitHubScope, GitHubIssues>();
+  const errors = new Map<GitHubScope, string>();
   const tabs = h("div", "subbar tabbar itabs"); tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", t("github.scope"));
   const bar = h("div", "subbar ibar");
   const searchField = issueSearch(t("issues.search"));
@@ -31,9 +32,9 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
   const filters = h("div", "iteams");
   const list = h("div", "ilist"); list.id = "github-list"; list.setAttribute("role", "tabpanel");
   const controls = new Map<GitHubScope, HTMLButtonElement>();
-  for (const key of ["mine", "repositories", "authored", "reviews"] as const) {
+  for (const key of githubScopes) {
     const control = issueTab(t(`github.${key}`), () => {
-      scope = key; repository = ""; error = ""; draw(); void refresh(false);
+      scope = key; repository = ""; draw();
     });
     control.id = `github-${key}`; control.setAttribute("aria-controls", list.id);
     controls.set(key, control); tabs.append(control);
@@ -50,18 +51,21 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
   host.append(tabs, bar, filters, list);
 
   async function refresh(force: boolean) {
-    const request = ++revision, requestedScope = scope;
-    loading = true; error = ""; draw();
+    const request = ++revision;
+    loading = true; errors.clear(); draw();
     try {
-      const found = await invoke("github_issues", { scope: requestedScope, force });
+      const found = await loadGitHubInbox(scope => invoke("github_issues", { scope, force }));
       if (request !== revision) return;
-      if (login !== found.login) { snapshots.clear(); repository = ""; }
+      if (login !== found.login) repository = "";
       login = found.login; selected = found.repositories;
-      snapshots.set(requestedScope, found);
+      snapshots.clear();
+      found.lists.forEach((list, key) => snapshots.set(key, list));
+      found.errors.forEach((cause, key) => errors.set(key, fromBack(cause)));
     } catch (cause) {
       if (request !== revision) return;
-      // gh can switch accounts outside the app. Never retain a previous account's private results on failure.
-      snapshots.clear(); login = ""; selected = []; error = fromBack(cause);
+      // gh can change accounts during the batch. Never combine results from different identities.
+      snapshots.clear(); login = ""; selected = [];
+      githubScopes.forEach(key => errors.set(key, fromBack(cause)));
     }
     loading = false; draw(); ctx.redraw();
   }
@@ -77,6 +81,7 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
       control.children[1].textContent = count === undefined ? "" : String(count);
       if (active) list.setAttribute("aria-labelledby", control.id);
     });
+    const error = errors.get(scope) ?? "";
     meta.classList.toggle("err", !!error); meta.textContent = loading ? t("issues.busy") : error || (login ? `@${login}` : "");
     refreshButton.disabled = loading; repositoriesButton.disabled = loading || !login;
     drawList();
@@ -85,6 +90,7 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
   function drawList() {
     list.replaceChildren(); filters.replaceChildren(); filters.hidden = true;
     const snapshot = snapshots.get(scope);
+    const error = errors.get(scope) ?? "";
     list.setAttribute("aria-busy", String(loading));
     if (!snapshot) {
       if (error) list.append(empty(t("github.unavailable"), error, [t("issues.failed.action"), () => void refresh(true)]));
