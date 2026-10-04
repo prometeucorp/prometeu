@@ -9,6 +9,18 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## GitHub issues and pull requests
+
+GitHub issue and PR discovery uses the same desktop path for Claude, Codex and
+Antigravity. All three receive the originating title, description and URL through
+the existing launcher; PR worktree preparation is independent of the agent.
+Tests: `src-tauri/src/github_issues.rs`, `src-tauri/src/github.rs`,
+`src/github-issues-model.test.ts` and the workspace journey in `e2e/issues.spec.ts`.
+The browser scenario checks provider-tab focus, nested row actions, repository
+dialog focus after refresh and prepared PR source preservation. See the
+[contract](../contracts/github-issues.md). Windows/WSL has no GitHub inbox command
+implementation yet.
+
 ## Local telemetry foundation
 
 [ADR 0059](../decisions/0059-local-telemetry-foundation.md) adds the same local
