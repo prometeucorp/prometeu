@@ -50,32 +50,40 @@ pub struct Diagnostic {
 pub struct Snapshot {
     workflows: Vec<Workflow>,
     revisions: Vec<Workflow>,
-    runs: Vec<Run>,
+    runs: Vec<automation::RunView>,
     registry: Vec<OperationDescriptor>,
     templates: Vec<Workflow>,
     diagnostics: Vec<Diagnostic>,
 }
 
+fn snapshot_document(doc: &store::Document) -> Snapshot {
+    let registry = catalog::registry();
+    Snapshot {
+        workflows: doc.state.workflows.clone(),
+        revisions: doc.state.revisions.clone(),
+        runs: doc
+            .state
+            .runs
+            .iter()
+            .map(|run| run.read_model(&registry))
+            .collect(),
+        registry,
+        templates: catalog::templates(),
+        diagnostics: doc
+            .cursors
+            .iter()
+            .filter(|(id, _)| doc.state.workflows.iter().any(|w| &w.id == *id))
+            .map(|(id, c)| Diagnostic {
+                workflow_id: id.clone(),
+                error: c.error.clone(),
+                last_polled_at: c.last_polled_at,
+            })
+            .collect(),
+    }
+}
+
 fn snapshot() -> Result<Snapshot, String> {
-    store::transaction(false, |doc| {
-        Ok(Snapshot {
-            workflows: doc.state.workflows.clone(),
-            revisions: doc.state.revisions.clone(),
-            runs: doc.state.runs.clone(),
-            registry: catalog::registry(),
-            templates: catalog::templates(),
-            diagnostics: doc
-                .cursors
-                .iter()
-                .filter(|(id, _)| doc.state.workflows.iter().any(|w| &w.id == *id))
-                .map(|(id, c)| Diagnostic {
-                    workflow_id: id.clone(),
-                    error: c.error.clone(),
-                    last_polled_at: c.last_polled_at,
-                })
-                .collect(),
-        })
-    })
+    store::transaction(false, |doc| Ok(snapshot_document(doc)))
 }
 
 fn changed(app: &AppHandle) {
@@ -406,7 +414,11 @@ fn run_by_id(id: &str) -> Result<Run, String> {
 }
 
 #[tauri::command(async)]
-pub fn automations_run(app: AppHandle, id: String, event: Option<Value>) -> Result<Run, String> {
+pub fn automations_run(
+    app: AppHandle,
+    id: String,
+    event: Option<Value>,
+) -> Result<automation::RunView, String> {
     let event = event.unwrap_or_else(|| json!({}));
     if serde_json::to_vec(&event).map_or(true, |b| b.len() > 128 * 1024) {
         return Err("automation_event_limit".into());
@@ -430,7 +442,7 @@ pub fn automations_run(app: AppHandle, id: String, event: Option<Value>) -> Resu
     })?;
     execute(&app, &run.id)?;
     changed(&app);
-    run_by_id(&run.id)
+    run_by_id(&run.id).map(|run| run.read_model(&catalog::registry()))
 }
 
 #[tauri::command(async)]
@@ -439,7 +451,7 @@ pub fn automations_approve(
     run_id: String,
     node_id: String,
     head_sha: Option<String>,
-) -> Result<Run, String> {
+) -> Result<automation::RunView, String> {
     let run = run_by_id(&run_id)?;
     let evidence = if store::transaction(false, |doc| Ok(doc.worktrees.contains_key(&run_id)))? {
         let (reservation, head) = reserved_workspace(&run)?;
@@ -494,11 +506,11 @@ pub fn automations_approve(
     })?;
     execute(&app, &run_id)?;
     changed(&app);
-    run_by_id(&run_id)
+    run_by_id(&run_id).map(|run| run.read_model(&catalog::registry()))
 }
 
 #[tauri::command(async)]
-pub fn automations_resume(app: AppHandle, run_id: String) -> Result<Run, String> {
+pub fn automations_resume(app: AppHandle, run_id: String) -> Result<automation::RunView, String> {
     let run = run_by_id(&run_id)?;
     if run.status != RunStatus::Paused {
         return Err("automation_run_not_paused".into());
@@ -519,11 +531,11 @@ pub fn automations_resume(app: AppHandle, run_id: String) -> Result<Run, String>
     })?;
     execute(&app, &run_id)?;
     changed(&app);
-    run_by_id(&run_id)
+    run_by_id(&run_id).map(|run| run.read_model(&catalog::registry()))
 }
 
 #[tauri::command(async)]
-pub fn automations_cancel(app: AppHandle, run_id: String) -> Result<Run, String> {
+pub fn automations_cancel(app: AppHandle, run_id: String) -> Result<automation::RunView, String> {
     let run = store::transaction(true, |doc| {
         let run = doc
             .state
@@ -540,7 +552,7 @@ pub fn automations_cancel(app: AppHandle, run_id: String) -> Result<Run, String>
         doc.state.transition(&run_id, RunStatus::Cancelled, now())
     })?;
     changed(&app);
-    Ok(run)
+    Ok(run.read_model(&catalog::registry()))
 }
 
 fn current_allows(doc: &store::Document, run: &Run) -> bool {
@@ -1592,9 +1604,10 @@ fn admit_document(
         return Ok(());
     }
     let identity = workflow.scope.identity.clone().unwrap_or_default();
+    let scope_key = cursor_key(workflow);
     let mut cursor = doc
         .cursors
-        .get(&cursor_key(workflow))
+        .get(&scope_key)
         .filter(|c| c.identity == identity)
         .cloned()
         .unwrap_or_default();
@@ -1607,10 +1620,11 @@ fn admit_document(
         }
         .ok_or("automation_event_identity_missing")?;
         let fingerprint = hash(&item);
+        let previous = seen.get(&key).or_else(|| cursor.seen.get(&key));
         let is_new = if event == "linear.assigned_issue" {
-            !cursor.seen.contains_key(&key)
+            previous.is_none()
         } else {
-            cursor.seen.get(&key) != Some(&fingerprint)
+            previous != Some(&fingerprint)
         };
         seen.insert(key.clone(), fingerprint.clone());
         if (!cursor.initialized && baseline == Baseline::IgnoreExisting) || !is_new {
@@ -1638,7 +1652,11 @@ fn admit_document(
         {
             item["target"] = json!({"projectId":workflow.scope.project_id,"repository":workflow.scope.repository,"identity":workflow.scope.identity});
         }
-        let event_key = format!("{event}:{key}:{fingerprint}");
+        cursor.occurrence = cursor
+            .occurrence
+            .checked_add(1)
+            .ok_or("automation_event_occurrence_exhausted")?;
+        let event_key = format!("observed:{scope_key}:{event}:{key}:{}", cursor.occurrence);
         doc.state
             .enqueue(&workflow.id, item, &event_key, resource, now())?;
     }
@@ -1648,7 +1666,7 @@ fn admit_document(
     cursor.last_polled_at = now();
     cursor.seen = seen;
     cursor.error = None;
-    doc.cursors.insert(cursor_key(workflow), cursor);
+    doc.cursors.insert(scope_key, cursor);
     Ok(())
 }
 
@@ -1793,7 +1811,7 @@ pub fn mcp_call(
         "automations_list" => {
             let snapshot = snapshot()?;
             Ok(
-                json!({"workflows":snapshot.workflows.into_iter().filter(|w|authorize(w).is_ok()).collect::<Vec<_>>(),"runs":snapshot.runs.into_iter().filter(|r|authorize(&r.workflow).is_ok()).collect::<Vec<_>>()}),
+                json!({"workflows":snapshot.workflows.into_iter().filter(|w|authorize(w).is_ok()).collect::<Vec<_>>(),"runs":snapshot.runs.into_iter().filter(|r|authorize(&r.run.workflow).is_ok()).collect::<Vec<_>>()}),
             )
         }
         "automations_get" => {
@@ -1807,7 +1825,7 @@ pub fn mcp_call(
                     .ok_or("workflow_not_found")?;
                 authorize(workflow)?;
                 Ok(
-                    json!({"workflow":workflow,"revisions":doc.state.revisions.iter().filter(|w|w.id==id && authorize(w).is_ok()).collect::<Vec<_>>(),"runs":doc.state.runs.iter().filter(|r|r.workflow.id==id && authorize(&r.workflow).is_ok()).collect::<Vec<_>>()}),
+                    json!({"workflow":workflow,"revisions":doc.state.revisions.iter().filter(|w|w.id==id && authorize(w).is_ok()).collect::<Vec<_>>(),"runs":doc.state.runs.iter().filter(|r|r.workflow.id==id && authorize(&r.workflow).is_ok()).map(|run|run.read_model(&catalog::registry())).collect::<Vec<_>>()}),
                 )
             })
         }
@@ -1905,6 +1923,401 @@ mod tests {
             .unwrap();
         (doc, saved)
     }
+    #[test]
+    fn pending_approval_snapshot_recovers_first_wait_without_node_history() {
+        let mut definition = workflow("manual");
+        definition.nodes.push(serde_json::from_value(json!({"id":"review","label":"Review","position":{"x":0,"y":1},"config":{"type":"approval","message":"Review result"}})).unwrap());
+        definition.edges.push(
+            serde_json::from_value(json!({"from":"trigger","to":"review","port":"next"})).unwrap(),
+        );
+        let mut doc = store::Document::default();
+        let saved = doc
+            .state
+            .save_workflow(definition, None, &catalog::registry())
+            .unwrap();
+        let run = doc
+            .state
+            .enqueue(&saved.id, json!({"headSha":"original"}), "event", None, 1)
+            .unwrap();
+        doc.state
+            .transition(&run.id, RunStatus::Running, 2)
+            .unwrap();
+        doc.state
+            .complete_node(
+                &run.id,
+                "trigger",
+                "next",
+                json!({}),
+                &catalog::registry(),
+                3,
+            )
+            .unwrap();
+        doc.state
+            .transition(&run.id, RunStatus::AwaitingApproval, 4)
+            .unwrap();
+        assert!(doc.state.runs[0]
+            .history
+            .iter()
+            .all(|entry| entry.node_id.as_deref() != Some("review")));
+        let recovered: store::Document =
+            serde_json::from_value(serde_json::to_value(doc).unwrap()).unwrap();
+        let snapshot = serde_json::to_value(snapshot_document(&recovered)).unwrap();
+        assert_eq!(
+            snapshot["runs"][0]["pendingApprovalNodeId"],
+            json!("review")
+        );
+    }
+
+    #[test]
+    fn recurring_pull_state_a_b_a_is_three_distinct_occurrences() {
+        let (mut doc, workflow) = document("github.authored_pr");
+        for state in ["A", "A", "B", "A", "A"] {
+            admit_document(
+                &mut doc,
+                &workflow,
+                "github.authored_pr",
+                Baseline::IncludeExisting,
+                vec![json!({"number":42,"headRefName":"fix","headRefOid":"head","state":state})],
+            )
+            .unwrap();
+            // The next poll may happen after restarting the desktop.
+            doc = serde_json::from_value(serde_json::to_value(doc).unwrap()).unwrap();
+        }
+        assert_eq!(doc.state.runs.len(), 3);
+        assert_eq!(
+            doc.state
+                .runs
+                .iter()
+                .map(|run| run.event["state"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["A", "B", "A"]
+        );
+    }
+
+    #[test]
+    fn identical_pull_payloads_in_different_targets_are_independent() {
+        let (mut doc, first) = document("github.authored_pr");
+        let mut second = first.clone();
+        second.scope.repository = Some("owner/other".into());
+        doc.state.workflows[0].scope.targets = vec![
+            serde_json::from_value(
+                json!({"projectId":"local","repository":"owner/repo","identity":"owner"}),
+            )
+            .unwrap(),
+            serde_json::from_value(
+                json!({"projectId":"local","repository":"owner/other","identity":"owner"}),
+            )
+            .unwrap(),
+        ];
+        for target in [&first, &second] {
+            admit_document(
+                &mut doc,
+                target,
+                "github.authored_pr",
+                Baseline::IncludeExisting,
+                vec![json!({"number":42,"headRefName":"fix","headRefOid":"head"})],
+            )
+            .unwrap();
+        }
+        assert_eq!(doc.state.runs.len(), 2);
+        assert_ne!(doc.state.runs[0].event_key, doc.state.runs[1].event_key);
+    }
+
+    #[test]
+    fn duplicate_items_in_one_poll_are_one_occurrence() {
+        for event in ["github.authored_pr", "linear.assigned_issue"] {
+            let (mut doc, workflow) = document(event);
+            let item = json!({"id":"issue", "number":42, "headRefName":"fix", "headRefOid":"head"});
+            admit_document(
+                &mut doc,
+                &workflow,
+                event,
+                Baseline::IncludeExisting,
+                vec![item.clone(), item],
+            )
+            .unwrap();
+            assert_eq!(doc.state.runs.len(), 1);
+            assert_eq!(doc.cursors[&cursor_key(&workflow)].occurrence, 1);
+        }
+    }
+
+    #[test]
+    fn assignment_reentry_with_identical_payload_is_a_new_occurrence() {
+        let (mut doc, workflow) = document("linear.assigned_issue");
+        let item = json!({"id":"issue", "title":"Same assignment"});
+        for items in [vec![item.clone()], vec![], vec![item]] {
+            admit_document(
+                &mut doc,
+                &workflow,
+                "linear.assigned_issue",
+                Baseline::IncludeExisting,
+                items,
+            )
+            .unwrap();
+        }
+        assert_eq!(doc.state.runs.len(), 2);
+        assert_eq!(doc.cursors[&cursor_key(&workflow)].occurrence, 2);
+    }
+
+    #[test]
+    fn legacy_cursor_defaults_occurrence_without_replaying_current_state() {
+        let (mut doc, workflow) = document("github.authored_pr");
+        let item = json!({"number":42, "headRefName":"fix", "headRefOid":"head", "state":"A"});
+        admit_document(
+            &mut doc,
+            &workflow,
+            "github.authored_pr",
+            Baseline::IncludeExisting,
+            vec![item.clone()],
+        )
+        .unwrap();
+        let key = cursor_key(&workflow);
+        // Emulate the complete legacy format: content-keyed dedup and no counter.
+        let legacy_event_key = format!("github.authored_pr:42:{}", hash(&item));
+        doc.state.runs[0].event_key = legacy_event_key.clone();
+        doc.state.dedup = BTreeMap::from([(
+            serde_json::to_string(&(&workflow.id, &legacy_event_key)).unwrap(),
+            doc.state.runs[0].id.clone(),
+        )]);
+        let mut persisted = serde_json::to_value(doc).unwrap();
+        persisted["cursors"][&key]
+            .as_object_mut()
+            .unwrap()
+            .remove("occurrence");
+        let mut recovered: store::Document = serde_json::from_value(persisted).unwrap();
+        assert_eq!(recovered.cursors[&key].occurrence, 0);
+        admit_document(
+            &mut recovered,
+            &workflow,
+            "github.authored_pr",
+            Baseline::IncludeExisting,
+            vec![item.clone()],
+        )
+        .unwrap();
+        assert_eq!(recovered.state.runs.len(), 1);
+        let mut changed = item;
+        changed["state"] = json!("B");
+        admit_document(
+            &mut recovered,
+            &workflow,
+            "github.authored_pr",
+            Baseline::IncludeExisting,
+            vec![changed],
+        )
+        .unwrap();
+        assert_eq!(recovered.state.runs.len(), 2);
+        assert_eq!(recovered.cursors[&key].occurrence, 1);
+    }
+
+    #[test]
+    fn failed_poll_transaction_preserves_cursor_counter_and_all_admissions() {
+        let root = std::env::temp_dir().join(format!("automation-poll-{}", uuid::Uuid::new_v4()));
+        let path = root.join("state.json");
+        let (doc, workflow) = document("github.authored_pr");
+        store::transaction_at(&path, true, |current| {
+            *current = doc;
+            Ok(())
+        })
+        .unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let item = json!({"number":42, "headRefName":"fix", "headRefOid":"head"});
+        let result = store::transaction_at(&path, true, |doc| {
+            admit_document(
+                doc,
+                &workflow,
+                "github.authored_pr",
+                Baseline::IncludeExisting,
+                vec![item.clone(), json!({"headRefName":"missing-identity"})],
+            )
+        });
+        assert_eq!(result.unwrap_err(), "automation_event_identity_missing");
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        store::transaction_at(&path, true, |doc| {
+            admit_document(
+                doc,
+                &workflow,
+                "github.authored_pr",
+                Baseline::IncludeExisting,
+                vec![item],
+            )
+        })
+        .unwrap();
+        store::transaction_at(&path, false, |doc| {
+            assert_eq!(doc.state.runs.len(), 1);
+            assert_eq!(doc.cursors[&cursor_key(&workflow)].occurrence, 1);
+            Ok(())
+        })
+        .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn enqueue_failure_rolls_back_occurrences_and_prior_batch_admissions() {
+        let root =
+            std::env::temp_dir().join(format!("automation-enqueue-{}", uuid::Uuid::new_v4()));
+        let path = root.join("state.json");
+        let (mut doc, workflow) = document("github.authored_pr");
+        let scope = cursor_key(&workflow);
+        let first = json!({"number":42,"headRefName":"first","headRefOid":"head"});
+        let second = json!({"number":43,"headRefName":"second","headRefOid":"head"});
+        let future_key = format!("observed:{scope}:github.authored_pr:43:2");
+        let corrupt_key = serde_json::to_string(&(&workflow.id, &future_key)).unwrap();
+        doc.state
+            .dedup
+            .insert(corrupt_key.clone(), "missing-run".into());
+        store::transaction_at(&path, true, |current| {
+            *current = doc;
+            Ok(())
+        })
+        .unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let error = store::transaction_at(&path, true, |doc| {
+            admit_document(
+                doc,
+                &workflow,
+                "github.authored_pr",
+                Baseline::IncludeExisting,
+                vec![first.clone(), second.clone()],
+            )
+        })
+        .unwrap_err();
+        assert_eq!(error, "dedup_run_missing");
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        store::transaction_at(&path, false, |doc| {
+            assert!(doc.state.runs.is_empty());
+            assert!(!doc.cursors.contains_key(&scope));
+            Ok(())
+        })
+        .unwrap();
+        store::transaction_at(&path, true, |doc| {
+            doc.state.dedup.remove(&corrupt_key);
+            admit_document(
+                doc,
+                &workflow,
+                "github.authored_pr",
+                Baseline::IncludeExisting,
+                vec![first, second],
+            )
+        })
+        .unwrap();
+        store::transaction_at(&path, false, |doc| {
+            assert_eq!(doc.state.runs.len(), 2);
+            assert_eq!(doc.cursors[&scope].occurrence, 2);
+            Ok(())
+        })
+        .unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pending_approval_follows_active_branch_then_next_approval_on_frozen_graph() {
+        let mut definition = workflow("manual");
+        for (id, config) in [
+            (
+                "choose",
+                json!({"type":"condition","path":"event.choose","operator":"truthy"}),
+            ),
+            ("left", json!({"type":"approval","message":"Left"})),
+            ("right", json!({"type":"approval","message":"Right"})),
+            ("final", json!({"type":"approval","message":"Final"})),
+        ] {
+            definition.nodes.push(
+                serde_json::from_value(
+                    json!({"id":id,"label":id,"position":{"x":0,"y":1},"config":config}),
+                )
+                .unwrap(),
+            );
+        }
+        for (from, to, port) in [
+            ("trigger", "choose", "next"),
+            ("choose", "left", "true"),
+            ("choose", "right", "false"),
+            ("left", "final", "next"),
+            ("right", "final", "next"),
+        ] {
+            definition
+                .edges
+                .push(serde_json::from_value(json!({"from":from,"to":to,"port":port})).unwrap());
+        }
+        for (port, selected, skipped) in [("true", "left", "right"), ("false", "right", "left")] {
+            let mut doc = store::Document::default();
+            let saved = doc
+                .state
+                .save_workflow(definition.clone(), None, &catalog::registry())
+                .unwrap();
+            let run = doc
+                .state
+                .enqueue(&saved.id, json!({"headSha":"original"}), "event", None, 1)
+                .unwrap();
+            doc.state
+                .transition(&run.id, RunStatus::Running, 2)
+                .unwrap();
+            for (node, port) in [("trigger", "next"), ("choose", port)] {
+                doc.state
+                    .complete_node(&run.id, node, port, json!(true), &catalog::registry(), 3)
+                    .unwrap();
+            }
+            doc.state
+                .transition(&run.id, RunStatus::AwaitingApproval, 4)
+                .unwrap();
+            // A later edit cannot change which approval this frozen run requires.
+            doc.state.workflows[0]
+                .nodes
+                .retain(|node| node.id == "trigger");
+            let pending = |doc: &store::Document| {
+                serde_json::to_value(snapshot_document(doc)).unwrap()["runs"][0]
+                    ["pendingApprovalNodeId"]
+                    .clone()
+            };
+            assert_eq!(pending(&doc), json!(selected));
+            assert_eq!(
+                doc.state
+                    .approve(&run.id, skipped, Some("original".into()), "human", 5)
+                    .unwrap_err(),
+                "node_not_ready"
+            );
+            assert_eq!(
+                doc.state
+                    .approve(&run.id, selected, Some("changed".into()), "human", 5)
+                    .unwrap_err(),
+                "approval_sha_mismatch"
+            );
+            doc.state
+                .approve(&run.id, selected, Some("original".into()), "human", 5)
+                .unwrap();
+            assert_eq!(
+                pending(&doc),
+                Value::Null,
+                "approved node must not remain actionable before its completion"
+            );
+            doc.state
+                .transition(&run.id, RunStatus::Running, 6)
+                .unwrap();
+            doc.state
+                .complete_node(
+                    &run.id,
+                    selected,
+                    "next",
+                    json!({}),
+                    &catalog::registry(),
+                    7,
+                )
+                .unwrap();
+            doc.state
+                .transition(&run.id, RunStatus::AwaitingApproval, 8)
+                .unwrap();
+            assert_eq!(pending(&doc), json!("final"));
+            assert_eq!(
+                doc.state
+                    .approve(&run.id, selected, Some("original".into()), "human", 9)
+                    .unwrap_err(),
+                "node_not_ready"
+            );
+            doc.state.transition(&run.id, RunStatus::Paused, 9).unwrap();
+            assert_eq!(pending(&doc), Value::Null);
+        }
+    }
+
     #[test]
     fn assignment_baseline_ignores_backlog_and_admits_only_new_membership() {
         let (mut doc, workflow) = document("linear.assigned_issue");

@@ -30,6 +30,11 @@ different node types. Restrict automated worker capabilities in the adapter;
 never interpret a prompt as a security boundary. Every merge passes the native
 policy gate even if the graph contains a direct edge to that action.
 
+Separate observation occurrences from content fingerprints: scope and a durable
+cursor counter identify an admitted event, so returning to an earlier state does
+not suppress new work. Derive pending approval in the run read model from graph
+readiness rather than duplicating execution state in history or persisted fields.
+
 Use a restricted file/check broker for automated code work. Fixed validation
 commands run in an OS sandbox because repository scripts remain untrusted code.
 Bind independent validation, commit and human publication approval to the same

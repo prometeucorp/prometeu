@@ -41,7 +41,14 @@ Initial observation establishes a baseline unless inclusion of existing items wa
 explicitly chosen. Scope binds local project, repository and connected identity;
 multiple targets have explicit mappings. Account changes cannot silently adopt a
 new identity. Deduplication and resource reservations are persisted with accepted
-work. Selected branches are processed from the actual graph. Wait and approval
+work. An event key binds its target cursor and a persisted observation occurrence;
+the content fingerprint detects changes but is not the event identity. Repeated
+observations do not enqueue work, while a return to an earlier state is a new
+occurrence. Cursor advancement and admission commit together, so a failed enqueue
+cannot consume an occurrence. Older cursors default the occurrence counter to zero
+and retain their existing baseline and fingerprints.
+
+Selected branches are processed from the actual graph. Wait and approval
 nodes suspend rather than polling a model.
 
 Mutation intent is persisted before dispatch. A crash or ambiguous transport
@@ -83,6 +90,13 @@ Typed desktop commands:
 - `automations_approve({runId, nodeId, headSha?})`: human approval.
 - `automations_resume({runId})` and `automations_cancel({runId})`: explicit recovery;
   unresolved effects cannot be blindly retried.
+
+Run read models include optional `pendingApprovalNodeId`, computed by the native
+executor from the frozen graph and completed ports while awaiting an unapproved
+approval node. The editor uses this selection rather than history entries, which
+may have no node ID or describe earlier approvals. The field is not persisted:
+existing runs acquire it when read without migrating their state. Approval still
+revalidates the current ready node, event and SHA in the native command.
 
 The authenticated [embedded MCP](embedded-mcp.md) exposes catalog, scoped list/get,
 validate, simulate, draft save, pause and deletion. It does not expose activation,

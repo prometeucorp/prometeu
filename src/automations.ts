@@ -5,7 +5,7 @@ import type { Project } from "./types";
 import { icon, type IconName } from "./icons";
 import * as ui from "./ui";
 import { sectionHeader, toolbar, listState } from "./components/compositions";
-import { localizeBuiltinTemplate, automationTransportUnavailable, publicationEvidence, blankWorkflow, connectNodes, newNode, outputPorts, removeNode, workflowDiff } from "./automations-model";
+import { localizeBuiltinTemplate, automationTransportUnavailable, pendingApprovalNode, publicationEvidence, blankWorkflow, connectNodes, newNode, outputPorts, removeNode, workflowDiff } from "./automations-model";
 import type { AutomationProposal, AutomationSnapshot, NodeKind, SimulationResult, ValidationIssue, Workflow, WorkflowNode } from "./automations-model";
 import "./automations.css";
 
@@ -443,8 +443,8 @@ export function mountAutomations(host: HTMLElement): () => void {
       if (run.measuredCostUsd !== undefined) item.append(h("p", "ui-hint", t("automations.measuredCost", { amount: new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 4 }).format(run.measuredCostUsd) })));
       if (run.costUnknown) item.append(h("p", "ui-hint", label("unknownCost")));
       if (run.status === "awaitingApproval") {
-        const waiting = [...run.history].reverse().find(e => e.nodeId && run.workflow.nodes.some(n => n.id === e.nodeId && n.config.type === "approval"));
-        if (waiting?.nodeId) { const nodeId = waiting.nodeId; item.append(act("approval", () => {
+        const waiting = pendingApprovalNode(run);
+        if (waiting) { const nodeId = waiting.id; item.append(act("approval", () => {
           const dialog = ui.formDialog({ error: fromBack, title: label("approval"), save: label("approve"), cancel: label("cancel"), submit: async () => { await invoke("automations_approve", { runId: run.id, nodeId, headSha: sha.value || undefined }); await load(); if (alive) renderContent(); } });
           const event = run.event && typeof run.event === "object" ? run.event as Record<string, unknown> : {};
           const sha = ui.input(typeof event.headSha === "string" ? event.headSha : ""); sha.readOnly = !!sha.value;

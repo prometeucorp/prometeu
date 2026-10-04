@@ -78,6 +78,19 @@ fn automation_wire_fixture_matches_actual_serialization() {
     state
         .transition(&run.id, RunStatus::AwaitingApproval, 103)
         .unwrap();
+    let mut waiting_run = state.runs[0].clone();
+    waiting_run.id = "fixture-waiting-run".into();
+    let waiting_run = waiting_run.read_model(&registry);
+    assert_eq!(
+        waiting_run.pending_approval_node_id.as_deref(),
+        Some("approval")
+    );
+    assert!(waiting_run.run.approvals.is_empty());
+    assert!(waiting_run
+        .run
+        .history
+        .iter()
+        .all(|entry| entry.node_id.as_deref() != Some("approval")));
     state
         .approve(
             &run.id,
@@ -98,7 +111,7 @@ fn automation_wire_fixture_matches_actual_serialization() {
     for id in state.locks.values_mut() {
         *id = "fixture-run".into();
     }
-    let payload = json!({"workflow":workflow,"registry":registry,"simulation":simulation,"run":state.runs[0],"state":state});
+    let payload = json!({"workflow":workflow,"registry":registry,"simulation":simulation,"run":state.runs[0].read_model(&registry),"waitingRun":waiting_run,"state":state});
     let serialized = serde_json::to_string_pretty(&payload).unwrap() + "\n";
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../fixtures/automation-contract.json");

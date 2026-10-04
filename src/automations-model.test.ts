@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import catalog from "./automation-catalog.json";
+import contract from "../fixtures/automation-contract.json";
 import { t, use, type Key } from "./i18n";
-import { localizeBuiltinTemplate, automationTransportUnavailable, publicationEvidence, blankWorkflow, connectNodes, newNode, outputPorts, removeNode, workflowDiff, type Workflow, type WorkflowNode, type AutomationRun } from "./automations-model";
+import { localizeBuiltinTemplate, automationTransportUnavailable, pendingApprovalNode, publicationEvidence, blankWorkflow, connectNodes, newNode, outputPorts, removeNode, workflowDiff, type Workflow, type WorkflowNode, type AutomationRun } from "./automations-model";
 
 function graph(): Workflow {
   const nodes: WorkflowNode[] = [
@@ -59,6 +60,36 @@ describe("workflow runtime presentation", () => {
     expect(automationTransportUnavailable({ code: "application_operation_unsupported" })).toBe(true);
     expect(automationTransportUnavailable("Connection lost while sending automations_snapshot")).toBe(false);
     expect(automationTransportUnavailable("automation_store_corrupt")).toBe(false);
+  });
+
+  it("offers the first pending approval from the native run without a history node id", () => {
+    const run = contract.waitingRun as AutomationRun;
+    expect(run.status).toBe("awaitingApproval");
+    expect(run.approvals).toEqual([]);
+    expect(run.history.some(entry => entry.nodeId === "approval")).toBe(false);
+    expect(pendingApprovalNode(run)?.id).toBe("approval");
+  });
+
+  it("uses the current native selection instead of a previous approval in history", () => {
+    const run = structuredClone(contract.waitingRun) as AutomationRun;
+    run.workflow.nodes.push({ id: "later", label: "Later approval", position: { x: 0, y: 0 }, config: { type: "approval", message: "Approve the next result" } });
+    run.history.push({ sequence: 100, at: 105, nodeId: "approval", kind: "approved", message: "Previously approved" });
+    run.approvals.push({ nodeId: "approval", eventKey: run.eventKey, actor: "local-user", approvedAt: 105 });
+    run.completedPorts = { ...run.completedPorts, approval: "next" };
+    run.pendingApprovalNodeId = "later";
+    expect(pendingApprovalNode(run)?.id).toBe("later");
+    delete run.pendingApprovalNodeId;
+    expect(pendingApprovalNode(run)).toBeUndefined();
+  });
+
+  it("does not offer stale, completed, already approved or invalid selections", () => {
+    const run = contract.waitingRun as AutomationRun;
+    expect(pendingApprovalNode({ ...run, status: "succeeded" })).toBeUndefined();
+    expect(pendingApprovalNode({ ...run, pendingApprovalNodeId: "missing" })).toBeUndefined();
+    expect(pendingApprovalNode({ ...run, pendingApprovalNodeId: "trigger" })).toBeUndefined();
+    expect(pendingApprovalNode({ ...run, completedPorts: { ...run.completedPorts, approval: "next" } })).toBeUndefined();
+    expect(pendingApprovalNode({ ...run, approvals: [{ nodeId: "approval", eventKey: run.eventKey, actor: "local-user", approvedAt: 105 }] })).toBeUndefined();
+    expect(pendingApprovalNode(contract.run as AutomationRun)).toBeUndefined();
   });
 
   it("shows publication evidence only from recorded validation and commit nodes", () => {

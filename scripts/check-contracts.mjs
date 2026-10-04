@@ -19,6 +19,7 @@ const automationPayload = ${automationFixture} as const;
 export const workflow: ReadonlyWire<Workflow> = automationPayload.workflow;
 export const workflowRegistry: ReadonlyWire<RegistryEntry[]> = automationPayload.registry;
 export const workflowRun: ReadonlyWire<AutomationRun> = automationPayload.run;
+export const waitingWorkflowRun: ReadonlyWire<AutomationRun> = automationPayload.waitingRun;
 export const workflowSimulation: ReadonlyWire<SimulationResult> = automationPayload.simulation;
 export const board: ReadonlyWire<IpcResult<"load_board">> = payload.board;
 export const snapshot: ReadonlyWire<IpcResult<"chat_snapshot">> = payload.snapshot;

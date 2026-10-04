@@ -85,7 +85,7 @@ export function blankWorkflow(name: string): Workflow {
   return { id: crypto.randomUUID(), name, revision: 0, enabled: false, nodes: [], edges: [], scope: {}, policy: { maxConcurrentRuns: 1, requireMergeApproval: true, allowWrites: false, allowCommit: false, allowPush: false, requirePublishApproval: true, maxRetries: 2, maxAgentTurns: 5 } };
 }
 
-export type AutomationRun = { id: string; workflow: Workflow; status: "queued" | "running" | "waiting" | "awaitingApproval" | "paused" | "succeeded" | "failed" | "cancelled"; event: unknown; eventKey: string; resourceKey?: string; createdAt: number; updatedAt: number; history: { sequence: number; at: number; nodeId?: string; kind: string; message: string }[]; approvals: { nodeId: string; headSha?: string; eventKey: string; approvedAt: number; actor: string }[]; outputs: Record<string, unknown>; completedPorts?: Record<string, string>; measuredCostUsd?: number; costUnknown?: boolean };
+export type AutomationRun = { id: string; workflow: Workflow; status: "queued" | "running" | "waiting" | "awaitingApproval" | "paused" | "succeeded" | "failed" | "cancelled"; event: unknown; eventKey: string; resourceKey?: string; createdAt: number; updatedAt: number; history: { sequence: number; at: number; nodeId?: string; kind: string; message: string }[]; approvals: { nodeId: string; headSha?: string; eventKey: string; approvedAt: number; actor: string }[]; outputs: Record<string, unknown>; completedPorts?: Record<string, string>; measuredCostUsd?: number; costUnknown?: boolean; pendingApprovalNodeId?: string };
 export type AutomationSnapshot = { workflows: Workflow[]; revisions: Workflow[]; runs: AutomationRun[]; registry: RegistryEntry[]; templates: Workflow[]; diagnostics?: { workflowId: string; error: string | null; lastPolledAt: number }[] };
 export type AutomationProposal = { workflow: Workflow; summary: string };
 export type WorkflowProposal = AutomationProposal;
@@ -96,6 +96,14 @@ export function automationTransportUnavailable(error: unknown): boolean {
   return typeof text === "string" && (/application_(?:command|operation)_unsupported/.test(text)
     || /(?:unknown|unsupported|not found|not implemented)[^\n]*automations_/i.test(text)
     || /automations_[^\n]*(?:unknown|unsupported|not found|not implemented)/i.test(text));
+}
+
+/** The executor selects the current approval from the frozen graph, not its history. */
+export function pendingApprovalNode(run: AutomationRun): WorkflowNode | undefined {
+  const id = run.pendingApprovalNodeId;
+  if (run.status !== "awaitingApproval" || !id || run.completedPorts?.[id] !== undefined
+    || run.approvals.some(approval => approval.nodeId === id)) return undefined;
+  return run.workflow.nodes.find(node => node.id === id && node.config.type === "approval");
 }
 
 /** Only persisted outputs from the run's frozen definition are approval evidence. */

@@ -982,7 +982,35 @@ pub struct Run {
     #[serde(default)]
     pub cost_unknown: bool,
 }
+/// Read model derived from the frozen execution graph, never persisted approval hints.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunView {
+    #[serde(flatten)]
+    pub run: Run,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_approval_node_id: Option<String>,
+}
+
 impl Run {
+    pub fn read_model(&self, registry: &[OperationDescriptor]) -> RunView {
+        let pending_approval_node_id = (self.status == RunStatus::AwaitingApproval)
+            .then(|| next_ready(self, registry).ok().flatten())
+            .flatten()
+            .filter(|node| matches!(node.config, NodeConfig::Approval { .. }))
+            .filter(|node| {
+                !self
+                    .approvals
+                    .iter()
+                    .any(|approval| approval.node_id == node.id)
+            })
+            .map(|node| node.id);
+        RunView {
+            run: self.clone(),
+            pending_approval_node_id,
+        }
+    }
+
     fn record(&mut self, now: u64, node_id: Option<String>, kind: &str, message: String) {
         self.updated_at = now;
         self.history.push(RunHistory {

@@ -15,6 +15,9 @@ pub(super) struct Cursor {
     pub initialized: bool,
     pub last_polled_at: u64,
     pub seen: BTreeMap<String, String>,
+    /// Monotonic admitted event occurrence within this cursor's identity/scope.
+    #[serde(default)]
+    pub occurrence: u64,
     pub error: Option<String>,
 }
 
