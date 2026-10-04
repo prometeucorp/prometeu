@@ -281,6 +281,7 @@ fn main() {
             file_drop::paste_files,
             session::pr_prompt,
             github::pr_open,
+            github_issues::github_identity,
             github_issues::github_issues,
             github_issues::github_repositories,
             github_issues::github_issue_open,

@@ -1015,6 +1015,10 @@ const githubItems: (import("./types").GitHubItem & { scope: import("./types").Gi
 }));
 
 const mockCommands: IpcHandlers = {
+  github_identity() {
+    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
+    return localStorage.getItem("mock:githubLogin") ?? "mock-user";
+  },
   github_issues({ scope }) {
     if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
     if (localStorage.getItem("mock:githubFailure") === scope) throw 'i18n:{"code":"err.github.response"}';

@@ -91,6 +91,7 @@ export type Commands = {
   linear_issues: { args: { force: boolean }; result: T.Issues };
   linear_open: { args: { url: string }; result: void };
   linear_status: { args: undefined; result: T.LinearStatus };
+  github_identity: { args: undefined; result: string };
   github_issues: { args: { scope: T.GitHubScope; force: boolean }; result: T.GitHubIssues };
   github_repositories: { args: { selected: string[]; login: string }; result: string[] };
   github_issue_open: { args: { url: string }; result: void };

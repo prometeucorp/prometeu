@@ -28,11 +28,15 @@ and login. Provider differences remain at the adapter and feature boundaries;
 the launcher retains one workspace creation path.
 
 Separate account/scoped caches avoid mixing personal and repository lists.
-Opening the integration requests all four scopes so every tab has its count
+Opening the integration requests all four scopes concurrently so every tab has its count
 without being visited. Bounded pagination keeps subprocess work finite and
 reports partial results. Failed scopes drop their previous results while
 successfully revalidated scopes remain available. Mixed account identities or
-authentication failure clear the whole batch, trading offline list continuity
+authentication failure clear the whole batch. A final identity check after every
+scope settles also rejects earlier results when the new account's searches fail
+without returning its identity. Cache locks cover only memory access, and late
+responses cannot populate another account's cache; only settings writes serialize.
+This trades offline list continuity
 for avoiding stale private content after an account switch outside the app.
 
 Synthetic PR branches support forks and protect local branches from accidental

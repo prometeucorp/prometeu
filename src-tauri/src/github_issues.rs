@@ -59,8 +59,7 @@ fn cache() -> &'static Mutex<Cache> {
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     CACHE.get_or_init(Mutex::default)
 }
-// ponytail: one lock serializes refreshes/settings writes; use per-account locks if contention matters.
-static REFRESH: Mutex<()> = Mutex::new(());
+static SETTINGS_WRITE: Mutex<()> = Mutex::new(());
 
 fn run(runner: &dyn CommandRunner<Command>, command: &mut Command) -> Result<Vec<u8>, String> {
     command
@@ -272,13 +271,41 @@ fn now() -> u64 {
 }
 
 #[tauri::command(async)]
+pub fn github_identity(state: State<AppState>) -> Result<String, String> {
+    let login = viewer(state.command_runner.as_ref())?;
+    let mut cache = lock(cache());
+    if cache.login != login {
+        cache.login = login.clone();
+        cache.lists.clear();
+    }
+    Ok(login)
+}
+
+#[tauri::command(async)]
 pub fn github_issues(state: State<AppState>, scope: Scope, force: bool) -> Result<Issues, String> {
-    let _refresh = lock(&REFRESH);
     let login = viewer(state.command_runner.as_ref())?;
     let selected = settings()?.accounts.remove(&login).unwrap_or_default();
+    issues(
+        state.command_runner.as_ref(),
+        cache(),
+        scope,
+        force,
+        login,
+        selected,
+    )
+}
+
+fn issues(
+    runner: &dyn CommandRunner<Command>,
+    cache: &Mutex<Cache>,
+    scope: Scope,
+    force: bool,
+    login: String,
+    selected: Vec<String>,
+) -> Result<Issues, String> {
     let key = format!("{scope:?}:{selected:?}");
     {
-        let mut cache = lock(cache());
+        let mut cache = lock(cache);
         if cache.login != login {
             cache.login = login.clone();
             cache.lists.clear();
@@ -291,8 +318,13 @@ pub fn github_issues(state: State<AppState>, scope: Scope, force: bool) -> Resul
             return Ok(found.clone());
         }
     }
-    let found = fetch(state.command_runner.as_ref(), scope, login, selected)?;
-    lock(cache()).lists.insert(key, found.clone());
+    // Network work stays outside the cache lock so independent scopes can load together.
+    let found = fetch(runner, scope, login, selected)?;
+    let mut cache = lock(cache);
+    // A slower request from a previous account must not repopulate the current account's cache.
+    if cache.login == found.login {
+        cache.lists.insert(key, found.clone());
+    }
     Ok(found)
 }
 
@@ -303,7 +335,7 @@ pub fn github_repositories(
     login: String,
 ) -> Result<Vec<String>, String> {
     let selected = repositories(selected)?;
-    let _refresh = lock(&REFRESH);
+    let _write = lock(&SETTINGS_WRITE);
     if viewer(state.command_runner.as_ref())? != login {
         return Err(i18n::t("err.github.accountChanged"));
     }
@@ -661,5 +693,79 @@ mod tests {
                 .items
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn searches_overlap_and_late_results_cannot_pollute_another_accounts_cache() {
+        use std::sync::mpsc;
+
+        struct PendingSearch {
+            started: mpsc::Sender<()>,
+            release: Mutex<mpsc::Receiver<()>>,
+        }
+        impl CommandRunner<Command> for PendingSearch {
+            fn run(
+                &self,
+                command: &mut Command,
+                _: &[u8],
+                _: CommandPolicy,
+            ) -> Result<CommandOutput, CommandError> {
+                if command
+                    .get_args()
+                    .any(|arg| arg == "q=is:open is:issue assignee:first")
+                {
+                    self.started.send(()).unwrap();
+                    lock(&self.release)
+                        .recv_timeout(Duration::from_secs(5))
+                        .unwrap();
+                }
+                Ok(CommandOutput {
+                    success: true,
+                    stdout: serde_json::to_vec(&json!({"total_count":0,"items":[]})).unwrap(),
+                    stderr: vec![],
+                })
+            }
+        }
+
+        let cache = Mutex::new(Cache::default());
+        let (started, waiting) = mpsc::channel();
+        let (release, gate) = mpsc::channel();
+        let runner = PendingSearch {
+            started,
+            release: Mutex::new(gate),
+        };
+        std::thread::scope(|threads| {
+            let first = threads
+                .spawn(|| issues(&runner, &cache, Scope::Mine, true, "first".into(), vec![]));
+            waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+            let (done, completed) = mpsc::channel();
+            let runner = &runner;
+            let cache = &cache;
+            threads.spawn(move || {
+                done.send(issues(
+                    runner,
+                    cache,
+                    Scope::Authored,
+                    true,
+                    "second".into(),
+                    vec![],
+                ))
+                .unwrap();
+            });
+            let second = completed.recv_timeout(Duration::from_secs(2));
+            release.send(()).unwrap();
+            assert_eq!(
+                second
+                    .expect("a held search must not block another scope")
+                    .unwrap()
+                    .login,
+                "second"
+            );
+            assert_eq!(first.join().unwrap().unwrap().login, "first");
+        });
+        let cache = lock(&cache);
+        assert_eq!(cache.login, "second");
+        assert_eq!(cache.lists.len(), 1);
+        assert!(cache.lists.values().all(|list| list.login == "second"));
     }
 }

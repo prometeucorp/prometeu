@@ -35,13 +35,17 @@ after that scope has been loaded.
 github.com credential. Setup is `gh auth login --hostname github.com`; Prometeu
 does not read, copy or persist the token. There is no additional OAuth app or
 Cloud service. GitHub Enterprise hosts are not supported by this inbox.
-The identity is checked through `gh api user` before each list/cache access and
-repository selection write. Saving a selection also checks the login that opened
+The identity is checked through `gh api user` before each list/cache access,
+after all four scope requests settle, and before repository selection writes.
+Saving a selection also checks the login that opened
 the dialog; an external account switch cannot overwrite another account’s settings.
 Changing accounts clears the backend list cache.
+Starting a refresh clears displayed lists until their identity is revalidated.
 Each batch replaces retained results: successful scopes remain available, while
 failed scopes clear their previous results and offer retry. Results with different
-account identities or a failed authentication check are rejected together,
+account identities, a final identity that differs from any successful scope,
+or a failed authentication check are rejected together, even when another
+account's searches fail without returning its identity,
 preventing lists from two accounts from being combined. Linear failure behavior
 remains unchanged.
 
@@ -49,8 +53,10 @@ The REST search query is passed as one argument, never through a shell. Each
 subprocess has a 30-second deadline, an 8 MiB stdout limit and a 1 MiB stderr
 limit. Each scope fetches up to five pages of 100 items, ordered by update time;
 the response marks truncation or incomplete search results. The UI shows a
-partial-list notice. Refreshes/settings writes serialize; successful lists
-cache in memory for two minutes per account, scope and repository selection.
+partial-list notice. Scope searches run concurrently, with network work outside
+the cache lock; only settings writes serialize. Successful lists cache in memory
+for two minutes per account, scope and repository selection. Late responses from
+a previous account cannot populate the current account's cache.
 There is no background network polling or persisted issue-body cache.
 
 `<root>/github-issues.json` contains only
@@ -69,6 +75,7 @@ mock. These adapters do not add implementations to the separate WSL runtime.
 
 | Command | Input | Result |
 | --- | --- | --- |
+| `github_identity` | None | Current authenticated login, checked again after the scope batch |
 | `github_issues` | `{ scope, force }` | `{ login, repositories, items, fetched_at, truncated }` |
 | `github_repositories` | `{ selected: string[], login }` | Normalized saved repository names |
 | `github_issue_open` | `{ url }` | Opens a validated github.com issue or PR URL |
@@ -119,11 +126,13 @@ GitHub review.
 ## Evidence
 
 Rust tests in `github_issues.rs` cover search qualifiers, repository/URL validation,
-pagination, old `IssueRef` compatibility and fork PR preparation against an
+pagination, concurrent searches and late cache writes across account changes,
+old `IssueRef` compatibility and fork PR preparation against an
 upstream remote. `github.rs` covers explicit PR identity; `session.rs` covers
 worktree preparation. `src/github-issues-model.test.ts` covers source preservation,
 safe issue branch names, workspace reuse without identity collisions, eager
-loading of all scopes, partial failures/retry and account switches during a batch.
+loading of all scopes, partial failures/retry and account switches during a batch,
+including a new account whose searches all fail and a failed final identity check.
 
 `e2e/issues.spec.ts` extends the workspace creation journey: provider keyboard
 navigation, source-link versus nested workspace-button event routing, native

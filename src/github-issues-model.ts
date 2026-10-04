@@ -20,8 +20,10 @@ export function githubWorkspace(item: GitHubItem, workspaces: Workspace[]): Work
 export const githubScopes = ["mine", "repositories", "authored", "reviews"] as const;
 
 // Fetch the whole inbox together; a failed scope must not hide successful scopes or retain old data.
-export async function loadGitHubInbox(fetch: (scope: GitHubScope) => Promise<GitHubIssues>) {
+export async function loadGitHubInbox(fetch: (scope: GitHubScope) => Promise<GitHubIssues>, identify: () => Promise<string>) {
   const results = await Promise.allSettled(githubScopes.map(fetch));
+  // Failed searches carry no identity. Recheck after every scope settles, including partial failures.
+  const login = await identify();
   const lists = new Map<GitHubScope, GitHubIssues>();
   const errors = new Map<GitHubScope, unknown>();
   let account: GitHubIssues | undefined;
@@ -33,7 +35,7 @@ export async function loadGitHubInbox(fetch: (scope: GitHubScope) => Promise<Git
       errors.set(scope, result.reason); continue;
     }
     account ??= result.value;
-    if (result.value.login !== account.login) throw 'i18n:{"code":"err.github.accountChanged"}';
+    if (result.value.login !== login) throw 'i18n:{"code":"err.github.accountChanged"}';
     lists.set(scope, result.value);
   }
   return { lists, errors, login: account?.login ?? "", repositories: account?.repositories ?? [] };

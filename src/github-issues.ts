@@ -52,9 +52,9 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
 
   async function refresh(force: boolean) {
     const request = ++revision;
-    loading = true; errors.clear(); draw();
+    loading = true; snapshots.clear(); errors.clear(); draw();
     try {
-      const found = await loadGitHubInbox(scope => invoke("github_issues", { scope, force }));
+      const found = await loadGitHubInbox(scope => invoke("github_issues", { scope, force }), () => invoke("github_identity"));
       if (request !== revision) return;
       if (login !== found.login) repository = "";
       login = found.login; selected = found.repositories;
