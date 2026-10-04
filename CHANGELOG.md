@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.25.0] - 2026-10-04
+
+### New
+
+- **issues:** Open workspaces from github issues and pull requests
+
+### Fixes
+
+- **issues:** Share controls and preserve focus across provider tabs
+- **github:** Load every issue and pull request tab on open
+- **github:** Validate accounts after parallel inbox loads
+
 ## [0.24.0] - 2026-10-04
 
 ### New
