@@ -58,13 +58,17 @@
           </div>
         </section>
 
-        <!-- Assigned and available Linear issues, rendered by issues.ts. -->
+        <!-- Linear and GitHub share Issues; each provider owns its list and filters. -->
         <section id="issuesView" class="view issues" hidden>
           <div class="listmain">
+            <div class="subbar tabbar" id="iproviders" role="tablist"></div>
+            <div id="linear-issues-pane" class="issue-provider-pane" role="tabpanel">
             <div class="subbar tabbar itabs" id="itabs" role="tablist"></div>
             <div class="subbar ibar" id="ibar"></div>
             <div class="iteams" id="iteams" hidden></div>
             <div class="ilist" id="ilist"></div>
+            </div>
+            <div id="github-issues-pane" class="issue-provider-pane" role="tabpanel" hidden></div>
           </div>
         </section>
 

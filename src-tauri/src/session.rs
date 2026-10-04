@@ -1758,7 +1758,9 @@ fn prepare_base(
     base: &str,
 ) -> Result<(), String> {
     if let Some((remote, rest)) = base.split_once('/') {
-        if has_commit(repo, &format!("refs/remotes/{base}")) {
+        if has_commit(repo, &format!("refs/remotes/{base}"))
+            && git(repo, &["remote"]).lines().any(|name| name == remote)
+        {
             let _ = fetch(runner, repo, remote, rest);
         }
     }
@@ -1875,9 +1877,9 @@ pub fn list_branches(project: String) -> Branches {
 #[cfg(test)]
 mod tests {
     use super::{
-        artifacts_of, first_message, multi_pr_text, patch_map, pr_text, resolve_tools,
-        workspace_launch, workspace_launch_of, workspace_launch_with, Choice, Draft, Pr,
-        ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
+        artifacts_of, first_message, linked_pr_text, multi_pr_text, patch_map, pr_text,
+        resolve_tools, workspace_launch, workspace_launch_of, workspace_launch_with, Choice, Draft,
+        Pr, ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -2218,6 +2220,18 @@ mod tests {
         assert!(!t.contains("gh pr create"));
         // Both creation and updates require committing and pushing the work.
         assert!(t.contains("git push -u origin HEAD:my/update"));
+    }
+
+    #[test]
+    fn linked_pull_prompt_preserves_identity_instead_of_publishing_the_review_branch() {
+        let url = "https://github.com/upstream/repo/pull/42";
+        let prompt = linked_pr_text(url).unwrap();
+        assert!(prompt.contains(&format!("gh pr view {url} --json state,headRefName,headRepository,headRepositoryOwner,baseRefName")));
+        assert!(prompt.contains(&format!("gh pr edit {url}")));
+        assert!(!prompt.contains("gh pr create"));
+        assert!(!prompt.contains("git push -u origin"));
+        assert!(linked_pr_text("https://github.com/upstream/repo/issues/42").is_none());
+        assert!(linked_pr_text("https://linear.app/team/issue/42").is_none());
     }
 
     /// For multiple repositories, update existing PRs, skip unchanged repositories, and create the
@@ -3329,6 +3343,88 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[test]
+    fn synthetic_pull_ref_seeds_worktree_without_fetch_or_clone_changes() {
+        struct NoFetch;
+        impl prometeu_core::command::CommandRunner<Command> for NoFetch {
+            fn run(
+                &self,
+                request: &mut Command,
+                _: &[u8],
+                _: prometeu_core::command::CommandPolicy,
+            ) -> Result<prometeu_core::command::CommandOutput, prometeu_core::command::CommandError>
+            {
+                panic!("synthetic remote must not fetch: {request:?}");
+            }
+        }
+        let root = std::env::temp_dir().join(format!("prometeu-pull-{}", uuid::Uuid::new_v4()));
+        let clone = root.join("clone");
+        std::fs::create_dir_all(&clone).unwrap();
+        let run = |dir: &Path, args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args([
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        run(&clone, &["init", "-q", "-b", "main"]);
+        run(&clone, &["config", "user.email", "test@example.com"]);
+        run(&clone, &["config", "user.name", "Test"]);
+        run(&clone, &["commit", "--allow-empty", "-qm", "base"]);
+        let base = run(&clone, &["rev-parse", "HEAD"]);
+        run(&clone, &["update-ref", "refs/remotes/origin/main", &base]);
+        run(&clone, &["checkout", "-qb", "existing-work"]);
+        std::fs::write(clone.join("review.txt"), "Review this change.\n").unwrap();
+        run(&clone, &["add", "review.txt"]);
+        run(&clone, &["commit", "-qm", "pull head"]);
+        let head = run(&clone, &["rev-parse", "HEAD"]);
+        let branch = "github-pr-42-isolated";
+        let source = format!("prometeu-pr-42/{branch}");
+        run(
+            &clone,
+            &["update-ref", &format!("refs/remotes/{source}"), &head],
+        );
+        run(&clone, &["checkout", "-q", "main"]);
+        std::fs::write(clone.join("local.txt"), "Keep local changes.\n").unwrap();
+        let before = run(&clone, &["status", "--porcelain"]);
+        let repo = Repo {
+            path: clone.display().to_string(),
+            name: "clone".into(),
+            worktree: root.join("review").display().to_string(),
+            base: "origin/main".into(),
+            pr: None,
+        };
+        super::existing_branch_source(&clone, branch, Some(&source)).unwrap();
+        super::add_worktree(&NoFetch, &clone, branch, &source, Path::new(&repo.worktree)).unwrap();
+        assert_eq!(run(Path::new(&repo.worktree), &["rev-parse", "HEAD"]), head);
+        assert_eq!(
+            super::ahead_of(Path::new(&repo.worktree), &repo.base),
+            (base.clone(), 1)
+        );
+        assert_eq!(run(&clone, &["rev-parse", "HEAD"]), base);
+        assert_eq!(run(&clone, &["branch", "--show-current"]), "main");
+        assert_eq!(run(&clone, &["rev-parse", "existing-work"]), head);
+        assert_eq!(run(&clone, &["status", "--porcelain"]), before);
+        assert_eq!(
+            std::fs::read_to_string(clone.join("local.txt")).unwrap(),
+            "Keep local changes.\n"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// When the same branch is requested in another directory, report its existing checkout and
     /// leave no empty directories behind. Multi-repository workspace names can produce different
     /// paths for the same issue branch.
@@ -3564,11 +3660,26 @@ pub fn pr_prompt(state: State<AppState>, id: String) -> Result<String, String> {
     if repos.is_empty() {
         return Err(i18n::t("err.session.noWorkspace"));
     }
+    if let Some(prompt) = workspace_copy(&state, &id)
+        .and_then(|workspace| workspace.issue)
+        .and_then(|issue| linked_pr_text(&issue.url))
+    {
+        return Ok(prompt);
+    }
     let states: Vec<RepoPr> = repos.iter().map(pr_state).collect();
     Ok(match states.as_slice() {
         [one] => pr_text(one),
         many => multi_pr_text(many),
     })
+}
+
+// A review branch is isolated from the PR head; never infer its push destination from its name.
+fn linked_pr_text(url: &str) -> Option<String> {
+    crate::github_issues::target(url).filter(|(_, kind, _)| kind == "pull")?;
+    Some(i18n::pick(
+        &format!("Atualize a PR existente {url}. Respeite as instruções de PR do repositório. Consulte `gh pr view {url} --json state,headRefName,headRepository,headRepositoryOwner,baseRefName` antes de alterar qualquer remoto. Esta branch local é isolada: confirme o repositório e a branch de origem da PR e a permissão de escrita antes de enviar commits. Revise as mudanças, execute as verificações adequadas e faça commit do trabalho solicitado. Envie somente para a branch de origem confirmada, sem force push; se a PR estiver fechada, faltar permissão ou houver divergência, pare e explique. Não crie outra PR nem publique a branch local com outro nome. Revise título e descrição com `gh pr view {url}` e atualize com `gh pr edit {url}` somente se necessário."),
+        &format!("Update the existing PR {url}. Follow the repository's PR instructions. Inspect `gh pr view {url} --json state,headRefName,headRepository,headRepositoryOwner,baseRefName` before changing any remote. This local branch is isolated: confirm the PR's head repository and branch and write permission before pushing commits. Review changes, run appropriate checks and commit the requested work. Push only to the confirmed head branch without force pushing; if the PR is closed, permission is missing or history diverges, stop and explain. Do not create another PR or publish the local branch under another name. Review the title and description with `gh pr view {url}` and update with `gh pr edit {url}` only if needed."),
+    ))
 }
 
 /// Repository state needed for a PR: branch, uncommitted changes, commits beyond the base, and an

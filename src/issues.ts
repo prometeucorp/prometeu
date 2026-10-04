@@ -4,6 +4,9 @@ import { icon } from "./icons";
 import { fromBack, paint, t } from "./i18n";
 import type { Board, Issue, Issues, LinearStatus, Workspace } from "./types";
 import { $, empty, h, template } from "./util";
+import { button } from "./ui";
+import { githubIssues } from "./github-issues";
+import type { GitHubItem, GitHubPrepared } from "./types";
 
 /// Show assigned and available Linear issues. Existing workspaces replace the create action with navigation. Reuse the backend's two-minute cache, allow forced refresh, and preserve the last successful list after failure.
 
@@ -17,6 +20,7 @@ type Ctx = {
   redraw: () => void;
   open: (ws: Workspace) => void;
   create: (issue: Issue) => void;
+  createGitHub: (item: GitHubItem, project: string, git?: GitHubPrepared) => void;
   toSettings: () => void;
 };
 
@@ -51,9 +55,29 @@ let visible = false;
 let accountId = "";
 let find: HTMLInputElement;
 let meta: HTMLElement;
+let provider: "linear" | "github" = localStorage.getItem("prometeu:issues:provider") === "github" ? "github" : "linear";
+let github: ReturnType<typeof githubIssues>;
 
 export function init(context: Ctx) {
   ctx = context;
+  github = githubIssues($("github-issues-pane"), { ...ctx, create: ctx.createGitHub });
+  const providers = $("iproviders");
+  providers.setAttribute("aria-label", t("issues.providers"));
+  for (const [id, label] of [["linear", "Linear"], ["github", "GitHub"]] as const) {
+    const control = button(label, () => {
+      provider = id; localStorage.setItem("prometeu:issues:provider", id); showProvider();
+    }, "ghost");
+    control.classList.add("tab"); control.id = `issues-provider-${id}`; control.setAttribute("role", "tab");
+    control.setAttribute("aria-controls", `${id}-issues-pane`);
+    $(`${id}-issues-pane`).setAttribute("aria-labelledby", control.id);
+    providers.append(control);
+  }
+  providers.addEventListener("keydown", event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? "linear" : event.key === "End" ? "github" : provider === "linear" ? "github" : "linear";
+    $("issues-provider-" + next).click(); $("issues-provider-" + next).focus();
+  });
   accountId = ctx.accountId();
   buildTabs();
   buildBar();
@@ -77,7 +101,11 @@ export function init(context: Ctx) {
 }
 
 /// Null means Linear is unavailable, so the sidebar hides its count.
-export const count = () => (ctx?.connected() && got ? got.issues.length : null);
+export const count = () => {
+  const linear = ctx?.connected() && got ? got.issues.length : null;
+  const assigned = github?.count() ?? null;
+  return linear === null && assigned === null ? null : (linear ?? 0) + (assigned ?? 0);
+};
 
 /// Launcher data: null means no Linear connection; an empty list while busy means loading.
 export const list = () => (ctx?.connected() ? (got?.issues ?? []) : null);
@@ -92,6 +120,18 @@ export function load(): Promise<void> {
 
 export function show() {
   visible = true;
+  showProvider();
+}
+
+function showProvider() {
+  for (const id of ["linear", "github"] as const) {
+    const control = $("issues-provider-" + id);
+    control.setAttribute("aria-selected", String(provider === id)); control.tabIndex = provider === id ? 0 : -1;
+    control.classList.toggle("on", provider === id);
+  }
+  $("linear-issues-pane").hidden = provider !== "linear";
+  if (provider === "github") { github.show(); return; }
+  github.hide();
   void load();
   draw();
   find.focus();
@@ -99,6 +139,7 @@ export function show() {
 
 export function hide() {
   visible = false;
+  github.hide();
 }
 
 async function refresh(force: boolean) {
@@ -165,6 +206,7 @@ function drawMeta() {
 
 export function draw() {
   if (!visible) return;
+  if (provider === "github") { github.draw(); return; }
   drawTabs();
   drawMeta();
   drawList();
@@ -389,8 +431,8 @@ function row(issue: Issue, available = false): HTMLElement {
 
   const act = el.querySelector(".iact")!;
   const owner = ctx.board().workspaces.find((w) => w.issue?.id === issue.id && !w.archived);
-  const btn = h("button", owner ? "ghost sm" : "pri sm",
-    available ? t(ctx.canAssign() ? "issues.claim" : "issues.allowClaim") : t(owner ? "issues.open" : "issues.create")) as HTMLButtonElement;
+  const btn = button(available ? t(ctx.canAssign() ? "issues.claim" : "issues.allowClaim") : t("issues.open"), undefined, "ghost");
+  btn.classList.add("sm");
   if (available) {
     if (claiming) btn.setAttribute("aria-disabled", "true");
     btn.addEventListener("click", async (e) => {
@@ -425,7 +467,7 @@ function row(issue: Issue, available = false): HTMLElement {
         claiming = false;
         $("ilist").removeAttribute("aria-busy");
         draw();
-        if (keyboard && visible) {
+        if (keyboard && visible && provider === "linear") {
           const same = [...$("ilist").querySelectorAll<HTMLElement>(".irow.available")]
             .find((candidate) => candidate.querySelector(".iid")?.textContent === issue.identifier);
           (succeeded ? $("itabs").querySelectorAll<HTMLButtonElement>(".itab")[1]

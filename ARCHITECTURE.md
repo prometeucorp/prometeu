@@ -115,6 +115,12 @@ queries assigned and unassigned issues in the user's teams and assigns a chosen
 issue after explicit action; `src/issues.ts` owns the screen. See the
 [Linear issue contract](docs/contracts/linear-issues.md).
 
+The same Issues destination has a GitHub tab owned by `src/github-issues.ts`.
+`src-tauri/src/github_issues.rs` uses the installed `gh` credential for assigned
+issues, selected repositories, authored PRs and requested reviews. It prepares
+isolated PR branches while the existing launcher owns workspace creation. See
+the [GitHub issue contract](docs/contracts/github-issues.md).
+
 The optional account appears at the top of the sidebar. The `cloud.rs` backend
 connects the Mac through the browser and stores the credential privately. The
 separate `prometeu-cloud` project offers account management, organizations,

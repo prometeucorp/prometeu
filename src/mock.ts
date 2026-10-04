@@ -999,7 +999,43 @@ function fakeEvaluation(request: import("./evaluation").EvaluationRequest): impo
   });
 }
 
+const githubItems: (import("./types").GitHubItem & { scope: import("./types").GitHubScope })[] = [
+  { number: 428, title: "Restore terminal state", repository: "prometeucorp/prometeu", scope: "mine", kind: "issue" },
+  { number: 93, title: "Keep focus inside dialogs", repository: "acme/design-system", scope: "mine", kind: "issue" },
+  { number: 433, title: "Add repository shortcuts", repository: "prometeucorp/prometeu", scope: "repositories", kind: "issue" },
+  { number: 436, title: "Preserve workspace drafts", repository: "prometeucorp/prometeu", scope: "authored", kind: "pr" },
+  { number: 432, title: "Add quick filters", repository: "prometeucorp/prometeu", scope: "authored", kind: "pr" },
+  { number: 438, title: "Keep review comments across renames", repository: "prometeucorp/prometeu", scope: "reviews", kind: "pr" },
+].map(item => ({
+  ...item, kind: item.kind as "issue" | "pr", scope: item.scope as import("./types").GitHubScope,
+  id: `github:${item.repository}/${item.kind === "pr" ? "pull" : "issues"}/${item.number}`,
+  identifier: `${item.repository}#${item.number}`, url: `https://github.com/${item.repository}/${item.kind === "pr" ? "pull" : "issues"}/${item.number}`,
+  description: `Investigate and implement: ${item.title}.`, author: item.scope === "reviews" ? "reviewer" : "mock-user",
+  draft: item.number === 432, updated_at: "2026-10-03T00:00:00Z", labels: ["enhancement"],
+}));
+
 const mockCommands: IpcHandlers = {
+  github_issues({ scope }) {
+    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
+    if (localStorage.getItem("mock:githubFailure") === scope) throw 'i18n:{"code":"err.github.response"}';
+    const login = localStorage.getItem("mock:githubLogin") ?? "mock-user";
+    const repositories: string[] = JSON.parse(localStorage.getItem(`mock:githubRepositories:${login}`) ?? "[]");
+    return { login, repositories, items: githubItems.filter(item => scope === "repositories" ? item.kind === "issue" && repositories.includes(item.repository) : item.scope === scope), fetched_at: Date.now() / 1000, truncated: false };
+  },
+  github_repositories({ selected, login }) {
+    if ((localStorage.getItem("mock:githubLogin") ?? "mock-user") !== login) throw 'i18n:{"code":"err.github.accountChanged"}';
+    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
+    const repositories = [...new Set(selected.map(value => value.trim().toLowerCase()))].sort();
+    if (selected.length > 20 || repositories.some(value => !/^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/i.test(value) || [".", ".."].includes(value.split("/")[1]))) throw 'i18n:{"code":"err.github.repositories"}';
+    localStorage.setItem(`mock:githubRepositories:${localStorage.getItem("mock:githubLogin") ?? "mock-user"}`, JSON.stringify(repositories));
+    return repositories;
+  },
+  github_issue_open({ url }) { console.log("open in GitHub:", url); },
+  github_projects() { return board.projects.filter(project => project.name === "prometeu").map(project => ({ project: project.id, repository: "prometeucorp/prometeu" })); },
+  github_prepare({ url }) {
+    const number = url.split("/").pop();
+    return { base: "origin/main", branch: `github-pr-${number}-preview`, source: `prometeu-pr-${number}/github-pr-${number}-preview` };
+  },
   background_context() {
     return mockBackground();
   },

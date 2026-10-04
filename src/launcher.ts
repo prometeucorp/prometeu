@@ -38,7 +38,7 @@ export type Draft = {
   stage: string;
   prompt: string;
   inject: string[];
-  /// An originating Linear issue supplies the workspace title, branch, and initial prompt.
+  /// An originating issue or PR supplies the workspace title and initial prompt.
   issue: IssueRef | null;
   /// Keep provider identity explicit because model IDs can overlap.
   agent: ProviderId;
@@ -77,7 +77,7 @@ export type Open = {
   preset?: string;
   seed?: Issue;
   /// The Git panel can seed a chosen base or branch in an isolated worktree.
-  git?: { base: string; branch?: string };
+  git?: { base: string; branch?: string; source?: string };
   go: (d: Draft) => Promise<boolean>;
   /// The Linear setup action closes the launcher and opens Settings.
   toSettings: () => void;
@@ -99,7 +99,8 @@ export function openLauncher(board: Board, opts: Open) {
     branch: git?.branch || seed?.branch_name || freshBranch([]),
     base: git?.base ?? "",
     worktree: !!git || localStorage.getItem(WORKTREE_KEY) !== "0",
-    newBranch: !!git || localStorage.getItem(BRANCH_KEY) !== "0",
+    newBranch: git?.source ? false : !!git || localStorage.getItem(BRANCH_KEY) !== "0",
+    source: git?.source,
     title: seed ? `${seed.identifier} · ${seed.title}` : "",
     stage: board.stages[1] ?? board.stages[0],
     prompt: "",
@@ -114,7 +115,7 @@ export function openLauncher(board: Board, opts: Open) {
     kickoff: "",
   };
   let generatedBranch = draft.branch;
-  let existingRef = "";
+  let existingRef = git?.source ?? "";
   const selectedBranch = () => existingRef && (localBranches.includes(existingRef) ? existingRef : existingRef.slice(existingRef.indexOf("/") + 1));
   draft.effort = defaultEffort(draft);
   const conformCapabilities = () => {
@@ -183,6 +184,7 @@ export function openLauncher(board: Board, opts: Open) {
     return control;
   };
   const projectButton = pick("d-project");
+  projectButton.disabled = !!git?.source;
   const baseButton = pick("d-base");
   baseButton.querySelector("span")!.id = "d-basename";
   const projectField = field(t("launcher.project"), projectButton);
@@ -282,7 +284,7 @@ export function openLauncher(board: Board, opts: Open) {
   const drawExtras = () => {
     more.hidden = board.projects.length < 2;
     // Multiple repositories require Git-backed worktrees.
-    more.disabled = !others().length || !isGit;
+    more.disabled = !!git?.source || !others().length || !isGit;
     more.title = t(!isGit ? "launcher.noGit" : others().length ? "launcher.addRepo" : "launcher.addRepo.none");
     reposBox.hidden = !draft.extras.length;
     reposBox.replaceChildren(
@@ -336,7 +338,7 @@ export function openLauncher(board: Board, opts: Open) {
     ] as const) {
       el.checked = on;
     }
-    nb.disabled = !!draft.extras.length || !isGit;
+    nb.disabled = !!git?.source || !!draft.extras.length || !isGit;
     nb.title = t(!isGit ? "launcher.noGit" : draft.extras.length ? "launcher.nb.locked" : "launcher.nb.off");
     wt.disabled = !!git || draft.extras.length > 0 || !isGit;
     wt.title = t(!isGit ? "launcher.noGit" : draft.extras.length ? "launcher.wt.locked" : draft.worktree ? "launcher.wt.on" : "launcher.wt.off");
@@ -345,7 +347,7 @@ export function openLauncher(board: Board, opts: Open) {
     branchField.querySelector("label")!.textContent = branchLabel;
     baseBtn.setAttribute("aria-label", branchLabel);
     $("d-picker").querySelector("input")!.placeholder = t(draft.worktree && !draft.newBranch ? "launcher.branch.pick" : "launcher.base.pick");
-    baseBtn.disabled = (!draft.newBranch && !draft.worktree) || !branches.length;
+    baseBtn.disabled = !!git?.source || (!draft.newBranch && !draft.worktree) || !branches.length;
     baseName.textContent = draft.worktree && !draft.newBranch ? existingRef || t("launcher.branch.pick") : draft.base || t("launcher.base.none");
     baseBtn.classList.toggle("empty", draft.worktree && !draft.newBranch ? !existingRef : !draft.base);
     basePick.close();
@@ -613,6 +615,10 @@ export function openLauncher(board: Board, opts: Open) {
       if (draft.project !== loadingProject) return;
       branches = got.all;
       localBranches = got.local ?? [];
+      if (fromGit?.source) {
+        existingRef = fromGit.source;
+        draft.source = fromGit.source;
+      }
       isGit = got.git;
       // A non-Git directory opens directly without branch operations.
       if (!isGit) {
@@ -630,7 +636,7 @@ export function openLauncher(board: Board, opts: Open) {
       setBase(fromGit?.base ?? "");
       drawSwitches();
     }
-    baseBtn.disabled = (!draft.newBranch && !draft.worktree) || !branches.length;
+    baseBtn.disabled = !!git?.source || (!draft.newBranch && !draft.worktree) || !branches.length;
   };
 
   /* Originating issue. */
@@ -638,6 +644,7 @@ export function openLauncher(board: Board, opts: Open) {
   // Show the selected issue as part of the first prompt; its chip supplies the title/branch and can be removed.
   const issueBox = $("d-issue");
   const issueBtn = $<HTMLButtonElement>("d-issuebtn");
+  issueBtn.disabled = !!git?.source;
   const setSeed = (issue: Issue | undefined) => {
     seed = issue;
     draft.issue = issue ? { id: issue.id, identifier: issue.identifier, title: issue.title, url: issue.url } : null;
@@ -653,11 +660,12 @@ export function openLauncher(board: Board, opts: Open) {
       const chip = template(
         "span",
         "injchip issue",
-        `${icon("linear", 12)}<b class="iid"></b><span class="it"></span><button class="ico sm">${icon("x", 12)}</button>`,
+        `${icon(issue.id.startsWith("github:") ? "git-pull-request" : "linear", 12)}<b class="iid"></b><span class="it"></span><button class="ico sm">${icon("x", 12)}</button>`,
       );
       chip.children[1].textContent = issue.identifier;
       chip.children[2].textContent = issue.title;
       chip.title = `${issue.title}\n${issue.url}`;
+      chip.querySelector("button")!.disabled = !!git?.source;
       chip.children[3].addEventListener("click", () => {
         setSeed(undefined);
         prompt.focus();

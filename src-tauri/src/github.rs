@@ -120,10 +120,20 @@ fn scan_gate() -> &'static ScanGate {
 pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
     let generation = lock(&state.telemetry).generation;
     let mut histories = Vec::new();
+    let workspace = workspace_copy(&state, &id);
     let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
         .iter()
         .map(|repo| {
             let worktree = Path::new(&repo.worktree);
+            if let Some(url) = workspace
+                .as_ref()
+                .and_then(|workspace| linked_pr_url(workspace, repo))
+            {
+                return (
+                    repo.name.clone(),
+                    view(worktree, url).ok().map(|observation| observation.pr),
+                );
+            }
             let pr = head_branch(worktree).and_then(|branch| {
                 let observations = list(worktree, &["--head", &branch, "--limit", "100"]).ok()?;
                 let selected = pick_observed(&observations, &branch);
@@ -168,8 +178,19 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
     // current branch because a persisted workspace name can become stale after branch renaming or
     // switching.
     let mut by_clone: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    let mut found: Vec<(String, String, Option<Pr>)> = Vec::new();
     for workspace in &alive {
         for repo in &workspace.repos {
+            if let Some(url) = linked_pr_url(workspace, repo) {
+                found.push((
+                    workspace.id.clone(),
+                    repo.name.clone(),
+                    view(Path::new(&repo.path), url)
+                        .ok()
+                        .map(|observation| observation.pr),
+                ));
+                continue;
+            }
             let branch =
                 head_branch(Path::new(&repo.worktree)).unwrap_or_else(|| workspace.branch.clone());
             by_clone.entry(repo.path.clone()).or_default().push((
@@ -180,7 +201,6 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
         }
     }
 
-    let mut found: Vec<(String, String, Option<Pr>)> = Vec::new();
     let mut histories = Vec::new();
     for (clone, list) in by_clone {
         let Ok(prs) = list_repo(Path::new(&clone)) else {
@@ -257,6 +277,9 @@ pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), S
         .find(|candidate| candidate.name == repo)
         .cloned()
         .unwrap_or_else(|| workspace.primary());
+    if let Some(url) = linked_pr_url(&workspace, &repo) {
+        return crate::oauth::browse(url).map_err(i18n::io);
+    }
     // Prefer the persisted PR number, including after worktree cleanup when gh runs from the clone.
     // Otherwise resolve the worktree's current branch.
     let (dir, what) = match (workspace.cleaned, repo.pr.as_ref()) {
@@ -300,6 +323,48 @@ pub(crate) fn pick(prs: &[Pr], branch: &str) -> Option<Pr> {
         .find(|pr| pr.open())
         .or_else(|| mine().next())
         .cloned()
+}
+
+/// The primary repository retains the originating PR identity even on an isolated review branch.
+fn linked_pr_url<'a>(workspace: &'a Workspace, repo: &Repo) -> Option<&'a str> {
+    if repo.path != workspace.repo {
+        return None;
+    }
+    pull_url(workspace.issue.as_ref().map(|issue| issue.url.as_str()))
+}
+
+fn pull_url(url: Option<&str>) -> Option<&str> {
+    let url = url?;
+    crate::github_issues::target(url)
+        .filter(|(_, kind, _)| kind == "pull")
+        .map(|_| url)
+}
+
+fn view(dir: &Path, url: &str) -> Result<PrObservation, ()> {
+    let observed_after = crate::conversation::now();
+    let mut command = Command::new("gh");
+    command
+        .current_dir(dir)
+        .env("GH_PROMPT_DISABLED", "1")
+        .args([
+            "pr",
+            "view",
+            url,
+            "--json",
+            "number,title,isDraft,state,headRefName,createdAt,closedAt,mergedAt",
+        ]);
+    let bytes = bounded_output(command, Duration::from_secs(15)).ok_or(())?;
+    decode_view(&bytes, url, observed_after)
+}
+
+fn decode_view(bytes: &[u8], url: &str, observed_after: u64) -> Result<PrObservation, ()> {
+    let mut observation: PrObservation = serde_json::from_slice(bytes).map_err(|_| ())?;
+    let (_, _, number) = crate::github_issues::target(url).ok_or(())?;
+    if observation.pr.number != number {
+        return Err(());
+    }
+    observation.observed_after = observed_after;
+    Ok(observation)
 }
 
 fn list_repo(repo: &Path) -> Result<Vec<PrObservation>, ()> {
@@ -473,6 +538,34 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn only_canonical_pull_urls_override_branch_discovery() {
+        assert_eq!(
+            super::pull_url(Some("https://github.com/org/.github/pull/42")),
+            Some("https://github.com/org/.github/pull/42")
+        );
+        for url in [
+            "https://github.com/org/repo/issues/42",
+            "https://github.com.evil/org/repo/pull/42",
+            "https://github.com/org/repo/pull/42?x=y",
+            "https://linear.app/team/issue/42",
+        ] {
+            assert!(super::pull_url(Some(url)).is_none());
+        }
+        assert!(super::pull_url(None).is_none());
+    }
+
+    #[test]
+    fn explicit_pull_identity_does_not_depend_on_the_local_review_branch() {
+        let payload = br#"{"number":42,"title":"Fork fix","state":"OPEN","headRefName":"main"}"#;
+        let observation =
+            super::decode_view(payload, "https://github.com/org/repo/pull/42", 123).unwrap();
+        assert_eq!(observation.pr.number, 42);
+        assert_eq!(observation.pr.head_ref_name, "main");
+        assert_eq!(observation.observed_after, 123);
+        assert!(super::decode_view(payload, "https://github.com/org/repo/pull/43", 123).is_err());
+    }
+
+    #[test]
     fn a_slow_general_scan_queues_only_one_follow_up() {
         let gate = Arc::new(ScanGate::default());
         let scans = Arc::new(AtomicUsize::new(0));
@@ -616,14 +709,16 @@ pub fn task_snapshot(
     let mut viewer = None;
     for repo in &ws.repos {
         let dir = Path::new(&repo.worktree);
-        let what = run
-            .prs
-            .get(&repo.name)
-            .map(u64::to_string)
+        let linked = linked_pr_url(ws, repo);
+        let repository = linked.and_then(crate::github_issues::target);
+        let what = linked
+            .map(str::to_owned)
+            .or_else(|| run.prs.get(&repo.name).map(u64::to_string))
             .or_else(|| head_branch(dir))
             .ok_or_else(|| i18n::t("err.session.noPr"))?;
-        // A missing PR means keep waiting. Authentication and network errors remain visible.
-        if !run.prs.contains_key(&repo.name) {
+        // Linked PRs retain their explicit identity on synthetic review branches.
+        // A missing ordinary PR means keep waiting; transport failures remain visible.
+        if linked.is_none() && !run.prs.contains_key(&repo.name) {
             let all = task_gh(
                 runner,
                 dir,
@@ -650,6 +745,12 @@ pub fn task_snapshot(
         let number = pr["number"]
             .as_u64()
             .ok_or_else(|| i18n::t("err.actions.response"))?;
+        if repository
+            .as_ref()
+            .is_some_and(|(_, _, expected)| *expected != number)
+        {
+            return Err(i18n::t("err.actions.response"));
+        }
         snapshot.prs.insert(repo.name.clone(), number);
         if matches!(pr["state"].as_str(), Some("CLOSED" | "MERGED")) {
             continue;
@@ -663,8 +764,13 @@ pub fn task_snapshot(
             let login = match &viewer {
                 Some(login) => login,
                 None => {
+                    let args: &[&str] = if linked.is_some() {
+                        &["api", "--hostname", "github.com", "user"]
+                    } else {
+                        &["api", "user"]
+                    };
                     viewer = Some(
-                        task_gh(runner, dir, &["api", "user"])?["login"]
+                        task_gh(runner, dir, args)?["login"]
                             .as_str()
                             .filter(|s| !s.is_empty())
                             .ok_or_else(|| i18n::t("err.actions.response"))?
@@ -673,21 +779,29 @@ pub fn task_snapshot(
                     viewer.as_ref().unwrap()
                 }
             };
+            let repository = repository
+                .as_ref()
+                .map(|(name, _, _)| name.as_str())
+                .unwrap_or("{owner}/{repo}");
             for (kind, path) in [
                 (
                     "comment",
-                    format!("repos/{{owner}}/{{repo}}/issues/{number}/comments?per_page=100"),
+                    format!("repos/{repository}/issues/{number}/comments?per_page=100"),
                 ),
                 (
                     "review",
-                    format!("repos/{{owner}}/{{repo}}/pulls/{number}/reviews?per_page=100"),
+                    format!("repos/{repository}/pulls/{number}/reviews?per_page=100"),
                 ),
                 (
                     "inline",
-                    format!("repos/{{owner}}/{{repo}}/pulls/{number}/comments?per_page=100"),
+                    format!("repos/{repository}/pulls/{number}/comments?per_page=100"),
                 ),
             ] {
-                let pages = task_gh(runner, dir, &["api", "--paginate", "--slurp", &path])?;
+                let mut args = vec!["api", "--paginate", "--slurp", &path];
+                if linked.is_some() {
+                    args.extend(["--hostname", "github.com"]);
+                }
+                let pages = task_gh(runner, dir, &args)?;
                 let pages = pages
                     .as_array()
                     .ok_or_else(|| i18n::t("err.actions.response"))?;
@@ -885,6 +999,84 @@ mod command_port_tests {
             }
         }
     }
+    struct LinkedRunner(std::sync::Mutex<Vec<Vec<String>>>);
+    impl CommandRunner<Command> for LinkedRunner {
+        fn run(
+            &self,
+            request: &mut Command,
+            _: &[u8],
+            _: CommandPolicy,
+        ) -> Result<CommandOutput, CommandError> {
+            let args: Vec<_> = request
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            self.0.lock().unwrap().push(args.clone());
+            let data = match args
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                ["pr", "view", "https://github.com/upstream/repo/pull/42", "--json", _] => {
+                    serde_json::json!({"number":42,"state":"OPEN","headRefOid":"abc","url":"https://github.com/upstream/repo/pull/42","statusCheckRollup":[]})
+                }
+                ["api", "--hostname", "github.com", "user"] => {
+                    serde_json::json!({"login":"viewer"})
+                }
+                ["api", "--paginate", "--slurp", path, "--hostname", "github.com"] => {
+                    assert!([
+                        "repos/upstream/repo/issues/42/comments?per_page=100",
+                        "repos/upstream/repo/pulls/42/reviews?per_page=100",
+                        "repos/upstream/repo/pulls/42/comments?per_page=100",
+                    ]
+                    .contains(path));
+                    serde_json::json!([[]])
+                }
+                _ => panic!("unexpected GitHub query: {args:?}"),
+            };
+            Ok(CommandOutput {
+                success: true,
+                stdout: serde_json::to_vec(&data).unwrap(),
+                stderr: vec![],
+            })
+        }
+    }
+
+    #[test]
+    fn linked_review_monitor_uses_upstream_identity_without_branch_discovery() {
+        let ws: Workspace = serde_json::from_value(serde_json::json!({
+            "id":"review", "title":"Review", "repo":"/fork", "repo_name":"repo",
+            "branch":"github-pr-42-isolated", "worktree":"/fixture", "stage":"work",
+            "repos":[{"path":"/fork", "name":"repo", "worktree":"/fixture", "base":"upstream/main"}],
+            "issue":{"id":"github:upstream/repo/pull/42", "identifier":"upstream/repo#42", "title":"Review", "url":"https://github.com/upstream/repo/pull/42"}
+        })).unwrap();
+        let mut catalog = crate::actions::Catalog::default();
+        catalog.initialize_defaults();
+        let mut run: crate::actions::Run = serde_json::from_value(serde_json::json!({
+            "command":"review", "profile":catalog.profiles[0], "paused":false,
+            "done":false, "turns":0, "checked_at":0, "error":null
+        }))
+        .unwrap();
+        run.profile.watch = Some(prometeu_core::actions::Watch {
+            comments: true,
+            ci: true,
+            interval_seconds: 30,
+            max_turns: 3,
+        });
+        let runner = LinkedRunner(std::sync::Mutex::new(vec![]));
+        let snapshot = task_snapshot(&runner, &ws, &run).unwrap();
+        assert_eq!(snapshot.prs.get("repo"), Some(&42));
+        assert!(!snapshot.closed);
+        assert_eq!(runner.0.lock().unwrap().len(), 5);
+        // A stale number from an older branch must not override the explicit linked PR.
+        run.prs.insert("repo".into(), 9);
+        assert_eq!(
+            task_snapshot(&runner, &ws, &run).unwrap().prs.get("repo"),
+            Some(&42)
+        );
+    }
+
     #[test]
     fn task_queries_keep_json_results_and_existing_error_classification() {
         assert_eq!(

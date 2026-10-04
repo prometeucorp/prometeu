@@ -800,6 +800,18 @@ body.noside .side { display: none; }
 
 /* Linear issues. */
 
+.issue-provider-pane { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#github-issues-pane .ibar { flex-wrap: wrap; min-height: 42px; height: auto; padding-block: 6px; }
+#github-issues-pane .ibar .ui-input { width: min(320px, 100%); }
+#github-issues-pane .imeta { max-width: 260px; white-space: normal; overflow-wrap: anywhere; }
+#github-issues-pane .github-glyph { display: flex; color: var(--done); }
+.github-row .iact { opacity: 1; }
+.github-row:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+@media (max-width: 900px) {
+  #github-list .irow { grid-template-columns: 22px 48px minmax(0, 1fr) auto; }
+  #github-list .istate, #github-list .iago { display: none; }
+}
+
 .itab .c { flex: none; color: var(--fg-3); font-size: 12px; }
 
 /* Search sits on the left; fetch time and refresh sit on the right. */

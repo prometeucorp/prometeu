@@ -1,5 +1,64 @@
 import { expect, test } from "@playwright/test";
 
+// The workspace journey needs a browser: row navigation must not swallow its nested action,
+// and provider tabs/native dialogs must preserve focus while asynchronous content is replaced.
+test("GitHub issues and requested PR reviews launch workspaces without opening the source link", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("prometeu:model-choice", JSON.stringify({ agent: "codex", model: "gpt-5.6-sol" }));
+    localStorage.setItem("mock:accounts", JSON.stringify({ accounts: [
+      { id: "codex", provider: "codex", email: "user@example.com", plan: "pro", connected: true, revision: 0 },
+    ], active: { codex: "codex" }, login: null }));
+  });
+  await page.goto("/");
+  await expect(page.locator("#deskView")).toBeVisible();
+  const visited: string[] = [];
+  page.on("console", message => { if (message.text().startsWith("open in GitHub:")) visited.push(message.text()); });
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  await page.locator("#issues-provider-linear").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#issues-provider-github")).toBeFocused();
+  const row = page.locator("#github-list .irow", { hasText: "Restore terminal state" });
+  await expect(row).toBeVisible();
+  await row.focus(); await page.keyboard.press("Enter");
+  await expect.poll(() => visited.length).toBe(1);
+  await row.getByRole("button", { name: "Open workspace", exact: true }).click();
+  await expect(page.locator(".launcher")).toBeVisible();
+  await expect(page.locator("#d-project")).toContainText("prometeu");
+  await expect(page.locator("#d-issue")).toContainText("prometeucorp/prometeu#428");
+  await page.locator("#d-go").click();
+  await expect(page.locator("#veil")).toBeHidden();
+  expect(visited).toHaveLength(1);
+
+  await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
+  await page.getByRole("button", { name: "Choose repositories", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Choose repositories" });
+  await dialog.getByRole("checkbox", { name: "prometeucorp/prometeu", exact: true }).check();
+  await page.evaluate(() => localStorage.setItem("mock:githubLogin", "another-user"));
+  await dialog.getByRole("button", { name: "Save selection", exact: true }).click();
+  await expect(dialog).toContainText("Your GitHub account changed.");
+  expect(await page.evaluate(() => localStorage.getItem("mock:githubRepositories:another-user"))).toBeNull();
+  await page.evaluate(() => localStorage.removeItem("mock:githubLogin"));
+  await dialog.getByRole("button", { name: "Save selection", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Choose repositories", exact: true })).toBeFocused();
+  await page.locator("#github-repositories").click();
+  await expect(page.locator("#github-list .irow")).toHaveCount(2);
+
+  await page.locator("#github-repositories").focus();
+  await page.keyboard.press("End");
+  await expect(page.locator("#github-reviews")).toBeFocused();
+  await page.locator("#github-list .irow").getByRole("button", { name: "Open workspace", exact: true }).click();
+  await expect(page.locator("#d-basename")).toContainText("prometeu-pr-438/github-pr-438-preview");
+  await expect(page.locator("#d-wt")).toBeChecked();
+  await expect(page.locator("#d-nb")).not.toBeChecked();
+  await expect(page.locator("#d-nb")).toBeDisabled();
+  await expect(page.locator("#d-project")).toBeDisabled();
+  await expect(page.locator("#d-base")).toBeDisabled();
+  await page.locator("#d-go").click();
+  await expect(page.locator("#veil")).toBeHidden();
+  expect(visited).toHaveLength(1);
+});
+
 test("claiming a team issue keeps keyboard focus after the available row disappears", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#deskView")).toBeVisible();

@@ -2,13 +2,16 @@
 
 Status: current contract.
 
-The Issues screen has **Mine** and **Available in my teams** tabs. Mine retains
+The Issues screen contains Linear and GitHub provider tabs. The Linear pane has
+**Mine** and **Available in my teams** scopes. Mine retains
 the existing assigned-issue list and workspace launch action. Available shows
 open, unassigned issues only from teams of which the connected Linear user is a
 member. Both tabs share search, team filtering, state grouping and priority
 ordering. When Mine is empty and available issues exist, the screen shows up to
 three suggestions ordered by priority and a link to the complete available tab.
-The sidebar and launcher counts still describe Mine only. Claiming an issue does
+The sidebar combines known assigned-issue counts from both providers; the
+launcher issue picker still contains assigned Linear issues only. See
+[GitHub discovery](github-issues.md). Claiming an issue does
 not create a workspace; the newly assigned issue becomes eligible for the
 existing workspace action.
 

@@ -91,6 +91,11 @@ export type Commands = {
   linear_issues: { args: { force: boolean }; result: T.Issues };
   linear_open: { args: { url: string }; result: void };
   linear_status: { args: undefined; result: T.LinearStatus };
+  github_issues: { args: { scope: T.GitHubScope; force: boolean }; result: T.GitHubIssues };
+  github_repositories: { args: { selected: string[]; login: string }; result: string[] };
+  github_issue_open: { args: { url: string }; result: void };
+  github_projects: { args: undefined; result: T.GitHubProject[] };
+  github_prepare: { args: { project: string; url: string }; result: T.GitHubPrepared };
   list_branches: { args: { project: string }; result: { all: string[]; local: string[]; default: string; git: boolean } };
   list_dir: { args: { id: string; rel: string }; result: PathEntry[] };
   load_board: { args: undefined; result: T.Board };

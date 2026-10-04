@@ -346,6 +346,21 @@ export type Issue = IssueRef & {
 };
 export type Issues = { issues: Issue[]; available: Issue[]; available_error?: string; fetched_at: number };
 
+export type GitHubScope = "mine" | "repositories" | "authored" | "reviews";
+export type GitHubItem = IssueRef & {
+  description: string | null;
+  repository: string;
+  number: number;
+  kind: "issue" | "pr";
+  author: string;
+  draft: boolean;
+  updated_at: string;
+  labels: string[];
+};
+export type GitHubIssues = { login: string; repositories: string[]; items: GitHubItem[]; fetched_at: number; truncated: boolean };
+export type GitHubProject = { project: string; repository: string };
+export type GitHubPrepared = { base: string; branch: string; source: string };
+
 /// Busy identifies browser-based authentication, which remains visible across navigation.
 export type LinearStatus = { connected: boolean; can_assign: boolean; who: LinearWho | null; busy: boolean };
 

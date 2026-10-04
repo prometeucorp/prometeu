@@ -172,6 +172,11 @@ time and optional `available_error` when discovery fails after Mine succeeds.
 confirms its mutation. `linear_status` and `linear` include `can_assign` to
 identify credentials granted the `write` scope. See [Linear issues](linear-issues.md).
 
+`github_issues`, `github_repositories`, `github_issue_open`, `github_projects` and
+`github_prepare` expose normalized discovery, private selections, validated
+source navigation and PR worktree preparation. See [GitHub issues](github-issues.md)
+for inputs, outputs, bounded execution and account/cache behavior.
+
 `paste_files` completes that path for the clipboard: with no arguments, it reads
 the system clipboard and returns paths. On macOS it reads the general
 pasteboard: files copied in Finder keep the original path; an image is written

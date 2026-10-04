@@ -20,6 +20,7 @@ as a short index for agents and `README.md` presents the product.
 - [Native Windows application](contracts/windows-application.md): shared interface over WSL, command coverage, deadlines and paths.
 - [WSL runtime protocol](contracts/wsl-runtime.md): framing, capabilities, resident attachment, storage and compatibility.
 - [Linear issue discovery and assignment](contracts/linear-issues.md): available team issues, OAuth write scope, claim flow and cache compatibility.
+- [GitHub issues and pull requests](contracts/github-issues.md): assigned and repository issues, authored PRs, requested reviews and isolated workspaces.
 
 - [Desktop presentation](contracts/desktop-presentation.md): typed snapshots, callbacks, focus and resource view lifetime.
 
@@ -57,6 +58,8 @@ as a short index for agents and `README.md` presents the product.
 - [`contracts/relay-v4.md`](contracts/relay-v4.md): encrypted collaboration and TOFU.
 
 ## Decisions
+
+- [ADR 0086](decisions/0086-github-inbox.md): GitHub discovery inside Issues using the existing CLI credential.
 
 [Lifecycle and current index](decisions/README.md). Only implemented decisions
 appear below. Retired documents and previous versions remain in Git history;
