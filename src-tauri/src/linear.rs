@@ -458,6 +458,8 @@ static CACHE: Mutex<IssueCache> = Mutex::new(IssueCache {
     generation: 0,
     snapshot: None,
 });
+// Serialize refreshes without holding the cache lock across Linear requests.
+static REFRESH: Mutex<()> = Mutex::new(());
 
 fn clear_issues(cache: &mut IssueCache) {
     cache.generation = cache.generation.wrapping_add(1);
@@ -517,6 +519,7 @@ pub async fn linear_issues(force: bool) -> Result<Issues, String> {
 }
 
 fn issues(force: bool) -> Result<Issues, String> {
+    let _refresh = lock(&REFRESH);
     loop {
         let (generation, snapshot) = {
             let cache = lock(&CACHE);
