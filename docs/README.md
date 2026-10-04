@@ -19,6 +19,8 @@ as a short index for agents and `README.md` presents the product.
 - [Portable application core](contracts/application-core.md): core ports, their desktop and WSL adapters and implementation obligations.
 - [Native Windows application](contracts/windows-application.md): shared interface over WSL, command coverage, deadlines and paths.
 - [WSL runtime protocol](contracts/wsl-runtime.md): framing, capabilities, resident attachment, storage and compatibility.
+- [Linear issue discovery and assignment](contracts/linear-issues.md): available team issues, OAuth write scope, claim flow and cache compatibility.
+
 - [Desktop presentation](contracts/desktop-presentation.md): typed snapshots, callbacks, focus and resource view lifetime.
 
 - [Local notifications](contracts/notifications.md): event selection, native delivery and silent defaults.

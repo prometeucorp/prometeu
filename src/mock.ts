@@ -689,7 +689,7 @@ const SCRIPT_OUT =
   "  \x1b[32m➜\x1b[0m  Local:   \x1b[36mhttp://localhost:3110/\x1b[0m\r\n" +
   "  \x1b[32m➜\x1b[0m  ready in 231 ms\r\n\r\n";
 
-let linear: LinearStatus = { connected: false, who: null, busy: false };
+let linear: LinearStatus = { connected: false, can_assign: false, who: null, busy: false };
 
 const issue = (
   identifier: string,
@@ -726,6 +726,11 @@ const ISSUES: Issue[] = [
   // A second team makes the team filter visible.
   issue("INF-88", "Self-hosted runner stops after two idle hours", 1, DOING, "Infra", 3),
   issue("INF-72", "Sign the .dmg in CI without requesting the Keychain password", 3, TODO, "Infra", 52),
+];
+const AVAILABLE: Issue[] = [
+  issue("MOA-211", "Approval webhook arrives twice", 1, TODO, "Integrations", 2),
+  issue("MOA-215", "Move reconciliation queue to the new worker", 2, BACKLOG, "Infra", 16),
+  issue("INF-92", "Fix CSV export after a failed request", 2, TODO, "Infra", 5),
 ];
 
 /// Number conversation lines like the backend. Live events and snapshots share that sequence for real-relay browser tests.
@@ -2339,12 +2344,19 @@ const mockCommands: IpcHandlers = {
   linear_connect() {
     linear = { ...linear, busy: true };
     emit("linear", linear);
-    return new Promise((done) =>
+    return new Promise((done, fail) =>
       setTimeout(() => {
+        if (localStorage.getItem("mock:linearConnectFailure") === "1") {
+          linear = { ...linear, busy: false };
+          emit("linear", linear);
+          fail(`i18n:${JSON.stringify({ code: "err.linear.denied" })}`);
+          return;
+        }
         linear = {
           connected: true,
+          can_assign: localStorage.getItem("mock:linearReadOnly") !== "1",
           busy: false,
-          who: { name: "Gustavo Brancaglione", email: "gustavo@example.com", org: "Moabi", org_key: "moabi" },
+          who: { id: "mock-user", name: "Gustavo Brancaglione", email: "gustavo@example.com", org: "Moabi", org_key: "moabi" },
         };
         emit("linear", linear);
         done(linear);
@@ -2355,14 +2367,30 @@ const mockCommands: IpcHandlers = {
     if (!linear.connected) {
       return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.off" })}`);
     }
-    return new Promise((done) => setTimeout(() => done({ issues: ISSUES, fetched_at: Date.now() / 1000 }), 600));
+    if (localStorage.getItem("mock:linearIssuesFailure") === "1") {
+      return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.noData" })}`);
+    }
+    return new Promise((done) => setTimeout(() => done({
+      issues: [...ISSUES],
+      available: localStorage.getItem("mock:linearAvailableFailure") === "1" ? [] : [...AVAILABLE],
+      available_error: localStorage.getItem("mock:linearAvailableFailure") === "1" ? t("err.linear.noData") : undefined,
+      fetched_at: Date.now() / 1000,
+    }), 600));
+  },
+  linear_claim({ id }) {
+    if (!linear.can_assign) return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.writeScope" })}`);
+    const index = AVAILABLE.findIndex(issue => issue.id === id);
+    if (index < 0) return Promise.reject(`i18n:${JSON.stringify({ code: "err.linear.notAvailable" })}`);
+    const [claimed] = AVAILABLE.splice(index, 1);
+    ISSUES.push(claimed);
+    return claimed;
   },
   linear_open(args) {
     console.log("open in Linear:", args.url);
     return;
   },
   linear_disconnect() {
-    linear = { connected: false, who: null, busy: false };
+    linear = { connected: false, can_assign: false, who: null, busy: false };
     emit("linear", linear);
     return linear;
   },

@@ -166,6 +166,12 @@ IPC to authenticate the WebSocket.
 | `workspace-preview` | `delegation.rs`, main webview only | `{ workspace_id, conversation_id }`, authorized local MCP navigation request |
 | `file-drag` | `file_drop.rs`, main webview | `{ type, paths, position?, id?, error? }` |
 
+`linear_issues({ force })` returns assigned and available issues with a fetch
+time and optional `available_error` when discovery fails after Mine succeeds.
+`linear_claim({ id })` returns the newly assigned issue after Linear
+confirms its mutation. `linear_status` and `linear` include `can_assign` to
+identify credentials granted the `write` scope. See [Linear issues](linear-issues.md).
+
 `paste_files` completes that path for the clipboard: with no arguments, it reads
 the system clipboard and returns paths. On macOS it reads the general
 pasteboard: files copied in Finder keep the original path; an image is written

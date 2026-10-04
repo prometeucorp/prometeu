@@ -3,7 +3,7 @@
 //! loopback port, open authorization in the browser, exchange the returned code, persist the
 //! credential privately, and publish status. The socket exists only during login. Tokens expire
 //! after 24 hours and token() refreshes them before use. Credentials use a private file; the
-//! requested scope is read-only.
+//! requested scopes allow reading issues and assigning an unowned issue to the user.
 
 use crate::i18n;
 use crate::lock::lock;
@@ -31,9 +31,11 @@ const WAIT: Duration = Duration::from_secs(5 * 60);
 /// Refresh early enough that an API call does not outlive its token.
 const SLACK: u64 = 5 * 60;
 
-/// Account identity displayed by the settings screen.
+/// Account identity used for assignment and displayed by the settings screen.
 #[derive(Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct Who {
+    #[serde(default)]
+    pub id: String,
     pub name: String,
     pub email: String,
     /// The Linear organization and its urlKey.
@@ -48,12 +50,16 @@ pub struct Auth {
     /// Unix timestamp in seconds.
     pub expires_at: u64,
     pub who: Who,
+    /// Older credentials have no recorded scopes and keep read access until reauthorization.
+    #[serde(default)]
+    pub scopes: Vec<String>,
 }
 
 /// Settings-screen connection status.
 #[derive(Serialize, Clone)]
 pub struct Status {
     pub connected: bool,
+    pub can_assign: bool,
     pub who: Option<Who>,
     /// Retain pending browser-login status when the settings screen is reopened.
     pub busy: bool,
@@ -101,8 +107,8 @@ pub async fn linear_disconnect(app: AppHandle) -> Status {
                 .timeout(Duration::from_secs(10))
                 .send();
         }
-        *lock(&CACHE) = None;
-        let _ = std::fs::remove_file(issues_path());
+        let mut cache = lock(&CACHE);
+        clear_issues(&mut cache);
         std::fs::remove_file(path()).map_err(i18n::io)
     })
     .await;
@@ -135,7 +141,7 @@ fn connect() -> Result<Auth, String> {
     let verifier = random();
     let state = random();
     let url = format!(
-        "{AUTHORIZE}?client_id={CLIENT_ID}&redirect_uri={}&response_type=code&scope=read\
+        "{AUTHORIZE}?client_id={CLIENT_ID}&redirect_uri={}&response_type=code&scope=read,write\
          &state={state}&code_challenge={}&code_challenge_method=S256&prompt=consent",
         escape(REDIRECT),
         challenge(&verifier),
@@ -145,7 +151,9 @@ fn connect() -> Result<Auth, String> {
     let code = wait_for_code(&listener, &state, Instant::now() + WAIT)?;
     let mut auth = exchange(&code, &verifier)?;
     auth.who = whoami(&auth.access_token)?;
+    let mut cache = lock(&CACHE);
     save(&auth)?;
+    clear_issues(&mut cache);
     Ok(auth)
 }
 
@@ -219,6 +227,9 @@ fn refresh(auth: &Auth) -> Result<Auth, String> {
         got.refresh_token = auth.refresh_token.clone();
     }
     got.who = auth.who.clone();
+    if got.scopes.is_empty() {
+        got.scopes = auth.scopes.clone();
+    }
     Ok(got)
 }
 
@@ -227,8 +238,29 @@ struct TokenReply {
     access_token: Option<String>,
     refresh_token: Option<String>,
     expires_in: Option<u64>,
+    scope: Option<GrantedScopes>,
     error: Option<String>,
     error_description: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum GrantedScopes {
+    Text(String),
+    List(Vec<String>),
+}
+
+impl GrantedScopes {
+    fn names(self) -> Vec<String> {
+        match self {
+            Self::Text(value) => value
+                .split(|ch: char| ch.is_whitespace() || ch == ',')
+                .filter(|scope| !scope.is_empty())
+                .map(str::to_string)
+                .collect(),
+            Self::List(values) => values,
+        }
+    }
 }
 
 fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
@@ -257,6 +289,7 @@ fn token_request(fields: &[(&str, &str)]) -> Result<Auth, String> {
         refresh_token: reply.refresh_token,
         expires_at: now() + reply.expires_in.unwrap_or(86_400),
         who: Who::default(),
+        scopes: reply.scope.map(GrantedScopes::names).unwrap_or_default(),
     })
 }
 
@@ -311,12 +344,13 @@ pub fn graphql(
 fn whoami(token: &str) -> Result<Who, String> {
     let data = graphql(
         token,
-        "{ viewer { name email organization { name urlKey } } }",
+        "{ viewer { id name email organization { name urlKey } } }",
         serde_json::json!({}),
     )?;
     let v = &data["viewer"];
     let s = |x: &serde_json::Value| x.as_str().unwrap_or("").to_string();
     Ok(Who {
+        id: s(&v["id"]),
         name: s(&v["name"]),
         email: s(&v["email"]),
         org: s(&v["organization"]["name"]),
@@ -345,12 +379,19 @@ fn save(auth: &Auth) -> Result<(), String> {
 }
 
 pub fn status() -> Status {
-    let who = load().map(|a| a.who);
+    let auth = load();
+    let can_assign = auth.as_ref().is_some_and(can_assign);
+    let who = auth.map(|a| a.who);
     Status {
         connected: who.is_some(),
+        can_assign,
         who,
         busy: PENDING.load(Ordering::SeqCst),
     }
+}
+
+fn can_assign(auth: &Auth) -> bool {
+    auth.scopes.iter().any(|scope| scope == "write") && !auth.who.id.is_empty()
 }
 
 /* ---------- issues ---------- */
@@ -392,6 +433,12 @@ pub struct Issue {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Issues {
     pub issues: Vec<Issue>,
+    /// Open, unassigned issues in teams joined by the authenticated user.
+    #[serde(default)]
+    pub available: Vec<Issue>,
+    /// An availability failure must not hide successfully fetched assigned issues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_error: Option<String>,
     /// Unix timestamp in seconds for relative update times.
     pub fetched_at: u64,
 }
@@ -402,7 +449,23 @@ const FRESH: u64 = 120;
 const PAGES: usize = 10;
 
 /// Keep the list in memory and persist a copy for immediate display after restart.
-static CACHE: Mutex<Option<Issues>> = Mutex::new(None);
+struct IssueCache {
+    generation: u64,
+    snapshot: Option<Issues>,
+}
+
+static CACHE: Mutex<IssueCache> = Mutex::new(IssueCache {
+    generation: 0,
+    snapshot: None,
+});
+// Serialize refreshes without holding the cache lock across Linear requests.
+static REFRESH: Mutex<()> = Mutex::new(());
+
+fn clear_issues(cache: &mut IssueCache) {
+    cache.generation = cache.generation.wrapping_add(1);
+    cache.snapshot = None;
+    let _ = std::fs::remove_file(issues_path());
+}
 
 const ISSUES_QUERY: &str = r#"query Mine($after: String) {
   viewer {
@@ -417,6 +480,37 @@ const ISSUES_QUERY: &str = r#"query Mine($after: String) {
   }
 }"#;
 
+const AVAILABLE_QUERY: &str = r#"query Available($after: String) {
+  issues(first: 50, after: $after, orderBy: updatedAt,
+    filter: { assignee: { null: true },
+      team: { members: { some: { isMe: { eq: true } } } },
+      state: { type: { nin: ["completed", "canceled"] } } }) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id identifier title description url branchName priority priorityLabel updatedAt
+      state { name type color } team { key } project { name } labels { nodes { name color } }
+    }
+  }
+}"#;
+
+const CLAIMABLE_QUERY: &str = r#"query Claimable($id: String!) {
+  issue(id: $id) {
+    id assignee { id } state { type }
+    team { members(first: 1, filter: { isMe: { eq: true } }) { nodes { id } } }
+  }
+}"#;
+
+const CLAIM_QUERY: &str = r#"mutation Claim($id: String!, $user: String!) {
+  issueUpdate(id: $id, input: { assigneeId: $user }) {
+    success
+    issue {
+      id identifier title description url branchName priority priorityLabel updatedAt
+      assignee { id }
+      state { name type color } team { key } project { name } labels { nodes { name color } }
+    }
+  }
+}"#;
+
 /// List assigned issues excluding completed and cancelled states. Force bypasses the two-minute
 /// cache.
 #[tauri::command]
@@ -425,40 +519,157 @@ pub async fn linear_issues(force: bool) -> Result<Issues, String> {
 }
 
 fn issues(force: bool) -> Result<Issues, String> {
-    let cached = lock(&CACHE).clone().or_else(load_issues);
-    if let Some(c) = &cached {
-        if !force && c.fetched_at + FRESH > now() {
-            *lock(&CACHE) = Some(c.clone());
-            return Ok(c.clone());
+    if !force {
+        let (generation, snapshot) = {
+            let cache = lock(&CACHE);
+            (cache.generation, cache.snapshot.clone())
+        };
+        if let Some(cached) = snapshot.or_else(load_issues) {
+            if cached.fetched_at.saturating_add(FRESH) > now() {
+                let mut cache = lock(&CACHE);
+                if cache.generation == generation {
+                    return Ok(cache.snapshot.get_or_insert(cached).clone());
+                }
+            }
         }
     }
-    let fresh = fetch_issues()?;
-    *lock(&CACHE) = Some(fresh.clone());
-    // A cache write failure must not discard a successfully fetched list.
-    if let Ok(body) = serde_json::to_string(&fresh) {
-        let _ = paths::write_private(&issues_path(), &body);
+    let _refresh = lock(&REFRESH);
+    loop {
+        let (generation, snapshot) = {
+            let cache = lock(&CACHE);
+            (cache.generation, cache.snapshot.clone())
+        };
+        let cached = snapshot.or_else(load_issues);
+        if let Some(c) = &cached {
+            if !force && c.fetched_at.saturating_add(FRESH) > now() {
+                let mut cache = lock(&CACHE);
+                if cache.generation != generation {
+                    continue;
+                }
+                cache.snapshot = Some(c.clone());
+                return Ok(c.clone());
+            }
+        }
+        let fresh = match fetch_issues(cached.as_ref()) {
+            Ok(fresh) => fresh,
+            Err(error) => {
+                if lock(&CACHE).generation != generation {
+                    continue;
+                }
+                return Err(error);
+            }
+        };
+        let mut cache = lock(&CACHE);
+        // A claim or account change invalidates any snapshot fetched before it completed.
+        if cache.generation != generation {
+            continue;
+        }
+        cache.snapshot = Some(fresh.clone());
+        // A cache write failure must not discard a successfully fetched list.
+        if let Ok(body) = serde_json::to_string(&fresh) {
+            let _ = paths::write_private(&issues_path(), &body);
+        }
+        return Ok(fresh);
     }
-    Ok(fresh)
 }
 
-fn fetch_issues() -> Result<Issues, String> {
+fn fetch_issues(previous: Option<&Issues>) -> Result<Issues, String> {
     let token = token()?;
+    let issues = fetch_pages(&token, ISSUES_QUERY, &["viewer", "assignedIssues"])?;
+    let available = fetch_pages(&token, AVAILABLE_QUERY, &["issues"]);
+    Ok(issue_lists(issues, available, previous))
+}
+
+fn issue_lists(
+    issues: Vec<Issue>,
+    available: Result<Vec<Issue>, String>,
+    previous: Option<&Issues>,
+) -> Issues {
+    let (available, available_error) = match available {
+        Ok(available) => (available, None),
+        Err(error) => (
+            previous
+                .map(|old| old.available.clone())
+                .unwrap_or_default(),
+            Some(error),
+        ),
+    };
+    Issues {
+        issues,
+        available,
+        available_error,
+        fetched_at: now(),
+    }
+}
+
+fn fetch_pages(token: &str, query: &str, path: &[&str]) -> Result<Vec<Issue>, String> {
     let mut all = Vec::new();
     let mut after: Option<String> = None;
     for _ in 0..PAGES {
-        let data = graphql(&token, ISSUES_QUERY, serde_json::json!({ "after": after }))?;
-        let page: Page = serde_json::from_value(data["viewer"]["assignedIssues"].clone())
+        let data = graphql(token, query, serde_json::json!({ "after": after }))?;
+        let node = path.iter().fold(&data, |value, key| &value[*key]);
+        let page: Page = serde_json::from_value(node.clone())
             .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
         all.extend(page.nodes.into_iter().map(Issue::from));
         if !page.page_info.has_next_page {
             break;
         }
-        after = page.page_info.end_cursor;
+        after = Some(
+            page.page_info
+                .end_cursor
+                .ok_or_else(|| i18n::t("err.linear.noData"))?,
+        );
     }
-    Ok(Issues {
-        issues: all,
-        fetched_at: now(),
-    })
+    Ok(all)
+}
+
+/// Assign one still-available team issue to the authenticated user.
+#[tauri::command]
+pub async fn linear_claim(id: String) -> Result<Issue, String> {
+    blocking(move || claim(&id)).await
+}
+
+fn claim(id: &str) -> Result<Issue, String> {
+    if id.is_empty() || id.len() > 128 {
+        return Err(i18n::t("err.linear.notAvailable"));
+    }
+    let mut cache = lock(&CACHE);
+    let auth = load().ok_or_else(|| i18n::t("err.linear.off"))?;
+    if !can_assign(&auth) {
+        return Err(i18n::t("err.linear.writeScope"));
+    }
+    let token = token()?;
+    let current = graphql(&token, CLAIMABLE_QUERY, serde_json::json!({ "id": id }))?;
+    ensure_claimable(&current["issue"])?;
+    // Linear has no conditional issueUpdate; another client can assign the issue after this check.
+    let updated = graphql(
+        &token,
+        CLAIM_QUERY,
+        serde_json::json!({ "id": id, "user": &auth.who.id }),
+    )?;
+    if updated["issueUpdate"]["success"] != true {
+        return Err(i18n::t("err.linear.claimFailed"));
+    }
+    if updated["issueUpdate"]["issue"]["assignee"]["id"] != auth.who.id {
+        return Err(i18n::t("err.linear.claimFailed"));
+    }
+    let raw: Raw = serde_json::from_value(updated["issueUpdate"]["issue"].clone())
+        .map_err(|e| i18n::ta("err.linear.garbled", &[("cause", e.to_string())]))?;
+    clear_issues(&mut cache);
+    Ok(raw.into())
+}
+
+fn ensure_claimable(issue: &serde_json::Value) -> Result<(), String> {
+    let active = issue["state"]["type"]
+        .as_str()
+        .is_some_and(|kind| kind != "completed" && kind != "canceled");
+    let member = issue["team"]["members"]["nodes"]
+        .as_array()
+        .is_some_and(|nodes| !nodes.is_empty());
+    if issue["id"].as_str().is_none() || !issue["assignee"].is_null() || !active || !member {
+        return Err(i18n::t("err.linear.notAvailable"));
+    }
+    Ok(())
 }
 
 fn issues_path() -> PathBuf {
@@ -466,7 +677,17 @@ fn issues_path() -> PathBuf {
 }
 
 fn load_issues() -> Option<Issues> {
-    serde_json::from_str(&std::fs::read_to_string(issues_path()).ok()?).ok()
+    parse_issue_cache(&std::fs::read_to_string(issues_path()).ok()?)
+}
+
+fn parse_issue_cache(body: &str) -> Option<Issues> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let has_available = value.get("available").is_some();
+    let mut issues: Issues = serde_json::from_value(value).ok()?;
+    if !has_available {
+        issues.fetched_at = 0;
+    }
+    Some(issues)
 }
 
 /// Open only Linear issue URLs in the system browser; reject other destinations and schemes.
@@ -634,6 +855,111 @@ mod tests {
         assert_eq!(issue.project, None);
         assert_eq!(issue.labels[0].name, "bug");
         assert_eq!(issue.branch_name, "gustavo/mes-7-conectar-o-linear");
+    }
+
+    #[test]
+    fn old_credentials_and_issue_cache_keep_read_access() {
+        let auth: Auth = serde_json::from_value(serde_json::json!({
+            "access_token": "old", "refresh_token": null, "expires_at": 1,
+            "who": { "name": "Ada", "email": "ada@example.com", "org": "Work", "org_key": "work" }
+        }))
+        .unwrap();
+        assert_eq!(auth.who.id, "");
+        assert!(auth.scopes.is_empty());
+        assert!(!can_assign(&auth));
+
+        let cached: Issues = serde_json::from_value(serde_json::json!({
+            "issues": [], "fetched_at": 1
+        }))
+        .unwrap();
+        assert!(cached.available.is_empty());
+        assert!(cached.available_error.is_none());
+        assert_eq!(
+            parse_issue_cache(r#"{"issues":[],"fetched_at":123}"#)
+                .unwrap()
+                .fetched_at,
+            0
+        );
+        assert_eq!(
+            parse_issue_cache(r#"{"issues":[],"available":[],"fetched_at":123}"#)
+                .unwrap()
+                .fetched_at,
+            123
+        );
+    }
+
+    #[test]
+    fn available_failure_keeps_assigned_issues_and_reports_error() {
+        let assigned: Issue = serde_json::from_value(serde_json::json!({
+            "id": "assigned", "identifier": "TEAM-1", "title": "Assigned",
+            "description": null, "url": "https://linear.app/team/issue/TEAM-1/assigned",
+            "branch_name": "team-1-assigned", "priority": 0, "priority_label": "None",
+            "state": { "name": "Todo", "kind": "unstarted", "color": "#fff" },
+            "team": "TEAM", "project": null, "labels": [], "updated_at": "2026-10-03T00:00:00Z"
+        }))
+        .unwrap();
+        let fresh = issue_lists(vec![assigned.clone()], Err("available failed".into()), None);
+        assert_eq!(fresh.issues[0].identifier, "TEAM-1");
+        assert!(fresh.available.is_empty());
+        assert_eq!(fresh.available_error.as_deref(), Some("available failed"));
+        assert_eq!(
+            serde_json::to_value(&fresh).unwrap()["available_error"],
+            "available failed"
+        );
+        let mut prior_issue = assigned;
+        prior_issue.identifier = "TEAM-2".into();
+        let previous = issue_lists(vec![], Ok(vec![prior_issue]), None);
+        let retried = issue_lists(
+            fresh.issues,
+            Err("still unavailable".into()),
+            Some(&previous),
+        );
+        assert_eq!(retried.issues[0].identifier, "TEAM-1");
+        assert_eq!(retried.available[0].identifier, "TEAM-2");
+        assert_eq!(
+            retried.available_error.as_deref(),
+            Some("still unavailable")
+        );
+    }
+
+    #[test]
+    fn granted_write_scope_is_required_to_claim() {
+        let auth: Auth = serde_json::from_value(serde_json::json!({
+            "access_token": "new", "refresh_token": null, "expires_at": 1,
+            "scopes": ["read", "write"],
+            "who": { "id": "user-1", "name": "Ada", "email": "ada@example.com", "org": "Work", "org_key": "work" }
+        }))
+        .unwrap();
+        assert!(can_assign(&auth));
+        assert_eq!(
+            serde_json::from_value::<GrantedScopes>(serde_json::json!("read write"))
+                .unwrap()
+                .names(),
+            vec!["read", "write"]
+        );
+        assert_eq!(
+            serde_json::from_value::<GrantedScopes>(serde_json::json!(["read", "write"]))
+                .unwrap()
+                .names(),
+            vec!["read", "write"]
+        );
+    }
+
+    #[test]
+    fn claim_requires_unassigned_active_issue_in_joined_team() {
+        let mut issue = serde_json::json!({
+            "id": "issue-1", "assignee": null, "state": { "type": "unstarted" },
+            "team": { "members": { "nodes": [{ "id": "user-1" }] } }
+        });
+        assert!(ensure_claimable(&issue).is_ok());
+        issue["assignee"] = serde_json::json!({ "id": "other-user" });
+        assert!(ensure_claimable(&issue).is_err());
+        issue["assignee"] = serde_json::Value::Null;
+        issue["state"]["type"] = serde_json::json!("completed");
+        assert!(ensure_claimable(&issue).is_err());
+        issue["state"]["type"] = serde_json::json!("unstarted");
+        issue["team"]["members"]["nodes"] = serde_json::json!([]);
+        assert!(ensure_claimable(&issue).is_err());
     }
 
     #[test]

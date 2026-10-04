@@ -800,6 +800,8 @@ body.noside .side { display: none; }
 
 /* Linear issues. */
 
+.itab .c { flex: none; color: var(--fg-3); font-size: 12px; }
+
 /* Search sits on the left; fetch time and refresh sit on the right. */
 .ibar { gap: 8px; padding: 0 12px; }
 .ibar .ifind {
@@ -862,6 +864,8 @@ body.noside .side { display: none; }
 /* Reveal and highlight shortcuts on hover. */
 .irow .iact { display: flex; gap: 6px; justify-content: flex-end; opacity: 0.55; }
 .irow:hover .iact, .irow:focus-within .iact { opacity: 1; }
+.irow.available .iact { opacity: 1; }
+.irow.available button[aria-disabled="true"] { opacity: .45; cursor: default; }
 .irow .iago { font-size: 12px; color: var(--fg-3); text-align: right; white-space: nowrap; }
 /* Priority bars use a full mark for urgent issues. */
 .prio { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
@@ -877,6 +881,24 @@ body.noside .side { display: none; }
 }
 .iempty h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--fg); }
 .iempty p { margin: 0; max-width: 420px; }
+.iempty.queue-empty { padding: 48px 24px 36px; }
+.iavailable-callout {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 24px 8px 0; padding: 10px 12px; border: 1px dashed var(--line-ghost);
+  border-radius: var(--r-lg); color: var(--fg-2);
+}
+.isuggestions { margin: 0 8px; border: 1px solid var(--line-raised); border-radius: var(--r-lg); }
+.isuggestions-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border-bottom: 1px solid var(--line-raised);
+}
+.isuggestions-head strong { font-weight: 500; }
+.isuggestions .irow { min-height: 48px; height: auto; border-radius: 0; }
+.isuggestions .irow + .irow { border-top: 1px solid var(--line); }
+@media (max-width: 900px) {
+  #ilist .irow { grid-template-columns: 22px 64px minmax(0, 1fr) auto; }
+  #ilist .irow .istate, #ilist .irow .iago { display: none; }
+}
 /* Archived workspaces. */
 
 /* Issue bar and list share styling, with separate repository, title/branch, stage, PR, and worktree columns. */

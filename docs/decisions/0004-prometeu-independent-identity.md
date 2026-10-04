@@ -66,7 +66,16 @@ Negative:
 - the legacy reader still contains two identifiers with the previous name.
 
 Linear uses Prometeu's own OAuth registration, with Authorization Code, PKCE
-and the read scope.
+and `read,write` scopes. The write grant allows explicit assignment of an
+unowned issue from a joined team. Existing read-only credentials remain usable
+for discovery and require reauthorization for assignment. Linear's `write`
+scope is broader than issue assignment; Prometeu uses it only for an explicit
+local claim action and does not ask for admin access. See the
+[Linear contract](../contracts/linear-issues.md).
+The direct claim remains available despite a cross-client race: Linear's
+`issueUpdate` cannot condition assignment on the issue remaining unassigned.
+An Available query failure is shown without hiding a successful Mine query.
+The last available list remains visible when present.
 
 ## Evidence
 

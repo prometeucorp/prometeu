@@ -313,6 +313,7 @@ fn main() {
             plugins::plugin_make_stop,
             linear::linear_status,
             linear::linear_connect,
+            linear::linear_claim,
             linear::linear_disconnect,
             linear::linear_issues,
             linear::linear_open,

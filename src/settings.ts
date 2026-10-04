@@ -37,7 +37,7 @@ import "./settings.css";
 type Ctx = { say: (text: string, isError?: boolean) => void };
 
 let ctx: Ctx;
-let status: LinearStatus = { connected: false, who: null, busy: false };
+let status: LinearStatus = { connected: false, can_assign: false, who: null, busy: false };
 
 export async function init(context: Ctx) {
   ctx = context;
@@ -120,6 +120,7 @@ let searchQuery = "";
 if (initial.filter) setResourceFilter(initial.filter);
 
 export function showAccounts() { open = "agentes"; targetSection = "accounts"; searchQuery = ""; localStorage.setItem(PAGE_KEY, open); }
+export function showLinear() { open = "trabalho"; targetSection = "integrations"; searchQuery = ""; localStorage.setItem(PAGE_KEY, open); }
 
 function navigate(page: SettingsPage, section?: string) {
   open = page; targetSection = section; searchQuery = "";
@@ -423,6 +424,18 @@ function linearRow() {
   );
   const text = row.querySelector(".txt span")!;
   const act = row.querySelector(".act")!;
+  const connect = async (button: HTMLButtonElement) => {
+    button.disabled = true;
+    status = { ...status, busy: true };
+    draw();
+    try {
+      status = await invoke("linear_connect");
+    } catch (e) {
+      status = { ...status, busy: false };
+      ctx.say(fromBack(e), true);
+    }
+    draw();
+  };
 
   if (status.connected && status.who) {
     const { name, org } = status.who;
@@ -431,6 +444,14 @@ function linearRow() {
     text.querySelector(".as")!.textContent = t("linear.asWord");
     text.querySelectorAll("b")[0].textContent = name || status.who.email;
     text.querySelectorAll("b")[1].textContent = org || status.who.org_key;
+
+    if (!status.can_assign) {
+      text.append(` · ${t("linear.readOnly")}`);
+      const upgrade = h("button", "outline md", t("linear.allowAssignment")) as HTMLButtonElement;
+      upgrade.disabled = status.busy;
+      upgrade.addEventListener("click", () => void connect(upgrade));
+      act.append(upgrade);
+    }
 
     const off = h("button", "ghost md", t("linear.disconnect")) as HTMLButtonElement;
     off.title = t("linear.disconnect.title");
@@ -453,18 +474,7 @@ function linearRow() {
   on.children[0].textContent = t("linear.connect");
   on.disabled = status.busy;
   on.title = t("linear.connect.title");
-  on.addEventListener("click", async () => {
-    on.disabled = true;
-    status = { ...status, busy: true };
-    draw();
-    try {
-      status = await invoke("linear_connect");
-    } catch (e) {
-      status = { ...status, busy: false };
-      ctx.say(fromBack(e), true);
-    }
-    draw();
-  });
+  on.addEventListener("click", () => void connect(on));
   act.append(on);
   return row;
 }

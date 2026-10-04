@@ -328,7 +328,7 @@ export type Delegation = { id: string; owner: string; workspace: string; task: s
 export type Board = { telemetry_ids?: Record<string, string>; delegations?: Delegation[]; actions?: import("./actions").Catalog; tools?: Tools; tool_trust?: ToolTrust[]; stages: string[]; projects: Project[]; workspaces: Workspace[] };
 
 /// The authenticated Linear user and organization.
-export type LinearWho = { name: string; email: string; org: string; org_key: string };
+export type LinearWho = { id: string; name: string; email: string; org: string; org_key: string };
 /// Persist enough issue metadata for workspace labels, links, and existing-workspace detection.
 export type IssueRef = { id: string; identifier: string; title: string; url: string };
 
@@ -344,10 +344,10 @@ export type Issue = IssueRef & {
   labels: { name: string; color: string }[];
   updated_at: string;
 };
-export type Issues = { issues: Issue[]; fetched_at: number };
+export type Issues = { issues: Issue[]; available: Issue[]; available_error?: string; fetched_at: number };
 
 /// Busy identifies browser-based authentication, which remains visible across navigation.
-export type LinearStatus = { connected: boolean; who: LinearWho | null; busy: boolean };
+export type LinearStatus = { connected: boolean; can_assign: boolean; who: LinearWho | null; busy: boolean };
 
 /// A changed worktree file. Patch contains unified hunks and is empty for binary or oversized content.
 export type Change = {
