@@ -70,6 +70,21 @@ fn until(rx: &mpsc::Receiver<Value>, kind: &str) {
         }
     }
 }
+fn assert_store_released(root: &std::path::Path, workdir: &std::path::Path) {
+    // Shutdown waits for the attachment proxy; the detached host releases leases afterward.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match prometeu_runtime::store::Store::open(root, workdir) {
+            Ok(_) => return,
+            Err(error) => assert!(
+                error == "runtime root is already in use" && Instant::now() < deadline,
+                "{}: {error}",
+                root.display()
+            ),
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 struct Cleanup {
     armed: bool,
     target: Target,
@@ -220,16 +235,7 @@ fn roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) {
     );
     last.shutdown().unwrap();
     drop(last);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if prometeu_runtime::store::Store::open(std::path::Path::new(&target.root), &workdir)
-            .is_ok()
-        {
-            break;
-        }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    assert_store_released(std::path::Path::new(&target.root), &workdir);
     // Cleanup only needs to reconnect if an assertion unwinds before explicit shutdown.
     cleanup.armed = false;
     assert!(!base.join("root/resident.sock").exists());
@@ -551,12 +557,8 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
     restarted.shutdown().unwrap();
     drop(restarted);
     cleanup.armed = false;
-    assert!(prometeu_runtime::store::Store::open(&base.join("root"), &first).is_ok());
-    assert!(prometeu_runtime::store::Store::open(
-        &base.join("root/workspaces").join(secondary),
-        &second
-    )
-    .is_ok());
+    assert_store_released(&base.join("root"), &first);
+    assert_store_released(&base.join("root/workspaces").join(secondary), &second);
     assert_eq!(
         std::fs::metadata(base.join("root/workspaces.json"))
             .unwrap()

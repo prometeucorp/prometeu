@@ -1,0 +1,121 @@
+.automations{height:100%;min-height:0;display:flex;flex-direction:column;padding:var(--space-6);gap:0;color:var(--fg);font-size:var(--text-sm);overflow:hidden}
+.automations-header{padding:0 0 var(--space-6)}
+.automations-header .desktop-section-title{font-size:24px;letter-spacing:-.5px}
+.automations-bar{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;background:var(--bg-side);min-height:46px;flex-shrink:0;flex-wrap:wrap}
+.automations-bar .ui-dropdown{max-width:240px}
+.automations-bar-tools{display:flex;gap:var(--space-1);margin-left:auto}
+.automations-version{font:10px var(--mono);border:1px solid var(--line-raised);border-radius:var(--r);padding:2px 5px;color:var(--fg-2)}
+.automations-state{font-size:11px;color:var(--fg-2)}
+.automations-workbench{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);min-height:0;flex:1;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--r-lg) var(--r-lg);overflow:hidden}
+.automations-assistant{display:flex;flex-direction:column;min-height:0;background:var(--bg);width:min(100%,860px);margin-inline:auto}
+.automations-bar[hidden]{display:none}
+.automations-assistant{min-width:0;overflow:hidden}
+.automations-welcome{margin-block:auto;padding:var(--space-6) 0;align-self:center;text-align:center;max-width:560px}
+.automations-welcome h2{font-size:24px;font-weight:500;margin:0 0 var(--space-3)}
+.automations-welcome p{font-size:15px;line-height:1.6;color:var(--fg-2)}
+.automations-proposal-review{flex:0 0 auto;width:100%;box-sizing:border-box;border:1px solid var(--line-raised);border-radius:var(--r-lg);padding:var(--space-4);background:var(--bg-side);font-size:14px}
+.automations-proposal-review .desktop-toolbar{margin-top:var(--space-4)}
+.automations-proposal-outline{margin-top:var(--space-3)}
+.automations-proposal-outline ul{padding-left:var(--space-4);line-height:1.8}
+.automations-proposal-details{margin-top:var(--space-3);max-height:260px;overflow:auto;font-size:12px}
+.automations-proposal-review summary{cursor:pointer;color:var(--fg-2)}
+.automations.building .automations-header{padding-bottom:var(--space-3)}
+.automations.building .automations-header .desktop-section-title{font-size:20px}
+.automations.building .automations-workbench{border:0;border-radius:0}
+.automations.building .automations-tabs{background:transparent}
+.automations-notice:empty{display:none}
+.automations-main{display:flex;flex-direction:column;min-height:0;min-width:0;position:relative}
+.automations-tabs{background:var(--bg-side);border-bottom:1px solid var(--line);padding:var(--space-2) var(--space-3);flex-shrink:0}
+.automations-tabs>.desktop-toolbar{gap:var(--space-2)}
+.automations-tabs .selected{background:var(--bg-raised-2);border-color:var(--line-raised);color:var(--fg)}
+.automations-tabs .desktop-tools{gap:var(--space-1)}
+.automations-tabs .ui-button{padding-inline:var(--space-2)}
+.automations-validation{max-height:35%;overflow:auto;min-height:34px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:var(--space-1) var(--space-3);gap:var(--space-2);font-size:11px;flex-shrink:0}
+.automations-valid{color:var(--done)}
+.automations-errors{color:var(--err);flex:1;min-width:0}
+.automations-errors>summary{cursor:pointer}
+.automations-issue{margin-top:var(--space-2);color:var(--fg-2)}
+.automations-issue p{margin:0 0 var(--space-1)}
+.automations-issue details{font-size:11px}
+.automations-validation>.desktop-toolbar{flex-shrink:0}
+.automations-errors .ui-button{display:block;text-align:left;white-space:normal;color:var(--err)}
+.automations-content{flex:1;min-height:180px;min-width:0;position:relative;overflow:hidden;background:var(--bg)}
+.automations-content>.ui-button{margin:var(--space-4)}
+.automations-simulation{padding:var(--space-3);border-top:1px solid var(--line);background:var(--bg-side);flex-shrink:0;max-height:45%;overflow:auto}
+.automations-fixture{font-size:12px;min-width:0}
+.automations-fixture summary{cursor:pointer}
+.automations-fixture[open]{width:100%}
+.automations-fixture textarea{min-width:230px;margin-top:var(--space-2)}
+.automations-simulation .desktop-tools{align-items:center}
+.automations-evidence{margin-top:var(--space-3);border-top:1px solid var(--line);padding-top:var(--space-2)}
+.automations-step{margin:var(--space-2) 0;border-left:2px solid var(--run);padding-left:var(--space-2)}
+.automations-step.error{border-color:var(--err)}
+.automations-step.uncertain{border-color:var(--wait)}
+.automations pre{font:11px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;background:var(--bg);padding:var(--space-2);border-radius:var(--r);max-height:260px;overflow:auto}
+.automations .automations-before{background:var(--del-bg)}
+.automations .automations-after{background:var(--add-bg)}
+.automations-change{border:1px solid var(--line);padding:var(--space-2);margin:var(--space-2) 0;border-radius:var(--r)}
+.automations-change summary{font:11px var(--mono);overflow-wrap:anywhere;cursor:pointer}
+.automations-records{height:100%;overflow:auto;padding:var(--space-4)}
+.automations-outline{box-sizing:border-box;scroll-padding:var(--space-4)}
+.automations-outline>.desktop-section-header,.automations-outline-list{max-width:880px;margin-inline:auto}
+.automations-outline-list{list-style:none;padding:0;display:grid;gap:var(--space-3)}
+.automations-outline-item{border:1px solid var(--line-raised);border-radius:var(--r-lg);background:var(--bg-side);scroll-margin:var(--space-4)}
+.automations-outline-item.selected{border-color:var(--tab-line)}
+.automations-outline-item.traversed{border-left:3px solid var(--run)}
+.automations-outline-item:focus-visible{outline:2px solid var(--tab-line);outline-offset:2px}
+.automations-outline-item .desktop-item{align-items:start;font-size:14px}
+.automations-outline-item .desktop-item-title{font-size:15px;line-height:1.5}
+.automations-outline-item .desktop-item-actions{grid-column:2;justify-self:start}
+.automations-outline-item .desktop-item-copy{grid-column:2 / -1}
+.automations-outline-routes{list-style:none;padding:0;margin:var(--space-3) 0;display:grid;gap:var(--space-1)}
+.automations-outline-routes>li{display:flex;align-items:baseline;gap:var(--space-1);flex-wrap:wrap;line-height:1.5}
+.automations-outline-routes .ui-button{white-space:normal;text-align:left;max-width:100%;height:auto;padding:2px 6px;color:var(--fg);overflow-wrap:anywhere}
+.automations-outline-item details>summary{color:var(--fg-2);font-size:var(--text-sm);cursor:pointer}
+.automations-revision{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
+.automations-run{border:1px solid var(--line);padding:var(--space-3);margin-top:var(--space-3);border-radius:var(--r)}
+.automations-run summary{cursor:pointer}
+.automations-run ol{padding-left:var(--space-4);line-height:1.8}
+.automations-notice{color:var(--fg-2);font-size:11px;min-height:20px;padding-top:var(--space-2);flex-shrink:0;max-height:70px;overflow:auto;overflow-wrap:anywhere}
+.automations-notice[data-error="true"]{color:var(--err)}
+.automations-json{font-family:var(--mono);font-size:11px}
+@media(max-width:1150px){.automations{padding:var(--space-3)}.automations-header .desktop-section-title{font-size:20px}.automations-tabs .ui-button{font-size:11px}}
+@media(max-width:760px){.automations-bar>.ui-hint{display:none}.automations-header{padding-bottom:var(--space-3)}.automations-header .desktop-section-header{align-items:flex-start}.automations-simulation .ui-hint{display:none}}
+/* The application destination is a flex row; the editor must consume its width. */
+#automationsView>.automations{flex:1;min-width:0;width:100%;max-width:none}
+.automations .automations-header .desktop-section-title{font-size:20px;letter-spacing:-.4px;line-height:1.3}
+.automations .automations-header .desktop-section-header{margin-bottom:0}
+.automations .automations-header .ui-hint{margin-top:var(--space-2)}
+.automations .automations-bar>.ui-select{width:220px;max-width:32%;flex:0 1 220px}
+.automations .automations-assistant>.desktop-section-header{margin-bottom:0}
+@media(max-width:1150px){.automations .automations-header .desktop-section-title{font-size:22px}}
+.automations-target{padding:var(--space-3) 0;border-bottom:1px solid var(--line)}
+.automations-target>.ui-check{margin-bottom:var(--space-2)}
+.automations.unavailable .automations-workbench{grid-template-columns:minmax(0,1fr)}
+.automations.unavailable .automations-assistant,.automations.unavailable .automations-tabs,.automations.unavailable .automations-validation,.automations.unavailable .automations-simulation,.automations.unavailable .automations-bar{display:none}
+.automations.unavailable .automations-main{display:flex}
+.automations.unavailable .automations-content{padding:var(--space-6)}
+.ui-dialog pre.automations-json{white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;padding:var(--space-2);background:var(--bg);border-radius:var(--r)}
+
+.automations-workbench>[hidden],.automations-validation[hidden]{display:none!important}
+.automations-library[hidden],.automations-workbench[hidden],.automations-tabs[hidden]{display:none!important}
+.automations-library{overflow:auto;min-height:0;flex:1;width:100%;max-width:1080px;margin-inline:auto;padding:var(--space-3);box-sizing:border-box}
+.automations-library-section{margin-bottom:var(--space-8,32px)}
+.automations-library-section>.ui-input{max-width:420px;margin-bottom:var(--space-3)}
+.automations-library-section .desktop-section-title{font-size:17px}
+.automations-library-rows{display:grid;gap:var(--space-2)}
+.automations-library .desktop-item{border:1px solid var(--line-raised);border-radius:var(--r-lg);background:var(--bg-side)}
+.automations-library .desktop-item-title{font-size:15px;line-height:1.5}
+.automations-library .desktop-item-status{color:var(--wait)}
+.automations-template-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:var(--space-3)}
+.automations-template-grid .desktop-item{align-items:start;grid-template-columns:32px minmax(0,1fr)}
+.automations-template-grid .desktop-item-actions{grid-column:2;margin-top:var(--space-2)}
+.automations.library-open .automations-header{padding-bottom:var(--space-4)}
+
+.automations-permissions { display: grid; gap: 10px; margin-bottom: 16px; }
+.automations-mermaid{height:100%;min-height:0;display:flex;flex-direction:column}
+.automations-mermaid-controls{padding:var(--space-3);border-bottom:1px solid var(--line)}
+.automations-mermaid-viewport{flex:1;min-height:0;overflow:auto;padding:var(--space-4)}
+.automations-mermaid-viewport>svg{display:block;max-width:none;margin-inline:auto}
+.automations-mermaid-viewport:focus-visible{outline:2px solid var(--tab-line);outline-offset:-2px}
+.automations-mermaid-staging{position:absolute;left:-100000px;visibility:hidden;pointer-events:none}

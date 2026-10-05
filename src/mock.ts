@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import * as telemetry from "./mock-telemetry";
+import { commands as automationCommands } from "./mock-automations";
 import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
@@ -1015,6 +1016,7 @@ const githubItems: (import("./types").GitHubItem & { scope: import("./types").Gi
 }));
 
 const mockCommands: IpcHandlers = {
+  ...automationCommands,
   github_identity() {
     if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
     return localStorage.getItem("mock:githubLogin") ?? "mock-user";

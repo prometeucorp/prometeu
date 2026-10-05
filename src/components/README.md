@@ -25,11 +25,11 @@ The same state identifiers are stable navigation keys and machine-readable data.
 | --- | --- | --- |
 | Buttons, fields, selection, dialogs, notices | `primitives.ts`, `menu.ts` | Existing Desktop imports route through `src/ui.ts` and `src/menu.ts` |
 | Icons, file icons, stages, provider marks, avatars | `icons.ts`, `icon-button.ts` | Existing `src/icons.ts` facade, chat composer, Git toolbar |
-| Headers, toolbars, rows, list states | `compositions.ts` | Resources and Actions |
+| Headers, toolbars, rows, list states | `compositions.ts` | Resources, Actions and the Automations library/editor |
 | Resource library | `resource-view.ts` | Settings Resources |
 | Tool, reasoning, text, work and error blocks | `chat/blocks.ts` | `ChatView` in workspace and desk |
 | Questions, plans, permissions | `chat/requests.ts` | `ChatView`; callbacks send canonical responses in the host |
-| Composer and attachments | `chat/composer.ts` | `ChatView`; host owns drafts, completion, voice and transport |
+| Composer and attachments | `chat/composer.ts` | `ChatView` and Automations; host owns drafts, completion, voice and transport; omitted callbacks hide unavailable tools |
 | User message, browser context, tool input, context report | `chat/content.ts` | Desktop and existing mobile consumers via compatibility facade |
 | Markdown and fenced code | `chat/markdown.ts` | Existing consumers via `src/markdown.ts`; preserves escaping and copy behavior |
 | Git file rows, groups, commit form | `git/file-row.ts`, `git/group.ts`, `git/commit-form.ts` | Workspace Changes |

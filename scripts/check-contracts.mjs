@@ -5,14 +5,22 @@ import ts from "typescript";
 // A literal inferred from JSON preserves discriminants and nulls that JSON imports widen.
 // Assignment through a variable permits additive backend fields, as the wire contract requires.
 const fixture = readFileSync("fixtures/backend-contract.json", "utf8").trim();
+const automationFixture = readFileSync("fixtures/automation-contract.json", "utf8").trim();
 const filename = resolve("src/backend-contract-check.ts");
 const source = `
 import type { IpcResult } from "./ipc";
 import type { ProviderId } from "./types";
 import type { AgentCapabilities } from "./agents";
 import type { AnyConversationEventV1 } from "./conversation";
-type ReadonlyWire<T> = { readonly [K in keyof T]: ReadonlyWire<T[K]> };
+import type { Workflow, RegistryEntry, AutomationRun, SimulationResult } from "./automations-model";
+type ReadonlyWire<T> = T extends object ? { readonly [K in keyof T]: ReadonlyWire<T[K]> } : T;
 const payload = ${fixture} as const;
+const automationPayload = ${automationFixture} as const;
+export const workflow: ReadonlyWire<Workflow> = automationPayload.workflow;
+export const workflowRegistry: ReadonlyWire<RegistryEntry[]> = automationPayload.registry;
+export const workflowRun: ReadonlyWire<AutomationRun> = automationPayload.run;
+export const waitingWorkflowRun: ReadonlyWire<AutomationRun> = automationPayload.waitingRun;
+export const workflowSimulation: ReadonlyWire<SimulationResult> = automationPayload.simulation;
 export const board: ReadonlyWire<IpcResult<"load_board">> = payload.board;
 export const snapshot: ReadonlyWire<IpcResult<"chat_snapshot">> = payload.snapshot;
 export const models: ReadonlyWire<IpcResult<"agent_models">> = payload.models;

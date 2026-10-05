@@ -304,9 +304,10 @@ describe("organization sharing through Cloud authorization", () => {
     expect(stored.id).toBe(note.id);
     expect(stored.encrypted).toEqual(note.encrypted);
     expect(JSON.stringify(returned.frames)).not.toContain("Private comment");
+    // Finish each close handshake before starting the next through the dev proxy.
     owner.socket.close();
-    returned.socket.close();
     await closed(owner.socket);
+    returned.socket.close();
     await closed(returned.socket);
   });
 

@@ -177,10 +177,10 @@ export const stories: Record<string, Factory> = {
     return wrap(requestCard(ask, { respond: value => report(JSON.stringify(value)), allowAlways: () => report("allowAlways"), feedbackOpen: false, feedbackChanged: open => report(String(open)) }));
   },
   composer(state, report) {
-    const view = composer({ send: () => report(view.area.value), stop: () => report("stop"), addFile: () => report("addFile"),
+    const view = composer(state === "text-only" ? { send: () => report(view.area.value) } : { send: () => report(view.area.value), stop: () => report("stop"), addFile: () => report("addFile"),
       voice: () => report("voice"), quote: () => report("quote"), actions: () => report("actions"), voiceAvailable: true });
     view.area.placeholder = t("chat.placeholder"); view.area.setAttribute("aria-label", view.area.placeholder);
-    view.addFile.hidden = false;
+    view.addFile.hidden = state === "text-only";
     view.stop.hidden = state !== "busy"; view.root.classList.toggle("busy", state === "busy");
     view.area.disabled = view.send.disabled = state === "offline";
     if (state === "attachments") {

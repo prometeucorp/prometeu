@@ -81,6 +81,8 @@ fn external_stdio_host_registers_discovers_reconnects_and_revokes() {
                 assert!(Instant::now() < deadline, "stdio host did not connect");
                 std::thread::sleep(Duration::from_millis(10));
             };
+            // BSD can inherit the listener's nonblocking flag on accepted sockets.
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();

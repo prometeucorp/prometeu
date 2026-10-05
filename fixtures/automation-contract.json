@@ -1,0 +1,1848 @@
+{
+  "registry": [
+    {
+      "effect": "read",
+      "id": "fixture.inspect",
+      "inputSchema": {
+        "repository": "string"
+      },
+      "kind": "query",
+      "outputPorts": [
+        "next",
+        "error"
+      ],
+      "requiredInputs": [
+        "repository"
+      ],
+      "title": "Inspect",
+      "version": 1
+    },
+    {
+      "effect": "read",
+      "id": "fixture.classify",
+      "inputSchema": {},
+      "kind": "jev",
+      "outputPorts": [
+        "next",
+        "uncertain",
+        "error"
+      ],
+      "requiredInputs": [],
+      "title": "Classify",
+      "version": 1
+    },
+    {
+      "effect": "merge",
+      "id": "fixture.merge",
+      "inputSchema": {},
+      "kind": "action",
+      "outputPorts": [
+        "next",
+        "error"
+      ],
+      "requiredInputs": [],
+      "title": "Merge",
+      "version": 1
+    }
+  ],
+  "run": {
+    "approvals": [
+      {
+        "actor": "local-user",
+        "approvedAt": 104,
+        "eventKey": "fixture-event",
+        "headSha": "fixture-head",
+        "nodeId": "approval"
+      }
+    ],
+    "completedPorts": {
+      "agent": "next",
+      "condition": "true",
+      "jev": "next",
+      "query": "next",
+      "trigger": "next"
+    },
+    "costUnknown": false,
+    "createdAt": 100,
+    "event": {
+      "headSha": "fixture-head",
+      "issue": null,
+      "repository": "example/repository",
+      "target": {
+        "projectId": "project-one"
+      }
+    },
+    "eventKey": "fixture-event",
+    "history": [
+      {
+        "at": 100,
+        "kind": "queued",
+        "message": "Run admitted with a frozen workflow revision",
+        "sequence": 1
+      },
+      {
+        "at": 101,
+        "kind": "status",
+        "message": "Run state changed to Running",
+        "sequence": 2
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "trigger",
+        "sequence": 3
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "query",
+        "sequence": 4
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output true",
+        "nodeId": "condition",
+        "sequence": 5
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "jev",
+        "sequence": 6
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "agent",
+        "sequence": 7
+      },
+      {
+        "at": 102,
+        "kind": "cost_measured",
+        "message": "Host measured USD 0.25; accumulated USD 0.25",
+        "sequence": 8
+      },
+      {
+        "at": 103,
+        "kind": "status",
+        "message": "Run state changed to AwaitingApproval",
+        "sequence": 9
+      },
+      {
+        "at": 104,
+        "kind": "approved",
+        "message": "Approval bound to the frozen event and optional head SHA",
+        "nodeId": "approval",
+        "sequence": 10
+      }
+    ],
+    "id": "fixture-run",
+    "measuredCostUsd": 0.25,
+    "outputs": {
+      "agent": {
+        "result": "done"
+      },
+      "condition": true,
+      "jev": {
+        "classification": "ready"
+      },
+      "query": {
+        "ready": true
+      },
+      "trigger": {
+        "headSha": "fixture-head",
+        "issue": null,
+        "repository": "example/repository",
+        "target": {
+          "projectId": "project-one"
+        }
+      }
+    },
+    "resourceKey": "example/repository#7",
+    "status": "awaitingApproval",
+    "updatedAt": 104,
+    "workflow": {
+      "edges": [
+        {
+          "from": "trigger",
+          "port": "next",
+          "to": "query"
+        },
+        {
+          "from": "query",
+          "port": "next",
+          "to": "condition"
+        },
+        {
+          "from": "condition",
+          "port": "true",
+          "to": "jev"
+        },
+        {
+          "from": "jev",
+          "port": "next",
+          "to": "agent"
+        },
+        {
+          "from": "agent",
+          "port": "next",
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "port": "next",
+          "to": "wait"
+        },
+        {
+          "from": "wait",
+          "port": "next",
+          "to": "action"
+        }
+      ],
+      "enabled": true,
+      "id": "fixture-workflow",
+      "name": "Fixture workflow",
+      "nodes": [
+        {
+          "config": {
+            "baseline": "ignoreExisting",
+            "event": "manual",
+            "intervalSeconds": 300,
+            "type": "trigger"
+          },
+          "id": "trigger",
+          "label": "trigger",
+          "position": {
+            "x": 120.0,
+            "y": 0.0
+          }
+        },
+        {
+          "config": {
+            "inputs": {
+              "repository": {
+                "$ref": "event.repository"
+              }
+            },
+            "operation": "fixture.inspect",
+            "type": "query",
+            "version": 1
+          },
+          "id": "query",
+          "label": "query",
+          "position": {
+            "x": 120.0,
+            "y": 100.0
+          }
+        },
+        {
+          "config": {
+            "operator": "equals",
+            "path": "nodes.query.ready",
+            "type": "condition",
+            "value": true
+          },
+          "id": "condition",
+          "label": "condition",
+          "position": {
+            "x": 120.0,
+            "y": 200.0
+          }
+        },
+        {
+          "config": {
+            "inputs": {},
+            "operation": "fixture.classify",
+            "type": "jev",
+            "version": 1
+          },
+          "id": "jev",
+          "label": "jev",
+          "position": {
+            "x": 120.0,
+            "y": 300.0
+          }
+        },
+        {
+          "config": {
+            "checks": [
+              {
+                "args": [
+                  "test",
+                  "--locked"
+                ],
+                "executable": "cargo"
+              }
+            ],
+            "context": {
+              "issue": {
+                "$ref": "event.issue"
+              }
+            },
+            "outputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "result": {
+                  "enum": [
+                    "done",
+                    "blocked"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "result"
+              ],
+              "type": "object"
+            },
+            "prompt": "Inspect within the selected scope",
+            "provider": "claude",
+            "tools": [
+              "read_file",
+              "list_files",
+              "run_checks"
+            ],
+            "type": "agent"
+          },
+          "id": "agent",
+          "label": "agent",
+          "position": {
+            "x": 120.0,
+            "y": 400.0
+          }
+        },
+        {
+          "config": {
+            "message": "Approve the frozen result",
+            "type": "approval"
+          },
+          "id": "approval",
+          "label": "approval",
+          "position": {
+            "x": 120.0,
+            "y": 500.0
+          }
+        },
+        {
+          "config": {
+            "seconds": 60,
+            "type": "wait"
+          },
+          "id": "wait",
+          "label": "wait",
+          "position": {
+            "x": 120.0,
+            "y": 600.0
+          }
+        },
+        {
+          "config": {
+            "inputs": {},
+            "operation": "fixture.merge",
+            "type": "action",
+            "version": 1
+          },
+          "id": "action",
+          "label": "action",
+          "position": {
+            "x": 120.0,
+            "y": 700.0
+          }
+        }
+      ],
+      "policy": {
+        "allowCommit": false,
+        "allowPush": false,
+        "allowWrites": false,
+        "maxAgentTurns": 2,
+        "maxConcurrentRuns": 1,
+        "maxCostUsd": 2.0,
+        "maxRetries": 0,
+        "requireLocalChecks": true,
+        "requireMergeApproval": true,
+        "requirePublishApproval": true
+      },
+      "revision": 1,
+      "scope": {
+        "identity": "connected-user",
+        "linearProjectId": "linear-project",
+        "projectId": "project-one",
+        "repository": "example/repository",
+        "targets": [
+          {
+            "identity": "connected-user",
+            "projectId": "project-one",
+            "repository": "example/repository"
+          },
+          {
+            "projectId": "project-two"
+          }
+        ]
+      }
+    }
+  },
+  "simulation": {
+    "effectsSuppressed": true,
+    "outputs": {
+      "action": {
+        "suppressed": true
+      },
+      "agent": {
+        "result": "done"
+      },
+      "approval": {
+        "approvalRequired": true
+      },
+      "condition": true,
+      "jev": {
+        "classification": "ready"
+      },
+      "query": {
+        "ready": true
+      },
+      "trigger": {
+        "headSha": "fixture-head",
+        "issue": null,
+        "repository": "example/repository",
+        "target": {
+          "projectId": "project-one"
+        }
+      },
+      "wait": {
+        "seconds": 60
+      }
+    },
+    "steps": [
+      {
+        "input": null,
+        "message": "Provided event",
+        "nodeId": "trigger",
+        "output": {
+          "headSha": "fixture-head",
+          "issue": null,
+          "repository": "example/repository",
+          "target": {
+            "projectId": "project-one"
+          }
+        },
+        "port": "next",
+        "status": "simulated"
+      },
+      {
+        "input": {
+          "repository": "example/repository"
+        },
+        "message": "Provided fixture; effects suppressed",
+        "nodeId": "query",
+        "output": {
+          "ready": true
+        },
+        "port": "next",
+        "status": "simulated"
+      },
+      {
+        "input": true,
+        "message": "Selected true branch",
+        "nodeId": "condition",
+        "output": true,
+        "port": "true",
+        "status": "simulated"
+      },
+      {
+        "input": {},
+        "message": "Provided fixture; effects suppressed",
+        "nodeId": "jev",
+        "output": {
+          "classification": "ready"
+        },
+        "port": "next",
+        "status": "simulated"
+      },
+      {
+        "input": "Inspect within the selected scope",
+        "message": "Provided agent fixture; no agent invoked",
+        "nodeId": "agent",
+        "output": {
+          "result": "done"
+        },
+        "port": "next",
+        "status": "simulated"
+      },
+      {
+        "input": null,
+        "message": "Would pause for approval: Approve the frozen result",
+        "nodeId": "approval",
+        "output": {
+          "approvalRequired": true
+        },
+        "port": "next",
+        "status": "simulated"
+      },
+      {
+        "input": null,
+        "message": "Wait planned; time not advanced",
+        "nodeId": "wait",
+        "output": {
+          "seconds": 60
+        },
+        "port": "next",
+        "status": "simulated"
+      },
+      {
+        "input": {},
+        "message": "Action planned; effect suppressed",
+        "nodeId": "action",
+        "output": {
+          "suppressed": true
+        },
+        "port": "next",
+        "status": "simulated"
+      }
+    ]
+  },
+  "state": {
+    "dedup": {
+      "[\"fixture-workflow\",\"fixture-event\"]": "fixture-run"
+    },
+    "locks": {
+      "example/repository#7": "fixture-run"
+    },
+    "revisions": [
+      {
+        "edges": [
+          {
+            "from": "trigger",
+            "port": "next",
+            "to": "query"
+          },
+          {
+            "from": "query",
+            "port": "next",
+            "to": "condition"
+          },
+          {
+            "from": "condition",
+            "port": "true",
+            "to": "jev"
+          },
+          {
+            "from": "jev",
+            "port": "next",
+            "to": "agent"
+          },
+          {
+            "from": "agent",
+            "port": "next",
+            "to": "approval"
+          },
+          {
+            "from": "approval",
+            "port": "next",
+            "to": "wait"
+          },
+          {
+            "from": "wait",
+            "port": "next",
+            "to": "action"
+          }
+        ],
+        "enabled": true,
+        "id": "fixture-workflow",
+        "name": "Fixture workflow",
+        "nodes": [
+          {
+            "config": {
+              "baseline": "ignoreExisting",
+              "event": "manual",
+              "intervalSeconds": 300,
+              "type": "trigger"
+            },
+            "id": "trigger",
+            "label": "trigger",
+            "position": {
+              "x": 120.0,
+              "y": 0.0
+            }
+          },
+          {
+            "config": {
+              "inputs": {
+                "repository": {
+                  "$ref": "event.repository"
+                }
+              },
+              "operation": "fixture.inspect",
+              "type": "query",
+              "version": 1
+            },
+            "id": "query",
+            "label": "query",
+            "position": {
+              "x": 120.0,
+              "y": 100.0
+            }
+          },
+          {
+            "config": {
+              "operator": "equals",
+              "path": "nodes.query.ready",
+              "type": "condition",
+              "value": true
+            },
+            "id": "condition",
+            "label": "condition",
+            "position": {
+              "x": 120.0,
+              "y": 200.0
+            }
+          },
+          {
+            "config": {
+              "inputs": {},
+              "operation": "fixture.classify",
+              "type": "jev",
+              "version": 1
+            },
+            "id": "jev",
+            "label": "jev",
+            "position": {
+              "x": 120.0,
+              "y": 300.0
+            }
+          },
+          {
+            "config": {
+              "checks": [
+                {
+                  "args": [
+                    "test",
+                    "--locked"
+                  ],
+                  "executable": "cargo"
+                }
+              ],
+              "context": {
+                "issue": {
+                  "$ref": "event.issue"
+                }
+              },
+              "outputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "result": {
+                    "enum": [
+                      "done",
+                      "blocked"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "result"
+                ],
+                "type": "object"
+              },
+              "prompt": "Inspect within the selected scope",
+              "provider": "claude",
+              "tools": [
+                "read_file",
+                "list_files",
+                "run_checks"
+              ],
+              "type": "agent"
+            },
+            "id": "agent",
+            "label": "agent",
+            "position": {
+              "x": 120.0,
+              "y": 400.0
+            }
+          },
+          {
+            "config": {
+              "message": "Approve the frozen result",
+              "type": "approval"
+            },
+            "id": "approval",
+            "label": "approval",
+            "position": {
+              "x": 120.0,
+              "y": 500.0
+            }
+          },
+          {
+            "config": {
+              "seconds": 60,
+              "type": "wait"
+            },
+            "id": "wait",
+            "label": "wait",
+            "position": {
+              "x": 120.0,
+              "y": 600.0
+            }
+          },
+          {
+            "config": {
+              "inputs": {},
+              "operation": "fixture.merge",
+              "type": "action",
+              "version": 1
+            },
+            "id": "action",
+            "label": "action",
+            "position": {
+              "x": 120.0,
+              "y": 700.0
+            }
+          }
+        ],
+        "policy": {
+          "allowCommit": false,
+          "allowPush": false,
+          "allowWrites": false,
+          "maxAgentTurns": 2,
+          "maxConcurrentRuns": 1,
+          "maxCostUsd": 2.0,
+          "maxRetries": 0,
+          "requireLocalChecks": true,
+          "requireMergeApproval": true,
+          "requirePublishApproval": true
+        },
+        "revision": 1,
+        "scope": {
+          "identity": "connected-user",
+          "linearProjectId": "linear-project",
+          "projectId": "project-one",
+          "repository": "example/repository",
+          "targets": [
+            {
+              "identity": "connected-user",
+              "projectId": "project-one",
+              "repository": "example/repository"
+            },
+            {
+              "projectId": "project-two"
+            }
+          ]
+        }
+      }
+    ],
+    "runs": [
+      {
+        "approvals": [
+          {
+            "actor": "local-user",
+            "approvedAt": 104,
+            "eventKey": "fixture-event",
+            "headSha": "fixture-head",
+            "nodeId": "approval"
+          }
+        ],
+        "completedPorts": {
+          "agent": "next",
+          "condition": "true",
+          "jev": "next",
+          "query": "next",
+          "trigger": "next"
+        },
+        "costUnknown": false,
+        "createdAt": 100,
+        "event": {
+          "headSha": "fixture-head",
+          "issue": null,
+          "repository": "example/repository",
+          "target": {
+            "projectId": "project-one"
+          }
+        },
+        "eventKey": "fixture-event",
+        "history": [
+          {
+            "at": 100,
+            "kind": "queued",
+            "message": "Run admitted with a frozen workflow revision",
+            "sequence": 1
+          },
+          {
+            "at": 101,
+            "kind": "status",
+            "message": "Run state changed to Running",
+            "sequence": 2
+          },
+          {
+            "at": 102,
+            "kind": "node_completed",
+            "message": "Selected output next",
+            "nodeId": "trigger",
+            "sequence": 3
+          },
+          {
+            "at": 102,
+            "kind": "node_completed",
+            "message": "Selected output next",
+            "nodeId": "query",
+            "sequence": 4
+          },
+          {
+            "at": 102,
+            "kind": "node_completed",
+            "message": "Selected output true",
+            "nodeId": "condition",
+            "sequence": 5
+          },
+          {
+            "at": 102,
+            "kind": "node_completed",
+            "message": "Selected output next",
+            "nodeId": "jev",
+            "sequence": 6
+          },
+          {
+            "at": 102,
+            "kind": "node_completed",
+            "message": "Selected output next",
+            "nodeId": "agent",
+            "sequence": 7
+          },
+          {
+            "at": 102,
+            "kind": "cost_measured",
+            "message": "Host measured USD 0.25; accumulated USD 0.25",
+            "sequence": 8
+          },
+          {
+            "at": 103,
+            "kind": "status",
+            "message": "Run state changed to AwaitingApproval",
+            "sequence": 9
+          },
+          {
+            "at": 104,
+            "kind": "approved",
+            "message": "Approval bound to the frozen event and optional head SHA",
+            "nodeId": "approval",
+            "sequence": 10
+          }
+        ],
+        "id": "fixture-run",
+        "measuredCostUsd": 0.25,
+        "outputs": {
+          "agent": {
+            "result": "done"
+          },
+          "condition": true,
+          "jev": {
+            "classification": "ready"
+          },
+          "query": {
+            "ready": true
+          },
+          "trigger": {
+            "headSha": "fixture-head",
+            "issue": null,
+            "repository": "example/repository",
+            "target": {
+              "projectId": "project-one"
+            }
+          }
+        },
+        "resourceKey": "example/repository#7",
+        "status": "awaitingApproval",
+        "updatedAt": 104,
+        "workflow": {
+          "edges": [
+            {
+              "from": "trigger",
+              "port": "next",
+              "to": "query"
+            },
+            {
+              "from": "query",
+              "port": "next",
+              "to": "condition"
+            },
+            {
+              "from": "condition",
+              "port": "true",
+              "to": "jev"
+            },
+            {
+              "from": "jev",
+              "port": "next",
+              "to": "agent"
+            },
+            {
+              "from": "agent",
+              "port": "next",
+              "to": "approval"
+            },
+            {
+              "from": "approval",
+              "port": "next",
+              "to": "wait"
+            },
+            {
+              "from": "wait",
+              "port": "next",
+              "to": "action"
+            }
+          ],
+          "enabled": true,
+          "id": "fixture-workflow",
+          "name": "Fixture workflow",
+          "nodes": [
+            {
+              "config": {
+                "baseline": "ignoreExisting",
+                "event": "manual",
+                "intervalSeconds": 300,
+                "type": "trigger"
+              },
+              "id": "trigger",
+              "label": "trigger",
+              "position": {
+                "x": 120.0,
+                "y": 0.0
+              }
+            },
+            {
+              "config": {
+                "inputs": {
+                  "repository": {
+                    "$ref": "event.repository"
+                  }
+                },
+                "operation": "fixture.inspect",
+                "type": "query",
+                "version": 1
+              },
+              "id": "query",
+              "label": "query",
+              "position": {
+                "x": 120.0,
+                "y": 100.0
+              }
+            },
+            {
+              "config": {
+                "operator": "equals",
+                "path": "nodes.query.ready",
+                "type": "condition",
+                "value": true
+              },
+              "id": "condition",
+              "label": "condition",
+              "position": {
+                "x": 120.0,
+                "y": 200.0
+              }
+            },
+            {
+              "config": {
+                "inputs": {},
+                "operation": "fixture.classify",
+                "type": "jev",
+                "version": 1
+              },
+              "id": "jev",
+              "label": "jev",
+              "position": {
+                "x": 120.0,
+                "y": 300.0
+              }
+            },
+            {
+              "config": {
+                "checks": [
+                  {
+                    "args": [
+                      "test",
+                      "--locked"
+                    ],
+                    "executable": "cargo"
+                  }
+                ],
+                "context": {
+                  "issue": {
+                    "$ref": "event.issue"
+                  }
+                },
+                "outputSchema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "result": {
+                      "enum": [
+                        "done",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "result"
+                  ],
+                  "type": "object"
+                },
+                "prompt": "Inspect within the selected scope",
+                "provider": "claude",
+                "tools": [
+                  "read_file",
+                  "list_files",
+                  "run_checks"
+                ],
+                "type": "agent"
+              },
+              "id": "agent",
+              "label": "agent",
+              "position": {
+                "x": 120.0,
+                "y": 400.0
+              }
+            },
+            {
+              "config": {
+                "message": "Approve the frozen result",
+                "type": "approval"
+              },
+              "id": "approval",
+              "label": "approval",
+              "position": {
+                "x": 120.0,
+                "y": 500.0
+              }
+            },
+            {
+              "config": {
+                "seconds": 60,
+                "type": "wait"
+              },
+              "id": "wait",
+              "label": "wait",
+              "position": {
+                "x": 120.0,
+                "y": 600.0
+              }
+            },
+            {
+              "config": {
+                "inputs": {},
+                "operation": "fixture.merge",
+                "type": "action",
+                "version": 1
+              },
+              "id": "action",
+              "label": "action",
+              "position": {
+                "x": 120.0,
+                "y": 700.0
+              }
+            }
+          ],
+          "policy": {
+            "allowCommit": false,
+            "allowPush": false,
+            "allowWrites": false,
+            "maxAgentTurns": 2,
+            "maxConcurrentRuns": 1,
+            "maxCostUsd": 2.0,
+            "maxRetries": 0,
+            "requireLocalChecks": true,
+            "requireMergeApproval": true,
+            "requirePublishApproval": true
+          },
+          "revision": 1,
+          "scope": {
+            "identity": "connected-user",
+            "linearProjectId": "linear-project",
+            "projectId": "project-one",
+            "repository": "example/repository",
+            "targets": [
+              {
+                "identity": "connected-user",
+                "projectId": "project-one",
+                "repository": "example/repository"
+              },
+              {
+                "projectId": "project-two"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "schemaVersion": 1,
+    "workflows": [
+      {
+        "edges": [
+          {
+            "from": "trigger",
+            "port": "next",
+            "to": "query"
+          },
+          {
+            "from": "query",
+            "port": "next",
+            "to": "condition"
+          },
+          {
+            "from": "condition",
+            "port": "true",
+            "to": "jev"
+          },
+          {
+            "from": "jev",
+            "port": "next",
+            "to": "agent"
+          },
+          {
+            "from": "agent",
+            "port": "next",
+            "to": "approval"
+          },
+          {
+            "from": "approval",
+            "port": "next",
+            "to": "wait"
+          },
+          {
+            "from": "wait",
+            "port": "next",
+            "to": "action"
+          }
+        ],
+        "enabled": true,
+        "id": "fixture-workflow",
+        "name": "Updated fixture workflow",
+        "nodes": [
+          {
+            "config": {
+              "baseline": "ignoreExisting",
+              "event": "manual",
+              "intervalSeconds": 300,
+              "type": "trigger"
+            },
+            "id": "trigger",
+            "label": "trigger",
+            "position": {
+              "x": 120.0,
+              "y": 0.0
+            }
+          },
+          {
+            "config": {
+              "inputs": {
+                "repository": {
+                  "$ref": "event.repository"
+                }
+              },
+              "operation": "fixture.inspect",
+              "type": "query",
+              "version": 1
+            },
+            "id": "query",
+            "label": "query",
+            "position": {
+              "x": 120.0,
+              "y": 100.0
+            }
+          },
+          {
+            "config": {
+              "operator": "equals",
+              "path": "nodes.query.ready",
+              "type": "condition",
+              "value": true
+            },
+            "id": "condition",
+            "label": "condition",
+            "position": {
+              "x": 120.0,
+              "y": 200.0
+            }
+          },
+          {
+            "config": {
+              "inputs": {},
+              "operation": "fixture.classify",
+              "type": "jev",
+              "version": 1
+            },
+            "id": "jev",
+            "label": "jev",
+            "position": {
+              "x": 120.0,
+              "y": 300.0
+            }
+          },
+          {
+            "config": {
+              "checks": [
+                {
+                  "args": [
+                    "test",
+                    "--locked"
+                  ],
+                  "executable": "cargo"
+                }
+              ],
+              "context": {
+                "issue": {
+                  "$ref": "event.issue"
+                }
+              },
+              "outputSchema": {
+                "additionalProperties": false,
+                "properties": {
+                  "result": {
+                    "enum": [
+                      "done",
+                      "blocked"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "result"
+                ],
+                "type": "object"
+              },
+              "prompt": "Inspect within the selected scope",
+              "provider": "claude",
+              "tools": [
+                "read_file",
+                "list_files",
+                "run_checks"
+              ],
+              "type": "agent"
+            },
+            "id": "agent",
+            "label": "agent",
+            "position": {
+              "x": 120.0,
+              "y": 400.0
+            }
+          },
+          {
+            "config": {
+              "message": "Approve the frozen result",
+              "type": "approval"
+            },
+            "id": "approval",
+            "label": "approval",
+            "position": {
+              "x": 120.0,
+              "y": 500.0
+            }
+          },
+          {
+            "config": {
+              "seconds": 60,
+              "type": "wait"
+            },
+            "id": "wait",
+            "label": "wait",
+            "position": {
+              "x": 120.0,
+              "y": 600.0
+            }
+          },
+          {
+            "config": {
+              "inputs": {},
+              "operation": "fixture.merge",
+              "type": "action",
+              "version": 1
+            },
+            "id": "action",
+            "label": "action",
+            "position": {
+              "x": 120.0,
+              "y": 700.0
+            }
+          }
+        ],
+        "policy": {
+          "allowCommit": false,
+          "allowPush": false,
+          "allowWrites": false,
+          "maxAgentTurns": 2,
+          "maxConcurrentRuns": 1,
+          "maxCostUsd": 2.0,
+          "maxRetries": 0,
+          "requireLocalChecks": true,
+          "requireMergeApproval": true,
+          "requirePublishApproval": true
+        },
+        "revision": 2,
+        "scope": {
+          "identity": "connected-user",
+          "linearProjectId": "linear-project",
+          "projectId": "project-one",
+          "repository": "example/repository",
+          "targets": [
+            {
+              "identity": "connected-user",
+              "projectId": "project-one",
+              "repository": "example/repository"
+            },
+            {
+              "projectId": "project-two"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "waitingRun": {
+    "approvals": [],
+    "completedPorts": {
+      "agent": "next",
+      "condition": "true",
+      "jev": "next",
+      "query": "next",
+      "trigger": "next"
+    },
+    "costUnknown": false,
+    "createdAt": 100,
+    "event": {
+      "headSha": "fixture-head",
+      "issue": null,
+      "repository": "example/repository",
+      "target": {
+        "projectId": "project-one"
+      }
+    },
+    "eventKey": "fixture-event",
+    "history": [
+      {
+        "at": 100,
+        "kind": "queued",
+        "message": "Run admitted with a frozen workflow revision",
+        "sequence": 1
+      },
+      {
+        "at": 101,
+        "kind": "status",
+        "message": "Run state changed to Running",
+        "sequence": 2
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "trigger",
+        "sequence": 3
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "query",
+        "sequence": 4
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output true",
+        "nodeId": "condition",
+        "sequence": 5
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "jev",
+        "sequence": 6
+      },
+      {
+        "at": 102,
+        "kind": "node_completed",
+        "message": "Selected output next",
+        "nodeId": "agent",
+        "sequence": 7
+      },
+      {
+        "at": 102,
+        "kind": "cost_measured",
+        "message": "Host measured USD 0.25; accumulated USD 0.25",
+        "sequence": 8
+      },
+      {
+        "at": 103,
+        "kind": "status",
+        "message": "Run state changed to AwaitingApproval",
+        "sequence": 9
+      }
+    ],
+    "id": "fixture-waiting-run",
+    "measuredCostUsd": 0.25,
+    "outputs": {
+      "agent": {
+        "result": "done"
+      },
+      "condition": true,
+      "jev": {
+        "classification": "ready"
+      },
+      "query": {
+        "ready": true
+      },
+      "trigger": {
+        "headSha": "fixture-head",
+        "issue": null,
+        "repository": "example/repository",
+        "target": {
+          "projectId": "project-one"
+        }
+      }
+    },
+    "pendingApprovalNodeId": "approval",
+    "resourceKey": "example/repository#7",
+    "status": "awaitingApproval",
+    "updatedAt": 103,
+    "workflow": {
+      "edges": [
+        {
+          "from": "trigger",
+          "port": "next",
+          "to": "query"
+        },
+        {
+          "from": "query",
+          "port": "next",
+          "to": "condition"
+        },
+        {
+          "from": "condition",
+          "port": "true",
+          "to": "jev"
+        },
+        {
+          "from": "jev",
+          "port": "next",
+          "to": "agent"
+        },
+        {
+          "from": "agent",
+          "port": "next",
+          "to": "approval"
+        },
+        {
+          "from": "approval",
+          "port": "next",
+          "to": "wait"
+        },
+        {
+          "from": "wait",
+          "port": "next",
+          "to": "action"
+        }
+      ],
+      "enabled": true,
+      "id": "fixture-workflow",
+      "name": "Fixture workflow",
+      "nodes": [
+        {
+          "config": {
+            "baseline": "ignoreExisting",
+            "event": "manual",
+            "intervalSeconds": 300,
+            "type": "trigger"
+          },
+          "id": "trigger",
+          "label": "trigger",
+          "position": {
+            "x": 120.0,
+            "y": 0.0
+          }
+        },
+        {
+          "config": {
+            "inputs": {
+              "repository": {
+                "$ref": "event.repository"
+              }
+            },
+            "operation": "fixture.inspect",
+            "type": "query",
+            "version": 1
+          },
+          "id": "query",
+          "label": "query",
+          "position": {
+            "x": 120.0,
+            "y": 100.0
+          }
+        },
+        {
+          "config": {
+            "operator": "equals",
+            "path": "nodes.query.ready",
+            "type": "condition",
+            "value": true
+          },
+          "id": "condition",
+          "label": "condition",
+          "position": {
+            "x": 120.0,
+            "y": 200.0
+          }
+        },
+        {
+          "config": {
+            "inputs": {},
+            "operation": "fixture.classify",
+            "type": "jev",
+            "version": 1
+          },
+          "id": "jev",
+          "label": "jev",
+          "position": {
+            "x": 120.0,
+            "y": 300.0
+          }
+        },
+        {
+          "config": {
+            "checks": [
+              {
+                "args": [
+                  "test",
+                  "--locked"
+                ],
+                "executable": "cargo"
+              }
+            ],
+            "context": {
+              "issue": {
+                "$ref": "event.issue"
+              }
+            },
+            "outputSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "result": {
+                  "enum": [
+                    "done",
+                    "blocked"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "result"
+              ],
+              "type": "object"
+            },
+            "prompt": "Inspect within the selected scope",
+            "provider": "claude",
+            "tools": [
+              "read_file",
+              "list_files",
+              "run_checks"
+            ],
+            "type": "agent"
+          },
+          "id": "agent",
+          "label": "agent",
+          "position": {
+            "x": 120.0,
+            "y": 400.0
+          }
+        },
+        {
+          "config": {
+            "message": "Approve the frozen result",
+            "type": "approval"
+          },
+          "id": "approval",
+          "label": "approval",
+          "position": {
+            "x": 120.0,
+            "y": 500.0
+          }
+        },
+        {
+          "config": {
+            "seconds": 60,
+            "type": "wait"
+          },
+          "id": "wait",
+          "label": "wait",
+          "position": {
+            "x": 120.0,
+            "y": 600.0
+          }
+        },
+        {
+          "config": {
+            "inputs": {},
+            "operation": "fixture.merge",
+            "type": "action",
+            "version": 1
+          },
+          "id": "action",
+          "label": "action",
+          "position": {
+            "x": 120.0,
+            "y": 700.0
+          }
+        }
+      ],
+      "policy": {
+        "allowCommit": false,
+        "allowPush": false,
+        "allowWrites": false,
+        "maxAgentTurns": 2,
+        "maxConcurrentRuns": 1,
+        "maxCostUsd": 2.0,
+        "maxRetries": 0,
+        "requireLocalChecks": true,
+        "requireMergeApproval": true,
+        "requirePublishApproval": true
+      },
+      "revision": 1,
+      "scope": {
+        "identity": "connected-user",
+        "linearProjectId": "linear-project",
+        "projectId": "project-one",
+        "repository": "example/repository",
+        "targets": [
+          {
+            "identity": "connected-user",
+            "projectId": "project-one",
+            "repository": "example/repository"
+          },
+          {
+            "projectId": "project-two"
+          }
+        ]
+      }
+    }
+  },
+  "workflow": {
+    "edges": [
+      {
+        "from": "trigger",
+        "port": "next",
+        "to": "query"
+      },
+      {
+        "from": "query",
+        "port": "next",
+        "to": "condition"
+      },
+      {
+        "from": "condition",
+        "port": "true",
+        "to": "jev"
+      },
+      {
+        "from": "jev",
+        "port": "next",
+        "to": "agent"
+      },
+      {
+        "from": "agent",
+        "port": "next",
+        "to": "approval"
+      },
+      {
+        "from": "approval",
+        "port": "next",
+        "to": "wait"
+      },
+      {
+        "from": "wait",
+        "port": "next",
+        "to": "action"
+      }
+    ],
+    "enabled": true,
+    "id": "fixture-workflow",
+    "name": "Fixture workflow",
+    "nodes": [
+      {
+        "config": {
+          "baseline": "ignoreExisting",
+          "event": "manual",
+          "intervalSeconds": 300,
+          "type": "trigger"
+        },
+        "id": "trigger",
+        "label": "trigger",
+        "position": {
+          "x": 120.0,
+          "y": 0.0
+        }
+      },
+      {
+        "config": {
+          "inputs": {
+            "repository": {
+              "$ref": "event.repository"
+            }
+          },
+          "operation": "fixture.inspect",
+          "type": "query",
+          "version": 1
+        },
+        "id": "query",
+        "label": "query",
+        "position": {
+          "x": 120.0,
+          "y": 100.0
+        }
+      },
+      {
+        "config": {
+          "operator": "equals",
+          "path": "nodes.query.ready",
+          "type": "condition",
+          "value": true
+        },
+        "id": "condition",
+        "label": "condition",
+        "position": {
+          "x": 120.0,
+          "y": 200.0
+        }
+      },
+      {
+        "config": {
+          "inputs": {},
+          "operation": "fixture.classify",
+          "type": "jev",
+          "version": 1
+        },
+        "id": "jev",
+        "label": "jev",
+        "position": {
+          "x": 120.0,
+          "y": 300.0
+        }
+      },
+      {
+        "config": {
+          "checks": [
+            {
+              "args": [
+                "test",
+                "--locked"
+              ],
+              "executable": "cargo"
+            }
+          ],
+          "context": {
+            "issue": {
+              "$ref": "event.issue"
+            }
+          },
+          "outputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "result": {
+                "enum": [
+                  "done",
+                  "blocked"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "result"
+            ],
+            "type": "object"
+          },
+          "prompt": "Inspect within the selected scope",
+          "provider": "claude",
+          "tools": [
+            "read_file",
+            "list_files",
+            "run_checks"
+          ],
+          "type": "agent"
+        },
+        "id": "agent",
+        "label": "agent",
+        "position": {
+          "x": 120.0,
+          "y": 400.0
+        }
+      },
+      {
+        "config": {
+          "message": "Approve the frozen result",
+          "type": "approval"
+        },
+        "id": "approval",
+        "label": "approval",
+        "position": {
+          "x": 120.0,
+          "y": 500.0
+        }
+      },
+      {
+        "config": {
+          "seconds": 60,
+          "type": "wait"
+        },
+        "id": "wait",
+        "label": "wait",
+        "position": {
+          "x": 120.0,
+          "y": 600.0
+        }
+      },
+      {
+        "config": {
+          "inputs": {},
+          "operation": "fixture.merge",
+          "type": "action",
+          "version": 1
+        },
+        "id": "action",
+        "label": "action",
+        "position": {
+          "x": 120.0,
+          "y": 700.0
+        }
+      }
+    ],
+    "policy": {
+      "allowCommit": false,
+      "allowPush": false,
+      "allowWrites": false,
+      "maxAgentTurns": 2,
+      "maxConcurrentRuns": 1,
+      "maxCostUsd": 2.0,
+      "maxRetries": 0,
+      "requireLocalChecks": true,
+      "requireMergeApproval": true,
+      "requirePublishApproval": true
+    },
+    "revision": 1,
+    "scope": {
+      "identity": "connected-user",
+      "linearProjectId": "linear-project",
+      "projectId": "project-one",
+      "repository": "example/repository",
+      "targets": [
+        {
+          "identity": "connected-user",
+          "projectId": "project-one",
+          "repository": "example/repository"
+        },
+        {
+          "projectId": "project-two"
+        }
+      ]
+    }
+  }
+}

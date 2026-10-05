@@ -41,6 +41,7 @@ as a short index for agents and `README.md` presents the product.
   authentication, desktop connection and private persistence.
 
 - [Reusable actions](contracts/actions.md): commands, profiles and local PR tracking.
+- [Versioned automations](contracts/automations.md): typed workflow graphs, scoped execution and simulation.
 - [`contracts/accounts.md`](contracts/accounts.md): accounts, login, global
   selection and quota isolation between agents.
 
@@ -60,6 +61,7 @@ as a short index for agents and `README.md` presents the product.
 ## Decisions
 
 - [ADR 0086](decisions/0086-github-inbox.md): GitHub discovery inside Issues using the existing CLI credential.
+- [ADR 0087](decisions/0087-versioned-automation-workflows.md): versioned automation graphs and durable execution.
 
 [Lifecycle and current index](decisions/README.md). Only implemented decisions
 appear below. Retired documents and previous versions remain in Git history;

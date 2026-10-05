@@ -40,6 +40,13 @@ optional for local work; model access comes from your own provider account.
   Catalogs refresh from each CLI; failed refreshes are visible and extra Codex
   models are available through “Show additional models”.
 
+- **Versioned automations.** Build explicit workflows with chat proposals or a
+  visual graph editor, inspect revisions and simulate decisions before activation.
+  Local polling observes scoped GitHub and Linear changes without model calls
+  while idle. Jev classification, deterministic conditions and restricted agent
+  workers are separate steps. Code fixes pass sandboxed checks, independent
+  validation and explicit publication permissions. See the
+  [contract and provider limits](docs/contracts/automations.md).
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
   Your workspace stage stays separate from the agent's status.
