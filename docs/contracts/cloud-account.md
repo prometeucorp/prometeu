@@ -14,6 +14,9 @@ connected account ([ADR 0035](../decisions/0035-feedback-requires-account.md));
 without an account, the panel offers the same device authorization as the
 sidebar. The desktop works without an account and does not call the account APIs
 while disconnected.
+An account may link one GitHub identity, at sign-in or later from the Cloud
+settings; the Cloud stores the GitHub user ID and login, never a GitHub token.
+Linked accounts receive metadata-only [GitHub notifications](github-notifications.md).
 
 The top of the sidebar keeps the Prometeu logo and name. When disconnected, it
 offers "Create account" on the right, on the same line. When connected, it shows

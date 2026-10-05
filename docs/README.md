@@ -21,6 +21,7 @@ as a short index for agents and `README.md` presents the product.
 - [WSL runtime protocol](contracts/wsl-runtime.md): framing, capabilities, resident attachment, storage and compatibility.
 - [Linear issue discovery and assignment](contracts/linear-issues.md): available team issues, OAuth write scope, claim flow and cache compatibility.
 - [GitHub issues and pull requests](contracts/github-issues.md): assigned and repository issues, authored PRs, requested reviews and isolated workspaces.
+- [GitHub notifications](contracts/github-notifications.md): GitHub App webhooks turned into metadata-only notifications in the Cloud and the desktop feed.
 
 - [Desktop presentation](contracts/desktop-presentation.md): typed snapshots, callbacks, focus and resource view lifetime.
 
@@ -60,6 +61,10 @@ as a short index for agents and `README.md` presents the product.
 ## Decisions
 
 - [ADR 0086](decisions/0086-github-inbox.md): GitHub discovery inside Issues using the existing CLI credential.
+
+Proposed, not yet implemented:
+
+- [ADR 0088](decisions/0088-github-app.md): GitHub App for issues, PRs and notifications through the Cloud.
 
 [Lifecycle and current index](decisions/README.md). Only implemented decisions
 appear below. Retired documents and previous versions remain in Git history;
