@@ -233,7 +233,7 @@ export function mountAutomations(host: HTMLElement): () => void {
               : `${label("proposalUnavailable")} ${cause}`;
       messages.push({ role: /^automation_proposal_(schema|invalid|response)/.test(cause) ? "validation" : "error", text: message });
       failedRequest = { request, history: /^automation_proposal_(schema|invalid|response)/.test(cause)
-        ? messages.flatMap(({ role, text }) => role === "user" || role === "assistant" || role === "validation" ? [{ role, text }] : []) : history };
+        ? [...history, { role: "validation", text: message }] : history };
       if (fromComposer && !requestText) requestText = request;
     } finally {
       window.clearTimeout(slowTimer);

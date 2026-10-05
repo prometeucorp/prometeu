@@ -218,8 +218,19 @@ test("automation conversation keeps pending messages readable and carries follow
   await expect(editor.getByRole("alert").last()).not.toContainText("Configure a supported agent");
   await expect(request).toHaveValue("Fix the proposal without changing the scope");
   await expect(request).toBeFocused();
+  await editor.getByRole("button", { name: "Try again", exact: true }).click();
+  const validationRetry = await page.evaluate(() => (window as AutomationWindow).automationRequests[4]);
+  expect(validationRetry.prompt).toBe(next.prompt);
+  expect(validationRetry.history).toEqual([
+    ...(next.history as { role: string; text: string }[]),
+    { role: "validation", text: expect.stringContaining("missing field `config`") },
+  ]);
+  await expect(editor.locator(".turn.user")).toHaveCount(3);
+  await expect(request).toHaveValue("Fix the proposal without changing the scope");
+  await page.evaluate(() => (window as AutomationWindow).failAutomation("automation_proposal_schema: missing field `config`"));
+  await expect(editor.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
   await request.press("Enter");
-  const retry = await page.evaluate(() => (window as AutomationWindow).automationRequests[4]);
+  const retry = await page.evaluate(() => (window as AutomationWindow).automationRequests[5]);
   expect(retry.workflow).toEqual(next.workflow);
   expect((retry.history as {role: string; text: string}[]).at(-1)).toMatchObject({ role: "validation", text: expect.stringContaining("missing field `config`") });
   await page.evaluate(() => (window as AutomationWindow).finishAutomation({ workflow: null, summary: "I will keep the approval requirement." }));
