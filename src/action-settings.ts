@@ -133,7 +133,7 @@ function selection(key: Key, values: string[] | null, available: string[]) {
 function profileEditor(old: actions.Profile | null, project: string, redraw: () => void) {
   const profile: actions.Profile = structuredClone(old ?? {
     id: crypto.randomUUID(), name: "", prompt: "", choice: { agent: "claude", model: "", effort: "" },
-    mcp: null, plugins: null, skills: [], permission: "ask", watch: null,
+    mcp: null, plugins: null, skills: [], permission: "ask",
   });
   sheet(t("actions.profileEditor"), body => {
     const name = input(profile.name); name.required = true;

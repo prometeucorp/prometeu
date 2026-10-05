@@ -94,7 +94,10 @@ known PR metadata.
 
 New fields are additive with defaults in persistence. Boards written by earlier
 versions may contain a profile `watch` and task `seen`/`prs` cursors from the
-removed PR monitor; they are ignored on load and dropped on the next save. Tasks
+removed PR monitor; they are ignored on load and dropped on the next save.
+Tasks started by those versions (non-zero `checked_at`) are marked done once on
+load, so the same command can start again; a queued message stays visible in the
+tab and is never sent automatically. Tasks
 still write `paused`, `turns` and `checked_at` (always idle values) so earlier
 versions can read the board. Ordinary sessions do not
 change their launch configuration. The web mock implements the registry and tab

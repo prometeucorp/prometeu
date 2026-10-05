@@ -528,6 +528,15 @@ impl Board {
             // can display the model.
             for tab in &mut ws.tabs {
                 tab.status = Status::Desligada;
+                // Tasks from versions with the removed PR monitor carry a start time and may wait
+                // for PR updates that no longer arrive. Settle them once so the command can start
+                // again; their transcript and any queued message stay visible in the tab.
+                if let Some(run) = tab.task.as_mut().filter(|run| run.checked_at > 0) {
+                    run.done = true;
+                    run.paused = false;
+                    run.turns = 0;
+                    run.checked_at = 0;
+                }
                 if is_placeholder_title(&tab.title) {
                     tab.title.clear();
                 }
@@ -764,6 +773,30 @@ mod tests {
             titles,
             ["", "", "conversa sobre o login", "Corrigir o menu"]
         );
+    }
+
+    #[test]
+    fn revive_settles_tasks_waiting_on_the_removed_pr_monitor() {
+        let profile = r#"{"id":"p","name":"P","prompt":"x","choice":{"agent":"claude","model":"","effort":""},"mcp":null,"plugins":null,"skills":[],"permission":"ask","watch":{"interval_seconds":60,"comments":true,"ci":true,"max_turns":10}}"#;
+        let task = |checked: u64| {
+            format!(
+                r#"{{"command":"entregar","profile":{profile},"paused":false,"done":false,"turns":2,"checked_at":{checked},"error":null,"seen":{{}},"prs":{{"repo":1}}}}"#
+            )
+        };
+        let mut board: Board = serde_json::from_str(&format!(
+            r#"{{"stages":[],"workspaces":[{{"id":"w","title":"","repo":"/r","repo_name":"r","branch":"b","worktree":"/r","stage":"s","tabs":[
+              {{"id":"legacy","title":"","status":"pronta","note":null,"pending_prompt":"PR updates","task":{}}},
+              {{"id":"current","title":"","status":"pronta","note":null,"pending_prompt":null,"task":{}}}]}}]}}"#,
+            task(1_700_000_000),
+            task(0)
+        ))
+        .unwrap();
+        board.revive();
+        let tabs = &board.workspaces[0].tabs;
+        let legacy = tabs[0].task.as_ref().unwrap();
+        assert!(legacy.done && legacy.checked_at == 0 && legacy.turns == 0);
+        assert_eq!(tabs[0].pending_prompt.as_deref(), Some("PR updates"));
+        assert!(!tabs[1].task.as_ref().unwrap().done);
     }
 
     #[test]
