@@ -34,7 +34,7 @@ screen prioritizes commands, groups the agents and collapses the PR button's
 settings.
 
 This decision complements [ADR 0009](0009-reusable-actions.md), changing only
-the initial catalog; it preserves its execution and tracking contracts.
+the initial catalog; it preserves its execution contracts.
 
 ## Evidence
 

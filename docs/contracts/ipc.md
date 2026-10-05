@@ -96,7 +96,7 @@ The commands for status, diffs, branches, commits and conflict resolution are in
 [ADR 0043](../decisions/0043-retire-unused-ipc.md). The desktop frontend and
 backend ship together. Persisted state and relay clients are unaffected.
 
-The `actions_save`, `action_start` and `action_pause` commands are described in
+The `actions_save` and `action_start` commands are described in
 the [actions contract](actions.md). They use the existing `board` event.
 
 `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills` return
@@ -251,7 +251,7 @@ the event-loop thread and a 60-second power fallback; each writer changes only
 the fields it observed. Native samplers are woken directly on every change, so
 their return to the foreground does not depend on the webview. This context is
 advisory for UI refresh only: agent processes, transcript capture, terminals,
-sharing and explicit task monitoring continue independently.
+and sharing continue independently.
 If the native context never starts, Git presentation uses the document's
 visibility and focus as a fallback; transcript painting remains enabled.
 

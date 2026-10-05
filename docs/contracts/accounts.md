@@ -13,8 +13,7 @@ the process has to be swapped. A message sent during that transition stays in
 `pending_prompt` until the end of the turn. Answers to questions and permissions
 stay in the process that made the request. Action tasks follow the same account
 selection, keeping the model, instructions, permissions and tools profile
-captured at creation time. Releasing the queue through PR tracking also respects
-the switch between turns.
+captured at creation time.
 
 Connecting an account does not activate it. The person clicks the account in the
 panel after logging in; the whole card is clickable and its outline indicates the

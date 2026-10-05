@@ -14,17 +14,6 @@ import type { TeamConfig, Organization } from "./team";
 
 /** The frontend and browser mock share this contract. Rust remains the wire authority. */
 export type Commands = {
-  automations_snapshot: { args: undefined; result: import("./automations-model").AutomationSnapshot };
-  automations_save: { args: { workflow: import("./automations-model").Workflow; expectedRevision?: number | null }; result: import("./automations-model").Workflow };
-  automations_validate: { args: { workflow: import("./automations-model").Workflow }; result: import("./automations-model").ValidationIssue[] };
-  automations_simulate: { args: { workflow: import("./automations-model").Workflow; fixture: import("./automations-model").SimulationFixture }; result: import("./automations-model").SimulationResult };
-  automations_pause: { args: { id: string; paused: boolean }; result: import("./automations-model").Workflow };
-  automations_delete: { args: { id: string }; result: void };
-  automations_propose: { args: { prompt: string; history?: import("./automations-model").AutomationMessage[]; projectId?: string; workflow?: import("./automations-model").Workflow; provider?: "claude" | "codex"; model?: string }; result: import("./automations-model").WorkflowProposal };
-  automations_run: { args: { id: string; event?: unknown }; result: import("./automations-model").AutomationRun };
-  automations_resume: { args: { runId: string }; result: import("./automations-model").AutomationRun };
-  automations_cancel: { args: { runId: string }; result: import("./automations-model").AutomationRun };
-  automations_approve: { args: { runId: string; nodeId: string; headSha?: string }; result: import("./automations-model").AutomationRun };
   background_context: { args: undefined; result: import("./background").BackgroundContext };
   notification_permission: { args: { request: boolean }; result: import("./notifications").NoticePermission };
   notification_show: { args: { notice: import("./notifications").Notice }; result: void };
@@ -37,7 +26,6 @@ export type Commands = {
   account_remove: { args: { id: string }; result: Accounts };
   account_select: { args: { id: string }; result: Accounts };
   accounts: { args: undefined; result: Accounts };
-  action_pause: { args: { session: string; paused: boolean }; result: void };
   action_start: { args: { workspace: string; name: string; context: string }; result: T.Tab };
   actions_save: { args: { catalog: Catalog }; result: void };
   add_project: { args: { path: string }; result: T.Project };

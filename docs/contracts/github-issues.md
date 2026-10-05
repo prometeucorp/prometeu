@@ -115,7 +115,7 @@ fetched objects and the preparation ref, but creates no workspace or agent.
 The launcher locks the prepared project's repository, source and worktree
 selection to keep the reviewed PR and the checked-out code aligned. The usual
 workspace preparation checks still run. Opening a live linked workspace reuses
-it. PR discovery, external opening and monitoring retain the originating PR URL
+it. PR discovery and external opening retain the originating PR URL
 instead of guessing from the synthetic local branch. The fetched review branch
 does not automatically track subsequent pushes; the person controls subsequent
 Git work. The PR action prompts the agent to update the linked URL and verify

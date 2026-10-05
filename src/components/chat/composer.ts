@@ -6,8 +6,8 @@ import { t } from "../../i18n";
 
 /** Owns composer DOM. Drafts, completion, transport, voice and file selection belong to the host. */
 export function composer(options: {
-  send: () => void; stop?: () => void; addFile?: () => void; voice?: () => void;
-  quote?: () => void; actions?: () => void; voiceAvailable?: boolean;
+  send: () => void; stop: () => void; addFile: () => void; voice: () => void;
+  quote: () => void; actions: () => void; voiceAvailable: boolean;
 }) {
   const root = h("div", "composer");
   const files = h("div", "cfiles"); files.hidden = true;
@@ -26,10 +26,9 @@ export function composer(options: {
   const addFile = iconButton({ label: t("chat.addFile"), glyph: "plus", run: options.addFile });
   addFile.classList.add("ico", "sm", "addfile"); addFile.hidden = true;
   const mic = iconButton({ label: t("chat.voice"), glyph: "mic", run: options.voice });
-  mic.classList.add("ico", "sm", "mic"); mic.hidden = !options.voiceAvailable || !options.voice;
+  mic.classList.add("ico", "sm", "mic"); mic.hidden = !options.voiceAvailable;
   const actions = button(t("actions.title"), options.actions, "ghost"); actions.classList.add("sm", "actionsbtn");
   actions.innerHTML = `${icon("play", 13)}<span></span>`; actions.querySelector("span")!.textContent = t("actions.title");
-  actions.hidden = !options.actions;
   actions.title = t("actions.title"); actions.setAttribute("aria-label", t("actions.title"));
   tools.append(addFile, mic, actions);
   for (const name of ["mcpbtn", "plugbtn", "skillbtn"]) {

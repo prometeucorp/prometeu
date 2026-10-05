@@ -3,7 +3,7 @@ import { batteryBudget, foreground, type BackgroundContext } from "./background"
 /** Switching apps often must not turn each return into a networked sweep of every clone. */
 const RETURN_SPACING = 60_000;
 
-/** The general PR sweep is advisory; explicit task monitoring has its own clock. */
+/** The general PR sweep is advisory. */
 export class PrScanPolicy {
   private lastRequested: number | null = null;
 

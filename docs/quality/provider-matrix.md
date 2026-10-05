@@ -107,9 +107,8 @@ Verification additions shared by the existing features:
 | Desktop component catalog, chat and Git extraction | same canonical chat blocks and existing capabilities | same canonical chat blocks and existing capabilities | same components; unsupported requests remain unsupported | `src/components/catalog.test.ts`, existing Git, critical-flow and Markdown tests; isolated chat/Git stories have no dedicated E2E scenario and use no providers |
 | the company's executable DS components | independent of the provider | independent of the provider | shared application behavior | `e2e/design-system.spec.ts`, menu, submenu, password, focus, validation and error on both engines |
 | Code review included and editable | the initial profile; the model/provider can be changed | can be chosen in the profile | Adapted; see verification boundary | `actions.rs`, `actions.test.ts` for defaults/removal; `e2e/actions.spec.ts` for profile editing |
-| prompt commands and tasks | adapted by the app | adapted by the app | Adapted; see verification boundary | `actions.test.ts`, `actions.rs`; `e2e/actions.spec.ts` retains prompt editing, not the task-monitoring form |
+| prompt commands and tasks | adapted by the app | adapted by the app | Adapted; see verification boundary | `actions.test.ts`, `actions.rs`; `e2e/actions.spec.ts` retains prompt editing |
 | per-task profile | instructions and permissions through flags | instructions and permissions through JSON-RPC | Adapted; see verification boundary | `session.rs` and `codex.rs` tests |
-| PR tracking | explicit local monitor at the saved interval; general discovery has a separate budget | same monitor and general discovery | Adapted; see verification boundary | `actions.rs`, `github.rs` concurrency/deadline tests, `src/pr-refresh.test.ts`; no real GitHub integration in tests |
 | detecting the installation | adapted | adapted | version checked (minimum 1.2.7) | `agents.rs` |
 | accounts and global selection in the footer | adapted through `CLAUDE_CONFIG_DIR` | adapted through `CODEX_HOME` | single external agy account, explicit attachment | `accounts.rs`, `e2e/accounts.spec.ts` |
 | grouped workspace creation and readable account controls | shared fields; plan mode available | same layout with model search and native effort | same layout; unsupported plan, effort and tool controls stay absent; attached agy profile shows attachment status | `e2e/launcher-layout.spec.ts`, `e2e/accounts.spec.ts`, `e2e/model-picker.spec.ts`; English, narrow windows, Chromium/WebKit |
@@ -302,59 +301,3 @@ provider capability, IPC or V1 event. `review-comments.test.ts`,
 `e2e/git.spec.ts` and `e2e/mobile.spec.ts` cover representative keyboard/reload
 and portable history behavior. These tests do not assert that a provider follows
 every note or that a queued batch has been received by the model.
-
-## Versioned automations
-
-Graph editing, local conditions, simulation, polling and deterministic GitHub
-actions are independent of the conversation provider. Jev classification uses
-the existing optional TypeSafe account, not a Claude or Codex session.
-
-The restricted automation worker supports Claude and Codex through a dedicated
-file/check broker. Fixed checks require OS sandboxing; commit and publication are
-separate deterministic operations with independent grants. Both support a saved
-CI-only policy that allows commit/push without local checks and without per-run
-publication approval. This does not assert CI success or bypass merge, SHA,
-intervention, cancellation or grant checks. Legacy snapshots still require local
-checks. Native `ci_only_*` tests cover graph routing and publication gates; core
-tests cover serialization and immutable run policy. Browser coverage verifies the
-one-time permission preset preserves the conversation draft and reaches proposal
-context. No provider-specific shell permission is added. Claude supports its
-native turn and USD limits; Codex bounds broker calls and refuses configured USD
-caps it cannot enforce. Codex also rejects unexpected ambient configuration
-layers. Antigravity workers are unavailable. Proposal generation uses a selected
-Claude or Codex model without tools. Both accept bounded conversation history and
-can answer or ask a question without producing a graph. Both use a full workflow
-output schema; Claude reads structured output (up to two turns), and Codex decodes
-the same provider-only JSON leaves. The adapter supplies the fixed worker output
-contract. Native tests reject escaped JSON enum literals in the provider schema
-and cover schema-rejection diagnostics without a model call. Native tests cover legacy envelopes, all node
-variants represented in the catalog, malformed documents, validation feedback,
-native save compatibility, and host-owned GitHub identity binding without adopting
-a changed account for an unchanged target.
-Authentication, capability
-failures and unknown costs remain explicit.
-Proposal request failures retain their transport category; both providers allow
-up to five minutes for a response. Native injected-process tests cover timeout,
-output overflow, invalid encoding, pipe failure, cleanup and no implicit retry.
-Browser tests cover explicit retry of the same request/context after failure,
-without duplicating the user turn or replacing the next draft, and the delayed
-response status. These tests do not establish live provider availability.
-The executor is native desktop only; Windows/WSL shows an unsupported-runtime
-state rather than claiming that a successful shell build includes the executor.
-
-Tests: `src-tauri/crates/core/src/automation.rs`,
-`src-tauri/src/automations/`, `src/automations-model.test.ts`,
-`src/mock-automations.test.ts`, and `e2e/automations.spec.ts`. The browser test
-protects unsent drafts across library navigation, cancellation of a workflow
-switch, and delayed replies while the person types the next message. Mermaid
-rendering is local and identical for every provider. Projection tests cover
-exception filtering, shared destinations, hostile syntax and unchanged graph data.
-The browser scenario checks strict SVG rendering of hostile labels and rapid
-detail toggles in Chromium and WebKit, including absence of executable markup.
-These checks require a real DOM and Mermaid renderer; serializer tests alone
-cannot establish that boundary. Read-only view changes preserve saved coordinates.
-The recovery scenario checks step navigation, readable wrapping at 1280/1024 widths,
-shared CSS reload, and correction through the conversation without losing the
-unsent draft. Proposal replies are explicit IPC fixtures; they do not validate
-real provider calls or remote effects.
-See the [contract](../contracts/automations.md).

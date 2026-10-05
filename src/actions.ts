@@ -2,17 +2,15 @@ import defaultsText from "./action-defaults.json?raw";
 import { invoke } from "./ipc";
 import type { Board, Choice, Tab } from "./types";
 
-export type Watch = { interval_seconds: number; comments: boolean; ci: boolean; max_turns: number };
 export type Profile = {
   id: string; name: string; prompt: string; choice: Choice;
   mcp: string[] | null; plugins: string[] | null; skills: string[];
-  permission: "ask" | "auto"; watch: Watch | null;
+  permission: "ask" | "auto";
 };
 export type Action = { name: string; description: string; kind: "prompt" | "agent"; prompt: string; profile: string | null };
 export type Catalog = { defaults_initialized?: boolean; profiles: Profile[]; commands: Action[]; overrides: Record<string, Record<string, Profile>>; pr_action: string | null };
 export type TaskRun = {
-  command: string; profile: Profile; paused: boolean; done: boolean; turns: number;
-  checked_at: number; error: string | null; seen: Record<string, string>; prs: Record<string, number>;
+  command: string; profile: Profile; done: boolean; error: string | null;
 };
 export const emptyCatalog = (): Catalog => ({ profiles: [], commands: [], overrides: {}, pr_action: null });
 export function initializeDefaults(catalog: Catalog): Catalog {

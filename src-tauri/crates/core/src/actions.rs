@@ -57,15 +57,6 @@ pub struct Profile {
     pub plugins: Option<Vec<String>>,
     pub skills: Vec<String>,
     pub permission: Permission,
-    pub watch: Option<Watch>,
-}
-
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-pub struct Watch {
-    pub interval_seconds: u64,
-    pub comments: bool,
-    pub ci: bool,
-    pub max_turns: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -90,12 +81,10 @@ pub struct Run {
     pub profile: Profile,
     pub paused: bool,
     pub done: bool,
+    /// Unused since PR monitoring was removed; still written so earlier versions can read the board.
+    #[serde(default)]
     pub turns: u32,
+    #[serde(default)]
     pub checked_at: u64,
     pub error: Option<String>,
-    #[serde(default)]
-    pub seen: BTreeMap<String, String>,
-    /// Keep the PR identity attached to the execution even if the branch changes.
-    #[serde(default)]
-    pub prs: BTreeMap<String, u64>,
 }

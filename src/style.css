@@ -1536,7 +1536,6 @@ body.noside .side { display: none; }
 .tile .composer textarea { font-family: var(--mono); font-size: 12.5px; min-height: 22px; }
 .tile .composer .crow, .tile .composer .hint, .tile .composer .with button, .tile .composer .mcpbtn, .tile .composer .plugbtn, .tile .composer .skillbtn, .tile .composer .remotebtn { font-family: var(--mono); font-size: 11.5px; }
 
-.actionwatch { display: flex; flex-direction: column; gap: 12px; }
 .taskwatch { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Keep secondary action commands and profiles folded. */

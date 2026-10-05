@@ -1010,12 +1010,9 @@ export class ChatView {
     const run = info.task;
     watch.hidden = !run;
     if (run) {
-      watch.textContent = t(run.error ? "actions.attention" : run.done ? "actions.done" : run.paused ? "actions.paused" : info.status === "rodando" ? "actions.running" : run.profile.watch ? "actions.watching" : "actions.running");
-      watch.title = run.error ? fromBack(run.error) : t(run.paused ? "actions.resume" : "actions.pause");
-      watch.disabled = !!info.remote || run.done || !run.profile.watch;
-      watch.onclick = () => {
-        if (this.key) void invoke("action_pause", { session: this.key, paused: !run.paused }).catch(e => this.ctx.say(fromBack(e), true));
-      };
+      watch.textContent = t(run.error ? "actions.attention" : run.done ? "actions.done" : "actions.running");
+      watch.title = run.error ? fromBack(run.error) : "";
+      watch.disabled = true;
     }
 
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;

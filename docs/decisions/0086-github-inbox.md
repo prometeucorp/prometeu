@@ -18,7 +18,7 @@ preserving the board and sharing formats.
 Match local projects using canonical repository names from their Git remotes.
 Prepare PRs by fetching the base repository's pull ref into a unique review
 branch, without switching the original clone. Preserve the target branch as the
-diff base and the PR URL as explicit identity for discovery and monitoring.
+diff base and the PR URL as explicit identity for discovery.
 
 ## Rationale and trade-offs
 

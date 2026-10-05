@@ -30,7 +30,6 @@ export type Hooks = {
   copyPath: (ws: Workspace) => void;
   toDesk: () => void;
   toIssues: () => void;
-  toAutomations: () => void;
   toArchived: () => void;
   /// Null issue count means Linear is unavailable and hides the badge.
   issues: () => number | null;
@@ -48,7 +47,6 @@ export type Hooks = {
 export const DESK = "@mesa";
 /// The issues page follows the same sentinel rule.
 export const ISSUES = "@issues";
-export const AUTOMATIONS = "@automations";
 /// The archive page follows the same sentinel rule.
 export const ARCHIVED = "@arquivados";
 
@@ -181,11 +179,6 @@ function renderRail(board: Board, hooks: Hooks) {
   issues.title = n === null ? t("rail.issues.off") : t("rail.issues.title");
   issues.addEventListener("click", hooks.toIssues);
   rail.append(issues);
-
-  const automations = template("button", "navitem" + (openId === AUTOMATIONS ? " on" : ""), `${icon("list-tree")}<span></span>`);
-  automations.children[1].textContent = t("automations.title");
-  automations.addEventListener("click", hooks.toAutomations);
-  rail.append(automations);
 
   // Comment mentions expose pending collaboration outside individual sessions.
   const waiting = team.inboxCount();

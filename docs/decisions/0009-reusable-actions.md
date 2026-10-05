@@ -22,8 +22,8 @@ same session.
 ## Decision
 
 Adopt the third option. Commands expand prompts or start agents in another tab.
-Profiles have a prompt, model/provider/effort, MCP, plugins, skills, permissions
-and optional tracking. Projects can override profiles. Executions store the
+Profiles have a prompt, model/provider/effort, MCP, plugins, skills and
+permissions. Projects can override profiles. Executions store the
 resolved configuration; the session is still the transcript.
 
 A single session takes responsibility for the delivery. Review, publication and
@@ -31,10 +31,11 @@ fixes are profile instructions; they are not deterministic gates of a workflow
 engine. A textual result from the agent does not prove review approval. The
 example requires checking the published code and does not authorize a merge.
 
-Tracking uses polling in the local backend through `gh`. The model only gets a
-turn when there is news. There are no webhooks, no change in the relay's
-responsibility and no cloud execution. Adapters keep materializing provider
-differences.
+The app does not follow a task's PR on its own: there is no polling of comments
+or CI and no automatic agent turn. An earlier optional PR monitor was removed
+together with the versioned automation workflows so automation can be redesigned
+from scratch; its persisted fields are ignored (see the contract). Adapters keep
+materializing provider differences.
 
 ## Consequences
 
@@ -43,10 +44,8 @@ They do not need to create three agents to deliver a PR. A workflow editor and
 handoffs between sessions remain a future evolution, without speculative
 structures.
 
-Polling depends on the app being open, on `gh` authentication and on GitHub's
-limits. The cursor, the pending message, the turn limit and pausing make the
-tracking resumable and observable. Skill selection is an instruction, not
-capability isolation.
+Feedback from PR comments and CI reaches a task only when the person sends it.
+Skill selection is an instruction, not capability isolation.
 
 The contract is in [actions](../contracts/actions.md). Persistence is additive;
 old boards receive the one-time defaults from

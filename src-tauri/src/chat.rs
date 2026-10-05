@@ -348,10 +348,6 @@ pub(crate) fn send(
     host::with_sessions(&app, |service| service.send(&session, &text, idle_only))
 }
 
-pub fn flush_pending(app: &AppHandle, session: &str) -> Result<(), String> {
-    host::with_sessions(app, |service| service.flush_pending(session))
-}
-
 /// Send local V1 controls, including approvals, interruption and permission mode changes.
 #[tauri::command]
 pub fn chat_control(state: State<AppState>, session: String, frame: Value) -> Result<(), String> {
