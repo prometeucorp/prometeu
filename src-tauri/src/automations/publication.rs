@@ -251,7 +251,7 @@ pub(super) fn commit(
         &[
             "update-ref",
             "-m",
-            "automation validated commit",
+            "automation commit",
             &reference,
             &head_sha,
             expected_head,
@@ -278,7 +278,7 @@ pub(super) fn commit(
     })
 }
 
-/// Publish only an exact validated commit to the original same-repository PR head. Forks fail
+/// Publish only the exact authorized commit to the original same-repository PR head. Forks fail
 /// closed: the base repository URL must never be used as a guessed fork publication destination.
 pub(super) fn publish(
     reservation: &Reservation,

@@ -299,6 +299,22 @@ fn isolate_context(command: &mut Command) {
     }
 }
 
+/// Portable result contract shared by proposals, native workers and graph validation.
+pub(super) fn output_schema() -> Value {
+    json!({"type":"object","additionalProperties":false,
+    "required":["summary","outcome"],"properties":{
+        "summary":{"type":"string"},
+        "outcome":{"type":"string","enum":["completed","needs_human","failed"]}
+    }})
+}
+
+pub(super) fn response_schema() -> Value {
+    let mut schema = output_schema();
+    schema["properties"]["summary"]["minLength"] = json!(1);
+    schema["properties"]["summary"]["maxLength"] = json!(8192);
+    schema
+}
+
 fn command(
     root: &Path,
     scratch: &Path,
@@ -311,11 +327,7 @@ fn command(
         "args":["--prometeu-automation-tools"],
         "env":{ROOT_ENV:root, TOOLS_ENV:serde_json::to_string(tools).map_err(|_| "automation_agent_config")?}
     }}});
-    let schema = json!({"type":"object","additionalProperties":false,
-    "required":["summary","outcome"],"properties":{
-        "summary":{"type":"string","minLength":1,"maxLength":8192},
-        "outcome":{"type":"string","enum":["completed","needs_human","failed"]}
-    }});
+    let schema = response_schema();
     let mut command = Command::new("claude");
     command.args([
         "-p",

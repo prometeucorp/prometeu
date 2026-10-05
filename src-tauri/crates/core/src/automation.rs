@@ -81,6 +81,9 @@ pub struct WorkflowPolicy {
     /// The native publish gate binds approval to the checked publication state.
     /// Human approval does not itself grant commit or push authority.
     pub require_publish_approval: bool,
+    /// Opting out allows publication before CI runs on GitHub; it never bypasses
+    /// the native Git preconditions or grants commit, push, or merge authority.
+    pub require_local_checks: bool,
     pub max_retries: u32,
     pub max_agent_turns: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,6 +99,7 @@ impl Default for WorkflowPolicy {
             allow_commit: false,
             allow_push: false,
             require_publish_approval: true,
+            require_local_checks: true,
             max_retries: 0,
             max_agent_turns: 1,
             max_cost_usd: None,
@@ -2617,10 +2621,12 @@ mod tests {
         assert!(!policy.allow_commit);
         assert!(!policy.allow_push);
         assert!(policy.require_publish_approval);
+        assert!(policy.require_local_checks);
         let wire = serde_json::to_value(&policy).unwrap();
         assert_eq!(wire["allowCommit"], false);
         assert_eq!(wire["allowPush"], false);
         assert_eq!(wire["requirePublishApproval"], true);
+        assert_eq!(wire["requireLocalChecks"], true);
     }
 
     #[test]
@@ -2646,18 +2652,21 @@ mod tests {
         revised.policy.allow_commit = true;
         revised.policy.allow_push = true;
         revised.policy.require_publish_approval = false;
+        revised.policy.require_local_checks = false;
         state.save_workflow(revised, Some(1), &registry()).unwrap();
         let old = &state.runs[0];
         assert_eq!(old.id, run.id);
         assert!(!old.workflow.policy.allow_commit);
         assert!(!old.workflow.policy.allow_push);
         assert!(old.workflow.policy.require_publish_approval);
+        assert!(old.workflow.policy.require_local_checks);
         let new_run = state
             .enqueue("workflow", json!({}), "event-2", None, 2)
             .unwrap();
         assert!(new_run.workflow.policy.allow_commit);
         assert!(new_run.workflow.policy.allow_push);
         assert!(!new_run.workflow.policy.require_publish_approval);
+        assert!(!new_run.workflow.policy.require_local_checks);
         let restored: AutomationState =
             serde_json::from_value(serde_json::to_value(&state).unwrap()).unwrap();
         assert_eq!(restored.runs[0].workflow.policy, run.workflow.policy);

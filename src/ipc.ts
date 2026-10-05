@@ -20,7 +20,7 @@ export type Commands = {
   automations_simulate: { args: { workflow: import("./automations-model").Workflow; fixture: import("./automations-model").SimulationFixture }; result: import("./automations-model").SimulationResult };
   automations_pause: { args: { id: string; paused: boolean }; result: import("./automations-model").Workflow };
   automations_delete: { args: { id: string }; result: void };
-  automations_propose: { args: { prompt: string; projectId?: string; workflow?: import("./automations-model").Workflow }; result: import("./automations-model").WorkflowProposal };
+  automations_propose: { args: { prompt: string; history?: import("./automations-model").AutomationMessage[]; projectId?: string; workflow?: import("./automations-model").Workflow; provider?: "claude" | "codex"; model?: string }; result: import("./automations-model").WorkflowProposal };
   automations_run: { args: { id: string; event?: unknown }; result: import("./automations-model").AutomationRun };
   automations_resume: { args: { runId: string }; result: import("./automations-model").AutomationRun };
   automations_cancel: { args: { runId: string }; result: import("./automations-model").AutomationRun };

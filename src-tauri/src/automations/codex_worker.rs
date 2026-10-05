@@ -66,6 +66,41 @@ pub(super) fn command(
     tools: &BTreeSet<String>,
     config: &WorkerConfig,
 ) -> Result<Command, String> {
+    let schema = super::worker::response_schema();
+    command_with_response(root, scratch, executable, tools, config, &schema, SYSTEM)
+}
+
+pub(super) fn proposal_command(
+    root: &Path,
+    scratch: &Path,
+    model: Option<String>,
+) -> Result<Command, String> {
+    let schema = super::proposal::response_schema();
+    let config = WorkerConfig {
+        provider: "codex".into(),
+        model,
+        ..WorkerConfig::default()
+    };
+    command_with_response(
+        root,
+        scratch,
+        Path::new(""),
+        &BTreeSet::new(),
+        &config,
+        &schema,
+        super::proposal::CONVERSATION,
+    )
+}
+
+fn command_with_response(
+    root: &Path,
+    scratch: &Path,
+    executable: &Path,
+    tools: &BTreeSet<String>,
+    config: &WorkerConfig,
+    schema: &Value,
+    system: &str,
+) -> Result<Command, String> {
     // Exec reports tokens, not an enforceable USD ceiling. Never make a paid
     // request when the workflow requires a monetary guarantee we cannot provide.
     if config.max_cost_usd.is_some() {
@@ -85,11 +120,6 @@ pub(super) fn command(
     if scratch.starts_with(&root) {
         return Err("automation_agent_unsafe_directory".into());
     }
-    let schema = json!({"type":"object", "additionalProperties":false,
-    "required":["summary","outcome"], "properties":{
-        "summary":{"type":"string","minLength":1,"maxLength":8192},
-        "outcome":{"type":"string","enum":["completed","needs_human","failed"]}
-    }});
     let schema_path = scratch.join("response-schema.json");
     OpenOptions::new()
         .write(true)
@@ -133,7 +163,7 @@ pub(super) fn command(
     }
     command
         .arg("-c")
-        .arg(format!("developer_instructions={}", quoted(SYSTEM)));
+        .arg(format!("developer_instructions={}", quoted(system)));
     // Codex recursively merges tables: this value cannot remove inherited MCP
     // servers. Preflight rejects additional configuration layers; exec excludes
     // user config and the private cwd is outside the workspace.
@@ -205,7 +235,10 @@ fn query_error(error: CommandError) -> String {
 
 /// Probe harmless local help/feature commands. Unknown config keys can otherwise
 /// be ignored by old CLIs, which is unacceptable for security feature switches.
-fn compatible(queries: &dyn QueryLauncher<Command>, worker: &Command) -> Result<(), String> {
+pub(super) fn compatible(
+    queries: &dyn QueryLauncher<Command>,
+    worker: &Command,
+) -> Result<(), String> {
     let scratch = worker
         .get_current_dir()
         .ok_or("automation_agent_unsafe_directory")?;
@@ -269,7 +302,10 @@ const AMBIENT_CONFIG: &str = "automation_agent_config_not_isolated: Restricted C
 /// MCP listing, its layers include enterprise and system policy. Reject those
 /// layers rather than weakening policy or relying on table replacement.
 /// This preflight is not an atomic freeze against trusted admin changes.
-fn isolated_config(queries: &dyn QueryLauncher<Command>, worker: &Command) -> Result<(), String> {
+pub(super) fn isolated_config(
+    queries: &dyn QueryLauncher<Command>,
+    worker: &Command,
+) -> Result<(), String> {
     let scratch = worker
         .get_current_dir()
         .ok_or("automation_agent_unsafe_directory")?;

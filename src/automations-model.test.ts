@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import catalog from "./automation-catalog.json";
 import contract from "../fixtures/automation-contract.json";
 import { t, use, type Key } from "./i18n";
-import { localizeBuiltinTemplate, automationTransportUnavailable, pendingApprovalNode, publicationEvidence, blankWorkflow, connectNodes, newNode, outputPorts, removeNode, workflowDiff, type Workflow, type WorkflowNode, type AutomationRun } from "./automations-model";
+import { localizeBuiltinTemplate, automationTransportUnavailable, pendingApprovalNode, publicationEvidence, blankWorkflow, connectNodes, newNode, outputPorts, removeNode, workflowDiff, workflowReadingOrder, workflowDiagram, type Workflow, type WorkflowNode, type AutomationRun } from "./automations-model";
 
 function graph(): Workflow {
   const nodes: WorkflowNode[] = [
@@ -15,6 +15,47 @@ function graph(): Workflow {
 }
 
 describe("workflow graph editing", () => {
+  it("derives overview and detailed diagrams from the same graph without changing saved positions or behavior", () => {
+    const workflow = graph();
+    workflow.edges.push({ from: "agent", port: "error", to: "wait" });
+    const before = structuredClone(workflow);
+    const overview = workflowDiagram(workflow, false, port => port);
+    expect(overview.hiddenEdges).toBe(1);
+    expect(overview.source).not.toContain('Wait');
+    expect(overview.source).toContain('n1 -- "true" --> n2');
+    const detailed = workflowDiagram(workflow, true, port => port);
+    expect(detailed.hiddenEdges).toBe(0);
+    expect(detailed.source).toContain('n2 -. "error" .-> n3');
+    expect(workflow).toEqual(before);
+    workflow.nodes[0].position = { x: 900, y: 800 };
+    expect(workflowDiagram(workflow, false, port => port)).toEqual(overview);
+    workflow.edges.push({ from: "condition", port: "false", to: "wait" });
+    expect(workflowDiagram(workflow, false, port => port).source).toContain('Wait');
+  });
+  it("keeps labels and wire IDs outside Mermaid syntax, including directives, markup and links", () => {
+    const workflow = graph();
+    workflow.nodes[0].label = '" ]\n%%{init: {securityLevel: "loose"}}%%\n<script>alert(1)</script> & `end`';
+    workflow.nodes[0].id = 'click n0 "javascript:alert(1)"';
+    workflow.edges[0].from = workflow.nodes[0].id;
+    const { source } = workflowDiagram(workflow, true, () => '<img src=x onerror="alert(1)">');
+    expect(source.split("\n")).toHaveLength(7);
+    expect(source).not.toMatch(/<|%%|`|click n0|^securityLevel:/m);
+    expect(source).toContain('#34;');
+    expect(source).toContain('n0 -- "#60;img');
+  });
+  it("orders the reading view by dependencies without changing branches or losing invalid draft steps", () => {
+    const workflow = graph();
+    workflow.edges.push({ from: "condition", port: "false", to: "wait" }, { from: "agent", port: "error", to: "wait" });
+    workflow.nodes.reverse();
+    const before = structuredClone(workflow);
+    expect(workflowReadingOrder(workflow).map(node => node.id)).toEqual(["event", "condition", "agent", "wait"]);
+    expect(workflow).toEqual(before);
+    workflow.edges.push({ from: "wait", port: "next", to: "condition" });
+    const disconnected = newNode("approval", "Disconnected review", 4, []);
+    workflow.nodes.push(disconnected);
+    workflow.edges.push({ from: "missing", port: "next", to: "agent" });
+    expect(workflowReadingOrder(workflow).map(node => node.id)).toEqual(["event", disconnected.id, "wait", "agent", "condition"]);
+  });
   it("replaces one output connection and preserves other branches without mutating the original", () => {
     const original = graph(); const branched = connectNodes(original, "condition", "false", "wait")!;
     const result = connectNodes(branched, "condition", "true", "wait")!;

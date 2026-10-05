@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { blankWorkflow, type Workflow } from "./automations-model";
-import { simulate, validate } from "./mock-automations";
+import { commands, simulate, validate } from "./mock-automations";
 
 function graph(): Workflow {
   return {
@@ -16,6 +16,22 @@ function graph(): Workflow {
 }
 
 describe("browser automation simulation", () => {
+  it("persists CI-only grants for the reviewed scope and resets them on a scope change", async () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
+    try {
+      const workflow = graph();
+      workflow.scope = { projectId: "local", repository: "owner/repo", identity: "owner" };
+      Object.assign(workflow.policy, { allowWrites: true, allowCommit: true, allowPush: true, requirePublishApproval: false, requireLocalChecks: false });
+      const saved = await commands.automations_save({ workflow, expectedRevision: null });
+      expect((await commands.automations_snapshot(undefined)).workflows[0].policy).toEqual(workflow.policy);
+      const edited = await commands.automations_save({ workflow: { ...saved, name: "Updated name" }, expectedRevision: saved.revision });
+      expect(edited.policy).toEqual(workflow.policy);
+      const changed = await commands.automations_save({ workflow: { ...edited, enabled: true, scope: { ...edited.scope, repository: "owner/other" } }, expectedRevision: edited.revision });
+      expect(changed.enabled).toBe(false);
+      expect(changed.policy).toMatchObject({ allowWrites: false, allowCommit: false, allowPush: false, requirePublishApproval: true, requireLocalChecks: true });
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("follows the actual condition and records approval without executing effects", () => {
     const result = simulate(graph(), { event: { ready: true }, outputs: {} });
     expect(result.effectsSuppressed).toBe(true);
@@ -29,6 +45,18 @@ describe("browser automation simulation", () => {
     const result = simulate(graph(), { event: {}, outputs: {} });
     expect(result.steps.find(s => s.nodeId === "decision")?.status).toBe("error");
     expect(result.steps.filter(s => ["approved", "deferred"].includes(s.nodeId)).every(s => s.status === "skipped")).toBe(true);
+  });
+  it("reports the native worker format and account requirements before saving", () => {
+    const workflow = graph();
+    workflow.scope.targets = [{ projectId: "project", repository: "owner/repo" }];
+    workflow.nodes[2].config = { type: "agent", prompt: "Inspect checks", outputSchema: { type: "object", required: ["result"], properties: { result: { type: "string" } } } };
+    expect(validate(workflow)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "agent_schema", nodeId: "approved" }),
+      expect.objectContaining({ code: "target" }),
+    ]));
+    workflow.scope.targets[0].identity = "reviewed-user";
+    workflow.nodes[2].config.outputSchema = { type: "object", required: ["summary", "outcome"], properties: { summary: { type: "string" }, outcome: { type: "string" } } };
+    expect(validate(workflow)).toEqual([]);
   });
   it("rejects cycles before walking a graph", () => {
     const workflow = graph(); workflow.edges.push({ from: "approved", to: "decision", port: "next" });

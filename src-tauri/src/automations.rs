@@ -92,11 +92,11 @@ fn changed(app: &AppHandle) {
 
 fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
     let mut issues = automation::validate_workflow(workflow, &catalog::registry());
-    let mut issue = |code: &str, message: &str| {
+    let mut issue = |code: &str, message: &str, node_id: Option<&str>| {
         issues.push(ValidationIssue {
             code: code.into(),
             message: message.into(),
-            node_id: None,
+            node_id: node_id.map(str::to_owned),
         })
     };
     if workflow.nodes.len() > 128
@@ -106,13 +106,14 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
         issue(
             "bounds",
             "Workflow exceeds the 128 node, 512 edge or 512 KiB limit",
+            None,
         );
     }
     for node in &workflow.nodes {
         if matches!(&node.config,NodeConfig::Action{operation,..} if operation=="workspace.validate")
         {
             if let Err(message) = frozen_checks(node) {
-                issue("validation_commands", &message);
+                issue("validation_commands", &message, Some(&node.id));
             }
         }
         if let NodeConfig::Agent {
@@ -123,7 +124,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
         } = &node.config
         {
             if let Err(message) = validate_worker_schema(output_schema) {
-                issue("agent_schema", &message);
+                issue("agent_schema", &message, Some(&node.id));
             }
             if !checks.is_empty() {
                 let commands = serde_json::to_value(checks).ok().and_then(|value| {
@@ -133,7 +134,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                     .as_ref()
                     .is_none_or(|commands| validation::validate_commands(commands).is_err())
                 {
-                    issue("agent_checks","Check commands must use the native validation executable and argument allowlist");
+                    issue("agent_checks","Check commands must use the native validation executable and argument allowlist", Some(&node.id));
                 }
             }
             if tools.iter().any(|tool| {
@@ -144,7 +145,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
             }) {
                 issue(
                     "agent_tools",
-                    "Only list_files, read_file, write_file and run_checks are available to restricted workers",
+                    "Only list_files, read_file, write_file and run_checks are available to restricted workers", Some(&node.id),
                 );
             }
             if tools
@@ -156,6 +157,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                 issue(
                     "agent_policy",
                     "File editing requires explicit workflow write permission",
+                    Some(&node.id),
                 );
             }
         }
@@ -164,7 +166,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                 event.as_str(),
                 "manual" | "github.authored_pr" | "linear.assigned_issue"
             ) {
-                issue("trigger", "Unsupported native trigger");
+                issue("trigger", "Unsupported native trigger", Some(&node.id));
             }
             if workflow.enabled && event != "manual" && workflow.scope.targets.is_empty() {
                 if workflow
@@ -174,7 +176,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                     .is_none_or(str::is_empty)
                     || workflow.scope.identity.as_deref().is_none_or(str::is_empty)
                 {
-                    issue("scope", "An enabled trigger requires an explicit local project and connected identity");
+                    issue("scope", "An enabled trigger requires an explicit local project and connected identity", Some(&node.id));
                 }
                 if event == "github.authored_pr"
                     && workflow
@@ -183,7 +185,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                         .as_deref()
                         .is_none_or(|r| !adapters::valid_repository(r))
                 {
-                    issue("scope", "Select a GitHub owner/repository");
+                    issue("scope", "Select a GitHub owner/repository", Some(&node.id));
                 }
                 if event == "linear.assigned_issue"
                     && workflow
@@ -195,6 +197,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                     issue(
                         "scope",
                         "Map a specific Linear project to the selected local project",
+                        Some(&node.id),
                     );
                 }
             }
@@ -208,7 +211,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
                 .as_deref()
                 .is_none_or(|r| !adapters::valid_repository(r))
         {
-            issue("target", "Each GitHub target requires a local project, owner/repository and connected identity");
+            issue("target", "Each GitHub target requires a local project, owner/repository and connected identity", None);
         }
     }
     if !workflow.scope.targets.is_empty()
@@ -219,6 +222,7 @@ fn validate(workflow: &Workflow) -> Vec<ValidationIssue> {
         issue(
             "target",
             "Multiple targets are supported for authored pull request triggers",
+            None,
         );
     }
     issues
@@ -301,6 +305,7 @@ fn save(mut workflow: Workflow, expected_revision: Option<u64>) -> Result<Workfl
             workflow.policy.allow_commit = false;
             workflow.policy.allow_push = false;
             workflow.policy.require_publish_approval = true;
+            workflow.policy.require_local_checks = true;
         }
         if doc.state.workflows.len() >= 256
             && !doc.state.workflows.iter().any(|w| w.id == workflow.id)
@@ -346,8 +351,11 @@ pub fn automations_delete(app: AppHandle, id: String) -> Result<(), String> {
 pub fn automations_propose(
     state: State<AppState>,
     prompt: String,
+    history: Option<Vec<proposal::Message>>,
     project_id: Option<String>,
     workflow: Option<Workflow>,
+    provider: Option<String>,
+    model: Option<String>,
 ) -> Result<proposal::Proposal, String> {
     let mut context = match &workflow {
         Some(workflow) => format!(
@@ -357,6 +365,12 @@ pub fn automations_propose(
         ),
         None => prompt,
     };
+    if let Some(workflow) = &workflow {
+        context.push_str(&format!(
+            "\n\nNative validation findings for the current draft:\n{}",
+            json!(validate(workflow))
+        ));
+    }
     let projects: Vec<Value> = lock(&state.board)
         .projects
         .iter()
@@ -366,32 +380,25 @@ pub fn automations_propose(
         "\n\nRegistered local projects (choose only existing IDs):\n{}",
         json!(projects)
     ));
-    let mut result = proposal::generate(state.command_runner.as_ref(), &context, project_id)?;
-    if let Some(current) = workflow {
-        result.workflow.id = current.id;
-        result.workflow.revision = current.revision;
-        if result.workflow.scope.project_id == current.scope.project_id
-            && result.workflow.scope.repository == current.scope.repository
-            && result.workflow.scope.linear_project_id == current.scope.linear_project_id
-            && result.workflow.scope.targets == current.scope.targets
-            && result.workflow.scope.identity.is_none()
-        {
-            result.workflow.scope.identity = current.scope.identity.clone();
-        }
-        if result.workflow.scope == current.scope {
-            result.workflow.policy = current.policy;
-        }
-        result.workflow.enabled = false;
-    }
+    let mut result = proposal::generate(
+        state.command_runner.as_ref(),
+        state.query_launcher.as_ref(),
+        &context,
+        history.as_deref().unwrap_or_default(),
+        project_id,
+        provider.as_deref().unwrap_or("claude"),
+        model.as_deref().filter(|model| !model.is_empty()),
+    )?;
+    let Some(proposed) = result.workflow.as_mut() else {
+        return Ok(result);
+    };
     let board = lock(&state.board);
-    if result
-        .workflow
+    if proposed
         .scope
         .project_id
         .as_ref()
         .is_some_and(|id| !board.projects.iter().any(|p| &p.id == id))
-        || result
-            .workflow
+        || proposed
             .scope
             .targets
             .iter()
@@ -399,7 +406,111 @@ pub fn automations_propose(
     {
         return Err("automation_proposal_project: The model selected an unregistered project; revise the proposal".into());
     }
+    drop(board);
+    prepare_proposal(proposed, workflow.as_ref(), || {
+        adapters::identity(state.command_runner.as_ref())
+    })?;
     Ok(result)
+}
+
+/// Account bindings belong to the app. Unchanged targets retain their reviewed
+/// identity even if the active GitHub account changed during the conversation.
+fn prepare_proposal(
+    proposed: &mut Workflow,
+    current: Option<&Workflow>,
+    identity: impl FnOnce() -> Result<String, String>,
+) -> Result<(), String> {
+    proposed.enabled = false;
+    proposed.policy.allow_writes = false;
+    proposed.policy.allow_commit = false;
+    proposed.policy.allow_push = false;
+    proposed.policy.require_merge_approval = true;
+    proposed.policy.require_publish_approval = true;
+    proposed.policy.require_local_checks = true;
+    proposed.scope.identity = None;
+    for target in &mut proposed.scope.targets {
+        target.identity = current
+            .and_then(|current| {
+                current.scope.targets.iter().find(|old| {
+                    old.project_id == target.project_id && old.repository == target.repository
+                })
+            })
+            .and_then(|old| old.identity.clone())
+            .or_else(|| {
+                current
+                    .filter(|current| {
+                        current.scope.project_id.as_deref() == Some(target.project_id.as_str())
+                            && current.scope.repository == target.repository
+                    })
+                    .and_then(|current| current.scope.identity.clone())
+            });
+    }
+    if let Some(current) = current {
+        proposed.id = current.id.clone();
+        proposed.revision = current.revision;
+        if proposed.scope.project_id == current.scope.project_id
+            && proposed.scope.repository == current.scope.repository
+            && proposed.scope.linear_project_id == current.scope.linear_project_id
+        {
+            proposed.scope.identity = current.scope.identity.clone();
+        }
+    }
+    if proposed.scope.identity.is_none()
+        && proposed.scope.repository.is_some()
+        && proposed.scope.linear_project_id.is_none()
+    {
+        proposed.scope.identity = current
+            .and_then(|current| {
+                current.scope.targets.iter().find(|target| {
+                    Some(target.project_id.as_str()) == proposed.scope.project_id.as_deref()
+                        && target.repository == proposed.scope.repository
+                })
+            })
+            .and_then(|target| target.identity.clone());
+    }
+    let github = proposed.nodes.iter().any(|node|
+        matches!(&node.config, NodeConfig::Trigger { event, .. } if event == "github.authored_pr"));
+    if github
+        && (proposed
+            .scope
+            .targets
+            .iter()
+            .any(|target| target.identity.as_deref().is_none_or(str::is_empty))
+            || (proposed.scope.targets.is_empty()
+                && proposed.scope.identity.as_deref().is_none_or(str::is_empty)))
+    {
+        let login = identity().map_err(|error| format!("automation_proposal_account: {error}"))?;
+        if login.trim().is_empty() {
+            return Err("automation_proposal_account: No authenticated GitHub identity".into());
+        }
+        if proposed.scope.targets.is_empty() {
+            proposed.scope.identity = Some(login.clone());
+        }
+        for target in &mut proposed.scope.targets {
+            if target.identity.as_deref().is_none_or(str::is_empty) {
+                target.identity = Some(login.clone());
+            }
+        }
+    }
+    if let Some(current) = current.filter(|current| current.scope == proposed.scope) {
+        proposed.policy = current.policy.clone();
+    }
+    let issues = validate(proposed);
+    if !issues.is_empty() {
+        return Err(format!(
+            "automation_proposal_invalid: {}",
+            issues
+                .iter()
+                .map(|issue| format!(
+                    "{}: {}",
+                    issue.node_id.as_deref().unwrap_or("workflow"),
+                    issue.message
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+    Ok(())
 }
 
 fn run_by_id(id: &str) -> Result<Run, String> {
@@ -469,7 +580,8 @@ pub fn automations_approve(
     };
     store::transaction(true, |doc| {
         if let Some(evidence) = &evidence {
-            if doc.local_heads.contains_key(&run_id)
+            if run.workflow.policy.require_local_checks
+                && doc.local_heads.contains_key(&run_id)
                 && !doc.validations.get(&run_id).is_some_and(|validated| {
                     validated.passed
                         && validated.head == evidence.head
@@ -1153,14 +1265,19 @@ fn operation_step(
                         .insert(run.id.clone(), result.head_sha.clone());
                     doc.workspace_fingerprints
                         .insert(run.id.clone(), fingerprint);
-                    doc.validations.insert(
-                        run.id.clone(),
-                        store::Evidence {
-                            head: result.head_sha.clone(),
-                            source: source.clone(),
-                            passed: true,
-                        },
-                    );
+                    // A commit preserves existing checks for the exact source;
+                    // it cannot manufacture successful checks in CI-only mode.
+                    if let Some(evidence) = doc.validations.remove(&run.id).filter(|evidence| {
+                        evidence.passed && evidence.head == head && evidence.source == source
+                    }) {
+                        doc.validations.insert(
+                            run.id.clone(),
+                            store::Evidence {
+                                head: result.head_sha.clone(),
+                                ..evidence
+                            },
+                        );
+                    }
                     Ok(())
                 })?;
                 json!({"headSha":result.head_sha,"changedFiles":result.changed_files,"sourceFingerprint":source})
@@ -1305,9 +1422,11 @@ fn check_publication_evidence(
     if !current_allows(doc, run) {
         return Err("automation_authority_changed".into());
     }
-    if !doc.validations.get(&run.id).is_some_and(|evidence| {
-        evidence.passed && evidence.head == head && evidence.source == source
-    }) {
+    if run.workflow.policy.require_local_checks
+        && !doc.validations.get(&run.id).is_some_and(|evidence| {
+            evidence.passed && evidence.head == head && evidence.source == source
+        })
+    {
         return Err("automation_validation_required: Run checks successfully on this exact source content and local HEAD before publication".into());
     }
     if publish && run.workflow.policy.require_publish_approval {
@@ -1333,7 +1452,7 @@ fn check_publication_evidence(
                     .get(&format!("{}:{}", run.id, approval.node_id))
                     .is_some_and(|evidence| evidence.head == head && evidence.source == source)
         }) {
-            return Err("automation_publish_approval_required: Approve the validated local commit after creating it, then publish".into());
+            return Err("automation_publish_approval_required: Approve the exact local commit after creating it, then publish".into());
         }
     }
     Ok(())
@@ -1790,6 +1909,7 @@ fn mcp_draft_only(workflow: &Workflow) -> bool {
         && !workflow.policy.allow_push
         && workflow.policy.require_merge_approval
         && workflow.policy.require_publish_approval
+        && workflow.policy.require_local_checks
 }
 
 /// MCP clients may inspect scoped workflows and save disabled drafts, never grant authority.
@@ -2456,6 +2576,114 @@ mod tests {
         assert!(!current_allows(&doc, &run));
     }
     #[test]
+    fn proposals_bind_missing_accounts_but_preserve_reviewed_target_identities() {
+        let mut proposed = catalog::templates().remove(0);
+        proposed.scope = serde_json::from_value(json!({"targets":[{"projectId":"local","repository":"owner/repo","identity":"invented"}]})).unwrap();
+        prepare_proposal(&mut proposed, None, || Ok("connected-user".into())).unwrap();
+        assert_eq!(
+            proposed.scope.targets[0].identity.as_deref(),
+            Some("connected-user")
+        );
+        assert!(validate(&proposed).is_empty());
+        let mut current = proposed.clone();
+        current.policy.allow_writes = true;
+        current.policy.allow_commit = true;
+        current.policy.allow_push = true;
+        current.policy.require_publish_approval = false;
+        current.policy.require_local_checks = false;
+        current.revision = 4;
+        proposed.scope.targets[0].identity = None;
+        prepare_proposal(&mut proposed, Some(&current), || {
+            panic!("Do not adopt a changed account for an unchanged target")
+        })
+        .unwrap();
+        assert_eq!(proposed.scope, current.scope);
+        assert_eq!(proposed.policy, current.policy);
+        assert_eq!(proposed.revision, 4);
+        assert!(!proposed.enabled);
+        let mut single = current.clone();
+        single.scope.targets.clear();
+        single.scope.project_id = Some("local".into());
+        single.scope.repository = Some("owner/repo".into());
+        prepare_proposal(&mut single, Some(&current), || {
+            panic!("Changing scope representation cannot change accounts")
+        })
+        .unwrap();
+        assert_eq!(single.scope.identity.as_deref(), Some("connected-user"));
+        let mut multiple = current.clone();
+        multiple.scope.targets[0].identity = None;
+        prepare_proposal(&mut multiple, Some(&single), || {
+            panic!("Keep the reviewed single-target account")
+        })
+        .unwrap();
+        assert_eq!(
+            multiple.scope.targets[0].identity.as_deref(),
+            Some("connected-user")
+        );
+        proposed.scope.targets[0].repository = Some("owner/other".into());
+        prepare_proposal(&mut proposed, Some(&current), || Ok("new-account".into())).unwrap();
+        assert_eq!(
+            proposed.scope.targets[0].identity.as_deref(),
+            Some("new-account")
+        );
+        assert_eq!(
+            current.scope.targets[0].identity.as_deref(),
+            Some("connected-user")
+        );
+        assert!(!proposed.policy.allow_writes);
+        assert!(proposed.policy.require_local_checks);
+        assert!(proposed.policy.require_publish_approval);
+        assert!(
+            prepare_proposal(&mut proposed, None, || Err("connection unavailable".into()))
+                .unwrap_err()
+                .starts_with("automation_proposal_account:")
+        );
+    }
+
+    #[test]
+    fn proposals_use_native_save_validation_before_reaching_the_editor() {
+        let mut proposed = catalog::templates().remove(0);
+        proposed.scope.targets.clear();
+        if let NodeConfig::Trigger { event, .. } = &mut proposed.nodes[0].config {
+            *event = "manual".into();
+        }
+        let node = proposed
+            .nodes
+            .iter_mut()
+            .find(|node| matches!(node.config, NodeConfig::Agent { .. }))
+            .unwrap();
+        let id = node.id.clone();
+        if let NodeConfig::Agent { output_schema, .. } = &mut node.config {
+            *output_schema = json!({"type":"object","required":["result"],"properties":{"result":{"type":"string"}}});
+        }
+        let issue = validate(&proposed)
+            .into_iter()
+            .find(|issue| issue.code == "agent_schema")
+            .unwrap();
+        assert_eq!(issue.node_id.as_deref(), Some(id.as_str()));
+        let error = prepare_proposal(&mut proposed, None, || {
+            panic!("Manual proposals do not read GitHub")
+        })
+        .unwrap_err();
+        assert!(error.starts_with("automation_proposal_invalid:"));
+        assert!(error.contains(&id));
+        if let NodeConfig::Agent { output_schema, .. } = &mut proposed
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == id)
+            .unwrap()
+            .config
+        {
+            *output_schema = worker::output_schema();
+        }
+        prepare_proposal(&mut proposed, None, || {
+            panic!("Manual proposals do not read GitHub")
+        })
+        .unwrap();
+        assert!(validate(&proposed).is_empty());
+    }
+
+    #[test]
     fn unsupported_worker_schema_is_rejected_before_provider_use() {
         assert!(validate_worker_schema(&json!({"type":"object","required":["result"],"properties":{"result":{"type":"string"}}})).is_err());
         assert!(validate_worker_schema(&json!({"type":"object","required":["summary","outcome"],"properties":{"summary":{"type":"string"},"outcome":{"type":"string"}}})).is_ok());
@@ -2562,12 +2790,151 @@ mod tests {
             value["policy"][field] = json!(true);
             assert!(!mcp_draft_only(&serde_json::from_value(value).unwrap()));
         }
-        for field in ["requireMergeApproval", "requirePublishApproval"] {
+        for field in [
+            "requireMergeApproval",
+            "requirePublishApproval",
+            "requireLocalChecks",
+        ] {
             let mut value = serde_json::to_value(&draft).unwrap();
             value["policy"][field] = json!(false);
             assert!(!mcp_draft_only(&serde_json::from_value(value).unwrap()));
         }
     }
+    #[test]
+    fn ci_only_repair_graph_reaches_publication_without_local_checks_or_approval() {
+        let mut workflow = catalog::templates()
+            .into_iter()
+            .find(|w| w.id == "template-pr-repair")
+            .unwrap();
+        workflow.scope = serde_json::from_value(
+            json!({"projectId":"local","repository":"owner/repo","identity":"owner"}),
+        )
+        .unwrap();
+        workflow.policy.allow_writes = true;
+        workflow.policy.allow_commit = true;
+        workflow.policy.allow_push = true;
+        workflow.policy.require_publish_approval = false;
+        workflow.policy.require_local_checks = false;
+        workflow
+            .nodes
+            .retain(|node| !matches!(node.id.as_str(), "validate" | "approve"));
+        workflow.edges.retain(|edge| {
+            !matches!(edge.from.as_str(), "validate" | "approve")
+                && !matches!(edge.to.as_str(), "validate" | "approve")
+        });
+        for (from, to) in [("repair", "commit"), ("commit", "publish")] {
+            workflow.edges.push(automation::WorkflowEdge {
+                from: from.into(),
+                to: to.into(),
+                port: "next".into(),
+            });
+        }
+        if let NodeConfig::Agent {
+            tools,
+            checks,
+            prompt,
+            ..
+        } = &mut workflow
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == "repair")
+            .unwrap()
+            .config
+        {
+            tools.retain(|tool| tool != "run_checks");
+            checks.clear();
+            *prompt = "Read the source and correct the supplied CI failure. GitHub CI will validate after publication; do not claim tests passed.".into();
+        }
+        assert!(validate(&workflow).is_empty());
+        let fixture = automation::SimulationFixture {
+            event: json!({"number":12,"headSha":"observed"}),
+            outputs: [
+                ("status".into(), json!({"actionRequired":true})),
+                (
+                    "repair".into(),
+                    json!({"summary":"Corrected the source; CI pending", "outcome":"completed"}),
+                ),
+                ("commit".into(), json!({"headSha":"new-commit"})),
+                ("publish".into(), json!({"headSha":"new-commit"})),
+            ]
+            .into(),
+        };
+        let result = automation::simulate(&workflow, &catalog::registry(), &fixture).unwrap();
+        assert!(result.effects_suppressed);
+        assert!(result.steps.iter().any(|step| step.node_id == "publish"
+            && step.status == automation::SimulationStatus::Simulated));
+        assert!(result
+            .steps
+            .iter()
+            .filter(|step| step.status != automation::SimulationStatus::Skipped)
+            .all(|step| !matches!(step.node_id.as_str(), "validate" | "approve" | "manual")));
+        let current = workflow.clone();
+        prepare_proposal(&mut workflow, Some(&current), || {
+            panic!("Keep the reviewed identity")
+        })
+        .unwrap();
+        assert_eq!(workflow.policy, current.policy);
+        assert!(!workflow.enabled);
+    }
+
+    #[test]
+    fn ci_only_publication_needs_explicit_policy_but_no_per_run_approval() {
+        let (mut doc, mut workflow) = document("manual");
+        workflow.policy.allow_writes = true;
+        workflow.policy.allow_commit = true;
+        workflow.policy.allow_push = true;
+        workflow.policy.require_publish_approval = false;
+        workflow.policy.require_local_checks = false;
+        doc.state.workflows[0] = workflow.clone();
+        let mut run = doc
+            .state
+            .enqueue(
+                &workflow.id,
+                json!({"headSha":"remote"}),
+                "event",
+                Some("branch".into()),
+                now(),
+            )
+            .unwrap();
+        let node: WorkflowNode = serde_json::from_value(json!({"id":"publish","label":"Publish","position":{"x":0,"y":0},"config":{"type":"action","operation":"github.publish","version":1,"inputs":{}}})).unwrap();
+        for publish in [false, true] {
+            assert!(
+                check_publication_evidence(&doc, &run, &node, "commit", "source", publish).is_ok()
+            );
+        }
+        assert!(doc.validations.is_empty());
+        assert!(run.approvals.is_empty());
+        // The independent approval option still applies without local checks.
+        run.workflow.policy.require_publish_approval = true;
+        doc.state.workflows[0].policy = run.workflow.policy.clone();
+        assert!(check_publication_evidence(&doc, &run, &node, "commit", "source", false).is_ok());
+        assert!(
+            check_publication_evidence(&doc, &run, &node, "commit", "source", true)
+                .unwrap_err()
+                .starts_with("automation_publish_approval_required")
+        );
+        run.workflow.policy.require_publish_approval = false;
+        run.workflow.policy.require_local_checks = true;
+        doc.state.workflows[0].policy = run.workflow.policy.clone();
+        assert!(
+            check_publication_evidence(&doc, &run, &node, "commit", "source", false)
+                .unwrap_err()
+                .starts_with("automation_validation_required")
+        );
+        run.workflow.policy.require_local_checks = false;
+        doc.state.workflows[0].policy = run.workflow.policy.clone();
+        // Revocation and cancellation remain effective in autonomous mode.
+        doc.state.workflows[0].policy.allow_push = false;
+        assert!(
+            check_publication_evidence(&doc, &run, &node, "commit", "source", true)
+                .unwrap_err()
+                .starts_with("automation_authority_changed")
+        );
+        doc.state.workflows[0].policy = run.workflow.policy.clone();
+        doc.cancel_requested.insert(run.id.clone());
+        assert!(check_publication_evidence(&doc, &run, &node, "commit", "source", true).is_err());
+    }
+
     #[test]
     fn publication_requires_validated_source_and_approval_for_exact_local_commit() {
         let (mut doc, workflow) = document("manual");

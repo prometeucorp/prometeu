@@ -138,7 +138,7 @@
       "id": "workspace.commit",
       "version": 1,
       "kind": "action",
-      "title": "Commit independently validated workspace changes",
+      "title": "Commit workspace changes under the saved validation policy",
       "requiredInputs": [
         "message"
       ],
@@ -155,7 +155,7 @@
       "id": "github.publish",
       "version": 1,
       "kind": "action",
-      "title": "Publish validated commit at the expected PR head",
+      "title": "Publish a commit at the expected PR head under the saved validation policy",
       "requiredInputs": [],
       "inputSchema": {},
       "outputPorts": [

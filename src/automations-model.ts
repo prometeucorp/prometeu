@@ -10,7 +10,7 @@ export type NodeConfig =
 export type NodeKind = NodeConfig["type"];
 export type WorkflowNode = { id: string; label: string; position: Position; config: NodeConfig };
 export type WorkflowEdge = { from: string; to: string; port: string };
-export type WorkflowPolicy = { maxConcurrentRuns: number; requireMergeApproval: boolean; allowWrites: boolean; allowCommit?: boolean; allowPush?: boolean; requirePublishApproval?: boolean; maxRetries: number; maxAgentTurns: number; maxCostUsd?: number };
+export type WorkflowPolicy = { maxConcurrentRuns: number; requireMergeApproval: boolean; allowWrites: boolean; allowCommit?: boolean; allowPush?: boolean; requirePublishApproval?: boolean; requireLocalChecks?: boolean; maxRetries: number; maxAgentTurns: number; maxCostUsd?: number };
 export type WorkflowScope = { projectId?: string; repository?: string; identity?: string; linearProjectId?: string; targets?: { projectId: string; repository?: string; identity?: string }[] };
 export type Workflow = { id: string; name: string; revision: number; enabled: boolean; nodes: WorkflowNode[]; edges: WorkflowEdge[]; policy: WorkflowPolicy; scope: WorkflowScope };
 export type RegistryEntry = { id: string; version: number; kind: "query" | "action" | "jev"; title: string; requiredInputs: string[]; inputSchema: Record<string, "string" | "number" | "boolean" | "object" | "array" | "any">; outputPorts: string[]; effect: "read" | "write" | "merge" };
@@ -18,6 +18,51 @@ export type ValidationIssue = { code: string; message: string; nodeId?: string }
 export type SimulationFixture = { event: unknown; outputs: Record<string, unknown> };
 export type SimulationStep = { nodeId: string; status: "simulated" | "skipped" | "error" | "uncertain"; port?: string; input: unknown; output: unknown; message: string };
 export type SimulationResult = { steps: SimulationStep[]; outputs: Record<string, unknown>; effectsSuppressed: true };
+
+/** Generate presentation syntax from the graph; model output is never Mermaid source. */
+export function workflowDiagram(workflow: Workflow, detailed: boolean, portLabel: (port: string) => string) {
+  const exceptional = (port: string) => port === "error" || port === "uncertain";
+  const reachable = (includeErrors: boolean) => {
+    const seen = new Set<string>(), queue = workflow.nodes.filter(node => node.config.type === "trigger").map(node => node.id);
+    while (queue.length) {
+      const id = queue.pop()!; if (seen.has(id)) continue; seen.add(id);
+      queue.push(...workflow.edges.filter(edge => edge.from === id && (includeErrors || !exceptional(edge.port))).map(edge => edge.to));
+    }
+    return seen;
+  };
+  const all = reachable(true), main = reachable(false);
+  const nodes = workflow.nodes.filter(node => detailed || !all.has(node.id) || main.has(node.id));
+  const edges = workflow.edges.filter(edge => detailed || (!exceptional(edge.port) && (!all.has(edge.from) || main.has(edge.from))));
+  const ids = new Map(nodes.map((node, index) => [node.id, `n${index}`]));
+  // Numeric entities keep names out of Mermaid syntax, including directives and HTML.
+  const quote = (value: string) => value.replace(/\s/gu, " ").replace(/["<>&#`\[\]{}|\\%]/gu, char => `#${char.codePointAt(0)};`);
+  const lines = ["flowchart TD"];
+  for (const node of nodes) {
+    const text = quote(node.label);
+    lines.push(node.config.type === "condition" ? `${ids.get(node.id)}{"${text}"}` : `${ids.get(node.id)}["${text}"]`);
+  }
+  for (const edge of edges) {
+    for (const id of [edge.from, edge.to]) if (!ids.has(id)) {
+      ids.set(id, `n${ids.size}`); lines.push(`${ids.get(id)}["${quote(id)}"]`);
+    }
+    lines.push(`${ids.get(edge.from)} ${exceptional(edge.port) ? "-." : "--"} "${quote(portLabel(edge.port))}" ${exceptional(edge.port) ? ".->" : "-->"} ${ids.get(edge.to)}`);
+  }
+  return { source: lines.join("\n"), hiddenEdges: workflow.edges.length - edges.length };
+}
+
+/** Reading order follows dependencies; branches still select their own destinations. */
+export function workflowReadingOrder(workflow: Workflow): WorkflowNode[] {
+  const remaining = new Map(workflow.nodes.map(node => [node.id, node]));
+  const result: WorkflowNode[] = [];
+  while (remaining.size) {
+    const next = [...remaining.values()].find(node =>
+      !workflow.edges.some(edge => edge.to === node.id && remaining.has(edge.from)));
+    // Invalid drafts remain inspectable, including cycles and disconnected steps.
+    if (!next) { result.push(...remaining.values()); break; }
+    result.push(next); remaining.delete(next.id);
+  }
+  return result;
+}
 
 export function outputPorts(node: WorkflowNode, registry: RegistryEntry[] = []): string[] {
   const c = node.config;
@@ -82,13 +127,14 @@ export function newNode(kind: NodeKind, label: string, index: number, registry: 
 }
 
 export function blankWorkflow(name: string): Workflow {
-  return { id: crypto.randomUUID(), name, revision: 0, enabled: false, nodes: [], edges: [], scope: {}, policy: { maxConcurrentRuns: 1, requireMergeApproval: true, allowWrites: false, allowCommit: false, allowPush: false, requirePublishApproval: true, maxRetries: 2, maxAgentTurns: 5 } };
+  return { id: crypto.randomUUID(), name, revision: 0, enabled: false, nodes: [], edges: [], scope: {}, policy: { maxConcurrentRuns: 1, requireMergeApproval: true, allowWrites: false, allowCommit: false, allowPush: false, requirePublishApproval: true, requireLocalChecks: true, maxRetries: 2, maxAgentTurns: 5 } };
 }
 
 export type AutomationRun = { id: string; workflow: Workflow; status: "queued" | "running" | "waiting" | "awaitingApproval" | "paused" | "succeeded" | "failed" | "cancelled"; event: unknown; eventKey: string; resourceKey?: string; createdAt: number; updatedAt: number; history: { sequence: number; at: number; nodeId?: string; kind: string; message: string }[]; approvals: { nodeId: string; headSha?: string; eventKey: string; approvedAt: number; actor: string }[]; outputs: Record<string, unknown>; completedPorts?: Record<string, string>; measuredCostUsd?: number; costUnknown?: boolean; pendingApprovalNodeId?: string };
 export type AutomationSnapshot = { workflows: Workflow[]; revisions: Workflow[]; runs: AutomationRun[]; registry: RegistryEntry[]; templates: Workflow[]; diagnostics?: { workflowId: string; error: string | null; lastPolledAt: number }[] };
 export type AutomationProposal = { workflow: Workflow; summary: string };
-export type WorkflowProposal = AutomationProposal;
+export type AutomationMessage = { role: "user" | "assistant" | "validation"; text: string };
+export type WorkflowProposal = { workflow: Workflow | null; summary: string };
 
 /** Unsupported IPC is a capability gap, distinct from a transient connection failure. */
 export function automationTransportUnavailable(error: unknown): boolean {

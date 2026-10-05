@@ -182,7 +182,8 @@
     ],
     "consumers": [
       "src/action-settings.ts",
-      "src/components/resource-view.ts"
+      "src/components/resource-view.ts",
+      "src/automations.ts"
     ],
     "states": [
       "ready",
@@ -220,7 +221,8 @@
       "conversationBlock"
     ],
     "consumers": [
-      "src/chat.ts"
+      "src/chat.ts",
+      "src/automations.ts"
     ],
     "states": [
       "text",
@@ -257,7 +259,8 @@
       "errorCard"
     ],
     "consumers": [
-      "src/chat.ts"
+      "src/chat.ts",
+      "src/automations.ts"
     ],
     "states": [
       "short",
@@ -272,7 +275,8 @@
       "noticeCard"
     ],
     "consumers": [
-      "src/chat.ts"
+      "src/chat.ts",
+      "src/automations.ts"
     ],
     "states": [
       "short",
@@ -305,13 +309,15 @@
       "attachmentChip"
     ],
     "consumers": [
-      "src/chat.ts"
+      "src/chat.ts",
+      "src/automations.ts"
     ],
     "states": [
       "default",
       "busy",
       "offline",
-      "attachments"
+      "attachments",
+      "text-only"
     ]
   },
   {
@@ -345,6 +351,7 @@
     ],
     "consumers": [
       "src/chat.ts",
+      "src/automations.ts",
       "src/mobile/view.ts"
     ],
     "states": [

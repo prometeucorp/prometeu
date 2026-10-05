@@ -1,7 +1,7 @@
 /** Browser-only development backend. Never invokes providers or external services. */
 import type { IpcHandlers } from "./ipc";
 import catalog from "./automation-catalog.json";
-import { outputPorts, type Workflow, type RegistryEntry, type ValidationIssue, type SimulationFixture, type SimulationResult, type SimulationStep, type AutomationSnapshot } from "./automations-model";
+import { outputPorts, workflowDiff, type Workflow, type RegistryEntry, type ValidationIssue, type SimulationFixture, type SimulationResult, type SimulationStep, type AutomationSnapshot } from "./automations-model";
 
 const key = "mock:automations";
 const registry = catalog.registry as unknown as RegistryEntry[];
@@ -21,6 +21,18 @@ export function validate(workflow: Workflow): ValidationIssue[] {
   for (const node of workflow.nodes) {
     if (ids.has(node.id) || !node.id) add("node_id", "Node ids must be unique", node.id); ids.add(node.id);
     const c = node.config;
+    if (c.type === "agent" && c.outputSchema !== undefined) {
+      const schema = c.outputSchema as Record<string, unknown> | null;
+      const props = schema?.properties as Record<string, { type?: string }> | undefined;
+      if (!schema || Array.isArray(schema) || typeof schema !== "object"
+        || (schema.type !== undefined && schema.type !== "object")
+        || Object.keys(props ?? {}).some(key => !["summary", "outcome"].includes(key))
+        || (Array.isArray(schema.required) && schema.required.some(key => !["summary", "outcome"].includes(String(key))))
+        || ["summary", "outcome"].some(key => props?.[key]?.type !== undefined && props[key].type !== "string")
+        || (schema.additionalProperties === false && ["summary", "outcome"].some(key => !props?.[key]))) {
+        add("agent_schema", "Restricted workers return summary and outcome (completed, needs_human, failed)", node.id);
+      }
+    }
     if (c.type === "agent" && !c.prompt.trim()) add("required", "Agent prompt is required", node.id);
     if (c.type === "approval" && !c.message.trim()) add("required", "Approval message is required", node.id);
     if (c.type === "condition" && !c.path.trim()) add("required", "Condition path is required", node.id);
@@ -30,6 +42,11 @@ export function validate(workflow: Workflow): ValidationIssue[] {
       const op = registry.find(r => r.id === c.operation && r.version === c.version && r.kind === c.type);
       if (!op) add("operation", "Unknown operation", node.id);
       else for (const field of op.requiredInputs) if (c.inputs[field] == null || c.inputs[field] === "") add("required_input", `Input ${field} is required`, node.id);
+    }
+  }
+  for (const target of workflow.scope.targets ?? []) {
+    if (!target.projectId || !target.identity || !target.repository || !/^[^/\s]+\/[^/\s]+$/.test(target.repository)) {
+      add("target", "Each GitHub target requires a local project, owner/repository and connected identity");
     }
   }
   for (const edge of workflow.edges) {
@@ -111,6 +128,10 @@ export const commands: Pick<IpcHandlers, "automations_snapshot" | "automations_s
     if ((previous?.revision ?? 0) !== (expectedRevision ?? workflow.revision)) throw new Error("automation_revision_conflict");
     const errors = validate(workflow); if (errors.length) throw new Error(errors.map(e => e.message).join("; "));
     const saved = structuredClone({ ...workflow, revision: (previous?.revision ?? 0) + 1 });
+    if (previous && workflowDiff(previous, saved).some(change => change.path.startsWith("scope."))) {
+      saved.enabled = false;
+      Object.assign(saved.policy, { allowWrites: false, allowCommit: false, allowPush: false, requireMergeApproval: true, requirePublishApproval: true, requireLocalChecks: true });
+    }
     data.workflows = [...data.workflows.filter(w => w.id !== workflow.id), saved]; data.revisions.push(saved); persist(data); return structuredClone(saved);
   },
   automations_validate: ({ workflow }) => validate(workflow),
@@ -120,7 +141,7 @@ export const commands: Pick<IpcHandlers, "automations_snapshot" | "automations_s
     workflow.enabled = !paused; workflow.revision++; data.revisions.push(structuredClone(workflow)); persist(data); return structuredClone(workflow);
   },
   automations_delete: ({ id }) => { const data = state(); data.workflows = data.workflows.filter(w => w.id !== id); persist(data); },
-  automations_propose: () => { throw new Error("automation_browser_only: Open the desktop app with a connected Claude account to generate a real proposal."); },
+  automations_propose: () => { throw new Error("automation_browser_only: Open the desktop app with a connected Claude or Codex account to generate a real proposal."); },
   automations_run: () => { throw new Error("automation_browser_only: Runtime execution requires the desktop app. Use simulation here."); },
   automations_resume: () => { throw new Error("automation_browser_only: Resume requires the desktop app."); },
   automations_cancel: () => { throw new Error("automation_browser_only: Cancellation requires the desktop app."); },

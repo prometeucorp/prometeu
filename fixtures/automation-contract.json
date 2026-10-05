@@ -363,6 +363,7 @@
         "maxConcurrentRuns": 1,
         "maxCostUsd": 2.0,
         "maxRetries": 0,
+        "requireLocalChecks": true,
         "requireMergeApproval": true,
         "requirePublishApproval": true
       },
@@ -709,6 +710,7 @@
           "maxConcurrentRuns": 1,
           "maxCostUsd": 2.0,
           "maxRetries": 0,
+          "requireLocalChecks": true,
           "requireMergeApproval": true,
           "requirePublishApproval": true
         },
@@ -1050,6 +1052,7 @@
             "maxConcurrentRuns": 1,
             "maxCostUsd": 2.0,
             "maxRetries": 0,
+            "requireLocalChecks": true,
             "requireMergeApproval": true,
             "requirePublishApproval": true
           },
@@ -1272,6 +1275,7 @@
           "maxConcurrentRuns": 1,
           "maxCostUsd": 2.0,
           "maxRetries": 0,
+          "requireLocalChecks": true,
           "requireMergeApproval": true,
           "requirePublishApproval": true
         },
@@ -1599,6 +1603,7 @@
         "maxConcurrentRuns": 1,
         "maxCostUsd": 2.0,
         "maxRetries": 0,
+        "requireLocalChecks": true,
         "requireMergeApproval": true,
         "requirePublishApproval": true
       },
@@ -1818,6 +1823,7 @@
       "maxConcurrentRuns": 1,
       "maxCostUsd": 2.0,
       "maxRetries": 0,
+      "requireLocalChecks": true,
       "requireMergeApproval": true,
       "requirePublishApproval": true
     },
