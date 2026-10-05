@@ -281,12 +281,3 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
   covers the preview navigation event over the browser mock in Chromium;
   selected preview interactions also run in WebKit.
 - Existing `crates/files/src/entries.rs` tests cover path/symlink confinement.
-
-## Workflow automation tools
-
-`automations_catalog`, `automations_list`, `automations_get`,
-`automations_validate`, `automations_simulate`, `automations_save`,
-`automations_pause` and `automations_delete` use the same authenticated project
-scope. Saves create disabled drafts and cannot grant execution permissions;
-activation and human approval stay in the desktop. See the
-[automation contract](automations.md).

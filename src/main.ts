@@ -1,5 +1,4 @@
 import * as actions from "./actions";
-import { mountAutomations } from "./automations";
 import * as background from "./background";
 import * as cloud from "./cloud";
 import { invoke } from "./ipc";
@@ -117,7 +116,6 @@ const hooks: sidebar.Hooks = {
   },
   toDesk: () => showDesk(),
   toIssues: () => showIssues(),
-  toAutomations: () => showAutomations(),
   toArchived: () => showArchived(),
   issues: () => issues.count(),
   addProject: () => openProjects(say),
@@ -154,10 +152,9 @@ menu.onClose(() => missed && draw());
 /* Navigation history contains pages and workspaces with noncolliding IDs. */
 const SETTINGS = "@configurações";
 const ISSUES = sidebar.ISSUES;
-const AUTOMATIONS = sidebar.AUTOMATIONS;
 const ARCHIVED = sidebar.ARCHIVED;
 const DESK = sidebar.DESK;
-const pages = new Set([SETTINGS, ISSUES, AUTOMATIONS, ARCHIVED, DESK]);
+const pages = new Set([SETTINGS, ISSUES, ARCHIVED, DESK]);
 const hist: string[] = [];
 let at = -1;
 let navigationVersion = 0;
@@ -180,8 +177,6 @@ function travel(dir: -1 | 1) {
     showSettings(false);
   } else if (hist[at] === ISSUES) {
     showIssues(false);
-  } else if (hist[at] === AUTOMATIONS) {
-    showAutomations(false);
   } else if (hist[at] === ARCHIVED) {
     showArchived(false);
   } else if (hist[at] === DESK) {
@@ -199,12 +194,11 @@ $("back").addEventListener("click", () => travel(-1));
 $("fwd").addEventListener("click", () => travel(1));
 
 /// Show one non-workspace page at a time.
-function showOnly(view: "settingsView" | "issuesView" | "automationsView" | "archivedView" | "deskView" | null) {
+function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskView" | null) {
   navigationVersion++;
   $("deskView").hidden = view !== "deskView";
   $("settingsView").hidden = view !== "settingsView";
   $("issuesView").hidden = view !== "issuesView";
-  $("automationsView").hidden = view !== "automationsView";
   $("archivedView").hidden = view !== "archivedView";
   if (view !== "issuesView") issues.hide();
   if (view !== "archivedView") archived.hide();
@@ -250,21 +244,6 @@ function showIssues(push = true) {
   showOnly("issuesView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.issues")));
   issues.show();
-  draw();
-}
-
-// Keep the mounted editor across navigation so unsaved graph changes survive returning to it.
-let automationsMounted = false;
-function showAutomations(push = true) {
-  if (push) visit(AUTOMATIONS);
-  ws.leave();
-  sidebar.setOpen(AUTOMATIONS);
-  showOnly("automationsView");
-  $("crumb").replaceChildren(crumbLabel(t("automations.title")));
-  if (!automationsMounted) {
-    mountAutomations($("automationsView"));
-    automationsMounted = true;
-  }
   draw();
 }
 

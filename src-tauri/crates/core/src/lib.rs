@@ -3,7 +3,6 @@
 
 pub mod accounts;
 pub mod actions;
-pub mod automation;
 pub mod board;
 pub mod conversation;
 pub mod delegation;

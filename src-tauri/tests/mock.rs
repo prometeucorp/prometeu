@@ -43,29 +43,13 @@ fn mocked() -> BTreeSet<String> {
         .split_once("const mockCommands: IpcHandlers = {")
         .unwrap();
     let (handlers, _) = handlers.split_once("\n};").unwrap();
-    let mut names: BTreeSet<String> = handlers
+    handlers
         .lines()
         .filter_map(|line| line.strip_prefix("  ")?.split_once('('))
         .map(|(name, args)| (name.strip_prefix("async ").unwrap_or(name), args))
         .filter(|(name, _)| name.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
         .map(|(name, _)| name.to_string())
-        .collect();
-    if handlers.contains("  ...automationCommands,") {
-        assert!(
-            text.contains("import { commands as automationCommands } from \"./mock-automations\";")
-        );
-        let automation = read("src/mock-automations.ts");
-        let (_, declaration) = automation.split_once("export const commands:").unwrap();
-        let (_, body) = declaration.split_once(" = {\n").unwrap();
-        let (body, _) = body.split_once("\n};").unwrap();
-        names.extend(body.lines().filter_map(|line| {
-            let (name, _) = line.strip_prefix("  ")?.split_once(":")?;
-            name.chars()
-                .all(|c| c.is_ascii_lowercase() || c == '_')
-                .then(|| name.to_string())
-        }));
-    }
-    names
+        .collect()
 }
 
 #[test]

@@ -8,7 +8,6 @@ mod actions;
 mod agent_launch;
 mod agents;
 mod antigravity;
-mod automations;
 mod awake;
 mod background;
 mod board_store;
@@ -123,13 +122,6 @@ fn install_crypto() {
 }
 
 fn main() {
-    if std::env::args().nth(1).as_deref() == Some("--prometeu-automation-tools") {
-        if let Err(error) = automations::worker::stdio() {
-            eprintln!("{error}");
-            std::process::exit(1);
-        }
-        return;
-    }
     if std::env::args().nth(1).as_deref() == Some("--prometeu-mcp") {
         if let Err(error) = embedded_mcp::stdio() {
             eprintln!("{error}");
@@ -195,17 +187,6 @@ fn main() {
             notifications::notification_dismiss,
             notifications::notification_open,
             notifications::notification_sound,
-            automations::automations_snapshot,
-            automations::automations_save,
-            automations::automations_validate,
-            automations::automations_simulate,
-            automations::automations_pause,
-            automations::automations_delete,
-            automations::automations_propose,
-            automations::automations_run,
-            automations::automations_approve,
-            automations::automations_resume,
-            automations::automations_cancel,
             actions::actions_save,
             actions::action_start,
             actions::action_pause,
@@ -388,7 +369,6 @@ fn main() {
             mcp::warm_connectors();
             file_drop::install(app.handle())?;
             actions::watch(app.handle().clone());
-            automations::init(app.handle());
             machine::watch(app.handle().clone());
             usage::watch(app.handle().clone());
             Ok(())
