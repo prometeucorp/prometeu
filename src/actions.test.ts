@@ -25,7 +25,6 @@ describe("built-in Code review", () => {
   it("initializes once, preserves customizations and respects removal", () => {
     const seeded = initializeDefaults(emptyCatalog());
     expect(seeded.commands.map(c => c.name)).toEqual(["review"]);
-    expect(seeded.profiles[0].watch).toBeNull();
     seeded.profiles[0].choice.model = "sonnet";
     expect(initializeDefaults(seeded).profiles[0].choice.model).toBe("sonnet");
     seeded.commands = []; seeded.profiles = [];

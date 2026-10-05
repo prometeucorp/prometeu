@@ -1143,7 +1143,7 @@ const mockCommands: IpcHandlers = {
   },
   actions_save(args) {
     const catalog = args.catalog as Catalog;
-    if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim() || (p.watch && (p.watch.interval_seconds < 30 || p.watch.max_turns < 1 || p.watch.max_turns > 100)))) {
+    if (new Set(catalog.commands.map(c => c.name)).size !== catalog.commands.length || catalog.commands.some(c => !/^[a-z0-9-]{1,64}$/.test(c.name) || ["context", "compact"].includes(c.name) || (c.kind === "prompt" ? !c.prompt.trim() : !catalog.profiles.some(p => p.id === c.profile))) || catalog.profiles.some(p => !p.name.trim() || !p.prompt.trim())) {
       throw `i18n:${JSON.stringify({ code: "err.actions.invalid" })}`;
     }
     board.actions = structuredClone(catalog);
@@ -1176,18 +1176,11 @@ const mockCommands: IpcHandlers = {
     // Mirror of plugin_packages: plugins and standalone skills materialize together.
     profile.plugins ??= plugins === null && skills === null ? null : [...(plugins ?? []), ...(skills ?? [])];
     const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
-      task: { command: action.name, profile, paused: false, done: !profile.watch, turns: 0, checked_at: 0, error: null, seen: {}, prs: {} } };
+      task: { command: action.name, profile, done: true, error: null } };
     scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
     workspace.tabs.push(tab); workspace.active = tab.id;
     emit("board", board);
     return tab;
-  },
-  action_pause(args) {
-    const run = board.workspaces.flatMap(w => w.tabs).find(t => t.id === args.session)?.task;
-    if (!run) throw `i18n:${JSON.stringify({ code: "err.actions.missing" })}`;
-    run.paused = args.paused; run.error = null;
-    if (!run.paused) { run.turns = 0; run.checked_at = 0; }
-    emit("board", board); return;
   },
   load_board() {
     return board;

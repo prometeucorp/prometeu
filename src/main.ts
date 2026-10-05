@@ -790,7 +790,7 @@ showDesk();
 // Show release notes after the initial page renders so the dialog overlays the application.
 void news.init();
 
-// General discovery is advisory; explicit task monitors keep their configured clock in Rust.
+// General discovery is advisory.
 const prScan = new PrScanPolicy();
 let prTimer: ReturnType<typeof setTimeout> | null = null;
 const schedulePrs = () => {

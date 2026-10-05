@@ -42,7 +42,7 @@ const invalid = ui.input(); invalid.setAttribute("aria-invalid", "true");
 const invalidField = ui.field(t("actions.commandName"), invalid, t("ui.errorExample"));
 invalidField.querySelector(".ui-hint")!.classList.add("ui-error");
 section(t("ui.fields"), ui.field(t("actions.name"), name), ui.field(t("actions.provider"), provider.control), ui.field(t("ui.disabled"), unavailable.control), invalidField,
-  ui.field(t("actions.instructions"), ui.input("", true)), ui.checkbox(t("actions.watch"), true).label);
+  ui.field(t("actions.instructions"), ui.input("", true)), ui.checkbox(t("actions.inherit"), true).label);
 
 const disclosure = ui.disclosure(t("actions.tools"), ui.checkbox(t("actions.inherit"), true).label);
 section(t("notifications.title"), ui.toggle(t("notifications.enabled"), true).label,

@@ -105,7 +105,7 @@ export const stories: Record<string, Factory> = {
       ui.field(t("actions.instructions"), instructions), password.root);
   },
   choices(state) {
-    const choices = [ui.checkbox(t("actions.watch"), true), ui.toggle(t("notifications.enabled"), true),
+    const choices = [ui.checkbox(t("actions.inherit"), true), ui.toggle(t("notifications.enabled"), true),
       ui.radio(t("notifications.banner"), "story-notifications", "banner", true),
       ui.radio(t("notifications.notch"), "story-notifications", "notch", false)];
     choices.forEach(choice => { choice.control.disabled = state === "disabled"; });

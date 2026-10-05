@@ -7,8 +7,7 @@
     "mcp": null,
     "plugins": null,
     "skills": [],
-    "permission": "ask",
-    "watch": null
+    "permission": "ask"
   },
   "command": {
     "name": "review",

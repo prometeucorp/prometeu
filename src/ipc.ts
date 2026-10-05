@@ -26,7 +26,6 @@ export type Commands = {
   account_remove: { args: { id: string }; result: Accounts };
   account_select: { args: { id: string }; result: Accounts };
   accounts: { args: undefined; result: Accounts };
-  action_pause: { args: { session: string; paused: boolean }; result: void };
   action_start: { args: { workspace: string; name: string; context: string }; result: T.Tab };
   actions_save: { args: { catalog: Catalog }; result: void };
   add_project: { args: { path: string }; result: T.Project };

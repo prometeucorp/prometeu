@@ -189,7 +189,6 @@ fn main() {
             notifications::notification_sound,
             actions::actions_save,
             actions::action_start,
-            actions::action_pause,
             i18n::set_lang,
             agents::agents,
             agents::agent_models,
@@ -368,7 +367,6 @@ fn main() {
             // first picker or spawn asks for them (ADR 0063).
             mcp::warm_connectors();
             file_drop::install(app.handle())?;
-            actions::watch(app.handle().clone());
             machine::watch(app.handle().clone());
             usage::watch(app.handle().clone());
             Ok(())

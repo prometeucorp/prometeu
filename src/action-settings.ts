@@ -88,7 +88,6 @@ export function settingsRows(redraw: () => void, say: (text: string, bad?: boole
     item.root.classList.add("action-profile");
     if (overridden) item.heading.append(h("span", "action-badge", t("actions.override")));
     else if (base.id === "prometeu-code-review") item.heading.append(h("span", "action-badge", t("actions.included")));
-    if (profile.watch) item.text.append(h("span", "action-caption", t("actions.watchEnabled")));
     profileList.append(item.root);
   }
   if (!catalog.profiles.length) profileList.append(listState({ kind: "empty", text: t("actions.noProfiles") }));
@@ -170,16 +169,6 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     const packages = selection("actions.plugins", profile.plugins, plugins.list().map(p => p.id));
     const skills = input(profile.skills.join(", "));
     const permission = select(profile.permission, [["ask", t("actions.ask")], ["auto", t("actions.auto")]]);
-    const watching = checkbox("actions.watch", !!profile.watch);
-    const watchBody = h("div", "actionwatch"); watchBody.hidden = !watching.control.checked;
-    watching.control.onchange = () => { watchBody.hidden = !watching.control.checked; };
-    const interval = input(String(profile.watch?.interval_seconds ?? 60)) as HTMLInputElement;
-    interval.type = "number"; interval.min = "30"; interval.max = "86400"; interval.required = true;
-    const limit = input(String(profile.watch?.max_turns ?? 10)) as HTMLInputElement;
-    limit.type = "number"; limit.min = "1"; limit.max = "100"; limit.required = true;
-    const comments = checkbox("actions.comments", profile.watch?.comments ?? true);
-    const ci = checkbox("actions.ci", profile.watch?.ci ?? true);
-    watchBody.append(field("actions.interval", interval), comments.label, ci.label, field("actions.limit", limit), h("p", "ui-hint", t("actions.watchHint")));
     const models = h("div", "ui-columns");
     models.append(field("actions.model", model), effortField);
     const tools = ui.disclosure(t("actions.tools"));
@@ -187,14 +176,13 @@ function profileEditor(old: actions.Profile | null, project: string, redraw: () 
     tools.append(servers.root, packages.root,
       field("actions.skills", skills), h("p", "ui-hint", t("actions.skillsHint")));
     body.append(field("actions.name", name), field("actions.instructions", prompt), models, tools,
-      field("actions.permission", permission.control), watching.label, watchBody, h("p", "ui-hint", t("actions.snapshotHint")));
+      field("actions.permission", permission.control), h("p", "ui-hint", t("actions.snapshotHint")));
     return () => {
       const next = structuredClone(actions.catalog());
       const result: actions.Profile = { ...profile, name: name.value.trim(), prompt: prompt.value.trim(),
         choice: { ...choice },
         mcp: servers.get(), plugins: packages.get(), skills: skills.value.split(",").map(s => s.trim()).filter(Boolean),
         permission: permission.value as actions.Profile["permission"],
-        watch: watching.control.checked ? { interval_seconds: Number(interval.value), max_turns: Number(limit.value), comments: comments.control.checked, ci: ci.control.checked } : null,
       };
       if (project) { (next.overrides[project] ??= {})[result.id] = result; }
       else { next.profiles = [...next.profiles.filter(p => p.id !== result.id), result]; }
@@ -239,7 +227,7 @@ function delivery(redraw: () => void, say: (text: string, bad?: boolean) => void
   const next = structuredClone(actions.catalog());
   if (next.commands.some(c => c.name === "entregar")) { say(t("err.actions.used"), true); return; }
   const id = crypto.randomUUID();
-  next.profiles.push({ id, name: t("actions.deliveryName"), prompt: t("actions.deliveryPrompt"), choice: { agent: "claude", model: "", effort: "" }, mcp: null, plugins: null, skills: [], permission: "ask", watch: { interval_seconds: 60, comments: true, ci: true, max_turns: 10 } });
+  next.profiles.push({ id, name: t("actions.deliveryName"), prompt: t("actions.deliveryPrompt"), choice: { agent: "claude", model: "", effort: "" }, mcp: null, plugins: null, skills: [], permission: "ask" });
   next.commands.push({ name: "entregar", description: t("actions.deliveryName"), kind: "agent", profile: id, prompt: t("actions.deliveryStart") });
   void actions.save(next).then(redraw).catch(e => say(fromBack(e), true));
 }

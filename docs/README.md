@@ -40,7 +40,7 @@ as a short index for agents and `README.md` presents the product.
 - [Optional Prometeu account](contracts/cloud-account.md): SaaS, browser-based
   authentication, desktop connection and private persistence.
 
-- [Reusable actions](contracts/actions.md): commands, profiles and local PR tracking.
+- [Reusable actions](contracts/actions.md): commands and profiles.
 - [`contracts/accounts.md`](contracts/accounts.md): accounts, login, global
   selection and quota isolation between agents.
 

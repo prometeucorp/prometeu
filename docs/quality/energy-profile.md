@@ -15,8 +15,7 @@ figures below do not establish a battery-life change.
    publish credentials, local paths or raw process samples.
 2. Repeat each scenario at least three times for equal intervals after a warm-up:
    idle foreground, hidden/minimized idle, one active streaming conversation,
-   several visible desk conversations, Files and Changes visible, and one
-   explicitly enabled PR monitor. Run on AC and battery when the hardware state
+   several visible desk conversations, and Files and Changes visible. Run on AC and battery when the hardware state
    is available. Change only the app revision between paired runs.
 3. For each run, record main-process, WebKit and provider CPU separately;
    wakeups; app-started `ps`, provider, `git` and `gh` process launches; disk and
@@ -36,7 +35,7 @@ figures below do not establish a battery-life change.
 | Detailed process sampling | `machine.rs::watch` | One `ps` per 3 seconds while the app runs, about 1,200 per hour. |
 | Account identity/quota probes | `usage.rs::watch` | Every registered profile is probed sequentially, followed by a 60-second sleep; actual per-profile spacing also includes probe duration. |
 | Antigravity quota child wait | `antigravity.rs::discover` | Completion check every 20 ms, up to 10 seconds per invocation. |
-| General PR discovery | `main.ts` | At startup and every 60 seconds. Explicit monitoring is a separate backend schedule. |
+| General PR discovery | `main.ts` | At startup and every 60 seconds. |
 | Visible Changes and Files | `workspace.ts`, `tree.ts` | Each has a five-second fallback; workspace board redraws can add status requests. |
 | Full status for one repository | `session/git.rs` | Multiple Git subprocesses per request; the issue's throwaway benchmark measured ten read-only commands at 165.1 ms median wall time and 82.5 ms mean child CPU on its repository. |
 
@@ -73,8 +72,7 @@ assertions, refresh latency, and any deferred candidate. Check these outcomes
 independently of Energy Impact:
 
 - Hidden idle performs no detailed process or Git scans.
-- Account and general-PR probes respect their documented background budgets;
-  the explicit PR monitor retains its configured interval.
+- Account and general-PR probes respect their documented background budgets.
 - Returning to the app queues stale refreshes immediately and preserves the
   last valid quota reading during provider failures.
 - A machine reading changes only the resource display, not unrelated footer
@@ -176,8 +174,7 @@ frequent app switching adds at most one scan per minute. A request during a
 slow scan queues only one follow-up;
 one clone is queried once per general scan. Rust tests cover the gate, an
 aborted CLI process, archived/cleaned exclusion, and preservation of known PR
-metadata. The explicit task monitor retains its original cadence and richer
-queries. These are scheduler limits, not measured `gh` launches or watts; a
+metadata. These are scheduler limits, not measured `gh` launches or watts; a
 controlled fixture with the same clone count and authenticated `gh` state is
 still needed for a native before/after comparison.
 

@@ -33,7 +33,7 @@ reusable across projects, and is not sent to the relay.
 ## Profile and execution
 
 A profile has identity, name, prompt, `choice` (provider/model/effort), MCP,
-plugins, skill names, `permission: ask | auto` and an optional `watch`.
+plugins, skill names and `permission: ask | auto`.
 `overrides[project][profile]` fully replaces a profile for that project. It does
 not change the global profile.
 
@@ -58,50 +58,16 @@ Permissions are materialized by the adapter: Claude uses its normal approval
 mode under `ask`; Codex uses `approvalPolicy: untrusted`. `auto` keeps the
 existing bypass. These options do not constitute worktree isolation.
 
-An untracked task finishes when its turn finishes. Tracking is optional and does
-not change the workspace's manual stage. Repeating the same command with a task
+A task finishes when its turn finishes. Repeating the same command with a task
 still open returns the existing tab. If there is additional context, the app
 refuses and preserves the draft so it can be sent in the task's tab. Starting
 another task requires that no conversation is working, waiting for an answer or
 holding a pending message.
 
-## PR tracking
+## PR discovery
 
-`watch` defines an interval in seconds (30–86400), comments, CI results and a
-limit of automatic turns (1–100). The shipped example uses 60 seconds and 10
-turns. PRs are discovered by branch and then pinned to the number per
-repository. Repositories without a PR do not prevent the found PRs from
-completing.
-
-A backend thread queries `gh`; there is no model turn while waiting. The queries
-are sequential and have a 30-second deadline per process. The interval is a
-minimum, not a guarantee of real-time delivery. General comments, reviews and
-line comments use pagination. Comments from the authenticated account are
-ignored to avoid feedback loops. CI results include success, failure, error,
-timeout, cancellation and action required; pending states do not wake the agent.
-The identifier includes the commit and the check run when available.
-
-The execution stores `seen` (SHA-256 hashes of the events), PRs, the query
-timestamp, the turn count, `paused`, `done` and the last error. Repeated events
-do not generate a turn; comment edits do. While some conversation is working or
-waiting for an answer, news stays unconfirmed and is grouped into the next
-query. The cursor and the pending message are written together before sending.
-A pending message survives a restart and can be resumed. There is no
-exactly-once guarantee in the window between the CLI accepting the message and
-the persistence of the transcript.
-
-External data does not grant permissions: it arrives identified as comments or
-CI results. Each comment body is limited to 12000 characters; the URL
-accompanies the text for full inspection. `gh` responses above 8 MiB are
-refused. The turn limit pauses the execution; resuming it renews the limit.
-
-Closing every found PR completes the tracking. Pausing, archiving or cleaning
-the workspace suspends the queries; closing the tab removes the task. Pausing
-does not interrupt a turn already in progress. A closed app or a suspended Mac
-does not query; the next open reconciles the news. Query failures stay visible
-and preserve the cursors; a turn failure or interruption pauses the tracking.
-
-General PR discovery is separate from this explicit task monitor. It starts
+There is no automatic PR follow-up: the app does not poll a task's PR comments
+or CI and does not start agent turns on its own. General PR discovery starts
 when the app opens, scans one clone once for all of its eligible workspace
 branches, and is scheduled every three minutes on foreground AC, five minutes
 on foreground battery or unknown power, and 15 minutes while hidden or
@@ -116,9 +82,7 @@ are excluded from general discovery; recorded PRs
 remain available on archived workspaces. A second general request during a
 scan queues one follow-up. Each general `gh pr list` has a 15-second deadline
 and a 2 MiB output cap. Failed, timed-out, empty or incomplete results preserve
-known PR metadata. The monitor keeps its configured interval, 30-second query
-deadline, pagination, cursors and pending delivery. Its richer PR, comment and
-CI queries cannot reuse the general listing's field set or freshness guarantee.
+known PR metadata.
 
 ## IPC and compatibility
 
@@ -127,9 +91,12 @@ CI queries cannot reuse the general listing's field set or freshness guarantee.
 - `action_start({ workspace, name, context }) -> Tab`: resolves the profile,
   creates a local session and starts the request. A spawn error stays in the tab
   for inspection.
-- `action_pause({ session, paused }) -> void`: pauses or resumes tracking.
 
-New fields are additive with defaults in persistence. Ordinary sessions do not
+New fields are additive with defaults in persistence. Boards written by earlier
+versions may contain a profile `watch` and task `seen`/`prs` cursors from the
+removed PR monitor; they are ignored on load and dropped on the next save. Tasks
+still write `paused`, `turns` and `checked_at` (always idle values) so earlier
+versions can read the board. Ordinary sessions do not
 change their launch configuration. The web mock implements the registry and tab
 creation, but does not query GitHub and does not run models. Evidence:
 [`actions.test.ts`](../../src/actions.test.ts),
@@ -137,13 +104,3 @@ creation, but does not query GitHub and does not run models. Evidence:
 [`actions.rs`](../../src-tauri/src/actions.rs),
 [`github.rs`](../../src-tauri/src/github.rs),
 [`actions.spec.ts`](../../e2e/actions.spec.ts).
-
-## Bounded GitHub monitor commands
-
-Background `gh` queries use an injected finite-command runner with a 30-second
-I/O/exit deadline and 8 MiB per captured stream. Writes and both reads progress
-without blocking each other; timeout/overflow cleans up the owned process group.
-A descendant retaining a pipe cannot hold the monitor indefinitely. Existing
-JSON parsing and timeout/response error codes stay in `github.rs`; oversized
-stderr now returns the response error instead of a truncated diagnostic.
-See [bounded commands](application-core.md#processes-terminals-and-commands).

@@ -402,7 +402,10 @@ fn record_tool_trust(
         declaration,
         hash,
         approved,
-        crate::actions::now(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
     )
 }
 
@@ -2971,7 +2974,6 @@ mod tests {
             plugins: Some(vec![]),
             skills: vec!["review".into()],
             permission: Permission::Ask,
-            watch: None,
         };
         let mut catalog = Catalog {
             profiles: vec![base.clone()],
