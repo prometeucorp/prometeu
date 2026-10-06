@@ -62,3 +62,30 @@ export function workspaceFor(
       repo.pr?.number === item.number && (repositories.get(repo.path) ?? []).includes(repository)))
   ));
 }
+
+/// Kinds that need the person first; a bot comment must not bury a failed CI or a review request.
+const PRIORITY: GitHubNotification["kind"][] = [
+  "ci_failed", "changes_requested", "review_requested", "mentioned",
+  "review_approved", "merged", "closed", "assigned", "commented",
+];
+
+/// Every notification of one issue or PR, ascending by id. `lead` names the row: the most
+/// urgent unread event, or the newest once everything is read.
+export type Thread = { key: string; items: GitHubNotification[]; lead: GitHubNotification; latest: GitHubNotification };
+
+/// One thread per issue or PR, newest activity first.
+export function threads(items: GitHubNotification[], state: ReadState): Thread[] {
+  const groups = new Map<string, GitHubNotification[]>();
+  for (const item of [...items].sort((a, b) => compareId(a.id, b.id))) {
+    const key = subjectKey(item.repository, item.number);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups].map(([key, group]) => {
+    const latest = group[group.length - 1];
+    const unread = group.filter(item => !isRead(state, item.id));
+    const lead = unread.length
+      ? unread.reduce((best, item) => PRIORITY.indexOf(item.kind) <= PRIORITY.indexOf(best.kind) ? item : best)
+      : latest;
+    return { key, items: group, lead, latest };
+  }).sort((a, b) => compareId(b.latest.id, a.latest.id));
+}
