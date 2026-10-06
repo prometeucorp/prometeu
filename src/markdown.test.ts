@@ -23,3 +23,20 @@ describe("code blocks", () => {
     expect(md('```diff\n-old\n+new\n```')).toContain('class="code tdiff"');
   });
 });
+
+describe("GitHub HTML", () => {
+  it("keeps the safe subset and drops the rest", () => {
+    const html = md(`<!-- bot -->\n<h2><a href="javascript:alert(1)" onclick="x()"><img alt="Retrigger" src="https://x/y.svg"></a>Score</h2>\n\n<details open><summary>More</summary>\n\n**bold** <script>alert(1)</script> &nbsp;<img src=x onerror="globalThis.pwned=true">\n\n</details>`, { html: true });
+    expect(html).toContain('<h2><a class="lnk" href="#" rel="noreferrer noopener"><span class="img">Retrigger</span></a>Score</h2>');
+    expect(html).toContain("<details open><summary>More</summary>");
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("&nbsp;");
+    expect(html).not.toMatch(/<script|<img|onclick|onerror|bot -->/);
+  });
+
+  it("stays off for agent Markdown", () => {
+    expect(md("<h2>x</h2>")).toContain("&lt;h2&gt;");
+    md("<h2>x</h2>", { html: true });
+    expect(md("<b>x</b>")).toContain("&lt;b&gt;");
+  });
+});

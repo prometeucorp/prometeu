@@ -1,6 +1,7 @@
 import { avatar, icon } from "./icons";
 import { fromBack, t } from "./i18n";
 import { invoke } from "./ipc";
+import { md } from "./markdown";
 import { issueRefresh, issueTab } from "./issues-controls";
 import { compareId, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, workspaceFor, type ReadState } from "./notification-feed";
 import { deliverGitHub } from "./notifications";
@@ -277,7 +278,9 @@ function githubRow(item: GitHubNotification) {
   if (!item.target || !item.target_id) {
     detail.textContent = subjectLine(item);
   } else if (details.has(item.id)) {
-    detail.textContent = details.get(item.id) || t("notifications.noText");
+    const text = details.get(item.id);
+    if (text && item.target !== "workflow_run") { detail.classList.add("md"); detail.innerHTML = md(text, { html: true }); }
+    else detail.textContent = text || t("notifications.noText");
   } else if (!ctx.github().connected) {
     const connect = button(t("github.connect"), ctx.toSettings, "ghost"); connect.classList.add("sm");
     detail.append(t("notifications.connect"), " ", connect);

@@ -1171,6 +1171,8 @@ body.noside .side { display: none; }
   margin: 0 12px 8px 44px; padding: 10px 12px; border-left: 2px solid var(--line);
   color: var(--fg-2); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.notification-detail.md { white-space: normal; line-height: 1.5; }
+.notification-detail summary { cursor: pointer; }
 .nday { padding: 14px 12px 4px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
 .github-code { font-family: var(--mono); letter-spacing: .08em; }
 .github-install-hint { padding: 12px 8px; }

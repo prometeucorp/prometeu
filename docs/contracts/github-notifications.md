@@ -123,7 +123,11 @@ discards requests that finish afterwards, so access is checked again. Opening a 
 and opens the workspace whose GitHub item or PR matches (the clone's GitHub
 repository comes from `github_projects`). Otherwise the row expands and
 `github_detail` fetches the current comment or review text, or the workflow run
-name. Every row can open its `url` on GitHub.
+name. Comment and review text renders as Markdown plus the HTML subset GitHub
+comments use (headings, `details`, links, lists, tables); other tags,
+attributes and comments are dropped, links keep only http(s), and images show
+their alt text because the CSP blocks remote images. Every row can open its
+`url` on GitHub.
 
 The first feed response after startup or signing in is history. Later arrivals
 trigger the `github` local notification when enabled, for at most the three
