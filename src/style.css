@@ -1177,6 +1177,7 @@ body.noside .side { display: none; }
 }
 .notification-event { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--fg-3); font-size: 12px; white-space: normal; }
 .notification-detail .md { white-space: normal; font-size: 13px; line-height: 1.5; }
+.notification-detail .md pre { overflow-x: auto; }
 .notification-detail summary { cursor: pointer; }
 .nday { padding: 14px 12px 4px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
 .github-code { font-family: var(--mono); letter-spacing: .08em; }
