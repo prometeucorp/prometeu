@@ -4,6 +4,20 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.27.0] - 2026-10-06
+
+### New
+
+- **notifications:** Render github comments as formatted markdown
+- **notifications:** Group github notifications by pull request or issue
+- **github:** Show the CI status of open PRs
+
+### Fixes
+
+- **notifications:** Keep opened threads read and show failed event details
+- **notifications:** Keep encoded links and image labels intact in github comments
+- **notifications:** Scroll long html code blocks inside github comments
+
 ## [0.26.0] - 2026-10-06
 
 ### New
