@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.26.0] - 2026-10-06
+
+### New
+
+- **github:** Connect github directly and get pr and issue notifications
+
+### Fixes
+
+- **actions:** Settle tasks left waiting by the removed pr monitor
+- **github:** Keep notifications and issue lists scoped to the connected account
+- **github:** Recheck notification titles after switching accounts
+
 ## [0.25.0] - 2026-10-04
 
 ### New
