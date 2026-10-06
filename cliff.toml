@@ -56,6 +56,14 @@ commit_parsers = [
   # entry.
   { sha = "cef2531a68abfde3c10faad0293a95133cebeadb", skip = true },
   { sha = "12dc84a46917510da6392b64b0f8fcb6c24585fc", skip = true },
+  # These automations commits shipped a feature that was removed before any release. Exclude them
+  # without rewriting main.
+  { sha = "c57c2163fc24b2e8a3072a6807e681b5be7c6193", skip = true },
+  { sha = "11b92d70c2f270121c05ad27e1673099b1957f4b", skip = true },
+  { sha = "c11d0eac6c4493a7c946b192bbb0c1c6731c12b2", skip = true },
+  { sha = "1e88ff5ff1f8cbe92dde65d8d236759f0cc8e03a", skip = true },
+  { sha = "661f6c16a26615611e3b8850572c736ec5ab4f88", skip = true },
+  { sha = "16e3b5f671c8da6ecb93a2a37e88479e3dba1a4d", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = '^Revert "chore\(release\)', skip = true },
   { message = "^Marcar a versão", skip = true },
