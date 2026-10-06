@@ -27,6 +27,10 @@ const LANG: Record<string, string> = {
 const TAGS = new Set(["a", "b", "blockquote", "br", "code", "dd", "del", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "kbd", "li", "ol", "p", "pre", "s", "span", "strong", "sub", "summary", "sup", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
 const TAG = /<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
 const ATTR = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+const ENTITY: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" };
+// ponytail: common named entities only; rarer ones stay literal.
+const decode = (s: string) => s.replace(/&(?:#(\d+)|#x([\da-f]+)|(\w+));/gi, (all, dec, hex, name) =>
+  dec || hex ? String.fromCodePoint(Math.min(Number.parseInt(dec ?? hex, dec ? 10 : 16), 0x10ffff)) : ENTITY[name.toLowerCase()] ?? all);
 const escText = (s: string) => s.replace(/&(?!#?\w+;)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function safeHtml(src: string): string {
@@ -38,7 +42,7 @@ function safeHtml(src: string): string {
     const [, close, name, raw] = m;
     const tag = name.toLowerCase();
     if (!TAGS.has(tag)) continue;
-    const attrs = new Map([...raw.matchAll(ATTR)].map(a => [a[1].toLowerCase(), a[2] ?? a[3] ?? a[4] ?? ""]));
+    const attrs = new Map([...raw.matchAll(ATTR)].map(a => [a[1].toLowerCase(), decode(a[2] ?? a[3] ?? a[4] ?? "")]));
     // The CSP blocks remote images, so badges read as their alt text like Markdown images do.
     if (tag === "img") out += `<span class="img">${esc(attrs.get("alt") || "")}</span>`;
     else if (close) out += `</${tag}>`;

@@ -34,6 +34,13 @@ describe("GitHub HTML", () => {
     expect(html).not.toMatch(/<script|<img|onclick|onerror|bot -->/);
   });
 
+  it("decodes attribute entities before rebuilding them", () => {
+    const html = md(`<a href="https://example.com/?a=1&amp;b=2">x</a> <img alt="A &amp; B">`, { html: true });
+    expect(html).toContain('href="https://example.com/?a=1&amp;b=2"');
+    expect(html).toContain('<span class="img">A &amp; B</span>');
+    expect(md(`<a href="&#106;avascript:alert(1)">x</a>`, { html: true })).toContain('href="#"');
+  });
+
   it("stays off for agent Markdown", () => {
     expect(md("<h2>x</h2>")).toContain("&lt;h2&gt;");
     md("<h2>x</h2>", { html: true });
