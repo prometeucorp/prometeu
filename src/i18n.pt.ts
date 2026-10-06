@@ -899,7 +899,7 @@ export const PT = {
   "err.github.slowDown": "Limite de uso do GitHub atingido. Tente de novo em alguns minutos.",
   "err.github.claimFailed": "O GitHub não atribuiu a issue. Talvez você precise de acesso de triagem a este repositório.",
   "err.github.notAvailable": "Esta issue não está mais aberta e sem responsável. Atualize a lista.",
-  "err.github.accountChanged": "Sua conta do GitHub mudou. Feche este diálogo, atualize a lista e tente novamente.",
+  "err.github.accountChanged": "Sua conta do GitHub mudou. Atualize a lista.",
   "err.github.command": "Não foi possível executar o comando do GitHub: {cause}",
   "err.github.response": "O GitHub retornou uma resposta inválida.",
   "err.github.url": "O link não é uma issue ou PR válida de github.com.",

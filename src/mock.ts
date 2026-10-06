@@ -1057,7 +1057,7 @@ const mockCommands: IpcHandlers = {
   github_feed({ after }) {
     if (localStorage.getItem("mock:githubFeed") === "none") return null;
     const rows = mockGitHubFeed.filter(row => !after || Number(row.id) > Number(after));
-    return { github: { login: "mock-user" }, notifications: rows, more: false };
+    return { account: "https://app.prometeu.co#1", github: { login: "mock-user" }, notifications: rows, more: false };
   },
   github_subjects({ keys }) {
     return keys.flatMap(key => {

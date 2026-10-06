@@ -32,6 +32,8 @@ const GLYPHS: Record<GitHubNotification["kind"], Parameters<typeof icon>[0]> = {
 };
 
 let ctx: Ctx;
+/// The Prometeu account the feed, cursor and read marks belong to; empty when signed out.
+let account = "";
 let items: GitHubNotification[] = [];
 /// undefined: no Prometeu account; null: account without a linked GitHub identity.
 let linked: string | null | undefined;
@@ -49,7 +51,6 @@ let repositories: Promise<Map<string, string[]>> | null = null;
 
 export function init(context: Ctx) {
   ctx = context;
-  read = readState();
   build();
   void poll();
   setInterval(() => void poll(), POLL_MS);
@@ -65,15 +66,23 @@ async function poll() {
   if (polling) return;
   polling = true;
   try {
-    const first = !primed;
+    let first = !primed;
     const fresh: GitHubNotification[] = [];
     for (let page = 0; page < 10; page++) {
       const feed = await invoke("github_feed", { after: cursor });
       if (!feed) {
         // Signing out forgets the feed; signing in again starts from history.
-        if (linked !== undefined) { items = []; cursor = null; primed = false; ctx.changed(); }
+        if (account) forget("");
         linked = undefined;
         break;
+      }
+      if (feed.account !== account) {
+        // Another account's feed, cursor and read marks replace these, and its first page is
+        // history. A page fetched with the previous account's cursor is incomplete: fetch again.
+        const stale = cursor !== null;
+        forget(feed.account);
+        fresh.length = 0; first = true;
+        if (stale) continue;
       }
       linked = feed.github ? feed.github.login ?? "" : null;
       primed = true;
@@ -92,6 +101,12 @@ async function poll() {
     // The feed retries on the next poll; a dropped connection is not worth an alert each time.
     console.warn("github feed", fromBack(error));
   } finally { polling = false; }
+}
+
+function forget(next: string) {
+  account = next; items = []; cursor = null; primed = false;
+  read = next ? readState(next) : { before: "", ids: [] };
+  ctx.changed();
 }
 
 /// After a long sleep only the newest few arrivals interrupt; the rest wait in the list and badge.
@@ -172,7 +187,7 @@ function build() {
   });
   const bar = $("nbar");
   const meta = h("span", "imeta"); meta.id = "nmeta"; meta.setAttribute("role", "status");
-  const all = button(t("notifications.readAll"), () => { read = markAll(read, items); saveRead(read); ctx.changed(); draw(); }, "ghost");
+  const all = button(t("notifications.readAll"), () => { read = markAll(read, items); saveRead(account, read); ctx.changed(); draw(); }, "ghost");
   all.classList.remove("md"); all.id = "nreadall";
   bar.append(h("span", "spacer"), meta, all, issueRefresh(t("issues.refresh"), () => void poll()));
   $("nlist").setAttribute("role", "tabpanel");
@@ -234,7 +249,7 @@ function githubRow(item: GitHubNotification) {
   github.addEventListener("click", event => event.stopPropagation());
   row.querySelector(".go")!.append(github);
   const activate = async () => {
-    read = markRead(read, item.id); saveRead(read); ctx.changed();
+    read = markRead(read, item.id); saveRead(account, read); ctx.changed();
     const workspace = await workspaceOf(item);
     if (workspace) { ctx.open(workspace); return; }
     expanded = expanded === item.id ? "" : item.id;

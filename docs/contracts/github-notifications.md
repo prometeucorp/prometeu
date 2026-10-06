@@ -103,8 +103,14 @@ workspaces. The destination merges both sources by time, grouped by day, with
 All, GitHub and Mentions filters; mentions keep their relay rule and leave when
 the thread is resolved.
 
-Read state stays on each Mac in localStorage `prometeu:github-notifications:read`:
-`{ "before": "<id>", "ids": ["<id>"] }`. **Mark all as read** moves `before` to the
+`github_feed` adds `account` (`<origin>#<user id>`) naming the Prometeu account
+whose credential made the request. When it changes between polls, the desktop
+drops the rows, cursor and read marks of the previous account, discards a page
+fetched with the old cursor, and treats the new account's first response as
+history.
+
+Read state stays on each Mac, per account, in localStorage
+`prometeu:github-notifications:read:<account>`: `{ "before": "<id>", "ids": ["<id>"] }`. **Mark all as read** moves `before` to the
 newest id; opening a row adds its id (at most 500 are kept). A damaged record
 resets read marks only. Up to 300 rows stay in memory; after a restart the first
 request without a cursor returns the newest 100.
@@ -125,7 +131,7 @@ a matching workspace unread and, for PRs, refresh its PR state through
 
 | Command | Input | Result |
 | --- | --- | --- |
-| `github_feed` | `{ after: string \| null }` | The feed above, or `null` without an account |
+| `github_feed` | `{ after: string \| null }` | The feed above plus `account`, or `null` without an account |
 | `github_subjects` | `{ keys: { repository, number }[] }` | `{ repository, number, title, state }[]` |
 | `github_detail` | `{ repository, number, target, id }` | Current text, empty when absent |
 

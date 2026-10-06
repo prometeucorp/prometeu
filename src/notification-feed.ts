@@ -1,8 +1,9 @@
 import type { GitHubNotification, Workspace } from "./types";
 
-/// Read state is local to this Mac (ADR 0088): everything up to `before`, plus individual ids.
+/// Read state is local to this Mac and per Prometeu account (ADR 0088): everything up to
+/// `before`, plus individual ids. Feed ids are only comparable within one account.
 export type ReadState = { before: string; ids: string[] };
-export const READ_KEY = "prometeu:github-notifications:read";
+export const readKey = (account: string) => `prometeu:github-notifications:read:${account}`;
 /// Keep the newest rows; the Cloud expires them after 30 days anyway.
 const KEEP = 300;
 const READ_IDS = 500;
@@ -10,9 +11,9 @@ const READ_IDS = 500;
 /// Feed ids are decimal strings; compare by length first so "10" follows "9".
 export const compareId = (a: string, b: string) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
 
-export function readState(): ReadState {
+export function readState(account: string): ReadState {
   try {
-    const value = JSON.parse(localStorage.getItem(READ_KEY) ?? "null");
+    const value = JSON.parse(localStorage.getItem(readKey(account)) ?? "null");
     if (value && typeof value.before === "string" && /^\d*$/.test(value.before) && Array.isArray(value.ids)) {
       return { before: value.before, ids: value.ids.filter((id: unknown) => typeof id === "string").slice(-READ_IDS) };
     }
@@ -20,8 +21,8 @@ export function readState(): ReadState {
   return { before: "", ids: [] };
 }
 
-export function saveRead(state: ReadState) {
-  localStorage.setItem(READ_KEY, JSON.stringify(state));
+export function saveRead(account: string, state: ReadState) {
+  localStorage.setItem(readKey(account), JSON.stringify(state));
 }
 
 export const isRead = (state: ReadState, id: string) =>

@@ -14,7 +14,8 @@ GitHub's device flow in `src-tauri/src/github_auth.rs`:
    to reopen the page or cancel. A second connection attempt is refused while
    one is waiting.
 3. After approval, the backend reads `/user`, stores the credential and emits
-   the `github` status event.
+   the `github` status event. Cancelling at any point, including during the
+   token exchange, stores nothing.
 
 `<root>/github.json` holds the access token, refresh token, expiry and login,
 written privately. The token never crosses IPC and the Cloud never receives it.
@@ -35,7 +36,9 @@ open items: **My issues** (assigned to the connected login), **Available**
 (unassigned issues in installed repositories), **My PRs** (authored, including
 drafts) and **To review** (requested reviews, including applicable team
 requests). Opening the provider fetches all four scopes so every tab has its
-count. Explicit refresh updates every scope.
+count. Explicit refresh updates every scope. A list fetched while the person
+reconnected as another login is rejected with `err.github.accountChanged`
+instead of being shown under the new account.
 
 Available searches `no:assignee` once per installation account and keeps only
 repositories listed by the installations, since an installation can select

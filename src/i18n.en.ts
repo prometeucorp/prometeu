@@ -884,7 +884,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.github.slowDown": "GitHub rate limit reached. Try again in a few minutes.",
   "err.github.claimFailed": "GitHub did not assign the issue. You may need triage access to this repository.",
   "err.github.notAvailable": "This issue is no longer open and unassigned. Refresh the list.",
-  "err.github.accountChanged": "Your GitHub account changed. Close this dialog, refresh the list and try again.",
+  "err.github.accountChanged": "Your GitHub account changed. Refresh the list.",
   "err.github.command": "Could not run the GitHub command: {cause}",
   "err.github.response": "GitHub returned an invalid response.",
   "err.github.url": "The link is not a valid github.com issue or pull request.",

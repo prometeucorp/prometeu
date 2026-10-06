@@ -90,6 +90,11 @@ pub fn github_disconnect(app: AppHandle) -> Result<Status, String> {
     Ok(now)
 }
 
+/// The stored login, without refreshing the token.
+pub(crate) fn login() -> Option<String> {
+    load().map(|auth| auth.login)
+}
+
 pub fn status() -> Status {
     let pending = lock(&PENDING);
     let login = load().map(|auth| auth.login);
@@ -182,6 +187,12 @@ fn connect(app: &AppHandle) -> Result<(), String> {
             .filter(|login| valid_login(login))
             .ok_or_else(|| i18n::t("err.github.response"))?
             .into();
+        // Cancelling during the token exchange must not leave a credential behind; holding
+        // PENDING orders this check against `github_disconnect`.
+        let pending = lock(&PENDING);
+        if pending.as_ref().is_none_or(|p| p.cancelled) {
+            return Ok(());
+        }
         let _guard = lock(&CREDENTIAL);
         save(&auth)?;
         crate::github_issues::forget();

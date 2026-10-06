@@ -28,8 +28,8 @@ export async function loadGitHubInbox(fetch: (scope: GitHubScope) => Promise<Git
   for (const [index, result] of results.entries()) {
     const scope = githubScopes[index];
     if (result.status === "rejected") {
-      // A lost connection invalidates the whole batch, including earlier successful queries.
-      if (result.reason === 'i18n:{"code":"err.github.auth"}' || result.reason === 'i18n:{"code":"err.github.off"}') throw result.reason;
+      // A lost or switched connection invalidates the whole batch, including earlier successful queries.
+      if (["auth", "off", "accountChanged"].some(code => result.reason === `i18n:{"code":"err.github.${code}"}`)) throw result.reason;
       errors.set(scope, result.reason); continue;
     }
     account ??= result.value;

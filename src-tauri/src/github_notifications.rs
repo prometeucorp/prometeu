@@ -42,6 +42,9 @@ pub struct Linked {
 
 #[derive(Deserialize, Serialize)]
 pub struct Feed {
+    /// The Prometeu account the feed belongs to; read state and cursors are kept per account.
+    #[serde(default)]
+    pub account: String,
     pub github: Option<Linked>,
     pub notifications: Vec<Notification>,
     pub more: bool,
@@ -58,8 +61,8 @@ pub async fn github_feed(after: Option<String>) -> Result<Option<Feed>, String> 
             }
             path = format!("{path}?after={after}");
         }
-        let Some((status, value)) =
-            crate::cloud::api(Method::GET, &path, None, Duration::from_secs(15))?
+        let Some((account, status, value)) =
+            crate::cloud::api_as(Method::GET, &path, None, Duration::from_secs(15))?
         else {
             return Ok(None);
         };
@@ -72,6 +75,7 @@ pub async fn github_feed(after: Option<String>) -> Result<Option<Feed>, String> 
         let mut feed: Feed =
             serde_json::from_value(value).map_err(|_| i18n::t("err.cloud.response"))?;
         feed.notifications.retain(valid);
+        feed.account = account;
         Ok(Some(feed))
     })
     .await

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { compareId, isRead, markAll, markRead, merge, readState, READ_KEY, saveRead, workspaceFor } from "./notification-feed";
+import { compareId, isRead, markAll, markRead, merge, readKey, readState, saveRead, workspaceFor } from "./notification-feed";
 import type { GitHubNotification, Workspace } from "./types";
 
 const note = (id: string, extra: Partial<GitHubNotification> = {}): GitHubNotification => ({
@@ -23,8 +23,8 @@ it("orders numeric ids and keeps the newest rows without duplicates", () => {
   expect(merged[1].actor).toBe("edited");
 });
 
-it("tracks read state per id and by watermark, surviving damaged storage", () => {
-  let state = readState();
+it("tracks read state per account, by id and by watermark, surviving damaged storage", () => {
+  let state = readState("a");
   expect(isRead(state, "1")).toBe(false);
   state = markRead(state, "3");
   expect(isRead(state, "3")).toBe(true);
@@ -33,10 +33,11 @@ it("tracks read state per id and by watermark, surviving damaged storage", () =>
   expect(state).toEqual({ before: "10", ids: [] });
   expect(isRead(state, "9")).toBe(true);
   expect(isRead(state, "11")).toBe(false);
-  saveRead(state);
-  expect(readState()).toEqual(state);
-  localStorage.setItem(READ_KEY, "{broken");
-  expect(readState()).toEqual({ before: "", ids: [] });
+  saveRead("a", state);
+  expect(readState("a")).toEqual(state);
+  expect(readState("b")).toEqual({ before: "", ids: [] });
+  localStorage.setItem(readKey("a"), "{broken");
+  expect(readState("a")).toEqual({ before: "", ids: [] });
 });
 
 it("links a notification to the workspace that owns its PR or issue", () => {

@@ -119,8 +119,9 @@ returns it. Tests: `src-tauri/src/typesafe.rs`. See the
 
 ## GitHub notification read state
 
-`prometeu:github-notifications:read` in desktop webview localStorage stores
-`{ "before": "<id>", "ids": ["<id>"] }` for this Mac only. Notification rows are
+`prometeu:github-notifications:read:<origin>#<user id>` in desktop webview
+localStorage stores `{ "before": "<id>", "ids": ["<id>"] }` for one Prometeu
+account on this Mac only. Notification rows are
 not persisted; they come back from the Cloud feed. See
 [GitHub notifications](github-notifications.md).
 

@@ -368,7 +368,8 @@ export type GitHubNotification = {
   id: string; kind: GitHubNotificationKind; repository: string; number: number; subject: "pr" | "issue"; actor: string;
   target: "issue_comment" | "review" | "review_comment" | "workflow_run" | null; target_id: string | null; url: string; created_at: string;
 };
-export type GitHubFeed = { github: { login: string | null } | null; notifications: GitHubNotification[]; more: boolean };
+/// `account` names the Prometeu account (`origin#user id`); read state and the cursor follow it.
+export type GitHubFeed = { account: string; github: { login: string | null } | null; notifications: GitHubNotification[]; more: boolean };
 export type GitHubSubject = { repository: string; number: number; title: string; state: string };
 
 /// Busy identifies browser-based authentication, which remains visible across navigation.

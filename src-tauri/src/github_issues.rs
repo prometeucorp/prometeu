@@ -266,7 +266,12 @@ fn now() -> u64 {
 #[tauri::command(async)]
 pub fn github_issues(scope: Scope, force: bool) -> Result<Issues, String> {
     let (login, _) = github_auth::token()?;
-    issues(cache(), scope, force, login, fetch)
+    let found = issues(cache(), scope, force, login.clone(), fetch)?;
+    // A reconnection as someone else while this ran must not show the previous account's lists.
+    if github_auth::login().as_deref() != Some(login.as_str()) {
+        return Err(i18n::t("err.github.accountChanged"));
+    }
+    Ok(found)
 }
 
 fn issues(

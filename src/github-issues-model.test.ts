@@ -58,7 +58,7 @@ it("rejects a batch spanning a reconnection as another account", async () => {
 });
 
 it("discards earlier successes if the connection is lost during the batch", async () => {
-  for (const error of ['i18n:{"code":"err.github.auth"}', 'i18n:{"code":"err.github.off"}']) {
+  for (const error of ['i18n:{"code":"err.github.auth"}', 'i18n:{"code":"err.github.off"}', 'i18n:{"code":"err.github.accountChanged"}']) {
     await expect(loadGitHubInbox(async scope => {
       if (scope === "reviews") throw error;
       return inboxList();
