@@ -51,10 +51,12 @@ const subjects = new Map<string, GitHubSubject>();
 const details = new Map<string, string>();
 /// Detail requests in flight, so redraws while a thread loads do not repeat them.
 const fetching = new Set<string>();
+/// Failed detail requests, shown until the thread is expanded again, which retries them.
+const failures = new Map<string, string>();
 let cachedFor = "";
 function cacheOwner() {
   const owner = `${account}|${ctx.github().login ?? ""}`;
-  if (owner !== cachedFor) { subjects.clear(); details.clear(); cachedFor = owner; }
+  if (owner !== cachedFor) { subjects.clear(); details.clear(); failures.clear(); cachedFor = owner; }
   return owner;
 }
 let repositories: Promise<Map<string, string[]>> | null = null;
@@ -279,10 +281,11 @@ function githubRow(thread: Thread) {
   row.querySelector(".when")!.textContent = clock(thread.latest);
   row.querySelector(".go")!.append(githubLink(item));
   const activate = async () => {
-    read = thread.items.reduce((state, entry) => markRead(state, entry.id), read); saveRead(account, read); ctx.changed();
+    read = markRead(read, ...thread.items.map(entry => entry.id)); saveRead(account, read); ctx.changed();
     const workspace = await workspaceOf(item);
     if (workspace) { ctx.open(workspace); return; }
     expanded = expanded === thread.key ? "" : thread.key;
+    for (const entry of thread.items) failures.delete(entry.id);
     draw();
   };
   row.addEventListener("click", () => void activate());
@@ -319,13 +322,15 @@ function eventDetail(item: GitHubNotification, labelled: boolean): HTMLElement |
     if (!labelled) body.textContent = subjectLine(item);
   } else if (details.has(item.id)) {
     body.textContent = details.get(item.id) || t("notifications.noText");
+  } else if (failures.has(item.id)) {
+    body.textContent = failures.get(item.id)!;
   } else if (ctx.github().connected) {
     body.textContent = t("issues.busy");
     if (fetching.has(item.id)) return detail;
     fetching.add(item.id);
     void invoke("github_detail", { repository: item.repository, number: item.number, target: item.target, id: item.target_id })
       .then(text => { if (cacheOwner() === owner) details.set(item.id, text); if (visible) draw(); })
-      .catch(error => { body.textContent = fromBack(error); })
+      .catch(error => { if (cacheOwner() === owner) failures.set(item.id, fromBack(error)); if (visible) draw(); })
       .finally(() => fetching.delete(item.id));
   }
   if (!labelled && !body.textContent) return null;

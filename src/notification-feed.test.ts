@@ -67,3 +67,12 @@ it("groups notifications by issue or PR, led by the most urgent unread event", (
   expect(threads(items, { before: "", ids: ["1"] })[0].lead.id).toBe("4");
   expect(threads(items, { before: "4", ids: [] })[0].lead.id).toBe("4");
 });
+
+it("keeps a whole thread read when the list of read ids is full", () => {
+  const full = Array.from({ length: 500 }, (_, index) => String(index + 1));
+  const state = markRead({ before: "", ids: full }, "1", "1000", "1001");
+  expect(state.ids).toHaveLength(500);
+  expect(["1", "1000", "1001"].every(id => isRead(state, id))).toBe(true);
+  expect(isRead(state, "2")).toBe(false);
+  expect(markRead({ before: "10", ids: [] }, "9", "11").ids).toEqual(["11"]);
+});

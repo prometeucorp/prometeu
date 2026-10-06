@@ -28,8 +28,10 @@ export function saveRead(account: string, state: ReadState) {
 export const isRead = (state: ReadState, id: string) =>
   (state.before !== "" && compareId(id, state.before) <= 0) || state.ids.includes(id);
 
-export function markRead(state: ReadState, id: string): ReadState {
-  return isRead(state, id) ? state : { ...state, ids: [...state.ids, id].slice(-READ_IDS) };
+/// Ids already in the list move to its end, so marking a thread never evicts its own members.
+export function markRead(state: ReadState, ...ids: string[]): ReadState {
+  const marked = ids.filter(id => state.before === "" || compareId(id, state.before) > 0);
+  return { ...state, ids: [...state.ids.filter(id => !marked.includes(id)), ...marked].slice(-READ_IDS) };
 }
 
 export function markAll(state: ReadState, items: GitHubNotification[]): ReadState {
