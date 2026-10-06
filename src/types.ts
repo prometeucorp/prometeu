@@ -238,8 +238,13 @@ export type Workspace = {
 
 export type Remote = { owner: string; online: boolean };
 
-/// GitHub CLI PR data; state is OPEN, MERGED, or CLOSED.
-export type Pr = { number: number; title: string; isDraft: boolean; state: string };
+/// GitHub PR data; state is OPEN, MERGED, or CLOSED. `checks` is GitHub's CI rollup for an open
+/// PR's head commit, absent when unknown.
+export type Pr = { number: number; title: string; isDraft: boolean; state: string; checks?: string };
+
+/// Collapse GitHub's CI rollup into what the person acts on.
+export const ci = (pr: Pr): "running" | "passed" | "failed" | null =>
+  !pr.checks ? null : pr.checks === "SUCCESS" ? "passed" : pr.checks === "PENDING" || pr.checks === "EXPECTED" ? "running" : "failed";
 
 /// PRs in workspace repository order.
 export const prs = (ws: Workspace) => ws.repos.flatMap((r) => (r.pr ? [{ repo: r.name, pr: r.pr }] : []));

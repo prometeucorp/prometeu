@@ -25,6 +25,7 @@ import * as team from "./team";
 import * as tree from "./tree";
 import { relocate, relocateTabs } from "./tree-moves";
 import {
+  ci,
   fmtTokens,
   label,
   merged,
@@ -604,6 +605,13 @@ function paintPr(ws: Workspace) {
   ask.title = done ? t("top.finish") : quiet ? t("top.pr.go") : all.length ? t("top.pr.update") : t("top.pr");
   ask.classList.toggle("done", done);
   ask.firstElementChild!.outerHTML = icon(done ? "check" : "git-pull-request", 14);
+  // Tint the icon with the most urgent CI state among the open PRs.
+  const runs = all.map(({ pr }) => ci(pr));
+  const worst = done ? null : (["failed", "running", "passed"] as const).find((state) => runs.includes(state));
+  if (worst) {
+    ask.dataset.ci = worst;
+    ask.title += ` · ${t(`pr.ci.${worst}`)}`;
+  } else delete ask.dataset.ci;
   ask.onclick = () => {
     if (done) return finish(ws.id);
     if (quiet) return all.length === 1 ? openIn(ws, all[0].repo) : prMenu(ws, ask);
@@ -623,13 +631,19 @@ function prMenu(ws: Workspace, at: HTMLElement) {
   const box = at.getBoundingClientRect();
   menu.openAt(
     { x: box.left, y: box.bottom + 4 },
-    prs(ws).map(({ repo, pr }) => ({
-      label: many ? `${repo} · #${pr.number}` : `#${pr.number} ${pr.title}`,
-      glyph: icon(pr.state === "MERGED" ? "check" : "git-pull-request", 14),
-      hint: t(pr.state === "MERGED" ? "pr.merged" : pr.isDraft ? "pr.draft" : "pr.open"),
-      run: () => openIn(ws, repo),
-    })),
+    prs(ws).map(({ repo, pr }) => {
+      const state = t(pr.state === "MERGED" ? "pr.merged" : pr.isDraft ? "pr.draft" : "pr.open");
+      const checks = ci(pr);
+      return {
+        label: many ? `${repo} · #${pr.number}` : `#${pr.number} ${pr.title}`,
+        glyph: `<span class="pr-ci" data-ci="${checks ?? ""}">${icon(pr.state === "MERGED" ? "check" : "git-pull-request", 14)}</span>`,
+        hint: checks ? `${state} · ${t(`pr.ci.${checks}`)}` : state,
+        run: () => openIn(ws, repo),
+      };
+    }),
   );
+  // The menu shows the last known CI state; this refresh repaints the button when it changes.
+  askPr(ws);
 }
 
 const openIn = (ws: Workspace, repo: string) =>
