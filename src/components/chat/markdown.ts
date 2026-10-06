@@ -23,6 +23,37 @@ const LANG: Record<string, string> = {
   ruby: "rb", yml: "yaml", jsonc: "json", console: "sh", text: "txt", plaintext: "txt",
 };
 
+/// GitHub comments mix Markdown with a small HTML vocabulary; rebuild only these tags, keep only these attributes, and escape everything else.
+const TAGS = new Set(["a", "b", "blockquote", "br", "code", "dd", "del", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "kbd", "li", "ol", "p", "pre", "s", "span", "strong", "sub", "summary", "sup", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
+const TAG = /<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*)\s*\/?>/g;
+const ATTR = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+const ENTITY: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" };
+// ponytail: common named entities only; rarer ones stay literal.
+const decode = (s: string) => s.replace(/&(?:#(\d+)|#x([\da-f]+)|(\w+));/gi, (all, dec, hex, name) =>
+  dec || hex ? String.fromCodePoint(Math.min(Number.parseInt(dec ?? hex, dec ? 10 : 16), 0x10ffff)) : ENTITY[name.toLowerCase()] ?? all);
+const escText = (s: string) => s.replace(/&(?!#?\w+;)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function safeHtml(src: string): string {
+  let out = "", at = 0;
+  src = src.replace(/<!--[\s\S]*?(?:-->|$)/g, "");
+  for (const m of src.matchAll(TAG)) {
+    out += escText(src.slice(at, m.index));
+    at = m.index + m[0].length;
+    const [, close, name, raw] = m;
+    const tag = name.toLowerCase();
+    if (!TAGS.has(tag)) continue;
+    const attrs = new Map([...raw.matchAll(ATTR)].map(a => [a[1].toLowerCase(), decode(a[2] ?? a[3] ?? a[4] ?? "")]));
+    // The CSP blocks remote images, so badges read as their alt text like Markdown images do.
+    if (tag === "img") out += `<span class="img">${esc(attrs.get("alt") || "")}</span>`;
+    else if (close) out += `</${tag}>`;
+    else if (tag === "a") out += `<a class="lnk" href="${esc(safeHref(attrs.get("href") ?? ""))}" rel="noreferrer noopener">`;
+    else out += `<${tag}${tag === "details" && attrs.has("open") ? " open" : ""}>`;
+  }
+  return out + escText(src.slice(at));
+}
+
+let allowHtml = false;
+
 export function codeBlock(text: string, lang = ""): string {
   const raw = (lang ?? "").trim().split(/\s+/)[0].toLowerCase();
   const diff = raw === "diff" || raw === "patch";
@@ -35,7 +66,7 @@ marked.use({
   gfm: true,
   renderer: {
     html({ text }: Tokens.HTML | Tokens.Tag) {
-      return esc(text);
+      return allowHtml ? safeHtml(text) : esc(text);
     },
     code({ text, lang }: Tokens.Code) {
       return codeBlock(text, lang);
@@ -49,8 +80,14 @@ marked.use({
   },
 });
 
-export function md(src: string): string {
-  return marked.parse(src, { async: false }) as string;
+/// `html` admits the sanitized GitHub subset; agent output keeps raw HTML as text.
+export function md(src: string, { html = false } = {}): string {
+  allowHtml = html;
+  try {
+    return marked.parse(src, { async: false }) as string;
+  } finally {
+    allowHtml = false;
+  }
 }
 
 /// Delegate clicks so streamed markdown replacements need no new listeners.

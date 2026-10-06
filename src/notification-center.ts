@@ -1,6 +1,7 @@
 import { avatar, icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { invoke } from "./ipc";
+import { md } from "./markdown";
 import { issueRefresh, issueTab } from "./issues-controls";
 import { compareId, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
 import { deliverGitHub } from "./notifications";
@@ -321,7 +322,9 @@ function eventDetail(item: GitHubNotification, labelled: boolean): HTMLElement |
   if (!item.target || !item.target_id) {
     if (!labelled) body.textContent = subjectLine(item);
   } else if (details.has(item.id)) {
-    body.textContent = details.get(item.id) || t("notifications.noText");
+    const text = details.get(item.id);
+    if (text && item.target !== "workflow_run") { body.className = "md"; body.innerHTML = md(text, { html: true }); }
+    else body.textContent = text || t("notifications.noText");
   } else if (failures.has(item.id)) {
     body.textContent = failures.get(item.id)!;
   } else if (ctx.github().connected) {
