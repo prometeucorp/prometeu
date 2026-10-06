@@ -20,6 +20,7 @@
     "test": "npm run test:release && npm run test:web && npm run test:rust && npm run test:e2e",
     "test:release": "node scripts/unix-only.mjs check:windows && python3 scripts/test_release.py",
     "test:web": "vitest run",
+    "test:scripts": "node --test scripts/app.test.mjs",
     "test:contracts": "node scripts/check-contracts.mjs && vitest run src/backend-contract.test.ts src/conversation.test.ts",
     "contracts:update": "node scripts/update-contracts.mjs",
     "test:e2e": "playwright test",
@@ -33,7 +34,7 @@
     "architecture:check": "node --test scripts/architecture-dependencies.test.mjs && node scripts/check-architecture.mjs",
     "format:check": "cd src-tauri && cargo fmt --all -- --check",
     "lint:rust": "cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings",
-    "check": "node scripts/unix-only.mjs check:windows && npm run docs:check && npm run architecture:check && npm run format:check && npm run build && npm run build:wsl && npm run test:contracts && npm run build:mobile && npm test && npm run lint:rust",
+    "check": "node scripts/unix-only.mjs check:windows && npm run docs:check && npm run test:scripts && npm run architecture:check && npm run format:check && npm run build && npm run build:wsl && npm run test:contracts && npm run build:mobile && npm test && npm run lint:rust",
     "prepare": "node scripts/install-hooks.mjs",
     "relay:dev": "wrangler dev --config relay/wrangler.toml --port 8787",
     "relay:deploy": "wrangler deploy --config relay/wrangler.toml",
@@ -49,7 +50,7 @@
     "test:bridge": "cd src-tauri && cargo test -p prometeu-bridge --locked",
     "test:windows": "cd src-tauri && cargo test -p prometeu-core -p prometeu-protocols -p prometeu-bridge --locked",
     "lint:windows": "cd src-tauri && cargo clippy -p prometeu-core -p prometeu-protocols -p prometeu-bridge -p prometeu-wsl-desktop --features prometeu-wsl-desktop/desktop --all-targets --locked -- -D warnings",
-    "check:windows": "npm run docs:check && npm run architecture:check && npm run format:check && npm run build:wsl && npm run test:contracts && npm run test:web && npm run test:windows && npm run lint:windows"
+    "check:windows": "npm run docs:check && npm run test:scripts && npm run architecture:check && npm run format:check && npm run build:wsl && npm run test:contracts && npm run test:web && npm run test:windows && npm run lint:windows"
   },
   "dependencies": {
     "@hpke/core": "1.9.0",

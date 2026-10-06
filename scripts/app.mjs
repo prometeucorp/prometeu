@@ -7,38 +7,43 @@
 // root inside the default distribution.
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wslApp, wslHome } from "./wsl-app.mjs";
 
-/** Resolves the port and state root for a platform without touching the system. */
+/**
+ * Resolves the port, state root, environment and Tauri arguments for a platform without touching
+ * the system. On Windows, `home` is the Linux home of the default WSL distribution.
+ */
 export function plan({ platform, env, home }) {
   const name = env.PROMETEU_WORKSPACE_NAME || "";
   const suffix = name ? `-${name}` : "";
-  if (platform === "win32") {
-    return {
-      port: env.PROMETEU_PORT || "1421",
-      root: env.PROMETEU_WINDOWS_RUNTIME_ROOT || `${home}/.local/share/prometeu-windows-dev${suffix}/state`,
-    };
-  }
-  return { port: env.PROMETEU_PORT || "1420", root: env.PROMETEU_ROOT || join(home, `.prometeu-dev${suffix}`) };
+  const windows = platform === "win32";
+  const port = env.PROMETEU_PORT || (windows ? "1421" : "1420");
+  const root = windows
+    ? env.PROMETEU_WINDOWS_RUNTIME_ROOT || `${home}/.local/share/prometeu-windows-dev${suffix}/state`
+    : env.PROMETEU_ROOT || path.posix.join(home, `.prometeu-dev${suffix}`);
+  // The last --config merges a JSON patch over the previous ones, replacing the devUrl port.
+  const devUrl = JSON.stringify({ build: { devUrl: `http://localhost:${port}` } });
+  return {
+    port,
+    root,
+    env: { PORT: port, [windows ? "PROMETEU_WINDOWS_RUNTIME_ROOT" : "PROMETEU_ROOT"]: root },
+    args: windows ? ["dev", "--config", devUrl] : ["dev", "--config", "src-tauri/tauri.dev.conf.json", "--config", devUrl],
+  };
 }
 
 async function main() {
-  const root = fileURLToPath(new URL("../", import.meta.url));
   const windows = process.platform === "win32";
-  const { port, root: stateRoot } = plan({ platform: process.platform, env: process.env, home: windows ? wslHome() : homedir() });
-  const env = { ...process.env, PORT: port, [windows ? "PROMETEU_WINDOWS_RUNTIME_ROOT" : "PROMETEU_ROOT"]: stateRoot };
-  console.log(`Prometeu dev · vite em ${port} · raiz em ${stateRoot}`);
-
-  // The last --config merges a JSON patch over the previous ones, replacing the devUrl port.
-  const devUrl = JSON.stringify({ build: { devUrl: `http://localhost:${port}` } });
+  const launch = plan({ platform: process.platform, env: process.env, home: windows ? wslHome() : homedir() });
+  const env = { ...process.env, ...launch.env };
+  console.log(`Prometeu dev · vite em ${launch.port} · raiz em ${launch.root}`);
   if (windows) {
-    await wslApp(["dev", "--config", devUrl], env);
+    await wslApp(launch.args, env);
     return;
   }
   const tauri = fileURLToPath(new URL("../node_modules/@tauri-apps/cli/tauri.js", import.meta.url));
-  const child = spawn(process.execPath, [tauri, "dev", "--config", "src-tauri/tauri.dev.conf.json", "--config", devUrl], { cwd: root, env, stdio: "inherit" });
+  const child = spawn(process.execPath, [tauri, ...launch.args], { cwd: fileURLToPath(new URL("../", import.meta.url)), env, stdio: "inherit" });
   await new Promise((resolve, reject) => {
     child.on("error", reject);
     child.on("exit", code => code === 0 ? resolve() : reject(new Error(`tauri exited with ${code}`)));
