@@ -171,7 +171,7 @@ const board: Board = {
             name: "prometeu",
             worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217/prometeu",
             base: "origin/main",
-            pr: { number: 51, title: "feat(portal): hire through the portal", isDraft: false, state: "OPEN" },
+            pr: { number: 51, title: "feat(portal): hire through the portal", isDraft: false, state: "OPEN", checks: "PENDING" },
           },
           {
             path: "/Users/gustavo/dev/njord",
@@ -188,7 +188,7 @@ const board: Board = {
       ws("icone-2140", "p2", "prometeu", "App icon", "Code review", [
         { id: "t4", title: "", status: "querendo", note: "What icon size do you want to generate?", tokens: 8_100 },
       ]),
-      { unread: true, pr: { number: 42, title: "feat(board): app icon", isDraft: false, state: "OPEN" } },
+      { unread: true, pr: { number: 42, title: "feat(board): app icon", isDraft: false, state: "OPEN", checks: "FAILURE" } },
     ),
     // A merged PR exposes the card badge and completion action.
     Object.assign(

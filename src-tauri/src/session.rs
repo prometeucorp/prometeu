@@ -1954,6 +1954,8 @@ mod tests {
             is_draft: false,
             state: state.into(),
             head_ref_name: branch.into(),
+            checks: None,
+            node_id: String::new(),
         }
     }
 

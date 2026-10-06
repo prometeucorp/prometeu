@@ -88,6 +88,16 @@ clone has more. A workspace whose primary repository came from a GitHub PR URL
 reads that PR directly. `state` maps to `OPEN`, `CLOSED` or `MERGED`, and the
 lifecycle timestamps feed local telemetry.
 
+For open PRs, the same refresh reads the head commit's CI rollup in one GraphQL
+`nodes(ids:)` request per 100 PRs (`statusCheckRollup.state`: `SUCCESS`,
+`FAILURE`, `ERROR`, `PENDING` or `EXPECTED`). The board persists it as the
+optional `checks` field of the PR; it is absent when the commit has no checks,
+when the read fails or the App lacks the Checks and Commit statuses read
+permissions, and once the PR closes. It is not live: it refreshes on the general
+scan, when opening the workspace, after an agent turn (at most every 20 seconds)
+and when opening the PR menu. The PR button tints its icon with the most urgent
+state (failed, running, passed) and the menu shows it per repository.
+
 Without a connection, or for repositories where the App is not installed,
 requests fail and the board keeps its last known PR: empty or failed results
 never erase a PR. Opening a PR uses the persisted number or resolves the
@@ -157,7 +167,8 @@ Rust tests in `github_auth.rs` cover credential refresh and login validation;
 `github_issues.rs` covers search qualifiers, repository/URL validation, claim
 preconditions, the per-login cache and late writes after an account change, old
 `IssueRef` compatibility and fork PR preparation against an upstream remote;
-`github.rs` covers the REST PR mapping, scan gating and PR preservation;
+`github.rs` covers the REST PR mapping, the CI rollup mapping, scan gating and
+PR preservation;
 `session.rs` covers worktree preparation. `src/github-issues-model.test.ts`
 covers source preservation, safe issue branch names, workspace reuse without
 identity collisions, eager loading of all scopes, partial failures and retry,
