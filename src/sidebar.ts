@@ -10,8 +10,10 @@ import { h, template } from "./util";
 
 /// Actions shared by sidebar rows and workspace menus.
 export type Hooks = {
-  /// Open comments that mention the current user.
-  inbox: () => void;
+  /// GitHub activity and comments that mention the current user.
+  toNotifications: () => void;
+  /// Unread GitHub notifications plus pending mentions.
+  notifications: () => number;
   open: (ws: Workspace, tab?: string) => void;
   activeTab: () => string | null;
   setStage: (id: string, stage: string) => void;
@@ -47,6 +49,8 @@ export type Hooks = {
 export const DESK = "@mesa";
 /// The issues page follows the same sentinel rule.
 export const ISSUES = "@issues";
+/// The notifications page follows the same sentinel rule.
+export const NOTIFICATIONS = "@notificacoes";
 /// The archive page follows the same sentinel rule.
 export const ARCHIVED = "@arquivados";
 
@@ -180,15 +184,18 @@ function renderRail(board: Board, hooks: Hooks) {
   issues.addEventListener("click", hooks.toIssues);
   rail.append(issues);
 
-  // Comment mentions expose pending collaboration outside individual sessions.
-  const waiting = team.inboxCount();
-  if (waiting) {
-    const mine = template("button", "navitem mentions", `${icon("at-sign")}<span></span><span class="n"></span>`);
-    mine.children[1].textContent = t("inbox.title");
-    mine.querySelector(".n")!.textContent = String(waiting);
-    mine.addEventListener("click", hooks.inbox);
-    rail.append(mine);
-  }
+  // GitHub activity and comment mentions wait outside individual sessions.
+  const waiting = hooks.notifications();
+  const notifications = template(
+    "button",
+    "navitem" + (waiting ? " mentions" : "") + (openId === NOTIFICATIONS ? " on" : ""),
+    `${icon("bell")}<span></span><span class="n"></span>`,
+  );
+  notifications.id = "rail-notifications";
+  notifications.children[1].textContent = t("notifications.center");
+  notifications.querySelector(".n")!.textContent = waiting ? String(waiting) : "";
+  notifications.addEventListener("click", hooks.toNotifications);
+  rail.append(notifications);
   rail.append(document.createElement("hr"));
 
   // Pinned workspaces move to the top instead of appearing twice.

@@ -16,6 +16,12 @@ Interruptions, snapshots, replay, reading, request answers and background-task
 drainage never arm a new completion. Visible, focused conversations consume
 their activity without notification. Comments remain Dock-only.
 
+GitHub activity from the Cloud feed is the other source
+([GitHub notifications](github-notifications.md)): only rows that arrive after the
+first load since startup notify, under the `github` preference. Its title is the
+headline ("reviewer approved") and its body `owner/repo#number`, plus the title when
+already known; its `tab` is null.
+
 Each delivery reads current preferences. Disabling an event does not change
 the Dock or unread state. Turning notifications on never replays old activity.
 Provider-specific payloads stay outside this path.
@@ -31,6 +37,7 @@ The localStorage record `prometeu:notifications` contains:
   "approval": true,
   "done": true,
   "error": true,
+  "github": true,
   "style": "banner",
   "sound": false,
   "tone": "soft"
@@ -69,8 +76,9 @@ Permission, delivery and sound commands accept only the main window. A banner
 uses macOS UserNotifications, with a retained delegate for foreground delivery
 and clicks. Denied permission and native delivery failures reach the UI.
 Clicking sends `notification-open` with the tab ID to the main window, which
-revalidates the workspace before opening it. Notification body contains only
-the workspace title, not conversation or tool output.
+revalidates the workspace before opening it. Agent notices carry only the
+workspace title, not conversation or tool output; GitHub notices carry only the
+metadata above, never comment text.
 
 The notch is a separate local Tauri window with a dedicated built entry and
 event-listening capability. It renders text nodes, stays at the top center of

@@ -285,10 +285,21 @@ pub(crate) fn api(
     body: Option<Value>,
     timeout: Duration,
 ) -> Result<Option<(u16, Value)>, String> {
+    Ok(api_as(method, path, body, timeout)?.map(|(_, status, value)| (status, value)))
+}
+
+/// Like `api`, also naming the account (`origin#user id`) whose credential made the request, so
+/// per-account state survives switching accounts between calls.
+pub(crate) fn api_as(
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+    timeout: Duration,
+) -> Result<Option<(String, u16, Value)>, String> {
     let Some(saved) = load()? else {
         return Ok(None);
     };
-    http(
+    let (status, value) = http(
         &saved.origin,
         method,
         path,
@@ -296,8 +307,12 @@ pub(crate) fn api(
         body,
         512 * 1024,
         timeout,
-    )
-    .map(Some)
+    )?;
+    Ok(Some((
+        format!("{}#{}", saved.origin, saved.user.id),
+        status,
+        value,
+    )))
 }
 
 pub(crate) fn connected() -> bool {

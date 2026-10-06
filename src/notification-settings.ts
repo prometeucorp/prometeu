@@ -62,7 +62,7 @@ export function settings(say: (text: string, error?: boolean) => void, compact =
     return block;
   };
   const events = section(t("notifications.events"));
-  const eventControls = (["approval", "done", "error"] as const).map(kind => {
+  const eventControls = (["approval", "done", "error", "github"] as const).map(kind => {
     const item = toggle(t(`notifications.${kind}`), preferences[kind]);
     item.label.classList.add("notification-row", kind);
     item.label.querySelector("span")!.append(h("small", "", t(`notifications.${kind}Hint`)));

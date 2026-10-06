@@ -31,7 +31,7 @@ test("GitHub issues and requested PR reviews launch workspaces without opening t
   await expect(page.locator("#github-issues-pane .ifind input")).not.toBeFocused();
   expect(await measurements()).toEqual(linearControls);
   await expect(page.locator("#github-mine .c")).toHaveText("2");
-  await expect(page.locator("#github-repositories .c")).toHaveText("0");
+  await expect(page.locator("#github-available .c")).toHaveText("1");
   await expect(page.locator("#github-authored .c")).toHaveText("2");
   await expect(page.locator("#github-reviews .c")).toHaveText("1");
   await page.locator("#issues-provider-linear").click();
@@ -58,21 +58,13 @@ test("GitHub issues and requested PR reviews launch workspaces without opening t
   expect(visited).toHaveLength(1);
 
   await page.locator("#railbody .navitem", { hasText: "Issues" }).click();
-  await page.getByRole("button", { name: "Choose repositories", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Choose repositories" });
-  await dialog.getByRole("checkbox", { name: "prometeucorp/prometeu", exact: true }).check();
-  await page.evaluate(() => localStorage.setItem("mock:githubLogin", "another-user"));
-  await dialog.getByRole("button", { name: "Save selection", exact: true }).click();
-  await expect(dialog).toContainText("Your GitHub account changed.");
-  expect(await page.evaluate(() => localStorage.getItem("mock:githubRepositories:another-user"))).toBeNull();
-  await page.evaluate(() => localStorage.removeItem("mock:githubLogin"));
-  await dialog.getByRole("button", { name: "Save selection", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Choose repositories", exact: true })).toBeFocused();
-  await page.locator("#github-repositories").click();
-  await expect(page.locator("#github-list .irow")).toHaveCount(2);
+  await page.locator("#github-available").click();
+  const available = page.locator("#github-list .irow", { hasText: "Add repository shortcuts" });
+  await available.getByRole("button", { name: "Claim", exact: true }).click();
+  await expect(available).toHaveCount(0);
+  await expect(page.locator("#github-mine .c")).toHaveText("3");
 
-  await page.locator("#github-repositories").focus();
+  await page.locator("#github-available").focus();
   await page.keyboard.press("End");
   await expect(page.locator("#github-reviews")).toBeFocused();
   await page.locator("#github-list .irow").getByRole("button", { name: "Open workspace", exact: true }).click();

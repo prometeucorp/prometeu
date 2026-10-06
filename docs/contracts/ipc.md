@@ -172,10 +172,13 @@ time and optional `available_error` when discovery fails after Mine succeeds.
 confirms its mutation. `linear_status` and `linear` include `can_assign` to
 identify credentials granted the `write` scope. See [Linear issues](linear-issues.md).
 
-`github_identity`, `github_issues`, `github_repositories`, `github_issue_open`,
-`github_projects` and `github_prepare` expose account validation, normalized discovery, private selections, validated
-source navigation and PR worktree preparation. See [GitHub issues](github-issues.md)
-for inputs, outputs, bounded execution and account/cache behavior.
+`github_status`, `github_connect`, `github_disconnect`, `github_issues`,
+`github_claim`, `github_issue_open`, `github_projects` and `github_prepare` expose
+the GitHub App connection, normalized discovery, claiming, validated source
+navigation and PR worktree preparation; the `github` event carries connection
+status. See [GitHub issues](github-issues.md). `github_feed`, `github_subjects`
+and `github_detail` read the Cloud notification feed and fetch titles and text on
+demand; see [GitHub notifications](github-notifications.md).
 
 `paste_files` completes that path for the clipboard: with no arguments, it reads
 the system clipboard and returns paths. On macOS it reads the general

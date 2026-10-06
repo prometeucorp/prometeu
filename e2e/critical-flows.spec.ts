@@ -52,11 +52,13 @@ test("sharing adopts a new device key without requesting review", { tag: "@webki
 });
 
 test("comments stay beside the session until resolved", { tag: "@webkit" }, async ({ page }) => {
+  // Only the team mention counts here; GitHub activity shares the same destination.
+  await page.addInitScript(() => localStorage.setItem("mock:githubFeed", "none"));
   await bootTeam(page);
 
   // Opening the context does not resolve the pending comment.
-  await page.locator("#railbody .navitem.mentions").click();
-  await page.locator(".inboxrow").click();
+  await page.locator("#rail-notifications").click();
+  await page.locator("#nlist .notification-row").click();
   await expect(page.locator("#crumb")).toContainText("Archive completed todos");
   await expect(page.locator("#comments .commentthread")).toBeVisible();
   await expect(page.locator("#chatwrap .commentpin")).toHaveCount(1);

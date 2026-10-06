@@ -1,72 +1,97 @@
 # GitHub issues and pull requests
 
-Status: current desktop contract. Decision: [ADR 0086](../decisions/0086-github-inbox.md).
+Status: current desktop contract. Decision: [ADR 0088](../decisions/0088-github-app.md).
+
+## Connection
+
+GitHub access goes through the Prometeu GitHub App (`prometeu-app`, owned by
+`prometeucorp`), not the `gh` CLI. **Settings › Integrations › GitHub** runs
+GitHub's device flow in `src-tauri/src/github_auth.rs`:
+
+1. The backend requests a device code with the App's public client ID and opens
+   GitHub's verification page in the system browser.
+2. The settings row shows the code the person types on github.com, with actions
+   to reopen the page or cancel. A second connection attempt is refused while
+   one is waiting.
+3. After approval, the backend reads `/user`, stores the credential and emits
+   the `github` status event. Cancelling at any point, including during the
+   token exchange, stores nothing.
+
+`<root>/github.json` holds the access token, refresh token, expiry and login,
+written privately. The token never crosses IPC and the Cloud never receives it.
+Access tokens last 8 hours and refresh with only the client ID, a property of
+device-flow tokens; refreshes are serialized because refresh tokens are single
+use. A rejected refresh deletes the file, so the person connects again.
+Disconnecting deletes the file; it does not revoke the GitHub authorization,
+which the person manages on github.com. Only github.com is supported.
+
+The token reaches only repositories where the App is installed and the person
+has access. The settings row and the empty lists link to the App's installation
+page. Agents may still run `gh` in their own terminals; the app does not.
 
 ## Discovery and interaction
 
-Issues contains Linear and GitHub provider tabs. GitHub has four scopes:
-assigned open issues, open issues in selected repositories, authored open PRs
-(including drafts), and open PRs requesting the authenticated user's review.
-Opening the GitHub provider fetches all four scopes, so their counts are available
-without visiting each tab. Switching scopes reads the loaded lists; reopening
-the integration revalidates them through the backend cache, and explicit refresh
-updates every scope. Personal scopes span all accessible repositories; the
-repository selection only controls the repository scope. Review requests use GitHub's
-`review-requested:<login>` search qualifier, including applicable team requests.
+Issues contains Linear and GitHub provider tabs. GitHub has four scopes, all
+open items: **My issues** (assigned to the connected login), **Available**
+(unassigned issues in installed repositories), **My PRs** (authored, including
+drafts) and **To review** (requested reviews, including applicable team
+requests). Opening the provider fetches all four scopes so every tab has its
+count. Explicit refresh updates every scope. A list fetched while the person
+reconnected as another login is rejected with `err.github.accountChanged`
+instead of being shown under the new account.
+
+Available searches `no:assignee` once per installation account and keeps only
+repositories listed by the installations, since an installation can select
+some repositories. Its rows offer **Claim**, which assigns the issue to the
+connected login after checking it is still open, unassigned and not a PR.
+GitHub has no conditional assignment and silently ignores people without
+triage access, so the result must contain the login; otherwise the claim fails.
+A claim clears the list cache and moves the row to My issues.
 
 Both providers use the same compact search field, scope tabs, refresh button
-and filter pills from `src/issues-controls.ts`. Switching provider tabs retains
-focus on the selected tab instead of focusing search. Rows use the existing
-compact Linear layout. Clicking a row, or pressing Enter
-while the row has focus, opens its canonical source URL in the system browser.
-The separate Open workspace button reuses a live workspace or opens the existing
-launcher with title, description and URL. There is no details panel. Discovery
-does not assign issues, post reviews, merge PRs or start agents. Linear's existing
-claim action remains separate from workspace creation.
+and filter pills from `src/issues-controls.ts`. Rows reuse the Linear layout.
+Clicking a row, or Enter on a focused row, opens its github.com URL. **Open
+workspace** reuses a live workspace or opens the launcher with title,
+description and URL. There is no details panel. Discovery does not post
+reviews, merge PRs or start agents.
 
-The launcher’s issue picker still lists assigned Linear issues. GitHub items
-enter through the GitHub tab. The sidebar counts known assigned issues from both
-providers; PRs and repository suggestions are not included. GitHub counts appear
-after that scope has been loaded.
+Without a connection the pane offers to connect. With no installed repository
+it offers to install the App. The launcher's issue picker still lists assigned
+Linear issues; GitHub items enter through this tab. The sidebar counts assigned
+issues from both providers, not PRs.
 
-## Authentication, storage and limits
+## Limits and cache
 
-`src-tauri/src/github_issues.rs` calls the installed GitHub CLI with its existing
-github.com credential. Setup is `gh auth login --hostname github.com`; Prometeu
-does not read, copy or persist the token. There is no additional OAuth app or
-Cloud service. GitHub Enterprise hosts are not supported by this inbox.
-The identity is checked through `gh api user` before each list/cache access,
-after all four scope requests settle, and before repository selection writes.
-Saving a selection also checks the login that opened
-the dialog; an external account switch cannot overwrite another account’s settings.
-Changing accounts clears the backend list cache.
-Starting a refresh clears displayed lists until their identity is revalidated.
-Each batch replaces retained results: successful scopes remain available, while
-failed scopes clear their previous results and offer retry. Results with different
-account identities, a final identity that differs from any successful scope,
-or a failed authentication check are rejected together, even when another
-account's searches fail without returning its identity,
-preventing lists from two accounts from being combined. Linear failure behavior
-remains unchanged.
+REST search runs with a 30-second deadline per request and at most five pages
+of 100 items per query, ordered by update time; the response marks truncation
+or incomplete results and the UI shows a partial-list notice. Installations
+list up to five pages of 100 repositories each. Responses above 16 MiB are
+rejected. A rate-limited response reports that GitHub asked to slow down.
 
-The REST search query is passed as one argument, never through a shell. Each
-subprocess has a 30-second deadline, an 8 MiB stdout limit and a 1 MiB stderr
-limit. Each scope fetches up to five pages of 100 items, ordered by update time;
-the response marks truncation or incomplete search results. The UI shows a
-partial-list notice. Scope searches run concurrently, with network work outside
-the cache lock; only settings writes serialize. Successful lists cache in memory
-for two minutes per account, scope and repository selection. Late responses from
-a previous account cannot populate the current account's cache.
-There is no background network polling or persisted issue-body cache.
+Lists cache in memory for two minutes per login and scope. Connecting,
+disconnecting and claiming advance a generation, so a response that started
+before cannot repopulate the cache. Scope searches run concurrently, outside the
+cache lock. A failed scope keeps the others; a lost connection, or lists from two
+logins in one batch, rejects the whole batch. There is no persisted issue-body
+cache and no background polling of issues.
 
-`<root>/github-issues.json` contains only
-`{ "accounts": { "login": ["owner/repository"] } }`. Reads retain errors rather
-than replacing a damaged file. Writes use the private atomic file adapter.
-At most 20 repositories are accepted, normalized to lowercase and deduplicated.
-The selection dialog offers repositories found in registered projects and lets
-the person enter other `owner/repository` names. Personal lists are independent
-of that selection. Existing installations need no migration; older binaries
-ignore this additional file.
+The retired `<root>/github-issues.json` (manual repository selection) is no
+longer read or written; older files are left in place and ignored.
+
+## Pull request status on workspaces
+
+`src-tauri/src/github.rs` reads PR state through the same credential. For each
+clone, the base repository is the `upstream` remote when present, otherwise
+`origin`; branches are matched with `head=<origin owner>:<branch>`. A clone scan
+lists up to 60 PRs (all states, newest first) and asks per branch when the
+clone has more. A workspace whose primary repository came from a GitHub PR URL
+reads that PR directly. `state` maps to `OPEN`, `CLOSED` or `MERGED`, and the
+lifecycle timestamps feed local telemetry.
+
+Without a connection, or for repositories where the App is not installed,
+requests fail and the board keeps its last known PR: empty or failed results
+never erase a PR. Opening a PR uses the persisted number or resolves the
+worktree branch, then opens `https://github.com/<base>/pull/<number>`.
 
 ## IPC
 
@@ -75,25 +100,27 @@ mock. These adapters do not add implementations to the separate WSL runtime.
 
 | Command | Input | Result |
 | --- | --- | --- |
-| `github_identity` | None | Current authenticated login, checked again after the scope batch |
-| `github_issues` | `{ scope, force }` | `{ login, repositories, items, fetched_at, truncated }` |
-| `github_repositories` | `{ selected: string[], login }` | Normalized saved repository names |
+| `github_status` | None | `{ connected, login, busy, code, url, install_url }` |
+| `github_connect` | None | Runs the device flow; resolves with the final status |
+| `github_disconnect` | None | Cancels a waiting flow, or forgets the credential |
+| `github_issues` | `{ scope }` with `mine`, `available`, `authored` or `reviews`, and `force` | `{ login, repositories, items, fetched_at, truncated }` |
+| `github_claim` | `{ url }` of an issue | The assigned item |
 | `github_issue_open` | `{ url }` | Opens a validated github.com issue or PR URL |
 | `github_projects` | None | `{ project, repository }[]` from registered local Git remotes |
 | `github_prepare` | `{ project, url }` | `{ base, branch, source }` for an isolated PR workspace |
 
-An item contains `id`, `identifier`, `title`, `url`, nullable `description`,
-`repository`, `number`, `kind` (`issue` or `pr`), `author`, `draft`, `updated_at`
-and label names. Upstream REST objects stop at the adapter. IDs use
-`github:owner/repository/issues/number` or `github:owner/repository/pull/number`.
-The existing four-field `IssueRef` persists that identity, title and link; board,
-shared snapshot and launcher request formats remain compatible. No provider
-field or board migration is required. Old Linear IDs retain their meaning.
+The `github` event carries the same status as `github_status`. `repositories`
+lists the installed repositories. An item contains `id`, `identifier`, `title`,
+`url`, nullable `description`, `repository`, `number`, `kind` (`issue` or `pr`),
+`author`, `draft`, `updated_at` and label names. Upstream REST objects stop at
+the adapter. IDs use `github:owner/repository/issues/number` or
+`github:owner/repository/pull/number`. The existing four-field `IssueRef`
+persists that identity, title and link; board, shared snapshot and launcher
+request formats remain compatible. Old Linear IDs retain their meaning.
 
 External URL opening accepts only canonical HTTPS github.com issue/PR URLs,
 without credentials, custom ports, query strings or fragments. Repository and
-item-number validation applies again in the backend. Selection is not an
-authorization grant: GitHub still authorizes every query through the CLI account.
+item-number validation applies again in the backend.
 
 ## Local projects and PR branches
 
@@ -105,12 +132,13 @@ not inferred. Workspace creation from an issue uses the selected local project
 and the normal launcher branch rules.
 
 PR preparation validates the registered project and matching remote, checks
-that the PR remains open, and fetches `refs/pull/N/head` from its base repository.
-This supports fork PRs even when their head branch is named `main`. A fresh
-`github-pr-N-<suffix>` branch is seeded through a private remote-tracking ref;
-the target branch remains the separate diff base. Fetch never checks out,
-resets or deletes the person's existing clone branches. Cancellation can leave
-fetched objects and the preparation ref, but creates no workspace or agent.
+through the API that the PR remains open, and fetches `refs/pull/N/head` from
+its base repository with the clone's Git credentials. This supports fork PRs
+even when their head branch is named `main`. A fresh `github-pr-N-<suffix>`
+branch is seeded through a private remote-tracking ref; the target branch
+remains the separate diff base. Fetch never checks out, resets or deletes the
+person's existing clone branches. Cancellation can leave fetched objects and
+the preparation ref, but creates no workspace or agent.
 
 The launcher locks the prepared project's repository, source and worktree
 selection to keep the reviewed PR and the checked-out code aligned. The usual
@@ -125,23 +153,22 @@ GitHub review.
 
 ## Evidence
 
-Rust tests in `github_issues.rs` cover search qualifiers, repository/URL validation,
-pagination, concurrent searches and late cache writes across account changes,
-old `IssueRef` compatibility and fork PR preparation against an
-upstream remote. `github.rs` covers explicit PR identity; `session.rs` covers
-worktree preparation. `src/github-issues-model.test.ts` covers source preservation,
-safe issue branch names, workspace reuse without identity collisions, eager
-loading of all scopes, partial failures/retry and account switches during a batch,
-including a new account whose searches all fail and a failed final identity check.
+Rust tests in `github_auth.rs` cover credential refresh and login validation;
+`github_issues.rs` covers search qualifiers, repository/URL validation, claim
+preconditions, the per-login cache and late writes after an account change, old
+`IssueRef` compatibility and fork PR preparation against an upstream remote;
+`github.rs` covers the REST PR mapping, scan gating and PR preservation;
+`session.rs` covers worktree preparation. `src/github-issues-model.test.ts`
+covers source preservation, safe issue branch names, workspace reuse without
+identity collisions, eager loading of all scopes, partial failures and retry,
+and batches spanning a lost connection or a different login.
 
 `e2e/issues.spec.ts` extends the workspace creation journey: provider keyboard
-navigation, source-link versus nested workspace-button event routing, native
-dialog focus after asynchronous refresh, and PR source preservation through the
-launcher. These are DOM/focus integration risks that pure query/mapping tests
-cannot establish. Existing Linear scenarios retain assignment/permission coverage.
-The browser mock proves UI behavior, not real GitHub authentication or native
-Git networking. GitHub REST search response fields were also checked against a
-public repository using the installed CLI.
+navigation, source-link versus nested workspace-button event routing, claiming
+from Available, and PR source preservation through the launcher. These are
+DOM/focus integration risks that pure query and mapping tests cannot establish.
+The browser mock proves UI behavior, not real GitHub authorization, the device
+flow or native Git networking; those need a manual check against github.com.
 
 The feature is independent of Claude, Codex and Antigravity; see the
 [provider matrix](../quality/provider-matrix.md). Windows/WSL command support is

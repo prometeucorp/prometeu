@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { githubIssue, githubScopes, githubWorkspace, loadGitHubInbox } from "./github-issues-model";
 import type { GitHubItem, GitHubIssues, GitHubScope, Workspace } from "./types";
 
@@ -21,61 +21,47 @@ it("does not confuse equal issue numbers across providers or repositories", () =
 });
 
 const inboxList = (login = "user"): GitHubIssues => ({ login, repositories: ["org/repo"], items: [item], fetched_at: 1, truncated: false });
-const identify = async () => "user";
 
 it("starts all scopes before awaiting results and fills counts without selecting each tab", async () => {
   const pending = new Map<GitHubScope, (value: GitHubIssues) => void>();
-  const finalIdentity = vi.fn(identify);
-  const loading = loadGitHubInbox(scope => new Promise(resolve => pending.set(scope, resolve)), finalIdentity);
+  const loading = loadGitHubInbox(scope => new Promise(resolve => pending.set(scope, resolve)));
   expect([...pending.keys()]).toEqual([...githubScopes]);
-  expect(finalIdentity).not.toHaveBeenCalled();
-  for (const [scope, resolve] of [...pending].reverse()) resolve({ ...inboxList(), items: scope === "repositories" ? [] : [item] });
+  for (const [scope, resolve] of [...pending].reverse()) resolve({ ...inboxList(), items: scope === "available" ? [] : [item] });
   const result = await loading;
   expect([...result.lists].map(([scope, list]) => [scope, list.items.length])).toEqual([
-    ["mine", 1], ["repositories", 0], ["authored", 1], ["reviews", 1],
+    ["mine", 1], ["available", 0], ["authored", 1], ["reviews", 1],
   ]);
   expect(result.errors.size).toBe(0);
-  expect(finalIdentity).toHaveBeenCalledOnce();
+  expect(result.repositories).toEqual(["org/repo"]);
 });
 
 it("keeps available scopes when another fails and replaces failed results on retry", async () => {
-  const error = new Error("Repository search unavailable");
+  const error = new Error("Search unavailable");
   const result = await loadGitHubInbox(async scope => {
-    if (scope === "repositories") throw error;
+    if (scope === "available") throw error;
     return inboxList();
-  }, identify);
+  });
   expect([...result.lists.keys()]).toEqual(["mine", "authored", "reviews"]);
-  expect(result.errors.get("repositories")).toBe(error);
-  const retry = await loadGitHubInbox(async () => inboxList(), identify);
+  expect(result.errors.get("available")).toBe(error);
+  const retry = await loadGitHubInbox(async () => inboxList());
   expect(retry.lists.size).toBe(4);
   expect(retry.errors.size).toBe(0);
-  const offline = await loadGitHubInbox(async () => { throw error; }, identify);
+  const offline = await loadGitHubInbox(async () => { throw error; });
   expect(offline.lists.size).toBe(0);
   expect(offline.login).toBe("");
   expect(offline.errors.size).toBe(4);
 });
 
-it("rejects a batch spanning an external account switch", async () => {
-  await expect(loadGitHubInbox(async scope => inboxList(scope === "reviews" ? "other-user" : "user"), identify))
+it("rejects a batch spanning a reconnection as another account", async () => {
+  await expect(loadGitHubInbox(async scope => inboxList(scope === "reviews" ? "other-user" : "user")))
     .rejects.toBe('i18n:{"code":"err.github.accountChanged"}');
 });
 
-it("discards earlier successes if authentication is lost during the batch", async () => {
-  const error = 'i18n:{"code":"err.github.auth"}';
-  await expect(loadGitHubInbox(async scope => {
-    if (scope === "reviews") throw error;
-    return inboxList();
-  }, identify)).rejects.toBe(error);
-});
-
-it("discards previous account results when the new account's searches fail without an identity", async () => {
-  await expect(loadGitHubInbox(async scope => {
-    if (scope === "reviews") throw new Error("Search unavailable");
-    return inboxList();
-  }, async () => "other-user")).rejects.toBe('i18n:{"code":"err.github.accountChanged"}');
-});
-
-it("discards a successful batch when its final identity check fails", async () => {
-  const error = 'i18n:{"code":"err.github.auth"}';
-  await expect(loadGitHubInbox(async () => inboxList(), async () => { throw error; })).rejects.toBe(error);
+it("discards earlier successes if the connection is lost during the batch", async () => {
+  for (const error of ['i18n:{"code":"err.github.auth"}', 'i18n:{"code":"err.github.off"}', 'i18n:{"code":"err.github.accountChanged"}']) {
+    await expect(loadGitHubInbox(async scope => {
+      if (scope === "reviews") throw error;
+      return inboxList();
+    })).rejects.toBe(error);
+  }
 });

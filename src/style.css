@@ -1147,8 +1147,7 @@ body.noside .side { display: none; }
 .commentpin::before { content: "◌"; font-size: 11px; }
 .commentfocus { background: rgb(255 107 61 / 0.08); border-radius: var(--r); }
 
-.sheet.inbox { width: min(560px, 92vw); }
-.inboxlist { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+/* Notifications reuse the inbox row: GitHub activity and team mentions. */
 .inboxrow {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: 100%;
   background: none; border-radius: var(--r); color: var(--fg); text-align: left; height: auto;
@@ -1159,6 +1158,22 @@ body.noside .side { display: none; }
 .inboxrow .txt b { font-weight: 500; font-size: 13px; }
 .inboxrow .txt .what { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inboxrow .go { color: var(--fg-3); display: flex; }
+.notification-row { cursor: pointer; }
+.notification-row > .av, .notification-row > .when, .notification-row > .go { flex: none; width: auto; }
+.notification-row > .txt { flex: 1 1 auto; }
+.notification-row .av { display: flex; color: var(--fg-3); }
+.notification-row .txt b { font-weight: 400; }
+.notification-row.unread .txt b { font-weight: 600; }
+.notification-row.unread .av { color: var(--accent); }
+.notification-row .when { font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+.notification-row:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.notification-detail {
+  margin: 0 12px 8px 44px; padding: 10px 12px; border-left: 2px solid var(--line);
+  color: var(--fg-2); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.nday { padding: 14px 12px 4px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
+.github-code { font-family: var(--mono); letter-spacing: .08em; }
+.github-install-hint { padding: 12px 8px; }
 
 /* Context menu. */
 

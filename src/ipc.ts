@@ -90,9 +90,14 @@ export type Commands = {
   linear_issues: { args: { force: boolean }; result: T.Issues };
   linear_open: { args: { url: string }; result: void };
   linear_status: { args: undefined; result: T.LinearStatus };
-  github_identity: { args: undefined; result: string };
+  github_status: { args: undefined; result: T.GitHubStatus };
+  github_connect: { args: undefined; result: T.GitHubStatus };
+  github_disconnect: { args: undefined; result: T.GitHubStatus };
   github_issues: { args: { scope: T.GitHubScope; force: boolean }; result: T.GitHubIssues };
-  github_repositories: { args: { selected: string[]; login: string }; result: string[] };
+  github_claim: { args: { url: string }; result: T.GitHubItem };
+  github_feed: { args: { after: string | null }; result: T.GitHubFeed | null };
+  github_subjects: { args: { keys: { repository: string; number: number }[] }; result: T.GitHubSubject[] };
+  github_detail: { args: { repository: string; number: number; target: string; id: string }; result: string };
   github_issue_open: { args: { url: string }; result: void };
   github_projects: { args: undefined; result: T.GitHubProject[] };
   github_prepare: { args: { project: string; url: string }; result: T.GitHubPrepared };

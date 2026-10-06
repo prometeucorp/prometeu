@@ -171,10 +171,12 @@ implemented.
 
 ## GitHub discovery
 
-The GitHub inbox commands (`github_identity`, `github_issues`, `github_repositories`,
-`github_issue_open`, `github_projects`, `github_prepare`) currently have desktop
-and browser-mock adapters only. The WSL runtime reports them unsupported; this
-does not claim native Windows GitHub discovery or PR launch support.
+The GitHub commands (`github_status`, `github_connect`, `github_disconnect`,
+`github_issues`, `github_claim`, `github_issue_open`, `github_projects`,
+`github_prepare`, `github_feed`, `github_subjects`, `github_detail`) currently have
+desktop and browser-mock adapters only. The WSL runtime reports them unsupported;
+this does not claim native Windows GitHub discovery, notifications or PR launch
+support.
 
 ## Conversation tools
 
