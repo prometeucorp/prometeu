@@ -47,9 +47,10 @@ number, subject `pr` or `issue`, actor login, target type and ID, installation
 ID, delivery ID and creation time. Titles and bodies are never stored; comment
 text is read in memory only to find mentions, and the desktop fetches content
 from GitHub when needed. `(delivery, user)` is unique, so redelivery is
-idempotent. Each delivery deletes rows older than 30 days, and
-`installation.deleted` deletes that installation's rows. Deleting the account
-deletes its rows.
+idempotent. Retention is 30 days: the feed never returns older rows, and the
+Cloud's `github_notifications:prune` task, scheduled daily, deletes them, so
+expiry does not depend on new deliveries. `installation.deleted` deletes that
+installation's rows. Deleting the account deletes its rows.
 
 ## Desktop API
 

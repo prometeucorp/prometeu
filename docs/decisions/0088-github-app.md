@@ -95,8 +95,11 @@ forks and protect local branches, at the cost of not following later pushes.
   ID, delivery ID and time. Titles and bodies are never stored; comment bodies
   are read in memory only to detect mentions. Content can be edited on GitHub,
   and the desktop fetches it on demand with its own token.
-- Rows expire after 30 days, pruned on insert. `installation.deleted` removes
-  that installation's rows. There is no installation table.
+- Rows expire after 30 days: the feed hides older rows and a daily scheduled
+  task deletes them, so retention holds even when an installation stops
+  receiving deliveries. A scheduler entry is lighter than a job process.
+  `installation.deleted` removes that installation's rows. There is no
+  installation table.
 - A signed-in Cloud user can link GitHub from account settings; today linking
   only happens on GitHub sign-in by matching the verified email.
 
