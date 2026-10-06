@@ -120,7 +120,7 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
     let generation = lock(&state.telemetry).generation;
     let mut histories = Vec::new();
     let workspace = workspace_copy(&state, &id);
-    let found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
+    let mut found: Vec<(String, Option<Pr>)> = repos_of(&state, &id)
         .iter()
         .map(|repo| {
             let worktree = Path::new(&repo.worktree);
@@ -143,6 +143,7 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
             (repo.name.clone(), pr)
         })
         .collect();
+    attach_checks(found.iter_mut().filter_map(|(_, pr)| pr.as_mut()));
     remember(&app, &state, &id, found, generation);
     for (path, branch, observations, complete) in histories {
         crate::telemetry::associate_history(
@@ -220,6 +221,7 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
         }
     }
 
+    attach_checks(found.iter_mut().filter_map(|(_, _, pr)| pr.as_mut()));
     let mut moved = false;
     let mut associated = Vec::new();
     {
@@ -256,6 +258,40 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
             complete,
         );
     }
+}
+
+const CHECKS_QUERY: &str = "query($ids: [ID!]!) { nodes(ids: $ids) { ... on PullRequest { id \
+    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } }";
+
+/// Read the head commit's CI rollup for open PRs, one GraphQL request per 100. A failed request,
+/// or an App without Checks and Commit statuses access, leaves the rollup absent.
+fn attach_checks<'a>(prs: impl Iterator<Item = &'a mut Pr>) {
+    let mut open: Vec<&mut Pr> = prs
+        .filter(|pr| pr.open() && !pr.node_id.is_empty())
+        .collect();
+    for chunk in open.chunks_mut(100) {
+        let ids: Vec<&str> = chunk.iter().map(|pr| pr.node_id.as_str()).collect();
+        let Ok(data) = crate::github_auth::graphql(CHECKS_QUERY, serde_json::json!({ "ids": ids }))
+        else {
+            continue;
+        };
+        let states = rollups(&data);
+        for pr in chunk {
+            pr.checks = states.get(&pr.node_id).cloned();
+        }
+    }
+}
+
+fn rollups(data: &serde_json::Value) -> BTreeMap<String, String> {
+    data["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|node| {
+            let state = &node["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["state"];
+            Some((node["id"].as_str()?.to_owned(), state.as_str()?.to_owned()))
+        })
+        .collect()
 }
 
 fn scannable(cleaned: bool, archived: bool, branch: &str) -> bool {
@@ -361,6 +397,8 @@ fn observation(value: &serde_json::Value, observed_after: u64) -> Option<PrObser
             is_draft: value["draft"].as_bool().unwrap_or(false),
             state: state.into(),
             head_ref_name: value["head"]["ref"].as_str()?.into(),
+            checks: None,
+            node_id: text("node_id").unwrap_or_default(),
         },
         created_at: text("created_at"),
         closed_at: text("closed_at"),
@@ -473,6 +511,7 @@ fn same(left: Option<&Pr>, right: Option<&Pr>) -> bool {
             left.number == right.number
                 && left.state == right.state
                 && left.is_draft == right.is_draft
+                && left.checks == right.checks
         }
         _ => false,
     }
@@ -509,7 +548,7 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{lifecycle_timestamp, observation, pick, scannable, write, ScanGate};
+    use super::{lifecycle_timestamp, observation, pick, rollups, scannable, write, ScanGate};
     use crate::domain::Pr;
     use crate::state::Repo;
     use std::sync::{
@@ -557,6 +596,19 @@ mod tests {
     }
 
     #[test]
+    fn ci_rollups_map_by_node_and_skip_missing_or_inaccessible_nodes() {
+        let data = serde_json::json!({"nodes": [
+            {"id": "PR_a", "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "PENDING"}}}]}},
+            {"id": "PR_b", "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}},
+            null,
+        ]});
+        let found = rollups(&data);
+        assert_eq!(found.get("PR_a").map(String::as_str), Some("PENDING"));
+        assert_eq!(found.len(), 1);
+        assert!(rollups(&serde_json::Value::Null).is_empty());
+    }
+
+    #[test]
     fn a_slow_general_scan_queues_only_one_follow_up() {
         let gate = Arc::new(ScanGate::default());
         let scans = Arc::new(AtomicUsize::new(0));
@@ -598,6 +650,8 @@ mod tests {
             is_draft: false,
             state: state.into(),
             head_ref_name: branch.into(),
+            checks: None,
+            node_id: String::new(),
         }
     }
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { compareId, isRead, markAll, markRead, merge, readKey, readState, saveRead, workspaceFor } from "./notification-feed";
+import { compareId, isRead, markAll, markRead, merge, readKey, readState, saveRead, threads, workspaceFor } from "./notification-feed";
 import type { GitHubNotification, Workspace } from "./types";
 
 const note = (id: string, extra: Partial<GitHubNotification> = {}): GitHubNotification => ({
@@ -49,4 +49,30 @@ it("links a notification to the workspace that owns its PR or issue", () => {
   expect(workspaceFor(note("1", { subject: "issue" }), [workspace], repositories)).toBeUndefined();
   const fromIssue = { ...workspace, repos: [], issue: { id: "github:org/app/issues/7", url: "https://github.com/Org/App/issues/7" } } as unknown as Workspace;
   expect(workspaceFor(note("2", { subject: "issue", number: 7 }), [fromIssue], new Map())).toBe(fromIssue);
+});
+
+it("groups notifications by issue or PR, led by the most urgent unread event", () => {
+  const items = [
+    note("1", { kind: "ci_failed" }),
+    note("2", { kind: "commented", actor: "bot[bot]" }),
+    note("3", { kind: "assigned", number: 6 }),
+    note("4", { kind: "commented", repository: "Org/App" }),
+  ];
+  const [pr5, pr6] = threads(items, { before: "", ids: [] });
+  expect(pr5.items.map(item => item.id)).toEqual(["1", "2", "4"]);
+  expect(pr5.lead.id).toBe("1");
+  expect(pr5.latest.id).toBe("4");
+  expect(pr6.items.map(item => item.id)).toEqual(["3"]);
+  // Once the failure is read, the newest unread event leads; with nothing unread, the newest.
+  expect(threads(items, { before: "", ids: ["1"] })[0].lead.id).toBe("4");
+  expect(threads(items, { before: "4", ids: [] })[0].lead.id).toBe("4");
+});
+
+it("keeps a whole thread read when the list of read ids is full", () => {
+  const full = Array.from({ length: 500 }, (_, index) => String(index + 1));
+  const state = markRead({ before: "", ids: full }, "1", "1000", "1001");
+  expect(state.ids).toHaveLength(500);
+  expect(["1", "1000", "1001"].every(id => isRead(state, id))).toBe(true);
+  expect(isRead(state, "2")).toBe(false);
+  expect(markRead({ before: "10", ids: [] }, "9", "11").ids).toEqual(["11"]);
 });

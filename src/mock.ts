@@ -171,7 +171,7 @@ const board: Board = {
             name: "prometeu",
             worktree: "~/prometeu/worktrees/prometeu+njord/prometeu-portal-1217/prometeu",
             base: "origin/main",
-            pr: { number: 51, title: "feat(portal): hire through the portal", isDraft: false, state: "OPEN" },
+            pr: { number: 51, title: "feat(portal): hire through the portal", isDraft: false, state: "OPEN", checks: "PENDING" },
           },
           {
             path: "/Users/gustavo/dev/njord",
@@ -188,7 +188,7 @@ const board: Board = {
       ws("icone-2140", "p2", "prometeu", "App icon", "Code review", [
         { id: "t4", title: "", status: "querendo", note: "What icon size do you want to generate?", tokens: 8_100 },
       ]),
-      { unread: true, pr: { number: 42, title: "feat(board): app icon", isDraft: false, state: "OPEN" } },
+      { unread: true, pr: { number: 42, title: "feat(board): app icon", isDraft: false, state: "OPEN", checks: "FAILURE" } },
     ),
     // A merged PR exposes the card badge and completion action.
     Object.assign(
@@ -1022,6 +1022,8 @@ function mockGitHubStatus(): import("./types").GitHubStatus {
 const mockGitHubFeed: import("./types").GitHubNotification[] = [
   { id: "1", kind: "review_requested", repository: "prometeucorp/prometeu", number: 438, subject: "pr", actor: "reviewer", target: null, target_id: null, url: "https://github.com/prometeucorp/prometeu/pull/438", created_at: "2026-10-04T15:00:00Z" },
   { id: "2", kind: "review_approved", repository: "prometeucorp/prometeu", number: 436, subject: "pr", actor: "reviewer", target: "review", target_id: "77", url: "https://github.com/prometeucorp/prometeu/pull/436#pullrequestreview-77", created_at: "2026-10-05T09:30:00Z" },
+  { id: "3", kind: "commented", repository: "prometeucorp/prometeu", number: 436, subject: "pr", actor: "review-bot[bot]", target: "issue_comment", target_id: "78", url: "https://github.com/prometeucorp/prometeu/pull/436#issuecomment-78", created_at: "2026-10-05T10:10:00Z" },
+  { id: "4", kind: "ci_failed", repository: "prometeucorp/prometeu", number: 436, subject: "pr", actor: "mock-user", target: "workflow_run", target_id: "79", url: "https://github.com/prometeucorp/prometeu/actions/runs/79", created_at: "2026-10-05T10:20:00Z" },
 ];
 
 const mockCommands: IpcHandlers = {

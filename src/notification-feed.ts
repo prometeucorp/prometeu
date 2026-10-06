@@ -28,8 +28,10 @@ export function saveRead(account: string, state: ReadState) {
 export const isRead = (state: ReadState, id: string) =>
   (state.before !== "" && compareId(id, state.before) <= 0) || state.ids.includes(id);
 
-export function markRead(state: ReadState, id: string): ReadState {
-  return isRead(state, id) ? state : { ...state, ids: [...state.ids, id].slice(-READ_IDS) };
+/// Ids already in the list move to its end, so marking a thread never evicts its own members.
+export function markRead(state: ReadState, ...ids: string[]): ReadState {
+  const marked = ids.filter(id => state.before === "" || compareId(id, state.before) > 0);
+  return { ...state, ids: [...state.ids.filter(id => !marked.includes(id)), ...marked].slice(-READ_IDS) };
 }
 
 export function markAll(state: ReadState, items: GitHubNotification[]): ReadState {
@@ -61,4 +63,31 @@ export function workspaceFor(
     (item.subject === "pr" && workspace.repos.some(repo =>
       repo.pr?.number === item.number && (repositories.get(repo.path) ?? []).includes(repository)))
   ));
+}
+
+/// Kinds that need the person first; a bot comment must not bury a failed CI or a review request.
+const PRIORITY: GitHubNotification["kind"][] = [
+  "ci_failed", "changes_requested", "review_requested", "mentioned",
+  "review_approved", "merged", "closed", "assigned", "commented",
+];
+
+/// Every notification of one issue or PR, ascending by id. `lead` names the row: the most
+/// urgent unread event, or the newest once everything is read.
+export type Thread = { key: string; items: GitHubNotification[]; lead: GitHubNotification; latest: GitHubNotification };
+
+/// One thread per issue or PR, newest activity first.
+export function threads(items: GitHubNotification[], state: ReadState): Thread[] {
+  const groups = new Map<string, GitHubNotification[]>();
+  for (const item of [...items].sort((a, b) => compareId(a.id, b.id))) {
+    const key = subjectKey(item.repository, item.number);
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups].map(([key, group]) => {
+    const latest = group[group.length - 1];
+    const unread = group.filter(item => !isRead(state, item.id));
+    const lead = unread.length
+      ? unread.reduce((best, item) => PRIORITY.indexOf(item.kind) <= PRIORITY.indexOf(best.kind) ? item : best)
+      : latest;
+    return { key, items: group, lead, latest };
+  }).sort((a, b) => compareId(b.latest.id, a.latest.id));
 }

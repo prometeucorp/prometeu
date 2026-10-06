@@ -16,6 +16,13 @@ pub struct Pr {
     /// frontend contract.
     #[serde(default, skip_serializing)]
     pub head_ref_name: String,
+    /// GitHub's CI rollup for an open PR's head commit: SUCCESS, FAILURE, ERROR, PENDING or
+    /// EXPECTED. Absent without checks, after a failed read, or once the PR closes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks: Option<String>,
+    /// GraphQL node ID used to read `checks`; a transport field like `head_ref_name`.
+    #[serde(default, skip_serializing)]
+    pub node_id: String,
 }
 
 impl Pr {

@@ -218,6 +218,10 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .top #prsplit { width: 146px; }
 .top #prsplit > #pr { flex: 1; min-width: 0; }
 .top #prsplit > #pr span { overflow: hidden; text-overflow: ellipsis; }
+#pr[data-ci="running"] > svg, .pr-ci[data-ci="running"] { color: var(--wait); }
+#pr[data-ci="passed"] > svg, .pr-ci[data-ci="passed"] { color: var(--done); }
+#pr[data-ci="failed"] > svg, .pr-ci[data-ci="failed"] { color: var(--err); }
+.pr-ci { display: contents; }
 
 /* Status pill. */
 
@@ -1171,7 +1175,8 @@ body.noside .side { display: none; }
   margin: 0 12px 8px 44px; padding: 10px 12px; border-left: 2px solid var(--line);
   color: var(--fg-2); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.notification-detail.md { white-space: normal; line-height: 1.5; }
+.notification-event { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--fg-3); font-size: 12px; white-space: normal; }
+.notification-detail .md { white-space: normal; font-size: 13px; line-height: 1.5; }
 .notification-detail summary { cursor: pointer; }
 .nday { padding: 14px 12px 4px; font-size: 12px; font-weight: 500; color: var(--fg-3); }
 .github-code { font-family: var(--mono); letter-spacing: .08em; }
