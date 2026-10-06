@@ -1,12 +1,11 @@
 # ADR 0088 — GitHub App for issues, PRs and notifications
 
 Date: 2026-10-05
-Status: Proposed
+Status: Accepted
 
-When accepted, this decision replaces [ADR 0086](0086-github-inbox.md) and
+This decision replaced the GitHub inbox through the local `gh` credential and
 narrows the "no provider credentials" rule of [ADR 0015](0015-cloud-rails.md)
-for GitHub webhook metadata. Until each phase ships, ADR 0086 and the current
-contracts remain the implemented behavior.
+for GitHub webhook metadata.
 
 ## Context
 
@@ -54,17 +53,29 @@ notifications.
 - `github_issues.rs` and the PR scan in `github.rs` call the REST/GraphQL API
   with this token instead of `gh`. Agents may still run `gh` inside their own
   terminals; that is the agent's tooling, not the app's.
-- Workspaces whose repository does not have the App installed lose PR status
-  and show how to install it. There is no `gh` fallback, so there is one path.
+- Workspaces whose repository does not have the App installed keep their last
+  known PR but receive no new status; the issue lists and settings link to the
+  App installation. There is no `gh` fallback, so there is one path.
+- github.com only. Successful lists are cached in memory per login and scope;
+  no issue bodies are persisted.
 
 ### Issues
 
-The GitHub tab follows the current Linear integration: connect button, **Mine**
-(assigned open issues) and **Available** (unassigned open issues) tabs, a
-repository filter in place of Linear's team filter, and a claim action that
-assigns the issue to the person. Authored PRs and requested reviews remain.
-The repository scope comes from the App's installations, so the manual
-selection in `github-issues.json` is retired.
+Keep one Issues destination with Linear and GitHub tabs. The GitHub tab follows
+the Linear integration: connect button, **Mine** (assigned open issues) and
+**Available** (unassigned open issues) tabs, a repository filter in place of
+Linear's team filter, and a claim action that assigns the issue to the person.
+Authored PRs and requested reviews remain. The repository scope comes from the
+App's installations, so the manual selection in `github-issues.json` is retired.
+
+Source navigation and workspace creation stay separate actions; the existing
+launcher owns creation. GitHub data is normalized before IPC and namespaces the
+existing `IssueRef.id`, preserving the board and sharing formats. Local projects
+are matched by canonical repository names from their Git remotes. PRs are
+prepared by fetching the base repository's pull ref into a unique review branch
+without switching the original clone; the target branch stays the diff base and
+the PR URL stays the explicit identity for discovery. Synthetic branches support
+forks and protect local branches, at the cost of not following later pushes.
 
 ### Cloud webhooks
 
@@ -104,8 +115,9 @@ selection in `github-issues.json` is retired.
   open it on GitHub. A matching workspace is also marked unread and its PR
   status refreshed immediately.
 - Local notifications ([ADR 0054](0054-local-notifications.md)) gain a
-  `github` event, off by default like the others, and the Dock badge counts
-  unread notifications.
+  `github` event under the same master switch, which starts disabled, and the
+  Dock badge counts unread notifications. The first load after startup never
+  notifies.
 
 ## Consequences
 
@@ -116,27 +128,20 @@ selection in `github-issues.json` is retired.
   Repositories without it produce no issues, PR status or notifications.
 - Polling adds up to 30 seconds of latency and one cheap request per Mac.
   Server push (SSE or Action Cable) would hold Puma threads and is deferred.
-- People who rely on `gh` must connect once through the device flow.
+- People who relied on `gh` must connect once through the device flow; the
+  retired `github-issues.json` is ignored.
 - Webhook development needs a tunnel to the local Cloud.
-
-## Phases
-
-1. This ADR.
-2. Cloud: webhook endpoint, notification table, read API, GitHub linking.
-3. Desktop: device-flow credential replacing `gh` in both adapters.
-4. Desktop: Linear-style GitHub issues.
-5. Desktop: Notifications destination, polling, local notification and badge.
-
-Each phase updates its contracts — [GitHub issues](../contracts/github-issues.md),
-[local notifications](../contracts/notifications.md),
-[account](../contracts/cloud-account.md) and a new GitHub notifications
-contract — in the same change.
+- The desktop and the browser mock implement the commands. This decision does
+  not expand the separate Windows/WSL runtime's supported command set.
 
 ## Evidence
 
-Phase 2 is implemented in `prometeu-cloud`; see the
-[GitHub notifications contract](../contracts/github-notifications.md) and its
-tests. The desktop phases are pending. GitHub documents the device flow, token refresh
+Contracts and tests: [GitHub issues](../contracts/github-issues.md),
+[GitHub notifications](../contracts/github-notifications.md),
+[local notifications](../contracts/notifications.md) and
+[account](../contracts/cloud-account.md), plus the `prometeu-cloud` webhook,
+feed and linking tests. GitHub documents the device flow, token refresh
 without a client secret for device-flow tokens, and the user-token access
 intersection under "Generating a user access token for a GitHub App" and
-"Refreshing user access tokens".
+"Refreshing user access tokens". The real device flow, installation reach and
+webhook delivery need a manual check against github.com.

@@ -23,6 +23,7 @@ type Ctx = {
   create: (issue: Issue) => void;
   createGitHub: (item: GitHubItem, project: string, git?: GitHubPrepared) => void;
   toSettings: () => void;
+  github: () => import("./types").GitHubStatus;
 };
 
 /// Match the backend cache lifetime before requesting another list on opening.

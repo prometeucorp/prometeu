@@ -13,7 +13,7 @@ import type { Info } from "./chat";
 import * as archived from "./archived";
 import * as sidebar from "./sidebar";
 import { openCleanup } from "./cleanup";
-import { openInbox } from "./inbox";
+import * as notificationCenter from "./notification-center";
 import * as desk from "./desk";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
@@ -96,13 +96,8 @@ const hooks: sidebar.Hooks = {
   },
   finish: (id) => ws.finish(id),
   cleanup: () => openCleanup(say),
-  inbox: () =>
-    openInbox((workspace, note, tab) => {
-      const target = view().workspaces.find((w) => w.id === workspace);
-      if (!target) return say(t("err.team.noShare"), true);
-      if (tab && !target.remote) invoke("focus_tab", { workspace: target.id, tab });
-      void openWorkspace(tab ? { ...target, active: tab } : target).then(() => ws.showNote(note));
-    }),
+  toNotifications: () => showNotifications(),
+  notifications: () => notificationCenter.count(),
   pin: (id, pinned) => invoke("pin_workspace", { id, pinned }),
   unread: (id, unread) => invoke("set_unread", { id, unread }),
   reveal: (id) => invoke("reveal_path", { id, rel: "" }).catch((e) => say(fromBack(e), true)),
@@ -152,9 +147,10 @@ menu.onClose(() => missed && draw());
 /* Navigation history contains pages and workspaces with noncolliding IDs. */
 const SETTINGS = "@configurações";
 const ISSUES = sidebar.ISSUES;
+const NOTIFICATIONS = sidebar.NOTIFICATIONS;
 const ARCHIVED = sidebar.ARCHIVED;
 const DESK = sidebar.DESK;
-const pages = new Set([SETTINGS, ISSUES, ARCHIVED, DESK]);
+const pages = new Set([SETTINGS, ISSUES, NOTIFICATIONS, ARCHIVED, DESK]);
 const hist: string[] = [];
 let at = -1;
 let navigationVersion = 0;
@@ -177,6 +173,8 @@ function travel(dir: -1 | 1) {
     showSettings(false);
   } else if (hist[at] === ISSUES) {
     showIssues(false);
+  } else if (hist[at] === NOTIFICATIONS) {
+    showNotifications(false);
   } else if (hist[at] === ARCHIVED) {
     showArchived(false);
   } else if (hist[at] === DESK) {
@@ -194,13 +192,15 @@ $("back").addEventListener("click", () => travel(-1));
 $("fwd").addEventListener("click", () => travel(1));
 
 /// Show one non-workspace page at a time.
-function showOnly(view: "settingsView" | "issuesView" | "archivedView" | "deskView" | null) {
+function showOnly(view: "settingsView" | "issuesView" | "notificationsView" | "archivedView" | "deskView" | null) {
   navigationVersion++;
   $("deskView").hidden = view !== "deskView";
   $("settingsView").hidden = view !== "settingsView";
   $("issuesView").hidden = view !== "issuesView";
+  $("notificationsView").hidden = view !== "notificationsView";
   $("archivedView").hidden = view !== "archivedView";
   if (view !== "issuesView") issues.hide();
+  if (view !== "notificationsView") notificationCenter.hide();
   if (view !== "archivedView") archived.hide();
   if (view !== "deskView") desk.hide();
 }
@@ -244,6 +244,17 @@ function showIssues(push = true) {
   showOnly("issuesView");
   $("crumb").replaceChildren(crumbLabel(t("crumb.issues")));
   issues.show();
+  draw();
+}
+
+/// GitHub activity and team mentions share one destination.
+function showNotifications(push = true) {
+  if (push) visit(NOTIFICATIONS);
+  ws.leave();
+  sidebar.setOpen(NOTIFICATIONS);
+  showOnly("notificationsView");
+  $("crumb").replaceChildren(crumbLabel(t("notifications.center")));
+  notificationCenter.show();
   draw();
 }
 
@@ -689,6 +700,21 @@ issues.init({
   open: (w) => openWorkspace(w),
   create: (issue) => launch(state.workspaces.find((w) => w.id === ws.id())?.project, issue),
   createGitHub: (item, project, git) => launch(project, githubIssue(item), git),
+  toSettings: () => { settings.showLinear(); showSettings(); },
+  github: settings.github,
+});
+notificationCenter.init({
+  say,
+  board: () => state,
+  github: settings.github,
+  open: (w) => void openWorkspace(w),
+  openMention: (workspace, note, tab) => {
+    const target = view().workspaces.find((w) => w.id === workspace);
+    if (!target) return say(t("err.team.noShare"), true);
+    if (tab && !target.remote) invoke("focus_tab", { workspace: target.id, tab });
+    void openWorkspace(tab ? { ...target, active: tab } : target).then(() => ws.showNote(note));
+  },
+  changed: () => { draw(); alert.teamChanged(); },
   toSettings: () => { settings.showLinear(); showSettings(); },
 });
 archived.init({ board: () => state, hooks: () => hooks });

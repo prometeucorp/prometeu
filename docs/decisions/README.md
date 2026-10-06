@@ -104,10 +104,4 @@ Status: Proposed
 | [0082](0082-resident-wsl-attachments.md) | Resident WSL execution and disposable attachments |
 | [0084](0084-shared-windows-desktop.md) | Shared desktop interface over an injected WSL runtime |
 | [0085](0085-portable-core.md) | Portable core with injected effects |
-| [0086](0086-github-inbox.md) | GitHub inbox through the local CLI credential |
-
-## Proposed decisions
-
-| ADR | Subject |
-| --- | --- |
 | [0088](0088-github-app.md) | GitHub App for issues, PRs and notifications |

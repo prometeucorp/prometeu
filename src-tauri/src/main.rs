@@ -29,7 +29,9 @@ mod evaluation;
 mod feedback;
 mod file_drop;
 mod github;
+mod github_auth;
 mod github_issues;
+mod github_notifications;
 mod i18n;
 mod kickoff;
 mod linear;
@@ -280,9 +282,14 @@ fn main() {
             file_drop::paste_files,
             session::pr_prompt,
             github::pr_open,
-            github_issues::github_identity,
+            github_auth::github_status,
+            github_auth::github_connect,
+            github_auth::github_disconnect,
             github_issues::github_issues,
-            github_issues::github_repositories,
+            github_issues::github_claim,
+            github_notifications::github_feed,
+            github_notifications::github_subjects,
+            github_notifications::github_detail,
             github_issues::github_issue_open,
             github_issues::github_projects,
             github_issues::github_prepare,

@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { parseConversationEvent } from "./conversation";
-import * as team from "./team";
+import { count as notificationCount } from "./notification-center";
 import type { Board } from "./types";
 
 /// Track unread activity for the Dock badge.
@@ -180,20 +180,20 @@ export function chatChanged(tab: string, line: string) {
   }
 }
 
-/// Team updates may change the mention inbox.
+/// Team mentions and GitHub notifications change the badge.
 export function teamChanged() {
   badge();
 }
 
 /* Dock badge. */
 
-/// Count unread workspaces plus inbox comments; zero clears the badge.
+/// Count unread workspaces plus mentions and unread GitHub notifications; zero clears the badge.
 export function waiting() {
   const workspaces = new Set(unread);
   for (const conversation of conversations.values()) {
     if (conversation.pending) workspaces.add(conversation.workspace);
   }
-  return workspaces.size + team.inboxCount();
+  return workspaces.size + notificationCount();
 }
 
 function badge() {

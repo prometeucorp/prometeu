@@ -1,12 +1,12 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "./ipc";
 import { fromBack, t } from "./i18n";
-import { button, checkbox, field, formDialog, input, select } from "./ui";
-import { issueAction, issueTab, issueSearch, issueRefresh, issueFilter } from "./issues-controls";
+import { button, field, formDialog, select } from "./ui";
+import { issueTab, issueSearch, issueRefresh, issueFilter } from "./issues-controls";
 import { icon } from "./icons";
 import { empty, h, template } from "./util";
 import { githubScopes, githubWorkspace, loadGitHubInbox } from "./github-issues-model";
-import type { Board, GitHubItem, GitHubIssues, GitHubPrepared, GitHubScope, Workspace } from "./types";
+import type { Board, GitHubItem, GitHubIssues, GitHubPrepared, GitHubScope, GitHubStatus, Workspace } from "./types";
 
 type Context = {
   board: () => Board;
@@ -14,11 +14,13 @@ type Context = {
   create: (item: GitHubItem, project: string, git?: GitHubPrepared) => void;
   say: (message: string, error?: boolean) => void;
   redraw: () => void;
+  github: () => GitHubStatus;
+  toSettings: () => void;
 };
 
 export function githubIssues(host: HTMLElement, ctx: Context) {
-  let scope: GitHubScope = "mine", login = "", selected: string[] = [], query = "", repository = "";
-  let visible = false, loading = false, revision = 0, opening = false;
+  let scope: GitHubScope = "mine", login = "", installed: string[] = [], query = "", repository = "";
+  let visible = false, loading = false, revision = 0, opening = false, claiming = false;
   const snapshots = new Map<GitHubScope, GitHubIssues>();
   const errors = new Map<GitHubScope, string>();
   const tabs = h("div", "subbar tabbar itabs"); tabs.setAttribute("role", "tablist"); tabs.setAttribute("aria-label", t("github.scope"));
@@ -27,8 +29,7 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
   const search = searchField.control;
   const meta = h("span", "imeta"); meta.setAttribute("role", "status");
   const refreshButton = issueRefresh(t("issues.refresh"), () => void refresh(true));
-  const repositoriesButton = issueAction(t("github.repositories.choose"), () => void chooseRepositories());
-  bar.append(searchField.root, h("span", "spacer"), meta, repositoriesButton, refreshButton);
+  bar.append(searchField.root, h("span", "spacer"), meta, refreshButton);
   const filters = h("div", "iteams");
   const list = h("div", "ilist"); list.id = "github-list"; list.setAttribute("role", "tabpanel");
   const controls = new Map<GitHubScope, HTMLButtonElement>();
@@ -52,19 +53,21 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
 
   async function refresh(force: boolean) {
     const request = ++revision;
-    loading = true; snapshots.clear(); errors.clear(); draw();
+    snapshots.clear(); errors.clear();
+    if (!ctx.github().connected) { loading = false; login = ""; installed = []; draw(); ctx.redraw(); return; }
+    loading = true; draw();
     try {
-      const found = await loadGitHubInbox(scope => invoke("github_issues", { scope, force }), () => invoke("github_identity"));
+      const found = await loadGitHubInbox(scope => invoke("github_issues", { scope, force }));
       if (request !== revision) return;
       if (login !== found.login) repository = "";
-      login = found.login; selected = found.repositories;
+      login = found.login; installed = found.repositories;
       snapshots.clear();
       found.lists.forEach((list, key) => snapshots.set(key, list));
       found.errors.forEach((cause, key) => errors.set(key, fromBack(cause)));
     } catch (cause) {
       if (request !== revision) return;
-      // gh can change accounts during the batch. Never combine results from different identities.
-      snapshots.clear(); login = ""; selected = [];
+      // A reconnection can change accounts during the batch. Never combine different identities.
+      snapshots.clear(); login = ""; installed = [];
       githubScopes.forEach(key => errors.set(key, fromBack(cause)));
     }
     loading = false; draw(); ctx.redraw();
@@ -83,7 +86,7 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
     });
     const error = errors.get(scope) ?? "";
     meta.classList.toggle("err", !!error); meta.textContent = loading ? t("issues.busy") : error || (login ? `@${login}` : "");
-    refreshButton.disabled = loading; repositoriesButton.disabled = loading || !login;
+    refreshButton.disabled = loading || !ctx.github().connected;
     drawList();
   }
 
@@ -92,6 +95,10 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
     const snapshot = snapshots.get(scope);
     const error = errors.get(scope) ?? "";
     list.setAttribute("aria-busy", String(loading));
+    if (!ctx.github().connected) {
+      list.append(empty(t("github.off.title"), t("github.off.body"), [t("github.connect"), ctx.toSettings]));
+      return;
+    }
     if (!snapshot) {
       if (error) list.append(empty(t("github.unavailable"), error, [t("issues.failed.action"), () => void refresh(true)]));
       return;
@@ -117,8 +124,8 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
     }
     const found = matching.filter(item => !repository || item.repository === repository);
     if (!found.length) {
-      list.append(scope === "repositories" && !selected.length
-        ? empty(t("github.repositories.empty"), t("github.repositories.hint"), [t("github.repositories.choose"), () => void chooseRepositories()])
+      list.append(!installed.length && !query
+        ? empty(t("github.install.title"), t("github.install.body"), [t("github.install.action"), install])
         : empty(t("github.empty"), t(query || repository ? "issues.noMatch.body" : "github.empty.hint")));
       return;
     }
@@ -134,32 +141,36 @@ export function githubIssues(host: HTMLElement, ctx: Context) {
       const visit = () => void invoke("github_issue_open", { url: item.url }).catch(cause => ctx.say(fromBack(cause), true));
       row.onclick = visit;
       row.onkeydown = event => { if (event.key === "Enter" && event.target === row) visit(); };
-      const action = button(t("issues.open"), () => void launch(item), "ghost"); action.classList.add("sm"); action.dataset.focus = item.id;
-      action.addEventListener("click", event => event.stopPropagation()); action.disabled = opening;
+      const available = scope === "available";
+      const action = button(t(available ? "issues.claim" : "issues.open"), () => void (available ? claim(item) : launch(item)), "ghost");
+      action.classList.add("sm"); action.dataset.focus = item.id;
+      action.addEventListener("click", event => event.stopPropagation()); action.disabled = opening || claiming;
       row.querySelector(".iact")!.append(action); list.append(row);
+    }
+    if (installed.length && scope === "available") {
+      const more = h("p", "ui-hint github-install-hint");
+      const link = button(t("github.install.more"), install, "ghost"); link.classList.remove("md"); link.classList.add("sm");
+      more.append(t("github.install.count", { n: installed.length }), " ", link);
+      list.append(more);
     }
   }
 
-  async function chooseRepositories() {
-    const account = login;
+  function install() {
+    void invoke("open_external", { url: ctx.github().install_url }).catch(cause => ctx.say(fromBack(cause), true));
+  }
+
+  async function claim(item: GitHubItem) {
+    if (claiming) return;
+    claiming = true; drawList();
     try {
-      const projects = await invoke("github_projects");
-      const choices = new Map<string, HTMLInputElement>();
-      const extra = input("", true); extra.rows = 3; extra.placeholder = "owner/repository";
-      const dialog = formDialog({ title: t("github.repositories.choose"), save: t("github.repositories.save"), cancel: t("actions.cancel"), error: fromBack,
-        submit: async () => {
-          const names = [...choices].filter(([, control]) => control.checked).map(([name]) => name);
-          const updated = await invoke("github_repositories", { login: account, selected: [...names, ...extra.value.split(/[\s,]+/).filter(Boolean)] });
-          ++revision; selected = updated; snapshots.delete("repositories"); loading = false;
-          await refresh(true);
-        },
-      });
-      dialog.body.append(h("p", "ui-hint", t("github.repositories.hint")));
-      for (const name of [...new Set([...selected, ...projects.map(project => project.repository)])].sort()) {
-        const check = checkbox(name, selected.includes(name)); choices.set(name, check.control); dialog.body.append(check.label);
-      }
-      dialog.body.append(field(t("github.repositories.other"), extra, t("github.repositories.format"))); dialog.open();
+      const claimed = await invoke("github_claim", { url: item.url });
+      const mine = snapshots.get("mine"), available = snapshots.get("available");
+      if (mine) snapshots.set("mine", { ...mine, items: [claimed, ...mine.items] });
+      if (available) snapshots.set("available", { ...available, items: available.items.filter(other => other.id !== item.id) });
+      ctx.say(t("issues.claimed", { id: claimed.identifier }));
+      ctx.redraw();
     } catch (cause) { ctx.say(fromBack(cause), true); }
+    finally { claiming = false; draw(); }
   }
 
   async function launch(item: GitHubItem) {

@@ -1,6 +1,7 @@
-//! GitHub CLI integration owns PR discovery, caching, and opening at the network/process boundary.
-//! A multi-repository workspace has one PR per repository, each on the shared branch with its own
-//! history.
+//! PR discovery, caching and opening through the GitHub App credential (ADR 0088). A
+//! multi-repository workspace has one PR per repository, each on the shared branch with its own
+//! history. Repositories without the App installed, or without a connection, keep their last known
+//! PR.
 
 use crate::domain::Pr;
 use crate::lock::lock;
@@ -8,9 +9,8 @@ use crate::state::{publish, Repo, Workspace};
 use crate::{i18n, AppState};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 use tauri::{AppHandle, State};
 
 /// Lifecycle evidence stays at the discovery boundary; the board's PR presentation is unchanged.
@@ -130,11 +130,11 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
             {
                 return (
                     repo.name.clone(),
-                    view(worktree, url).ok().map(|observation| observation.pr),
+                    view(url).ok().map(|observation| observation.pr),
                 );
             }
             let pr = head_branch(worktree).and_then(|branch| {
-                let observations = list(worktree, &["--head", &branch, "--limit", "100"]).ok()?;
+                let observations = list(worktree, &branch, 100).ok()?;
                 let selected = pick_observed(&observations, &branch);
                 let complete = observations.len() < 100;
                 histories.push((repo.path.clone(), branch, observations, complete));
@@ -157,7 +157,7 @@ pub fn pr_open(app: AppHandle, state: State<AppState>, id: String) {
     }
 }
 
-/// Query gh once per clone, covering all its workspaces. Network failures and incomplete responses
+/// Query GitHub once per clone, covering all its workspaces. Network failures and incomplete responses
 /// must preserve the last known board state.
 #[tauri::command(async)]
 pub fn refresh_prs(app: AppHandle, state: State<AppState>) {
@@ -184,9 +184,7 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
                 found.push((
                     workspace.id.clone(),
                     repo.name.clone(),
-                    view(Path::new(&repo.path), url)
-                        .ok()
-                        .map(|observation| observation.pr),
+                    view(url).ok().map(|observation| observation.pr),
                 ));
                 continue;
             }
@@ -209,7 +207,7 @@ fn scan_prs(app: &AppHandle, state: &State<AppState>) {
             let (observations, complete) = if prs.len() < 60 {
                 (prs.clone(), true)
             } else {
-                match self::list(Path::new(&clone), &["--head", &branch, "--limit", "100"]) {
+                match self::list(Path::new(&clone), &branch, 100) {
                     Ok(observations) => {
                         let complete = observations.len() < 100;
                         (observations, complete)
@@ -264,8 +262,7 @@ fn scannable(cleaned: bool, archived: bool, branch: &str) -> bool {
     !cleaned && !archived && !branch.is_empty()
 }
 
-/// Open the requested repository's PR, or the primary PR. Let gh discover and open the URL without
-/// sending it over IPC.
+/// Open the requested repository's PR, or the primary PR, without sending its URL over IPC.
 #[tauri::command(async)]
 pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), String> {
     let workspace =
@@ -279,31 +276,30 @@ pub fn open_pr(state: State<AppState>, id: String, repo: String) -> Result<(), S
     if let Some(url) = linked_pr_url(&workspace, &repo) {
         return crate::oauth::browse(url).map_err(i18n::io);
     }
-    // Prefer the persisted PR number, including after worktree cleanup when gh runs from the clone.
-    // Otherwise resolve the worktree's current branch.
-    let (dir, what) = match (workspace.cleaned, repo.pr.as_ref()) {
-        (false, None) => (
-            repo.worktree.clone(),
-            head_branch(Path::new(&repo.worktree)).ok_or_else(|| i18n::t("err.session.noPr"))?,
-        ),
-        (false, Some(pr)) => (repo.worktree.clone(), pr.number.to_string()),
-        (true, Some(pr)) => (repo.path.clone(), pr.number.to_string()),
-        (true, None) => return Err(i18n::t("err.session.noPr")),
+    // Prefer the persisted PR number, including after worktree cleanup. Otherwise resolve the
+    // worktree's current branch.
+    let dir = if workspace.cleaned {
+        &repo.path
+    } else {
+        &repo.worktree
     };
-    let ok = Command::new("gh")
-        .current_dir(&dir)
-        .args(["pr", "view", what.as_str(), "--web"])
-        .status()
-        .map_err(i18n::io)?
-        .success();
-    ok.then_some(()).ok_or_else(|| i18n::t("err.session.noPr"))
+    let (base, _) = repository(Path::new(dir)).ok_or_else(|| i18n::t("err.session.noPr"))?;
+    let number = match repo.pr.as_ref() {
+        Some(pr) => pr.number,
+        None if !workspace.cleaned => {
+            let branch = head_branch(Path::new(&repo.worktree))
+                .ok_or_else(|| i18n::t("err.session.noPr"))?;
+            pr_for_branch(Path::new(&repo.worktree), &branch)
+                .ok_or_else(|| i18n::t("err.session.noPr"))?
+                .number
+        }
+        None => return Err(i18n::t("err.session.noPr")),
+    };
+    crate::oauth::browse(&format!("https://github.com/{base}/pull/{number}")).map_err(i18n::io)
 }
 
 pub(crate) fn pr_for_branch(worktree: &Path, branch: &str) -> Option<Pr> {
-    pick_observed(
-        &list(worktree, &["--head", branch, "--limit", "5"]).ok()?,
-        branch,
-    )
+    pick_observed(&list(worktree, branch, 5).ok()?, branch)
 }
 fn pick_observed(prs: &[PrObservation], branch: &str) -> Option<Pr> {
     pick(
@@ -314,7 +310,7 @@ fn pick_observed(prs: &[PrObservation], branch: &str) -> Option<Pr> {
     )
 }
 
-/// Prefer an open PR over a closed one for the same branch, then retain the newest in gh response
+/// Prefer an open PR over a closed one for the same branch, then retain the newest in response
 /// order.
 pub(crate) fn pick(prs: &[Pr], branch: &str) -> Option<Pr> {
     let mine = || prs.iter().filter(|pr| pr.head_ref_name == branch);
@@ -339,106 +335,92 @@ fn pull_url(url: Option<&str>) -> Option<&str> {
         .map(|_| url)
 }
 
-fn view(dir: &Path, url: &str) -> Result<PrObservation, ()> {
+fn view(url: &str) -> Result<PrObservation, ()> {
     let observed_after = crate::conversation::now();
-    let mut command = Command::new("gh");
-    command
-        .current_dir(dir)
-        .env("GH_PROMPT_DISABLED", "1")
-        .args([
-            "pr",
-            "view",
-            url,
-            "--json",
-            "number,title,isDraft,state,headRefName,createdAt,closedAt,mergedAt",
-        ]);
-    let bytes = bounded_output(command, Duration::from_secs(15)).ok_or(())?;
-    decode_view(&bytes, url, observed_after)
+    let (repository, _, number) = crate::github_issues::target(url).ok_or(())?;
+    let value = crate::github_auth::get(&format!("/repos/{repository}/pulls/{number}"), &[])
+        .map_err(|_| ())?;
+    let observation = observation(&value, observed_after).ok_or(())?;
+    (observation.pr.number == number)
+        .then_some(observation)
+        .ok_or(())
 }
 
-fn decode_view(bytes: &[u8], url: &str, observed_after: u64) -> Result<PrObservation, ()> {
-    let mut observation: PrObservation = serde_json::from_slice(bytes).map_err(|_| ())?;
-    let (_, _, number) = crate::github_issues::target(url).ok_or(())?;
-    if observation.pr.number != number {
-        return Err(());
-    }
-    observation.observed_after = observed_after;
-    Ok(observation)
+/// Map a REST pull request to the board's PR, keeping lifecycle timestamps for telemetry.
+fn observation(value: &serde_json::Value, observed_after: u64) -> Option<PrObservation> {
+    let text = |key: &str| value[key].as_str().map(str::to_owned);
+    let state = match (value["state"].as_str()?, value["merged_at"].is_string()) {
+        ("open", _) => "OPEN",
+        (_, true) => "MERGED",
+        _ => "CLOSED",
+    };
+    Some(PrObservation {
+        pr: Pr {
+            number: value["number"].as_u64()?,
+            title: text("title")?,
+            is_draft: value["draft"].as_bool().unwrap_or(false),
+            state: state.into(),
+            head_ref_name: value["head"]["ref"].as_str()?.into(),
+        },
+        created_at: text("created_at"),
+        closed_at: text("closed_at"),
+        merged_at: text("merged_at"),
+        observed_after,
+    })
+}
+
+/// The base repository (upstream when present, otherwise origin) and the owner that pushes
+/// branches (origin), from the clone's GitHub remotes.
+fn repository(dir: &Path) -> Option<(String, String)> {
+    let remote = |name: &str| {
+        let output = Command::new("git")
+            .current_dir(dir)
+            .args(["remote", "get-url", name])
+            .output()
+            .ok()?;
+        output.status.success().then_some(())?;
+        crate::github_issues::remote_repository(&String::from_utf8_lossy(&output.stdout))
+    };
+    let origin = remote("origin");
+    let base = remote("upstream").or_else(|| origin.clone())?;
+    let owner = origin
+        .as_deref()
+        .unwrap_or(&base)
+        .split_once('/')?
+        .0
+        .to_owned();
+    Some((base, owner))
 }
 
 fn list_repo(repo: &Path) -> Result<Vec<PrObservation>, ()> {
-    list(repo, &["--limit", "60"])
+    pulls(repo, None, 60)
 }
 
-fn list(dir: &Path, extra: &[&str]) -> Result<Vec<PrObservation>, ()> {
+fn list(dir: &Path, branch: &str, limit: u32) -> Result<Vec<PrObservation>, ()> {
+    pulls(dir, Some(branch), limit)
+}
+
+fn pulls(dir: &Path, branch: Option<&str>, limit: u32) -> Result<Vec<PrObservation>, ()> {
     let observed_after = crate::conversation::now();
-    let mut command = Command::new("gh");
-    command
-        .current_dir(dir)
-        .args([
-            "pr",
-            "list",
-            "--state",
-            "all",
-            "--json",
-            "number,title,isDraft,state,headRefName,createdAt,closedAt,mergedAt",
-        ])
-        .args(extra);
-    let bytes = bounded_output(command, Duration::from_secs(15)).ok_or(())?;
-    let mut observations = serde_json::from_slice::<Vec<PrObservation>>(&bytes).map_err(|_| ())?;
-    for observation in &mut observations {
-        observation.observed_after = observed_after;
+    let (base, owner) = repository(dir).ok_or(())?;
+    let mut query = vec![
+        ("state", "all".to_owned()),
+        ("sort", "created".to_owned()),
+        ("direction", "desc".to_owned()),
+        ("per_page", limit.to_string()),
+    ];
+    if let Some(branch) = branch {
+        query.push(("head", format!("{owner}:{branch}")));
     }
-    Ok(observations)
+    let value = crate::github_auth::get(&format!("/repos/{base}/pulls"), &query).map_err(|_| ())?;
+    let rows = value.as_array().ok_or(())?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| observation(row, observed_after))
+        .collect())
 }
 
-/// A slow or abandoned CLI cannot hold the general scan indefinitely. The process group also
-/// releases a descendant that inherited stdout, and the reader drains output while gh runs.
-fn bounded_output(mut command: Command, timeout: Duration) -> Option<Vec<u8>> {
-    use std::io::Read;
-    use std::os::unix::process::CommandExt;
-    use std::sync::mpsc;
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .process_group(0)
-        .spawn()
-        .ok()?;
-    let pid = child.id() as i32;
-    let mut stdout = child.stdout.take()?;
-    let (data_tx, data_rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let result = stdout
-            .by_ref()
-            .take(2 * 1024 * 1024 + 1)
-            .read_to_end(&mut bytes);
-        let _ = data_tx.send(result.map(|_| bytes));
-    });
-    let (exit_tx, exit_rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = exit_tx.send(child.wait());
-    });
-    let status = exit_rx.recv_timeout(timeout);
-    if matches!(&status, Ok(Ok(exit)) if exit.success()) {
-        if let Ok(Ok(bytes)) = data_rx.recv_timeout(Duration::from_millis(200)) {
-            if bytes.len() <= 2 * 1024 * 1024 {
-                return Some(bytes);
-            }
-        }
-    }
-    // The direct process may have exited while a descendant still holds the output pipe.
-    unsafe {
-        libc::kill(-pid, libc::SIGKILL);
-    }
-    if status.is_err() {
-        let _ = exit_rx.recv_timeout(Duration::from_secs(2));
-    }
-    None
-}
-
-/// Persist gh results for each repository on the board.
+/// Persist GitHub results for each repository on the board.
 fn remember(
     app: &AppHandle,
     state: &State<AppState>,
@@ -527,7 +509,7 @@ fn repos_of(state: &State<AppState>, id: &str) -> Vec<Repo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_output, lifecycle_timestamp, pick, scannable, write, ScanGate};
+    use super::{lifecycle_timestamp, observation, pick, scannable, write, ScanGate};
     use crate::domain::Pr;
     use crate::state::Repo;
     use std::sync::{
@@ -554,14 +536,24 @@ mod tests {
     }
 
     #[test]
-    fn explicit_pull_identity_does_not_depend_on_the_local_review_branch() {
-        let payload = br#"{"number":42,"title":"Fork fix","state":"OPEN","headRefName":"main"}"#;
-        let observation =
-            super::decode_view(payload, "https://github.com/org/repo/pull/42", 123).unwrap();
-        assert_eq!(observation.pr.number, 42);
-        assert_eq!(observation.pr.head_ref_name, "main");
-        assert_eq!(observation.observed_after, 123);
-        assert!(super::decode_view(payload, "https://github.com/org/repo/pull/43", 123).is_err());
+    fn rest_pull_requests_map_to_board_states_and_lifecycle() {
+        let open = serde_json::json!({"number":42,"title":"Fork fix","state":"open","draft":true,
+            "head":{"ref":"main"},"created_at":"2026-10-01T00:00:00Z","merged_at":null});
+        let found = observation(&open, 123).unwrap();
+        assert_eq!(
+            (found.pr.number, found.pr.state.as_str(), found.pr.is_draft),
+            (42, "OPEN", true)
+        );
+        assert_eq!(found.pr.head_ref_name, "main");
+        assert_eq!(found.observed_after, 123);
+        assert_eq!(found.created_at.as_deref(), Some("2026-10-01T00:00:00Z"));
+        let mut merged = open.clone();
+        merged["state"] = "closed".into();
+        merged["merged_at"] = "2026-10-02T00:00:00Z".into();
+        assert_eq!(observation(&merged, 0).unwrap().pr.state, "MERGED");
+        merged["merged_at"] = serde_json::Value::Null;
+        assert_eq!(observation(&merged, 0).unwrap().pr.state, "CLOSED");
+        assert!(observation(&serde_json::json!({"number":1}), 0).is_none());
     }
 
     #[test]
@@ -597,18 +589,6 @@ mod tests {
         assert!(!scannable(true, false, "feature"));
         assert!(!scannable(false, true, "feature"));
         assert!(!scannable(false, false, ""));
-    }
-
-    #[test]
-    fn general_cli_read_has_a_deadline_and_requires_success() {
-        let mut slow = std::process::Command::new("sh");
-        slow.args(["-c", "sleep 5"]);
-        let started = std::time::Instant::now();
-        assert!(bounded_output(slow, Duration::from_millis(40)).is_none());
-        assert!(started.elapsed() < Duration::from_secs(2));
-        let mut failed = std::process::Command::new("sh");
-        failed.args(["-c", "printf '[]'; exit 1"]);
-        assert!(bounded_output(failed, Duration::from_secs(2)).is_none());
     }
 
     fn pr(number: u64, branch: &str, state: &str) -> Pr {

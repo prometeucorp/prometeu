@@ -14,12 +14,14 @@ every combination of providers, states, languages and screen sizes.
 GitHub issue and PR discovery uses the same desktop path for Claude, Codex and
 Antigravity. All three receive the originating title, description and URL through
 the existing launcher; PR worktree preparation is independent of the agent.
-Tests: `src-tauri/src/github_issues.rs`, `src-tauri/src/github.rs`,
-`src/github-issues-model.test.ts` and the workspace journey in `e2e/issues.spec.ts`.
-The browser scenario checks provider-tab focus, nested row actions, repository
-dialog focus after refresh and prepared PR source preservation. See the
-[contract](../contracts/github-issues.md). Windows/WSL has no GitHub inbox command
-implementation yet.
+Tests: `src-tauri/src/github_auth.rs`, `src-tauri/src/github_issues.rs`,
+`src-tauri/src/github.rs`, `src/github-issues-model.test.ts` and the workspace
+journey in `e2e/issues.spec.ts`. The browser scenario checks provider-tab focus,
+nested row actions, claiming from Available and prepared PR source preservation.
+See the [contract](../contracts/github-issues.md). GitHub notifications are also
+agent-independent; tests are in `src-tauri/src/github_notifications.rs` and
+`src/notification-feed.test.ts` ([contract](../contracts/github-notifications.md)).
+Windows/WSL has no GitHub command implementation yet.
 
 ## Local telemetry foundation
 

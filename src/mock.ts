@@ -1002,7 +1002,7 @@ function fakeEvaluation(request: import("./evaluation").EvaluationRequest): impo
 const githubItems: (import("./types").GitHubItem & { scope: import("./types").GitHubScope })[] = [
   { number: 428, title: "Restore terminal state", repository: "prometeucorp/prometeu", scope: "mine", kind: "issue" },
   { number: 93, title: "Keep focus inside dialogs", repository: "acme/design-system", scope: "mine", kind: "issue" },
-  { number: 433, title: "Add repository shortcuts", repository: "prometeucorp/prometeu", scope: "repositories", kind: "issue" },
+  { number: 433, title: "Add repository shortcuts", repository: "prometeucorp/prometeu", scope: "available", kind: "issue" },
   { number: 436, title: "Preserve workspace drafts", repository: "prometeucorp/prometeu", scope: "authored", kind: "pr" },
   { number: 432, title: "Add quick filters", repository: "prometeucorp/prometeu", scope: "authored", kind: "pr" },
   { number: 438, title: "Keep review comments across renames", repository: "prometeucorp/prometeu", scope: "reviews", kind: "pr" },
@@ -1014,26 +1014,58 @@ const githubItems: (import("./types").GitHubItem & { scope: import("./types").Gi
   draft: item.number === 432, updated_at: "2026-10-03T00:00:00Z", labels: ["enhancement"],
 }));
 
+function mockGitHubStatus(): import("./types").GitHubStatus {
+  const connected = localStorage.getItem("mock:githubOff") !== "1";
+  return { connected, login: connected ? localStorage.getItem("mock:githubLogin") ?? "mock-user" : null, busy: false, code: null, url: null, install_url: "https://github.com/apps/prometeu-app/installations/new" };
+}
+
+const mockGitHubFeed: import("./types").GitHubNotification[] = [
+  { id: "1", kind: "review_requested", repository: "prometeucorp/prometeu", number: 438, subject: "pr", actor: "reviewer", target: null, target_id: null, url: "https://github.com/prometeucorp/prometeu/pull/438", created_at: "2026-10-04T15:00:00Z" },
+  { id: "2", kind: "review_approved", repository: "prometeucorp/prometeu", number: 436, subject: "pr", actor: "reviewer", target: "review", target_id: "77", url: "https://github.com/prometeucorp/prometeu/pull/436#pullrequestreview-77", created_at: "2026-10-05T09:30:00Z" },
+];
+
 const mockCommands: IpcHandlers = {
-  github_identity() {
-    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
-    return localStorage.getItem("mock:githubLogin") ?? "mock-user";
+  github_status() { return mockGitHubStatus(); },
+  github_connect() {
+    localStorage.removeItem("mock:githubOff");
+    const status = mockGitHubStatus();
+    emit("github", status);
+    return status;
+  },
+  github_disconnect() {
+    localStorage.setItem("mock:githubOff", "1");
+    const status = mockGitHubStatus();
+    emit("github", status);
+    return status;
   },
   github_issues({ scope }) {
-    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
+    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.off"}';
     if (localStorage.getItem("mock:githubFailure") === scope) throw 'i18n:{"code":"err.github.response"}';
     const login = localStorage.getItem("mock:githubLogin") ?? "mock-user";
-    const repositories: string[] = JSON.parse(localStorage.getItem(`mock:githubRepositories:${login}`) ?? "[]");
-    return { login, repositories, items: githubItems.filter(item => scope === "repositories" ? item.kind === "issue" && repositories.includes(item.repository) : item.scope === scope), fetched_at: Date.now() / 1000, truncated: false };
+    const claimed: string[] = JSON.parse(localStorage.getItem("mock:githubClaimed") ?? "[]");
+    const items = githubItems.filter(item => scope === "mine" ? item.scope === "mine" || claimed.includes(item.id)
+      : scope === "available" ? item.scope === "available" && !claimed.includes(item.id) : item.scope === scope);
+    return { login, repositories: ["acme/design-system", "prometeucorp/prometeu"], items, fetched_at: Date.now() / 1000, truncated: false };
   },
-  github_repositories({ selected, login }) {
-    if ((localStorage.getItem("mock:githubLogin") ?? "mock-user") !== login) throw 'i18n:{"code":"err.github.accountChanged"}';
-    if (localStorage.getItem("mock:githubOff") === "1") throw 'i18n:{"code":"err.github.auth"}';
-    const repositories = [...new Set(selected.map(value => value.trim().toLowerCase()))].sort();
-    if (selected.length > 20 || repositories.some(value => !/^[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+$/i.test(value) || [".", ".."].includes(value.split("/")[1]))) throw 'i18n:{"code":"err.github.repositories"}';
-    localStorage.setItem(`mock:githubRepositories:${localStorage.getItem("mock:githubLogin") ?? "mock-user"}`, JSON.stringify(repositories));
-    return repositories;
+  github_claim({ url }) {
+    const item = githubItems.find(candidate => candidate.url === url && candidate.scope === "available");
+    if (!item) throw 'i18n:{"code":"err.github.notAvailable"}';
+    const claimed: string[] = JSON.parse(localStorage.getItem("mock:githubClaimed") ?? "[]");
+    localStorage.setItem("mock:githubClaimed", JSON.stringify([...claimed, item.id]));
+    return { ...item, scope: undefined } as unknown as import("./types").GitHubItem;
   },
+  github_feed({ after }) {
+    if (localStorage.getItem("mock:githubFeed") === "none") return null;
+    const rows = mockGitHubFeed.filter(row => !after || Number(row.id) > Number(after));
+    return { github: { login: "mock-user" }, notifications: rows, more: false };
+  },
+  github_subjects({ keys }) {
+    return keys.flatMap(key => {
+      const item = githubItems.find(candidate => candidate.repository === key.repository && candidate.number === key.number);
+      return item ? [{ repository: key.repository, number: key.number, title: item.title, state: "OPEN" }] : [];
+    });
+  },
+  github_detail({ target }) { return target === "workflow_run" ? "CI" : "Looks good to me, just rename the helper."; },
   github_issue_open({ url }) { console.log("open in GitHub:", url); },
   github_projects() { return board.projects.filter(project => project.name === "prometeu").map(project => ({ project: project.id, repository: "prometeucorp/prometeu" })); },
   github_prepare({ url }) {

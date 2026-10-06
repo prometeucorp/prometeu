@@ -1,7 +1,7 @@
 # GitHub notifications
 
-Status: the Cloud side is implemented in `prometeu-cloud`; the desktop consumer
-is pending. Decision: [ADR 0088](../decisions/0088-github-app.md) (proposed).
+Status: current contract, implemented in `prometeu-cloud` and the desktop.
+Decision: [ADR 0088](../decisions/0088-github-app.md).
 
 ## Source
 
@@ -86,6 +86,48 @@ may be `null` for links created before logins were stored. `target` is one of
 decimal strings. `url` points at the comment, review, PR, issue or workflow run
 on github.com.
 
+## Desktop
+
+`src/notification-center.ts` polls `github_feed` every 30 seconds, on window
+focus and when the destination opens, following `more` for up to ten pages.
+`src-tauri/src/github_notifications.rs` calls the Cloud with the stored Bearer
+(the webview never sees it) and returns `null` without an account or with a
+rejected session. Rows outside the contract (unknown kind, subject or target,
+malformed repository or ID, non-github.com URL) are dropped.
+
+The rail's permanent **Notifications** item replaces the former conditional
+Mentions item and its modal sheet. It shows unread GitHub notifications plus
+pending relay mentions, and the Dock badge adds the same count to unread
+workspaces. The destination merges both sources by time, grouped by day, with
+All, GitHub and Mentions filters; mentions keep their relay rule and leave when
+the thread is resolved.
+
+Read state stays on each Mac in localStorage `prometeu:github-notifications:read`:
+`{ "before": "<id>", "ids": ["<id>"] }`. **Mark all as read** moves `before` to the
+newest id; opening a row adds its id (at most 500 are kept). A damaged record
+resets read marks only. Up to 300 rows stay in memory; after a restart the first
+request without a cursor returns the newest 100.
+
+Titles come from `github_subjects`, one GraphQL request for up to 50 issues or
+PRs with variables, through the GitHub App credential; inaccessible items are
+omitted and rows fall back to `owner/repo#number`. Opening a row marks it read
+and opens the workspace whose GitHub item or PR matches (the clone's GitHub
+repository comes from `github_projects`). Otherwise the row expands and
+`github_detail` fetches the current comment or review text, or the workflow run
+name. Every row can open its `url` on GitHub.
+
+The first feed response after startup or signing in is history. Later arrivals
+trigger the `github` local notification when enabled, for at most the three
+newest per poll ([local notifications](notifications.md)), mark
+a matching workspace unread and, for PRs, refresh its PR state through
+`pr_open`.
+
+| Command | Input | Result |
+| --- | --- | --- |
+| `github_feed` | `{ after: string \| null }` | The feed above, or `null` without an account |
+| `github_subjects` | `{ keys: { repository, number }[] }` | `{ repository, number, title, state }[]` |
+| `github_detail` | `{ repository, number, target, id }` | Current text, empty when absent |
+
 ## Verification
 
 `fixtures/cloud-api.json` (`github_notifications`) is the shared wire fixture;
@@ -93,4 +135,9 @@ on github.com.
 `test/integration/desktop_contract_test.rb`. Webhook signature, recipients,
 idempotency, retention and the cursor are covered by
 `test/integration/github_webhooks_test.rb` and account linking by
-`test/integration/github_login_test.rb` in `prometeu-cloud`.
+`test/integration/github_login_test.rb` in `prometeu-cloud`. On the desktop,
+`github_notifications.rs` decodes the shared fixture through the production
+type and covers row validation and the batched title query;
+`src/notification-feed.test.ts` covers ordering, read state and workspace
+matching. The Notifications destination has no browser scenario: its rules are
+covered by those unit tests, and E2E scope is reserved for the core journey.

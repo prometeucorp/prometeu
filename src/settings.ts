@@ -22,7 +22,7 @@ import * as team from "./team";
 import * as typesafe from "./typesafe";
 import { telemetryRows } from "./telemetry-settings";
 import { typesafeRows } from "./typesafe-settings";
-import type { LinearStatus } from "./types";
+import type { GitHubStatus, LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
 import { button, disclosure, field, input, select } from "./ui";
@@ -38,6 +38,7 @@ type Ctx = { say: (text: string, isError?: boolean) => void };
 
 let ctx: Ctx;
 let status: LinearStatus = { connected: false, can_assign: false, who: null, busy: false };
+let githubStatus: GitHubStatus = { connected: false, login: null, busy: false, code: null, url: null, install_url: "" };
 
 export async function init(context: Ctx) {
   ctx = context;
@@ -56,8 +57,13 @@ export async function init(context: Ctx) {
   // The optional TypeSafe integration starts disabled until its local configuration loads.
   typesafe.onChange(() => refreshPages("trabalho"));
   void typesafe.refresh();
+  listen<GitHubStatus>("github", ({ payload }) => {
+    githubStatus = payload;
+    refreshPages("trabalho");
+  });
   try {
     status = await invoke("linear_status");
+    githubStatus = await invoke("github_status");
   } catch {
     // Keep the page usable and disconnected if the backend is unavailable or older.
   }
@@ -84,6 +90,8 @@ function refreshPages(...pages: SettingsPage[]) {
 
 /// Whether Linear is available to load issues.
 export const linear = () => status;
+/// Whether the GitHub App credential is available; the token itself stays in Rust.
+export const github = () => githubStatus;
 
 type Section = { id: string; title: Key; rows: () => HTMLElement[]; keywords?: Key[] };
 type Page = { id: SettingsPage; title: Key; description: Key; glyph: Parameters<typeof icon>[0]; sections: Section[] };
@@ -108,7 +116,7 @@ const PAGES: Page[] = [
     { id: "team", title: "settings.team", rows: teamRows },
     { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
     { id: "telemetry", title: "telemetry.title", rows: telemetryRows },
-    { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), ...typesafeRows(ctx.say, draw)], keywords: ["typesafe.enabled"] },
+    { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), githubRow(), ...typesafeRows(ctx.say, draw)], keywords: ["typesafe.enabled"] },
   ] },
 ];
 
@@ -166,7 +174,7 @@ export function draw() {
     if (searchQuery.trim()) {
       const results = h("div", "settings-panel settings-results");
       for (const candidate of PAGES) for (const section of candidate.sections) {
-        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity" : "", section.id === "integrations" ? "Linear TypeSafe" : ""];
+        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity" : "", section.id === "integrations" ? "Linear GitHub TypeSafe" : ""];
         if (!matchesSettings(searchQuery, words.join(" "))) continue;
         const result = button("", () => navigate(candidate.id, section.id), "ghost");
         result.classList.add("settings-result");
@@ -475,6 +483,57 @@ function linearRow() {
   on.disabled = status.busy;
   on.title = t("linear.connect.title");
   on.addEventListener("click", () => void connect(on));
+  act.append(on);
+  return row;
+}
+
+function githubRow() {
+  const row = template(
+    "div",
+    "setrow github-connection",
+    `<span class="glyph">${icon("github", 18)}</span><div class="txt"><b>GitHub</b><span></span></div><div class="act"></div>`,
+  );
+  const text = row.querySelector(".txt span")!;
+  const act = row.querySelector(".act")!;
+  const run = async (connect: boolean, control: HTMLButtonElement) => {
+    control.disabled = true;
+    try { githubStatus = await (connect ? invoke("github_connect") : invoke("github_disconnect")); } catch (e) { ctx.say(fromBack(e), true); }
+    draw();
+  };
+  const external = (label: string, url: string) => {
+    const control = template("button", "ghost md", `<span></span> ${icon("external-link", 12)}`) as HTMLButtonElement;
+    control.children[0].textContent = label;
+    control.addEventListener("click", () => void invoke("open_external", { url }).catch(e => ctx.say(fromBack(e), true)));
+    return control;
+  };
+
+  if (githubStatus.busy && githubStatus.code) {
+    // The person types this code on github.com; it is useless without their approval there.
+    text.innerHTML = `<span></span> <b class="github-code"></b>`;
+    text.children[0].textContent = t("github.waiting");
+    text.querySelector("b")!.textContent = githubStatus.code;
+    if (githubStatus.url) act.append(external(t("github.openDevice"), githubStatus.url));
+    const cancel = h("button", "ghost md", t("actions.cancel")) as HTMLButtonElement;
+    cancel.addEventListener("click", () => void run(false, cancel));
+    act.append(cancel);
+    return row;
+  }
+  if (githubStatus.connected) {
+    text.innerHTML = `<span class="ok"></span> <span class="as"></span> <b></b>`;
+    text.querySelector(".ok")!.textContent = t("linear.connected");
+    text.querySelector(".as")!.textContent = t("linear.asWord");
+    text.querySelector("b")!.textContent = `@${githubStatus.login ?? ""}`;
+    act.append(external(t("github.install.action"), githubStatus.install_url));
+    const off = h("button", "ghost md", t("linear.disconnect")) as HTMLButtonElement;
+    off.addEventListener("click", () => void run(false, off));
+    act.append(off);
+    return row;
+  }
+  text.textContent = t(githubStatus.busy ? "github.opening" : "github.pitch");
+  const on = template("button", "outline md", `<span></span> ${icon("external-link", 12)}`) as HTMLButtonElement;
+  on.children[0].textContent = t("github.connect");
+  on.disabled = githubStatus.busy;
+  on.addEventListener("click", () => void run(true, on));
   act.append(on);
   return row;
 }

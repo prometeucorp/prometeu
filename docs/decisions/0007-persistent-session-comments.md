@@ -33,7 +33,7 @@ can be general to the tab or store `tab` and `Piece.key` as the anchor of an
 excerpt. The quote is readable context, not identity. Markers in the transcript
 open the thread and the thread can lead back to the excerpt.
 
-Mentions create assignments in **For me**. Opening an assignment does not mean
+Mentions create assignments in **Notifications**. Opening an assignment does not mean
 finishing work; only resolving the root removes the thread from everyone's
 inbox. Any collaborator who still has access to the workspace can resolve it.
 

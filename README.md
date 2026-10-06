@@ -43,13 +43,18 @@ optional for local work; model access comes from your own provider account.
 - **A desk for ongoing conversations.** Arrange conversations side by side,
   respond to questions, and follow agent activity without opening each workspace.
   Your workspace stage stays separate from the agent's status.
-- **Issues from Linear and GitHub.** Provider tabs share one inbox. Linear lists
-  assigned and unassigned team issues, with claiming before workspace creation.
-  GitHub lists assigned issues, selected repositories, your open PRs and requested
-  reviews. Click an item to open its source, or open a workspace with its context.
-  GitHub uses your local `gh auth login --hostname github.com` credential. See the
-  [Linear](docs/contracts/linear-issues.md) and [GitHub](docs/contracts/github-issues.md)
-  contracts for setup and limits.
+- **Issues from Linear and GitHub.** Provider tabs share one inbox. Both list
+  your assigned issues and unassigned ones you can claim; GitHub also lists your
+  open PRs and requested reviews. Click an item to open its source, or open a
+  workspace with its context. Connect GitHub in Settings › Integrations through
+  the Prometeu GitHub App, installed on the repositories you want; the `gh` CLI
+  is not needed. See the [Linear](docs/contracts/linear-issues.md) and
+  [GitHub](docs/contracts/github-issues.md) contracts for setup and limits.
+- **Notifications.** One destination in the sidebar gathers team mentions and
+  GitHub activity on your PRs and issues: approvals, requested changes, comments,
+  review requests, merges and failed CI. GitHub activity arrives through your
+  Prometeu account with GitHub linked; see the
+  [contract](docs/contracts/github-notifications.md).
 - **Local notifications.** Opt into completion, approval/input and error alerts
   in Settings. Choose a macOS banner, a notch overlay or sound alone.
   Notifications and sound start disabled; phone push is not included.

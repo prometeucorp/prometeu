@@ -346,7 +346,7 @@ export type Issue = IssueRef & {
 };
 export type Issues = { issues: Issue[]; available: Issue[]; available_error?: string; fetched_at: number };
 
-export type GitHubScope = "mine" | "repositories" | "authored" | "reviews";
+export type GitHubScope = "mine" | "available" | "authored" | "reviews";
 export type GitHubItem = IssueRef & {
   description: string | null;
   repository: string;
@@ -360,6 +360,16 @@ export type GitHubItem = IssueRef & {
 export type GitHubIssues = { login: string; repositories: string[]; items: GitHubItem[]; fetched_at: number; truncated: boolean };
 export type GitHubProject = { project: string; repository: string };
 export type GitHubPrepared = { base: string; branch: string; source: string };
+/// Busy carries the code typed on github.com while the device flow waits for approval.
+export type GitHubStatus = { connected: boolean; login: string | null; busy: boolean; code: string | null; url: string | null; install_url: string };
+export type GitHubNotificationKind = "review_approved" | "changes_requested" | "review_requested" | "commented" | "mentioned" | "assigned" | "merged" | "closed" | "ci_failed";
+/// Metadata from the Cloud feed; titles and text are fetched from GitHub on demand.
+export type GitHubNotification = {
+  id: string; kind: GitHubNotificationKind; repository: string; number: number; subject: "pr" | "issue"; actor: string;
+  target: "issue_comment" | "review" | "review_comment" | "workflow_run" | null; target_id: string | null; url: string; created_at: string;
+};
+export type GitHubFeed = { github: { login: string | null } | null; notifications: GitHubNotification[]; more: boolean };
+export type GitHubSubject = { repository: string; number: number; title: string; state: string };
 
 /// Busy identifies browser-based authentication, which remains visible across navigation.
 export type LinearStatus = { connected: boolean; can_assign: boolean; who: LinearWho | null; busy: boolean };
