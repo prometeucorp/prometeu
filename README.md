@@ -171,7 +171,8 @@ trust. See the [architecture](ARCHITECTURE.md) for execution boundaries.
 For the desktop app:
 
 - macOS with Xcode Command Line Tools (`xcode-select --install`), or Linux
-  with the WebKitGTK packages listed in [Linux](docs/operations/linux.md).
+  with the WebKitGTK packages listed in [Linux](docs/operations/linux.md), or
+  Windows x64 with WSL (see [Develop on Windows](#develop-on-windows)).
 - Git.
 - Node.js **24.14.0** and npm **11.9.0**, as declared in
   [package.json](package.json).
@@ -188,7 +189,7 @@ npm ci
 npm run app
 ```
 
-`npm run app` starts the Tauri app through [scripts/app.sh](scripts/app.sh).
+`npm run app` starts the Tauri app through [scripts/app.mjs](scripts/app.mjs).
 Development state defaults to `~/.prometeu-dev`, separate from the installed
 app's `~/.prometeu`. When launched through a Prometeu workspace, the script
 uses that workspace's name and port to isolate simultaneous development instances.
@@ -196,6 +197,22 @@ uses that workspace's name and port to isolate simultaneous development instance
 `npm run app:bundle` builds a debug `.app` and opens it through LaunchServices.
 Use it to test dictation: macOS only honors the speech usage description of a
 bundle the app launched itself, so `npm run app` hides the microphone button.
+
+### Develop on Windows
+
+On Windows, `npm run app` starts the experimental Windows shell, which runs
+projects, Git, shells and Codex inside your default WSL distribution. It needs:
+
+- Rust through rustup with the MSVC toolchain, the Visual Studio C++ Build Tools
+  and WebView2 (included in Windows 11);
+- a default WSL distribution (x86_64 Ubuntu 24.04 is the reference) with
+  `build-essential`, Rust through rustup, Git and an authenticated Codex CLI.
+
+The script builds the Linux runtime inside WSL, embeds it in the window and keeps
+development state under `~/.local/share/prometeu-windows-dev` inside WSL,
+separate from the installed app. Only Codex is available. Run
+`npm run check:windows` instead of `npm run check`; see
+[development](docs/operations/development.md#native-windowswsl-integration).
 
 ### Work on the UI in a browser
 
@@ -235,6 +252,7 @@ Run the checks relevant to your change:
 | `npm run test:rust` | Rust backend tests |
 | `npm run test:e2e` | Browser flows against the mock |
 | `npm run check` | Full CI validation, including build, architecture checks, Rust formatting, and Clippy |
+| `npm run check:windows` | The validation that runs on Windows, including the Windows CI job |
 
 Run `npm run check` before submitting a code PR. Playwright covers Chromium
 and WebKit against the browser mock; it does not drive the native Tauri app.
