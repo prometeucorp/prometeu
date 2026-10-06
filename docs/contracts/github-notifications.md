@@ -117,7 +117,9 @@ request without a cursor returns the newest 100.
 
 Titles come from `github_subjects`, one GraphQL request for up to 50 issues or
 PRs with variables, through the GitHub App credential; inaccessible items are
-omitted and rows fall back to `owner/repo#number`. Opening a row marks it read
+omitted and rows fall back to `owner/repo#number`. Titles and text are cached
+in memory for one Prometeu account and GitHub login; a switch clears them and
+discards requests that finish afterwards, so access is checked again. Opening a row marks it read
 and opens the workspace whose GitHub item or PR matches (the clone's GitHub
 repository comes from `github_projects`). Otherwise the row expands and
 `github_detail` fetches the current comment or review text, or the workflow run

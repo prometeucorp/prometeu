@@ -45,8 +45,15 @@ let visible = false;
 let filter: Filter = "all";
 let read: ReadState = { before: "", ids: [] };
 let expanded = "";
+/// Titles and text fetched for `cachedFor`; a different account or GitHub login must check access again.
 const subjects = new Map<string, GitHubSubject>();
 const details = new Map<string, string>();
+let cachedFor = "";
+function cacheOwner() {
+  const owner = `${account}|${ctx.github().login ?? ""}`;
+  if (owner !== cachedFor) { subjects.clear(); details.clear(); cachedFor = owner; }
+  return owner;
+}
 let repositories: Promise<Map<string, string[]>> | null = null;
 
 export function init(context: Ctx) {
@@ -137,12 +144,16 @@ async function workspaceOf(item: GitHubNotification) {
 
 async function loadSubjects() {
   if (!ctx.github().connected) return;
+  const owner = cacheOwner();
   const missing = [...new Map(items
     .filter(item => !subjects.has(subjectKey(item.repository, item.number)))
     .map(item => [subjectKey(item.repository, item.number), { repository: item.repository, number: item.number }])).values()];
   for (let start = 0; start < missing.length; start += 50) {
     try {
-      for (const subject of await invoke("github_subjects", { keys: missing.slice(start, start + 50) })) {
+      const found = await invoke("github_subjects", { keys: missing.slice(start, start + 50) });
+      // Results that finish after an account switch belong to the previous credential.
+      if (cacheOwner() !== owner) return;
+      for (const subject of found) {
         subjects.set(subjectKey(subject.repository, subject.number), subject);
       }
     } catch { return; }
@@ -151,6 +162,7 @@ async function loadSubjects() {
 
 const headline = (item: GitHubNotification) => t(`notifications.github.${item.kind}`, { actor: item.actor || "GitHub" });
 function subjectLine(item: GitHubNotification) {
+  cacheOwner();
   const title = subjects.get(subjectKey(item.repository, item.number))?.title;
   return `${item.repository}#${item.number}${title ? ` · ${title}` : ""}`;
 }
@@ -261,6 +273,7 @@ function githubRow(item: GitHubNotification) {
   const wrap = h("div", "notification-entry");
   const detail = h("div", "notification-detail");
   wrap.append(row, detail);
+  const owner = cacheOwner();
   if (!item.target || !item.target_id) {
     detail.textContent = subjectLine(item);
   } else if (details.has(item.id)) {
@@ -271,7 +284,7 @@ function githubRow(item: GitHubNotification) {
   } else {
     detail.textContent = t("issues.busy");
     void invoke("github_detail", { repository: item.repository, number: item.number, target: item.target, id: item.target_id })
-      .then(text => { details.set(item.id, text); if (visible) draw(); })
+      .then(text => { if (cacheOwner() === owner) details.set(item.id, text); if (visible) draw(); })
       .catch(error => { detail.textContent = fromBack(error); });
   }
   return wrap;
