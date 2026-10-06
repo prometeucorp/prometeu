@@ -1,8 +1,8 @@
 import { avatar, icon } from "./icons";
-import { fromBack, t } from "./i18n";
+import { fromBack, t, tn } from "./i18n";
 import { invoke } from "./ipc";
 import { issueRefresh, issueTab } from "./issues-controls";
-import { compareId, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, workspaceFor, type ReadState } from "./notification-feed";
+import { compareId, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
 import { deliverGitHub } from "./notifications";
 import * as team from "./team";
 import type { Board, GitHubNotification, GitHubStatus, GitHubSubject, Workspace } from "./types";
@@ -44,14 +44,19 @@ let polling = false;
 let visible = false;
 let filter: Filter = "all";
 let read: ReadState = { before: "", ids: [] };
+/// The expanded thread key.
 let expanded = "";
 /// Titles and text fetched for `cachedFor`; a different account or GitHub login must check access again.
 const subjects = new Map<string, GitHubSubject>();
 const details = new Map<string, string>();
+/// Detail requests in flight, so redraws while a thread loads do not repeat them.
+const fetching = new Set<string>();
+/// Failed detail requests, shown until the thread is expanded again, which retries them.
+const failures = new Map<string, string>();
 let cachedFor = "";
 function cacheOwner() {
   const owner = `${account}|${ctx.github().login ?? ""}`;
-  if (owner !== cachedFor) { subjects.clear(); details.clear(); cachedFor = owner; }
+  if (owner !== cachedFor) { subjects.clear(); details.clear(); failures.clear(); cachedFor = owner; }
   return owner;
 }
 let repositories: Promise<Map<string, string[]>> | null = null;
@@ -65,7 +70,8 @@ export function init(context: Ctx) {
   team.onChange(() => { if (visible) draw(); });
 }
 
-const unreadGitHub = () => items.filter(item => !isRead(read, item.id)).length;
+/// Unread issues and PRs, not events: a busy PR counts once.
+const unreadGitHub = () => threads(items, read).filter(thread => thread.items.some(item => !isRead(read, item.id))).length;
 /// Unread GitHub notifications plus pending mentions, for the sidebar and Dock.
 export const count = () => unreadGitHub() + team.inboxCount();
 
@@ -101,7 +107,7 @@ async function poll() {
     items = merge(items, fresh);
     await loadSubjects();
     // The first load after startup is history; only later arrivals interrupt the person.
-    if (!first) fresh.forEach((item, index) => void arrived(item, index >= fresh.length - 3));
+    if (!first) threads(fresh, read).forEach((thread, index) => void arrived(thread, index < 3));
     ctx.changed();
     if (visible) draw();
   } catch (error) {
@@ -116,9 +122,11 @@ function forget(next: string) {
   ctx.changed();
 }
 
-/// After a long sleep only the newest few arrivals interrupt; the rest wait in the list and badge.
-async function arrived(item: GitHubNotification, announce: boolean) {
-  if (announce) void deliverGitHub(headline(item), subjectLine(item)).catch(error => ctx.say(fromBack(error), true));
+/// One notice per issue or PR; after a long sleep only the newest few interrupt, the rest wait in
+/// the list and badge.
+async function arrived(thread: Thread, announce: boolean) {
+  if (announce) void deliverGitHub(threadHeadline(thread), subjectLine(thread.lead)).catch(error => ctx.say(fromBack(error), true));
+  const item = thread.lead;
   const workspace = await workspaceOf(item);
   if (!workspace) return;
   // The PR changed on GitHub: refresh its state now instead of waiting for the next scan.
@@ -161,6 +169,8 @@ async function loadSubjects() {
 }
 
 const headline = (item: GitHubNotification) => t(`notifications.github.${item.kind}`, { actor: item.actor || "GitHub" });
+const threadHeadline = (thread: Thread) =>
+  thread.items.length > 1 ? `${headline(thread.lead)} · ${tn(thread.items.length - 1, "notifications.more")}` : headline(thread.lead);
 function subjectLine(item: GitHubNotification) {
   cacheOwner();
   const title = subjects.get(subjectKey(item.repository, item.number))?.title;
@@ -226,7 +236,7 @@ export function draw() {
   list.replaceChildren();
   const rows: Row[] = [];
   if (filter !== "mentions") {
-    for (const item of items) rows.push({ at: Date.parse(item.created_at), node: githubRow(item) });
+    for (const thread of threads(items, read)) rows.push({ at: Date.parse(thread.latest.created_at), node: githubRow(thread) });
   }
   if (filter !== "github") {
     for (const mention of mentions) rows.push({ at: mention.ts, node: mentionRow(mention) });
@@ -246,48 +256,85 @@ export function draw() {
   }
 }
 
-function githubRow(item: GitHubNotification) {
-  const unread = !isRead(read, item.id);
-  const row = template("div", "inboxrow notification-row" + (unread ? " unread" : ""),
-    `<span class="av"></span><span class="txt"><b></b><span class="what"></span></span><span class="when"></span><span class="go"></span>`);
-  row.tabIndex = 0; row.setAttribute("role", "button");
-  row.querySelector(".av")!.innerHTML = icon(GLYPHS[item.kind], 16);
-  row.querySelector("b")!.textContent = headline(item);
-  row.querySelector(".what")!.textContent = subjectLine(item);
-  row.querySelector(".when")!.textContent = new Date(item.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+const clock = (item: GitHubNotification) =>
+  new Date(item.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+function githubLink(item: GitHubNotification) {
   const visit = () => void invoke("open_external", { url: item.url }).catch(error => ctx.say(fromBack(error), true));
   const github = button("", visit, "ghost"); github.classList.remove("md"); github.classList.add("sm");
   github.innerHTML = icon("external-link", 14); github.title = t("notifications.openGitHub"); github.setAttribute("aria-label", github.title);
   github.addEventListener("click", event => event.stopPropagation());
-  row.querySelector(".go")!.append(github);
+  return github;
+}
+
+/// One row per issue or PR. Opening it reads the whole thread and opens the matching workspace;
+/// without one, it expands the thread's events, newest first.
+function githubRow(thread: Thread) {
+  const item = thread.lead;
+  const unread = thread.items.some(entry => !isRead(read, entry.id));
+  const row = template("div", "inboxrow notification-row" + (unread ? " unread" : ""),
+    `<span class="av"></span><span class="txt"><b></b><span class="what"></span></span><span class="when"></span><span class="go"></span>`);
+  row.tabIndex = 0; row.setAttribute("role", "button");
+  row.querySelector(".av")!.innerHTML = icon(GLYPHS[item.kind], 16);
+  row.querySelector("b")!.textContent = threadHeadline(thread);
+  row.querySelector(".what")!.textContent = subjectLine(item);
+  row.querySelector(".when")!.textContent = clock(thread.latest);
+  row.querySelector(".go")!.append(githubLink(item));
   const activate = async () => {
-    read = markRead(read, item.id); saveRead(account, read); ctx.changed();
+    read = markRead(read, ...thread.items.map(entry => entry.id)); saveRead(account, read); ctx.changed();
     const workspace = await workspaceOf(item);
     if (workspace) { ctx.open(workspace); return; }
-    expanded = expanded === item.id ? "" : item.id;
+    expanded = expanded === thread.key ? "" : thread.key;
+    for (const entry of thread.items) failures.delete(entry.id);
     draw();
   };
   row.addEventListener("click", () => void activate());
   row.addEventListener("keydown", event => { if (event.key === "Enter" && event.target === row) void activate(); });
-  if (expanded !== item.id) return row;
+  if (expanded !== thread.key) return row;
   const wrap = h("div", "notification-entry");
-  const detail = h("div", "notification-detail");
-  wrap.append(row, detail);
-  const owner = cacheOwner();
-  if (!item.target || !item.target_id) {
-    detail.textContent = subjectLine(item);
-  } else if (details.has(item.id)) {
-    detail.textContent = details.get(item.id) || t("notifications.noText");
-  } else if (!ctx.github().connected) {
+  wrap.append(row);
+  const several = thread.items.length > 1;
+  for (const entry of [...thread.items].reverse()) {
+    const detail = eventDetail(entry, several);
+    if (detail) wrap.append(detail);
+  }
+  if (!ctx.github().connected && thread.items.some(entry => entry.target && entry.target_id)) {
     const connect = button(t("github.connect"), ctx.toSettings, "ghost"); connect.classList.add("sm");
-    detail.append(t("notifications.connect"), " ", connect);
-  } else {
-    detail.textContent = t("issues.busy");
-    void invoke("github_detail", { repository: item.repository, number: item.number, target: item.target, id: item.target_id })
-      .then(text => { if (cacheOwner() === owner) details.set(item.id, text); if (visible) draw(); })
-      .catch(error => { detail.textContent = fromBack(error); });
+    const notice = h("div", "notification-detail");
+    notice.append(t("notifications.connect"), " ", connect);
+    wrap.append(notice);
   }
   return wrap;
+}
+
+/// One event's current text; in a thread of several, each event also names who did what and when.
+function eventDetail(item: GitHubNotification, labelled: boolean): HTMLElement | null {
+  const detail = h("div", "notification-detail");
+  if (labelled) {
+    const head = h("div", "notification-event", `${headline(item)} · ${clock(item)}`);
+    head.append(githubLink(item));
+    detail.append(head);
+  }
+  const body = h("div", "");
+  detail.append(body);
+  const owner = cacheOwner();
+  if (!item.target || !item.target_id) {
+    if (!labelled) body.textContent = subjectLine(item);
+  } else if (details.has(item.id)) {
+    body.textContent = details.get(item.id) || t("notifications.noText");
+  } else if (failures.has(item.id)) {
+    body.textContent = failures.get(item.id)!;
+  } else if (ctx.github().connected) {
+    body.textContent = t("issues.busy");
+    if (fetching.has(item.id)) return detail;
+    fetching.add(item.id);
+    void invoke("github_detail", { repository: item.repository, number: item.number, target: item.target, id: item.target_id })
+      .then(text => { if (cacheOwner() === owner) details.set(item.id, text); if (visible) draw(); })
+      .catch(error => { if (cacheOwner() === owner) failures.set(item.id, fromBack(error)); if (visible) draw(); })
+      .finally(() => fetching.delete(item.id));
+  }
+  if (!labelled && !body.textContent) return null;
+  return detail;
 }
 
 function mentionRow(mention: ReturnType<typeof team.inboxList>[number]) {

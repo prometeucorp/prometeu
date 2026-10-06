@@ -222,6 +222,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "notifications.readAll": "Mark all as read",
   "notifications.openGitHub": "Open on GitHub",
   "notifications.noText": "No text.",
+  "notifications.more.one": "+{n} update",
+  "notifications.more.other": "+{n} updates",
   "notifications.empty.title": "All caught up",
   "notifications.empty.body": "GitHub activity on your PRs and issues and mentions from your team appear here.",
   "notifications.account.title": "Sign in to Prometeu",

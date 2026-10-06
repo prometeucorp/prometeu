@@ -220,6 +220,8 @@ export const PT = {
   "notifications.readAll": "Marcar tudo como lido",
   "notifications.openGitHub": "Abrir no GitHub",
   "notifications.noText": "Sem texto.",
+  "notifications.more.one": "+{n} atualização",
+  "notifications.more.other": "+{n} atualizações",
   "notifications.empty.title": "Tudo em dia",
   "notifications.empty.body": "A atividade do GitHub nos seus PRs e issues e as menções do seu time aparecem aqui.",
   "notifications.account.title": "Entre no Prometeu",

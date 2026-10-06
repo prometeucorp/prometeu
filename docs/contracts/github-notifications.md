@@ -97,11 +97,17 @@ rejected session. Rows outside the contract (unknown kind, subject or target,
 malformed repository or ID, non-github.com URL) are dropped.
 
 The rail's permanent **Notifications** item replaces the former conditional
-Mentions item and its modal sheet. It shows unread GitHub notifications plus
-pending relay mentions, and the Dock badge adds the same count to unread
+Mentions item and its modal sheet. It shows GitHub issues and PRs with unread
+notifications plus pending relay mentions, and the Dock badge adds the same count to unread
 workspaces. The destination merges both sources by time, grouped by day, with
 All, GitHub and Mentions filters; mentions keep their relay rule and leave when
 the thread is resolved.
+
+GitHub notifications are grouped into one row per issue or PR, under the day of
+its newest event. The row is led by the most urgent unread event (`ci_failed`,
+`changes_requested`, `review_requested`, `mentioned`, `review_approved`,
+`merged`, `closed`, `assigned`, `commented`), or by the newest once all are
+read, and counts the other events. It is unread while any event is unread.
 
 `github_feed` adds `account` (`<origin>#<user id>`) naming the Prometeu account
 whose credential made the request. When it changes between polls, the desktop
@@ -119,15 +125,16 @@ Titles come from `github_subjects`, one GraphQL request for up to 50 issues or
 PRs with variables, through the GitHub App credential; inaccessible items are
 omitted and rows fall back to `owner/repo#number`. Titles and text are cached
 in memory for one Prometeu account and GitHub login; a switch clears them and
-discards requests that finish afterwards, so access is checked again. Opening a row marks it read
-and opens the workspace whose GitHub item or PR matches (the clone's GitHub
-repository comes from `github_projects`). Otherwise the row expands and
-`github_detail` fetches the current comment or review text, or the workflow run
-name. Every row can open its `url` on GitHub.
+discards requests that finish afterwards, so access is checked again. Opening a row marks every
+event of its issue or PR read and opens the workspace whose GitHub item or PR
+matches (the clone's GitHub repository comes from `github_projects`). Otherwise
+the row expands its events, newest first, and `github_detail` fetches the
+current comment or review text, or the workflow run name. Every row and event
+can open its `url` on GitHub.
 
 The first feed response after startup or signing in is history. Later arrivals
-trigger the `github` local notification when enabled, for at most the three
-newest per poll ([local notifications](notifications.md)), mark
+trigger the `github` local notification when enabled, one per issue or PR and
+for at most the three most recently active per poll ([local notifications](notifications.md)), mark
 a matching workspace unread and, for PRs, refresh its PR state through
 `pr_open`.
 
@@ -147,6 +154,6 @@ idempotency, retention and the cursor are covered by
 `test/integration/github_login_test.rb` in `prometeu-cloud`. On the desktop,
 `github_notifications.rs` decodes the shared fixture through the production
 type and covers row validation and the batched title query;
-`src/notification-feed.test.ts` covers ordering, read state and workspace
-matching. The Notifications destination has no browser scenario: its rules are
+`src/notification-feed.test.ts` covers ordering, read state, grouping and
+workspace matching. The Notifications destination has no browser scenario: its rules are
 covered by those unit tests, and E2E scope is reserved for the core journey.
