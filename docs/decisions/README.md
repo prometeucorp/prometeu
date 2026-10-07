@@ -105,3 +105,4 @@ Status: Proposed
 | [0084](0084-shared-windows-desktop.md) | Shared desktop interface over an injected WSL runtime |
 | [0085](0085-portable-core.md) | Portable core with injected effects |
 | [0088](0088-github-app.md) | GitHub App for issues, PRs and notifications |
+| [0089](0089-notch-island.md) | Notch island over the main window's state |

@@ -11,6 +11,8 @@ type Ctx = {
   /// Visible tabs in the workspace or desk; window focus is checked here.
   visible: (tab: string) => boolean;
   notify?: (kind: "approval" | "done" | "error", tab: string) => void;
+  /// Unread activity changed, e.g. for the notch island.
+  changed?: () => void;
 };
 
 let ctx: Ctx = { visible: () => false };
@@ -196,7 +198,11 @@ export function waiting() {
   return workspaces.size + notificationCount();
 }
 
+/// Activity the person has not looked at yet, the same signal the Dock counts.
+export const unseen = (tab: string) => conversations.get(tab)?.pending ?? false;
+
 function badge() {
+  ctx.changed?.();
   getCurrentWindow()
     .setBadgeCount(waiting() || undefined)
     .catch((e) => {

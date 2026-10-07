@@ -59,7 +59,7 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 # Reuse Tauri bindings to receive screenshots before they exist as files.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSFilePromiseReceiver", "NSPasteboard", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSView", "NSResponder", "NSWindow", "NSColor", "objc2-quartz-core", "block2"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSFilePromiseReceiver", "NSPasteboard", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSView", "NSResponder", "NSWindow", "NSScreen", "NSColor", "objc2-quartz-core", "block2"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSString", "NSURL", "NSError", "NSOperation", "NSBundle"] }
 block2 = "0.6"
 # Already used by Tauri; expose WebKit snapshot and child-view permission APIs.

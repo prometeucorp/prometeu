@@ -1,10 +1,9 @@
 //! Local delivery only. Conversation eligibility stays in the frontend's live-event tracker.
-use crate::{i18n, lock::lock, AppState};
+use crate::{i18n, island, lock::lock, AppState};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
-const WINDOW: &str = "notification";
 static CURRENT: Mutex<Option<Notice>> = Mutex::new(None);
 static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -52,7 +51,7 @@ fn validate(notice: &Notice) -> Result<(), String> {
     Ok(())
 }
 
-fn check_main(window: &tauri::WebviewWindow) -> Result<(), String> {
+pub(crate) fn check_main(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() != "main" {
         return Err(i18n::t("err.notifications.invalid"));
     }
@@ -135,22 +134,7 @@ pub async fn notification_show(
                     .map_err(i18n::io)?
             }
         }
-        Style::Notch => {
-            let handle = app.clone();
-            let overlay_notice = notice.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                let (tx, rx) = std::sync::mpsc::channel();
-                let target = handle.clone();
-                handle
-                    .run_on_main_thread(move || {
-                        let _ = tx.send(show_notch(&target, &overlay_notice));
-                    })
-                    .map_err(i18n::io)?;
-                rx.recv().map_err(i18n::io)?
-            })
-            .await
-            .map_err(i18n::io)?
-        }
+        Style::Notch => show_notch(&app, &notice),
         Style::None => Ok(()),
     };
     // Denied banner permission must not disable the independently selected sound.
@@ -162,85 +146,20 @@ pub async fn notification_show(
     visual.and(audio)
 }
 
+/// The island expands with the notice; a newer notice replaces it and its timer.
 fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
-    let overlay = if let Some(window) = app.get_webview_window(WINDOW) {
-        window
-    } else {
-        tauri::WebviewWindowBuilder::new(
-            app,
-            WINDOW,
-            tauri::WebviewUrl::App("notification.html".into()),
-        )
-        .title("Prometeu")
-        .inner_size(360.0, 96.0)
-        .decorations(false)
-        .resizable(false)
-        .focused(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible_on_all_workspaces(true)
-        .visible(false)
-        .shadow(false)
-        .background_color(tauri::window::Color(12, 11, 10, 255))
-        .build()
-        .map_err(i18n::io)?
-    };
-    let monitor = app
-        .get_webview_window("main")
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| overlay.primary_monitor().ok().flatten())
-        .ok_or_else(|| i18n::t("err.notifications.unavailable"))?;
-    let scale = monitor.scale_factor();
-    let x =
-        (f64::from(monitor.position().x) + f64::from(monitor.size().width) / 2.0) / scale - 180.0;
-    let y = f64::from(monitor.position().y) / scale;
-    overlay
-        .set_position(tauri::LogicalPosition::new(x, y))
-        .map_err(i18n::io)?;
     *lock(&CURRENT) = Some(notice.clone());
-    overlay.emit("notification", notice).map_err(i18n::io)?;
-    #[cfg(target_os = "macos")]
-    {
-        // Tauri's show() makes the window key. Order it without activating the app instead.
-        // show_notch always runs on the main thread and the Tauri window owns this pointer.
-        let native = unsafe {
-            &*overlay
-                .ns_window()
-                .map_err(i18n::io)?
-                .cast::<objc2_app_kit::NSWindow>()
-        };
-        native.setLevel(objc2_app_kit::NSStatusWindowLevel);
-        // Clip the native content too: CSS rounding alone leaves opaque square window corners.
-        native.setOpaque(false);
-        native.setBackgroundColor(Some(&objc2_app_kit::NSColor::clearColor()));
-        if let Some(view) = native.contentView() {
-            view.setWantsLayer(true);
-            if let Some(layer) = view.layer() {
-                use objc2_quartz_core::CACornerMask;
-                layer.setCornerRadius(18.0);
-                layer.setMaskedCorners(if layer.isGeometryFlipped() {
-                    CACornerMask::LayerMinXMaxYCorner | CACornerMask::LayerMaxXMaxYCorner
-                } else {
-                    CACornerMask::LayerMinXMinYCorner | CACornerMask::LayerMaxXMinYCorner
-                });
-                layer.setMasksToBounds(true);
-            }
-        }
-        native.orderFrontRegardless();
-    }
-    #[cfg(not(target_os = "macos"))]
-    overlay.show().map_err(i18n::io)?;
     let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    app.emit_to(island::WINDOW, "notification", notice)
+        .map_err(i18n::io)?;
+    island::schedule(app);
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_secs(8));
         // A previous notice cannot hide the one that replaced it.
-        let handle = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            if GENERATION.load(std::sync::atomic::Ordering::SeqCst) == generation {
-                let _ = hide(&handle);
-            }
-        });
+        if GENERATION.load(std::sync::atomic::Ordering::SeqCst) == generation {
+            let _ = hide(&app);
+        }
     });
     Ok(())
 }
@@ -253,9 +172,9 @@ pub fn notification_current() -> Option<Notice> {
 fn hide(app: &tauri::AppHandle) -> Result<(), String> {
     GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     *lock(&CURRENT) = None;
-    if let Some(window) = app.get_webview_window(WINDOW) {
-        window.hide().map_err(i18n::io)?;
-    }
+    app.emit_to(island::WINDOW, "notification", None::<Notice>)
+        .map_err(i18n::io)?;
+    island::schedule(app);
     Ok(())
 }
 

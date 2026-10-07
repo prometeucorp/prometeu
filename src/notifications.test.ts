@@ -41,6 +41,14 @@ it("filters events and visual/audio channels independently at delivery time", as
   await deliver("approval", "tab", "workspace");
   expect(invoke).toHaveBeenLastCalledWith("notification_show", { notice: expect.objectContaining({ style: "notch", sound: null, tab: "tab", body: "workspace" }) });
   invoke.mockClear();
+  // The island marks finished conversations itself; with the notch they only play the sound.
+  savePreferences({ ...defaults, enabled: true, style: "notch" });
+  await deliver("done", "tab", "workspace");
+  expect(invoke).not.toHaveBeenCalled();
+  savePreferences({ ...defaults, enabled: true, style: "notch", sound: true });
+  await deliver("done", "tab", "workspace");
+  expect(invoke).toHaveBeenLastCalledWith("notification_show", { notice: expect.objectContaining({ style: "none", sound: "soft" }) });
+  invoke.mockClear();
   savePreferences({ ...defaults, enabled: true, style: "none" });
   await deliver("error", "tab", "workspace");
   expect(invoke).not.toHaveBeenCalled();

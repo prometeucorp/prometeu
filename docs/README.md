@@ -61,6 +61,7 @@ as a short index for agents and `README.md` presents the product.
 ## Decisions
 
 - [ADR 0088](decisions/0088-github-app.md): GitHub App for issues, PRs and notifications through the Cloud.
+- [ADR 0089](decisions/0089-notch-island.md): persistent notch island that follows agents, answers requests and reopens conversations.
 
 [Lifecycle and current index](decisions/README.md). Only implemented decisions
 appear below. Retired documents and previous versions remain in Git history;

@@ -61,8 +61,10 @@ export function makeNotice(kind: NoticeKind, tab: string | null, name: string, p
 /** Called only for new pending activity, never snapshots or replay. Read preferences at delivery. */
 export async function deliver(kind: NoticeKind, tab: string, name: string) {
   const preferences = readPreferences();
-  if (!preferences.enabled || !preferences[kind] || (preferences.style === "none" && !preferences.sound)) return;
-  await invoke("notification_show", { notice: makeNotice(kind, tab, name, preferences) });
+  // The notch island already marks finished conversations; only requests open it.
+  const style = preferences.style === "notch" && kind !== "approval" ? "none" : preferences.style;
+  if (!preferences.enabled || !preferences[kind] || (style === "none" && !preferences.sound)) return;
+  await invoke("notification_show", { notice: { ...makeNotice(kind, tab, name, preferences), style } });
 }
 
 /** GitHub activity from the Cloud feed; never called for the first load after startup. */

@@ -7,6 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import { openProjects } from "./projects";
 import * as alert from "./alert";
 import * as notifications from "./notifications";
+import * as island from "./island";
 import { installed, loadAgents } from "./agents";
 import * as appmenu from "./appmenu";
 import type { Info } from "./chat";
@@ -315,6 +316,7 @@ function refresh() {
   session.forget(new Set(view().workspaces.flatMap((w) => w.tabs.map((t) => t.id))));
   // Only local agents keep this Mac awake; shared remote agents run on their owners' Macs.
   statusbar.boardChanged(state);
+  island.boardChanged(state);
   drawNav();
   draw();
 }
@@ -326,12 +328,16 @@ alert.init({ visible: (tab) =>
     const workspace = state.workspaces.find(item => item.tabs.some(item => item.id === tab));
     if (workspace) void notifications.deliver(kind, tab, workspace.title).catch(error => say(fromBack(error), true));
   },
+  changed: () => island.changed(),
 });
 listen<string>("notification-open", ({ payload: tab }) => {
   const workspace = state.workspaces.find(item => !item.archived && !item.cleaned && item.tabs.some(item => item.id === tab));
   if (workspace) void openWorkspace(workspace, true, tab).catch(error => say(fromBack(error), true));
 });
-listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => alert.chatChanged(tab, line));
+listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => {
+  alert.chatChanged(tab, line);
+  island.chatChanged(tab, line);
+});
 
 /// React to script exits instead of polling to restore the start action.
 listen<[string, number | null]>("pty-closed", ({ payload: [key] }) => dockbar.closed(key));
@@ -353,14 +359,16 @@ listen<{ workspace_id: string; conversation_id: string }>("workspace-preview", a
 });
 
 /// Usage updates affect the whole account, so any tab's activity refreshes the status bar.
-listen<statusbar.Usage>("usage", ({ payload }) => statusbar.showUsage(payload));
-invoke("usage").then(statusbar.showUsage).catch(() => {});
+listen<statusbar.Usage>("usage", ({ payload }) => { statusbar.showUsage(payload); island.changed(); });
+invoke("usage").then(usage => { statusbar.showUsage(usage); island.changed(); }).catch(() => {});
 listen<statusbar.Accounts>("accounts", ({ payload }) => {
   if (statusbar.showAccounts(payload)) {
     void loadAgents().then(() => statusbar.showAgents(installed()));
   }
+  island.changed();
 });
-invoke("accounts").then(statusbar.showAccounts).catch((error) => say(fromBack(error), true));
+invoke("accounts").then(accounts => { statusbar.showAccounts(accounts); island.changed(); }).catch((error) => say(fromBack(error), true));
+island.init({ usage: statusbar.selectedUsage, unseen: alert.unseen });
 listen<string>("account-error", ({ payload }) => say(fromBack(payload), true));
 
 /// Machine resource updates arrive every three seconds only when values change.
@@ -677,7 +685,7 @@ initCodeCopy(() => {
 feedback.init();
 void update.init(say);
 // Discover installations without waiting for their independently loaded model catalogs.
-void loadAgents().then(() => statusbar.showAgents(installed()));
+void loadAgents().then(() => { statusbar.showAgents(installed()); island.changed(); });
 // Initialize team state before Settings and sidebar render its data.
 team.onError((m) => say(m, true));
 await team.init();
@@ -811,6 +819,7 @@ state = await invoke("load_board");
 actions.update(state);
 team.boardChanged(state);
 alert.boardChanged(state);
+island.boardChanged(state);
 showDesk();
 
 // Show release notes after the initial page renders so the dialog overlays the application.
