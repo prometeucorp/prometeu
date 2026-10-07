@@ -12,7 +12,7 @@ pub const WINDOW: &str = "notification";
 const EXPANDED_WIDTH: f64 = 560.0;
 const MAX_HEIGHT: f64 = 640.0;
 /// Room beside the camera housing for the flame and the counter.
-const WING: f64 = 64.0;
+const WING: f64 = 40.0;
 const MAX_SNAPSHOT: usize = 512 * 1024;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);

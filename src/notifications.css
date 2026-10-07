@@ -68,6 +68,7 @@
 /* Notch island: collapsed around the camera housing, expanded on hover or a request. */
 .island { color: var(--fg); font: 13px/1.45 var(--font); background: #0c0b0a; }
 .island-bar { box-sizing: border-box; height: var(--island-top); display: flex; align-items: center; justify-content: space-between; padding: 0 18px; }
+.island[data-expanded="false"] .island-bar { padding: 0 12px; }
 .island-count { min-width: 15px; font: 600 12px/1 var(--mono); color: var(--fg-2); text-align: right; }
 .island-count.wait { color: var(--wait); }
 .island-signal { width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--done); box-shadow: 0 0 8px var(--done); }
