@@ -113,10 +113,10 @@ forks and protect local branches, at the cost of not following later pushes.
   relay comment mentions in one chronological list with All, GitHub and
   Mentions filters. Mentions keep their current rule: they leave when the
   thread is resolved.
-- Clicking a GitHub notification opens the workspace whose PR matches, or
-  expands the row and fetches the comment or review text, with an action to
-  open it on GitHub. A matching workspace is also marked unread and its PR
-  status refreshed immediately.
+- Clicking a GitHub notification opens it on GitHub. Row actions open the
+  workspace whose PR matches and expand the row to fetch the comment or review
+  text. A matching workspace is also marked unread and its PR status refreshed
+  immediately.
 - Local notifications ([ADR 0054](0054-local-notifications.md)) gain a
   `github` event under the same master switch, which starts disabled, and the
   Dock badge counts unread notifications. The first load after startup never

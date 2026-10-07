@@ -126,14 +126,16 @@ PRs with variables, through the GitHub App credential; inaccessible items are
 omitted and rows fall back to `owner/repo#number`. Titles and text are cached
 in memory for one Prometeu account and GitHub login; a switch clears them and
 discards requests that finish afterwards, so access is checked again. Opening a row marks every
-event of its issue or PR read and opens the workspace whose GitHub item or PR
-matches (the clone's GitHub repository comes from `github_projects`). Otherwise
-the row expands its events, newest first, and `github_detail` fetches the
-current comment or review text, or the workflow run name. Comment and review
+event of its issue or PR read and opens it on GitHub. The row's actions open the
+workspace whose GitHub item or PR matches (shown only when one matches; the
+clone's GitHub repository comes from `github_projects`) and, when the thread has
+several events or event text, expand its events, newest first, while
+`github_detail` fetches the current comment or review text, or the workflow run
+name. Comment and review
 text renders as Markdown plus the HTML subset GitHub comments use (headings,
 `details`, links, lists, tables); other tags, attributes and comments are
 dropped, links keep only http(s), and images show their alt text because the
-CSP blocks remote images. Every row and event can open its `url` on GitHub.
+CSP blocks remote images. In a thread of several, each expanded event also opens its own `url`.
 
 The first feed response after startup or signing in is history. Later arrivals
 trigger the `github` local notification when enabled, one per issue or PR and
