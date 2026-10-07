@@ -4,6 +4,20 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.28.0] - 2026-10-07
+
+### New
+
+- **notifications:** Open github notifications on github, with workspace and details actions
+- **notifications:** Follow agents, approve and answer from the notch island
+
+### Fixes
+
+- **notifications:** Keep github notification icons off the left edge
+- **notifications:** Find the workspace again when its notification action is clicked
+- **notifications:** Keep notch island answers and typing reliable
+- **windows:** Wait longer for a closing shell before reporting it stuck
+
 ## [0.27.0] - 2026-10-06
 
 ### New
