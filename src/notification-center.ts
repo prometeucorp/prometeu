@@ -3,7 +3,7 @@ import { fromBack, t, tn } from "./i18n";
 import { invoke } from "./ipc";
 import { md } from "./markdown";
 import { issueRefresh, issueTab } from "./issues-controls";
-import { compareId, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
+import { compareId, expandable, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
 import { deliverGitHub } from "./notifications";
 import * as team from "./team";
 import type { Board, GitHubNotification, GitHubStatus, GitHubSubject, Workspace } from "./types";
@@ -287,9 +287,16 @@ function githubRow(thread: Thread) {
   const activate = () => { readThread(); visit(item); draw(); };
   const go = row.querySelector(".go")!;
   void workspaceOf(item).then(workspace => {
-    if (workspace) go.prepend(rowAction("arrow-right", t("notifications.openWorkspace"), () => { readThread(); ctx.open(workspace); }));
+    if (!workspace) return;
+    go.prepend(rowAction("arrow-right", t("notifications.openWorkspace"), async () => {
+      readThread();
+      // The board changes without redrawing this list: the workspace may be gone since.
+      repositories = null;
+      const current = await workspaceOf(item);
+      if (current) ctx.open(current); else draw();
+    }));
   });
-  if (thread.items.length > 1 || thread.items.some(entry => entry.target && entry.target_id)) {
+  if (expandable(thread)) {
     const open = expanded === thread.key;
     const toggle = rowAction(open ? "chevron-up" : "chevron-down", t("notifications.details"), () => {
       readThread();

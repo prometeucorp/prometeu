@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { compareId, isRead, markAll, markRead, merge, readKey, readState, saveRead, threads, workspaceFor } from "./notification-feed";
+import { compareId, expandable, isRead, markAll, markRead, merge, readKey, readState, saveRead, threads, workspaceFor } from "./notification-feed";
 import type { GitHubNotification, Workspace } from "./types";
 
 const note = (id: string, extra: Partial<GitHubNotification> = {}): GitHubNotification => ({
@@ -66,6 +66,15 @@ it("groups notifications by issue or PR, led by the most urgent unread event", (
   // Once the failure is read, the newest unread event leads; with nothing unread, the newest.
   expect(threads(items, { before: "", ids: ["1"] })[0].lead.id).toBe("4");
   expect(threads(items, { before: "4", ids: [] })[0].lead.id).toBe("4");
+});
+
+it("expands only threads with several events or event text", () => {
+  const [several, text, bare] = threads([
+    note("1", { target: null, target_id: null }), note("2", { target: null, target_id: null }),
+    note("3", { number: 6 }),
+    note("4", { number: 7, kind: "merged", target: null, target_id: null }),
+  ], { before: "", ids: [] }).sort((a, b) => a.lead.number - b.lead.number);
+  expect([several, text, bare].map(expandable)).toEqual([true, true, false]);
 });
 
 it("keeps a whole thread read when the list of read ids is full", () => {

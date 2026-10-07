@@ -159,6 +159,6 @@ idempotency, retention and the cursor are covered by
 `test/integration/github_login_test.rb` in `prometeu-cloud`. On the desktop,
 `github_notifications.rs` decodes the shared fixture through the production
 type and covers row validation and the batched title query;
-`src/notification-feed.test.ts` covers ordering, read state, grouping and
+`src/notification-feed.test.ts` covers ordering, read state, grouping, which threads expand and
 workspace matching. The Notifications destination has no browser scenario: its rules are
 covered by those unit tests, and E2E scope is reserved for the core journey.
