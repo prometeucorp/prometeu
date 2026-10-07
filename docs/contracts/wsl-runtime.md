@@ -136,7 +136,7 @@ explicit cleanup command.
 | `terminal_snapshot` | `id` | `{ id, data, seq, running, code }` |
 | `terminal_current` | none | that snapshot or `null` |
 | `terminal_acknowledge` | `id`, `seq` | `{ acknowledged: true }` |
-| `terminal_close` | `id` | `{ closed: true }` after observed cleanup |
+| `terminal_close` | `id` | `{ closed: true }` after observed cleanup; an error that retains the handle after 15 s |
 
 Frames are `{ v: 1, terminal: { kind: "output" | "closed" | "error", id, ... } }`
 with raw bytes, including split or invalid UTF-8. Rows and columns are 1–500;
