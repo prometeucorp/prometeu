@@ -33,3 +33,14 @@ export function debounce<A extends unknown[]>(ms: number, fn: (...args: A) => vo
     timer = setTimeout(() => fn(...args), ms);
   };
 }
+
+/// Show at most two duration units, such as 3h 15m or 3d 4h.
+export function span(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}

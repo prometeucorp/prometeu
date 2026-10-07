@@ -37,8 +37,9 @@ activity. There is no notification queue or new history store. macOS controls
 system banner delivery; the custom overlay and sounds bypass Focus filtering.
 Native behavior needs bundled-app verification in addition to browser tests.
 Push infrastructure, audio uploads and cross-device preferences remain out of
-scope. The complete payload and compatibility guarantees are in the
-[notification contract](../contracts/notifications.md).
+scope. The notch style is now a persistent island; see
+[ADR 0089](0089-notch-island.md). The complete payload and compatibility
+guarantees are in the [notification contract](../contracts/notifications.md).
 
 ## Evidence
 

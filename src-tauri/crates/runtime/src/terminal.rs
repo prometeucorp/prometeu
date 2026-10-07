@@ -313,10 +313,12 @@ impl TerminalService {
         let active = self.active(id)?;
         active.flow.close();
         active.control.close();
+        // Hangup, terminate and kill escalation plus the final drain can exceed five seconds on a
+        // loaded machine; reporting a retained handle is only for a genuinely stuck shell.
         let (done, _) = active
             .done
             .1
-            .wait_timeout_while(lock(&active.done.0), Duration::from_secs(5), |done| {
+            .wait_timeout_while(lock(&active.done.0), Duration::from_secs(15), |done| {
                 *done != 2
             })
             .map_err(|e| e.to_string())?;

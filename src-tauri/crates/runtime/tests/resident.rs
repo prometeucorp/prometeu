@@ -152,7 +152,8 @@ fn roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) {
     );
     std::fs::write(workdir.join("release"), "release").unwrap();
     // No client supplies terminal credits while the detached output exceeds the credit window.
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // Deadlines only bound a failure; hosted macOS runners can take well over ten seconds here.
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !std::fs::read_to_string(base.join("root/transcript.jsonl"))
         .unwrap()
         .contains("turn.completed")
@@ -177,7 +178,8 @@ fn roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) {
         std::fs::read_to_string(workdir.join("launches")).unwrap(),
         "launch\n"
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut seen = 0;
     loop {
         let current = attached.terminal_current().unwrap().unwrap();
         assert_eq!(current.id, terminal.id);
@@ -188,8 +190,12 @@ fn roundtrip(launcher: Arc<dyn RuntimeLauncher>, distribution: String) {
             assert!(current.seq > 64);
             break;
         }
-        assert!(Instant::now() < deadline);
-        std::thread::sleep(Duration::from_millis(20));
+        assert!(Instant::now() < deadline, "stalled at seq {}", current.seq);
+        // Drain more than 64 credit windows back to back; wait only while no new output arrived.
+        if current.seq == seen {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        seen = current.seq;
     }
     attached
         .terminal_write(

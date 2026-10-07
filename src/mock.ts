@@ -3,6 +3,8 @@ import * as telemetry from "./mock-telemetry";
 import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
+import type { IslandSnapshot } from "./island";
+import { islandView, redraw, requestPanels } from "./island-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
@@ -963,6 +965,30 @@ const dismissNotice = () => {
   document.querySelector(".notification-mock")?.remove();
 };
 
+/// The browser shows the island at the top center; DOM hover stands in for native pointer sampling.
+let islandSnapshot: IslandSnapshot | null = null;
+let islandOn = false;
+let islandHover = false;
+const openIsland = (tab: string) => { islandHover = false; emit("notification-open", tab); drawIsland(); };
+const islandPanels = requestPanels((session, frame) => Promise.resolve(controlInto(session, frame as Record<string, any>)), openIsland);
+function drawIsland() {
+  let host = document.querySelector<HTMLElement>(".island-mock");
+  if (!islandOn || !islandSnapshot) return host?.remove();
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "island-mock";
+    host.addEventListener("mouseenter", () => { islandHover = true; drawIsland(); });
+    host.addEventListener("mouseleave", () => { islandHover = false; drawIsland(); });
+    document.body.append(host);
+  }
+  islandPanels.prune(islandSnapshot);
+  redraw(host, () => islandView(islandSnapshot!, { expanded: islandHover, top: 32 }, null, {
+    open: openIsland,
+    panel: islandPanels.panel,
+    noticeOpen: () => {},
+  }));
+}
+
 /// The mock never receives or stores a key: it records only that one was configured, and answers
 /// with a deterministic local fake instead of calling TypeSafe. `mock:typesafeFail` simulates a
 /// failure code for manual checks.
@@ -1108,6 +1134,11 @@ const mockCommands: IpcHandlers = {
     dismissNotice();
   },
   notification_sound() { return; },
+  island_enable({ enabled }) { islandOn = enabled; drawIsland(); },
+  island_update({ snapshot }) { islandSnapshot = snapshot; drawIsland(); },
+  island_current() { return { snapshot: islandSnapshot, layout: { expanded: islandHover, top: 32 }, notice: currentNotice }; },
+  island_resize() { return; },
+  island_open({ tab }) { openIsland(tab); },
   accounts() {
     return structuredClone(mockAccounts);
   },

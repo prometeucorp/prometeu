@@ -21,6 +21,11 @@ export type Commands = {
   notification_dismiss: { args: undefined; result: void };
   notification_open: { args: undefined; result: void };
   notification_sound: { args: { tone: import("./notifications").NoticeTone }; result: void };
+  island_enable: { args: { enabled: boolean }; result: void };
+  island_update: { args: { snapshot: import("./island").IslandSnapshot }; result: void };
+  island_current: { args: undefined; result: { snapshot: import("./island").IslandSnapshot | null; layout: import("./island-view").IslandLayout; notice: import("./notifications").Notice | null } };
+  island_resize: { args: { height: number }; result: void };
+  island_open: { args: { tab: string }; result: void };
   account_login: { args: { provider: T.ProviderId; id?: string | null; method?: string }; result: Accounts };
   account_login_cancel: { args: { id: string }; result: void };
   account_remove: { args: { id: string }; result: Accounts };

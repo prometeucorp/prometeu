@@ -3,6 +3,7 @@ import { fromBack, t } from "./i18n";
 import { invoke } from "./ipc";
 import { button, disclosure, field, radio, select, toggle } from "./ui";
 import { h } from "./util";
+import { sync as syncIsland } from "./island";
 import { makeNotice, readPreferences, savePreferences, type NoticeKind, type NoticePermission, type NoticeTone } from "./notifications";
 import "./notifications.css";
 
@@ -39,6 +40,7 @@ export function settings(say: (text: string, error?: boolean) => void, compact =
   function save() {
     try {
       savePreferences(preferences);
+      syncIsland();
       feedback.textContent = t("notifications.saved");
       void invoke("notification_dismiss").catch(fail);
     } catch (error) { preferences = readPreferences(); fail(error); }

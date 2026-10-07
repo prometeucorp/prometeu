@@ -69,8 +69,17 @@ commands:
   labels to 256. Nonexistent or archived/cleaned targets are ignored.
 - `notification_sound({ tone })`: previews an allowlisted system sound.
 - `notification_current()`: initial content for the local overlay.
-- `notification_dismiss()`: closes the overlay and clears its target.
-- `notification_open()`: closes the overlay and opens its still-existing target.
+- `notification_dismiss()`: clears the notice and its target.
+- `notification_open()`: closes the notice and opens its still-existing target.
+- `island_enable({ enabled })`: main window only; shows or hides the island.
+  The main window enables it while notifications are on with the `notch` style.
+- `island_update({ snapshot })`: main window only; stores and relays the
+  snapshot below. Snapshots above 512 KiB are rejected.
+- `island_current()`: initial `{ snapshot, layout, notice }` for the overlay.
+- `island_resize({ height })`: the overlay's rendered height while expanded,
+  capped at 640 points.
+- `island_open({ tab })`: opens a still-existing tab like `notification_open`
+  and keeps the island closed until the pointer leaves it.
 
 Permission, delivery and sound commands accept only the main window. A banner
 uses macOS UserNotifications, with a retained delegate for foreground delivery
@@ -80,17 +89,61 @@ revalidates the workspace before opening it. Agent notices carry only the
 workspace title, not conversation or tool output; GitHub notices carry only the
 metadata above, never comment text.
 
-The notch is a separate local Tauri window with a dedicated built entry and
-event-listening capability. It renders text nodes, stays at the top center of
-the main window's display and does not activate the application when shown.
-Its 360-by-96-point surface reserves the top strip for the camera and clips its
-lower corners in AppKit as well as CSS; an opaque rectangular window would
-otherwise cover the rounded web content.
-It also works on displays without a physical notch. One notice replaces the
-previous notice; it disappears after eight seconds. A generation check prevents
-an older timer from dismissing a replacement. Opening an actual conversation
-is the only action that focuses the main window. The local page is not a new
-remote IPC surface.
+The notch style is a persistent island in a separate local Tauri window with a
+dedicated built entry and event-listening capability
+([ADR 0089](../decisions/0089-notch-island.md)). It renders text nodes, never
+activates the application when shown, and accepts the first click. On macOS it
+sits on the display with a notch, collapsed to the camera housing's height and
+width plus a wing on each side for the flame and the count of waiting (or else
+running) conversations; without a notch it sits inside the menu bar of the main
+window's display. Its lower corners are clipped in AppKit as well as CSS; an
+opaque rectangular window would otherwise cover the rounded web content.
+
+The island expands to 560 points while the pointer is over it or while a notice
+is showing, and returns to the housing otherwise. With the notch style, done and
+error notices only play the selected sound: the island already recolors the
+flame and shows a green signal for activity not yet looked at (the Dock's
+pending state). Approval notices and GitHub notices expand it; a notice about a
+conversation highlights its row, and only notices without one get a line. The backend samples the
+pointer every 100 ms while the island is on because the webview receives no
+pointer movement outside the key window. Opening a conversation keeps it
+collapsed until the pointer leaves. One notice replaces the previous notice; it
+clears after eight seconds. A generation check prevents an older timer from
+clearing a replacement. Opening an actual conversation is the only action that
+focuses the main window. The local page is not a new remote IPC surface.
+
+The snapshot is built only in the main window from the board and live `chat`
+events; replay never reaches it:
+
+```ts
+type IslandSnapshot = {
+  tabs: {
+    id: string; title: string; agent: ProviderId;
+    model: string; status: "rodando" | "querendo" | "pronta";
+    unseen: boolean; note: string | null;
+    prompt: string | null; since: number | null;
+    activity: { tool: string; target: string } | null;
+    request: { id: string; requestKind: "approval" | "question" | "plan";
+      tool: string; input: object; toolUseId: string | null } | null;
+  }[];
+  usage: { agent: ProviderId; windows: { label: string; pct: number; resets: number }[] }[];
+};
+```
+
+Tabs are local, active workspaces that are not stopped, most urgent first and
+then most recent, at most twenty. `prompt`, `activity` and `request` are known
+only from events received since the main window started; strings in tool
+inputs are capped at 2000 characters (question text keys the answers and is
+kept whole), and the backend answers from its own copy of the request. Request
+panels are cached per tab and request, since provider request IDs are only
+unique within one conversation. A failed answer shows its error in the panel
+and leaves it ready to retry. Quota comes from the globally selected account of each
+installed provider. The overlay answers through `chat_control` with compact
+request panels: allow or deny a tool with a short preview of its edit or
+command; approve a plan, or open the conversation to change it; and answer
+questions one at a time, where one choice answers a single-choice question and
+the last answer sends all of them. "Allow and stop asking" stays in the chat.
+The backend's `request.closed` removes the request from every view.
 
 Sound is independent of visual delivery and uses `/usr/bin/afplay` with three
 fixed system files: Pop, Glass and Ping. It never accepts a filename or shell
@@ -121,7 +174,11 @@ in `src/alert.test.ts`.
 Rust tests validate payload limits; the IPC parity test checks registration.
 
 The browser mock renders notices with the same view as the native overlay; it
-does not request OS permission or play sound. Automated browser tests do not
+does not request OS permission or play sound. With the `notch` style it also
+shows the island at the top center, expanded on DOM hover.
+`src/island.test.ts` covers the snapshot reducer, request lifecycle, input caps
+and ordering. Notch geometry, pointer sampling, first-click delivery and
+answering from the overlay require a bundled or development macOS app. Automated browser tests do not
 prove Notification Center presentation, sound output, multi-monitor geometry,
 or fullscreen/Focus interaction. Those require a bundled macOS app and native
 manual verification. No live models are needed to use the Settings test button.

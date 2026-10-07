@@ -33,6 +33,7 @@ mod github_auth;
 mod github_issues;
 mod github_notifications;
 mod i18n;
+mod island;
 mod kickoff;
 mod linear;
 mod lock;
@@ -189,6 +190,11 @@ fn main() {
             notifications::notification_dismiss,
             notifications::notification_open,
             notifications::notification_sound,
+            island::island_enable,
+            island::island_update,
+            island::island_current,
+            island::island_resize,
+            island::island_open,
             actions::actions_save,
             actions::action_start,
             i18n::set_lang,
