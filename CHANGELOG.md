@@ -4,6 +4,12 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.28.1] - 2026-10-07
+
+### Fixes
+
+- **notifications:** Shrink the idle notch island to fit its flame and count
+
 ## [0.28.0] - 2026-10-07
 
 ### New
