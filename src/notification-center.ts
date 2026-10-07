@@ -3,7 +3,7 @@ import { fromBack, t, tn } from "./i18n";
 import { invoke } from "./ipc";
 import { md } from "./markdown";
 import { issueRefresh, issueTab } from "./issues-controls";
-import { compareId, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
+import { compareId, expandable, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
 import { deliverGitHub } from "./notifications";
 import * as team from "./team";
 import type { Board, GitHubNotification, GitHubStatus, GitHubSubject, Workspace } from "./types";
@@ -107,6 +107,7 @@ async function poll() {
     if (!fresh.length) { if (visible) draw(); return; }
     items = merge(items, fresh);
     await loadSubjects();
+    repositories = null;
     // The first load after startup is history; only later arrivals interrupt the person.
     if (!first) threads(fresh, read).forEach((thread, index) => void arrived(thread, index < 3));
     ctx.changed();
@@ -135,6 +136,7 @@ async function arrived(thread: Thread, announce: boolean) {
   if (item.subject === "pr") void invoke("pr_open", { id: workspace.id }).catch(() => {});
 }
 
+/// Projects can be added later, so `draw` and `poll` drop this before each round of lookups.
 async function workspaceOf(item: GitHubNotification) {
   repositories ??= invoke("github_projects").then(projects => {
     const paths = new Map(ctx.board().projects.map(project => [project.id, project.path]));
@@ -145,10 +147,7 @@ async function workspaceOf(item: GitHubNotification) {
     }
     return byPath;
   }).catch(() => new Map());
-  const found = workspaceFor(item, ctx.board().workspaces, await repositories);
-  // Projects can be added later; resolve again on the next lookup.
-  repositories = null;
-  return found;
+  return workspaceFor(item, ctx.board().workspaces, await repositories);
 }
 
 async function loadSubjects() {
@@ -235,6 +234,7 @@ export function draw() {
 
   const list = $("nlist");
   list.replaceChildren();
+  repositories = null;
   const rows: Row[] = [];
   if (filter !== "mentions") {
     for (const thread of threads(items, read)) rows.push({ at: Date.parse(thread.latest.created_at), node: githubRow(thread) });
@@ -260,37 +260,55 @@ export function draw() {
 const clock = (item: GitHubNotification) =>
   new Date(item.created_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
-function githubLink(item: GitHubNotification) {
-  const visit = () => void invoke("open_external", { url: item.url }).catch(error => ctx.say(fromBack(error), true));
-  const github = button("", visit, "ghost"); github.classList.remove("md"); github.classList.add("sm");
-  github.innerHTML = icon("external-link", 14); github.title = t("notifications.openGitHub"); github.setAttribute("aria-label", github.title);
-  github.addEventListener("click", event => event.stopPropagation());
-  return github;
+const visit = (item: GitHubNotification) => void invoke("open_external", { url: item.url }).catch(error => ctx.say(fromBack(error), true));
+
+function rowAction(glyph: Parameters<typeof icon>[0], label: string, run: () => void) {
+  const action = button("", run, "ghost"); action.classList.remove("md"); action.classList.add("sm");
+  action.innerHTML = icon(glyph, 14); action.title = label; action.setAttribute("aria-label", label);
+  action.addEventListener("click", event => event.stopPropagation());
+  return action;
 }
 
-/// One row per issue or PR. Opening it reads the whole thread and opens the matching workspace;
-/// without one, it expands the thread's events, newest first.
+const githubLink = (item: GitHubNotification) => rowAction("external-link", t("notifications.openGitHub"), () => visit(item));
+
+/// One row per issue or PR. Opening it reads the whole thread and opens it on GitHub; the actions
+/// open the matching workspace and expand the thread's events, newest first.
 function githubRow(thread: Thread) {
   const item = thread.lead;
   const unread = thread.items.some(entry => !isRead(read, entry.id));
   const row = template("div", "inboxrow notification-row" + (unread ? " unread" : ""),
     `<span class="av"></span><span class="txt"><b></b><span class="what"></span></span><span class="when"></span><span class="go"></span>`);
-  row.tabIndex = 0; row.setAttribute("role", "button");
+  row.tabIndex = 0; row.setAttribute("role", "link");
   row.querySelector(".av")!.innerHTML = icon(GLYPHS[item.kind], 16);
   row.querySelector("b")!.textContent = threadHeadline(thread);
   row.querySelector(".what")!.textContent = subjectLine(item);
   row.querySelector(".when")!.textContent = clock(thread.latest);
-  row.querySelector(".go")!.append(githubLink(item));
-  const activate = async () => {
-    read = markRead(read, ...thread.items.map(entry => entry.id)); saveRead(account, read); ctx.changed();
-    const workspace = await workspaceOf(item);
-    if (workspace) { ctx.open(workspace); return; }
-    expanded = expanded === thread.key ? "" : thread.key;
-    for (const entry of thread.items) failures.delete(entry.id);
-    draw();
-  };
-  row.addEventListener("click", () => void activate());
-  row.addEventListener("keydown", event => { if (event.key === "Enter" && event.target === row) void activate(); });
+  const readThread = () => { read = markRead(read, ...thread.items.map(entry => entry.id)); saveRead(account, read); ctx.changed(); };
+  const activate = () => { readThread(); visit(item); draw(); };
+  const go = row.querySelector(".go")!;
+  void workspaceOf(item).then(workspace => {
+    if (!workspace) return;
+    go.prepend(rowAction("arrow-right", t("notifications.openWorkspace"), async () => {
+      readThread();
+      // The board changes without redrawing this list: the workspace may be gone since.
+      repositories = null;
+      const current = await workspaceOf(item);
+      if (current) ctx.open(current); else draw();
+    }));
+  });
+  if (expandable(thread)) {
+    const open = expanded === thread.key;
+    const toggle = rowAction(open ? "chevron-up" : "chevron-down", t("notifications.details"), () => {
+      readThread();
+      expanded = open ? "" : thread.key;
+      for (const entry of thread.items) failures.delete(entry.id);
+      draw();
+    });
+    toggle.setAttribute("aria-expanded", String(open));
+    go.append(toggle);
+  }
+  row.addEventListener("click", activate);
+  row.addEventListener("keydown", event => { if (event.key === "Enter" && event.target === row) activate(); });
   if (expanded !== thread.key) return row;
   const wrap = h("div", "notification-entry");
   wrap.append(row);

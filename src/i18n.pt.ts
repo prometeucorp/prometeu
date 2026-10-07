@@ -220,6 +220,8 @@ export const PT = {
   "notifications.readAll": "Marcar tudo como lido",
   "notifications.openGitHub": "Abrir no GitHub",
   "notifications.noText": "Sem texto.",
+  "notifications.openWorkspace": "Abrir o workspace",
+  "notifications.details": "Mostrar eventos",
   "notifications.more.one": "+{n} atualização",
   "notifications.more.other": "+{n} atualizações",
   "notifications.empty.title": "Tudo em dia",

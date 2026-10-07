@@ -222,6 +222,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "notifications.readAll": "Mark all as read",
   "notifications.openGitHub": "Open on GitHub",
   "notifications.noText": "No text.",
+  "notifications.openWorkspace": "Open the workspace",
+  "notifications.details": "Show events",
   "notifications.more.one": "+{n} update",
   "notifications.more.other": "+{n} updates",
   "notifications.empty.title": "All caught up",

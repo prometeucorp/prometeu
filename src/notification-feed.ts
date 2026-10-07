@@ -75,6 +75,9 @@ const PRIORITY: GitHubNotification["kind"][] = [
 /// urgent unread event, or the newest once everything is read.
 export type Thread = { key: string; items: GitHubNotification[]; lead: GitHubNotification; latest: GitHubNotification };
 
+/// Whether expanding adds anything to the row: several events, or an event with its own text.
+export const expandable = (thread: Thread) => thread.items.length > 1 || thread.items.some(item => item.target && item.target_id);
+
 /// One thread per issue or PR, newest activity first.
 export function threads(items: GitHubNotification[], state: ReadState): Thread[] {
   const groups = new Map<string, GitHubNotification[]>();

@@ -1161,7 +1161,7 @@ body.noside .side { display: none; }
 .inboxrow .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .inboxrow .txt b { font-weight: 500; font-size: 13px; }
 .inboxrow .txt .what { color: var(--fg-2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inboxrow .go { color: var(--fg-3); display: flex; }
+.inboxrow .go { color: var(--fg-3); display: flex; gap: 2px; }
 .notification-row { cursor: pointer; }
 .notification-row > .av, .notification-row > .when, .notification-row > .go { flex: none; width: auto; }
 .notification-row > .txt { flex: 1 1 auto; }
