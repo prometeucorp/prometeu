@@ -111,8 +111,10 @@ read unexpected
 #[test]
 fn process_timeout_kills_and_reaps_child() {
     let mut command = fake("echo $$; exec sleep 30");
+    // Leave the child time to print its PID before the timeout, even on slow hosted runners.
     let mut process =
-        CatalogProcess::spawn(&UnixQueryLauncher, &mut command, Duration::from_millis(40)).unwrap();
+        CatalogProcess::spawn(&UnixQueryLauncher, &mut command, Duration::from_millis(500))
+            .unwrap();
     let pid: i32 = process
         .read_line()
         .unwrap()

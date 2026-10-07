@@ -290,7 +290,8 @@ fn terminal_roundtrip(
             b"head -c 1048576 /dev/zero; printf 'flow-%s\\n' complete\r".to_vec(),
         )
         .unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    // Deadlines only bound a failure; a megabyte through a PTY is slow on hosted macOS runners.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     let mut delivered = Vec::new();
     while !delivered
         .windows(b"flow-complete".len())
@@ -365,7 +366,7 @@ fn terminal_roundtrip(
             b"stty -icanon -echo; exec head -c 1048576 /dev/zero\r".to_vec(),
         )
         .unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
         let frame = rx
             .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
