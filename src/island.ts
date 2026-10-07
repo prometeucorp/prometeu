@@ -100,7 +100,9 @@ export function track(store: Map<string, Live>, tab: string, line: string): bool
     case "request.opened":
       state.requests.set(event.requestId, {
         id: event.requestId, requestKind: event.kind, tool: event.tool ?? "",
-        input: clamp(event.input) as Record<string, unknown>, toolUseId: event.toolId,
+        // Question text keys the answers, so only tool inputs are shortened.
+        input: event.kind === "question" ? event.input : clamp(event.input) as Record<string, unknown>,
+        toolUseId: event.toolId,
       });
       return true;
     case "request.closed":

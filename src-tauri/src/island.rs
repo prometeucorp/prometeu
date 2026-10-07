@@ -30,7 +30,8 @@ static WATCH: Once = Once::new();
 
 struct Hover {
     inside: bool,
-    /// Set after opening a conversation so the panel stays closed until the pointer leaves.
+    /// Set after opening a conversation so the panel stays closed, even during a notice, until
+    /// the pointer leaves.
     latched: bool,
 }
 
@@ -131,11 +132,10 @@ fn refresh(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let overlay = overlay(app)?;
-    let hovered = {
+    let expanded = {
         let hover = lock(&HOVER);
-        hover.inside && !hover.latched
+        !hover.latched && (hover.inside || notice)
     };
-    let expanded = hovered || notice;
     let height = lock(&LAYOUT).height;
     let top = arrange(app, &overlay, expanded, height)?;
     let (layout, changed) = {

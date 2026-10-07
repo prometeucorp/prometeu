@@ -132,9 +132,12 @@ type IslandSnapshot = {
 
 Tabs are local, active workspaces that are not stopped, most urgent first and
 then most recent, at most twenty. `prompt`, `activity` and `request` are known
-only from events received since the main window started; strings in request
-input are capped at 2000 characters, and the backend answers from its own copy
-of the request. Quota comes from the globally selected account of each
+only from events received since the main window started; strings in tool
+inputs are capped at 2000 characters (question text keys the answers and is
+kept whole), and the backend answers from its own copy of the request. Request
+panels are cached per tab and request, since provider request IDs are only
+unique within one conversation. A failed answer shows its error in the panel
+and leaves it ready to retry. Quota comes from the globally selected account of each
 installed provider. The overlay answers through `chat_control` with compact
 request panels: allow or deny a tool with a short preview of its edit or
 command; approve a plan, or open the conversation to change it; and answer

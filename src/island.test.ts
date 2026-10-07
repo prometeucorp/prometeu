@@ -27,6 +27,12 @@ describe("notch island", () => {
     track(store, "a", line({ type: "turn.completed", outcome: "ok", message: "", durationMs: null, costUsd: null }));
     expect(snapshot(board(workspace("ws", [tab("a", "pronta")])), store, []).tabs[0]).toMatchObject({ request: null, activity: null });
     expect(track(store, "a", "not json")).toBe(false);
+
+    // Question text keys the answers, so it must reach the overlay unchanged.
+    const long = "q".repeat(5_000);
+    track(store, "a", line({ type: "request.opened", requestId: "long", kind: "question", toolId: null, tool: "AskUserQuestion", input: { questions: [{ question: long, options: [] }] } }));
+    const [asking] = snapshot(board(workspace("ws", [tab("a", "querendo")])), store, []).tabs;
+    expect((asking.request!.input.questions as { question: string }[])[0].question).toBe(long);
   });
 
   it("lists local active tabs, most urgent first, and drops empty quota", () => {

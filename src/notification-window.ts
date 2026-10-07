@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "./ipc";
 import type { IslandSnapshot } from "./island";
-import { islandView, requestPanels, type IslandLayout } from "./island-view";
+import { islandView, redraw, requestPanels, type IslandLayout } from "./island-view";
 import type { Notice } from "./notifications";
 import "./ui.css";
 import "./notifications.css";
@@ -10,7 +10,6 @@ import "./notifications.css";
 let snapshot: IslandSnapshot = { tabs: [], usage: [] };
 let layout: IslandLayout = { expanded: false, top: 32 };
 let notice: Notice | null = null;
-let dirty = false;
 const open = (tab: string) => void invoke("island_open", { tab }).catch(console.error);
 const panels = requestPanels((session, frame) => invoke("chat_control", { session, frame }), open);
 const actions = {
@@ -20,12 +19,9 @@ const actions = {
 };
 
 function draw() {
-  // Moving a focused answer field would drop the person's typing; redraw once they leave it.
-  if (document.activeElement?.matches(".island-request input")) { dirty = true; return; }
   panels.prune(snapshot);
-  document.body.replaceChildren(islandView(snapshot, layout, notice, actions));
+  redraw(document.body, () => islandView(snapshot, layout, notice, actions));
 }
-document.addEventListener("focusout", () => { if (dirty) { dirty = false; setTimeout(draw); } });
 new ResizeObserver(() => {
   if (layout.expanded) void invoke("island_resize", { height: Math.ceil(document.body.getBoundingClientRect().height) }).catch(console.error);
 }).observe(document.body);

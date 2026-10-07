@@ -4,7 +4,7 @@ import * as reviewCalibration from "./mock-review-calibration";
 import type { Notice } from "./notifications";
 import { notificationView } from "./notification-view";
 import type { IslandSnapshot } from "./island";
-import { islandView, requestPanels } from "./island-view";
+import { islandView, redraw, requestPanels } from "./island-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
@@ -981,9 +981,8 @@ function drawIsland() {
     host.addEventListener("mouseleave", () => { islandHover = false; drawIsland(); });
     document.body.append(host);
   }
-  if (document.activeElement?.matches(".island-mock .island-request input")) return;
   islandPanels.prune(islandSnapshot);
-  host.replaceChildren(islandView(islandSnapshot, { expanded: islandHover, top: 32 }, null, {
+  redraw(host, () => islandView(islandSnapshot!, { expanded: islandHover, top: 32 }, null, {
     open: openIsland,
     panel: islandPanels.panel,
     noticeOpen: () => {},

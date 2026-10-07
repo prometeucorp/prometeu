@@ -1,6 +1,6 @@
 import { toolLabel } from "./components/chat/content";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
-import { t } from "./i18n";
+import { fromBack, t } from "./i18n";
 import { brand } from "./icons";
 import type { IslandRequest, IslandSnapshot, IslandTab, IslandUsage } from "./island";
 import type { Notice } from "./notifications";
@@ -30,6 +30,18 @@ const flame = (tone: Tone) => template("span", `island-flame ${tone}`, FLAME);
 
 const toneOf = (tab: IslandTab): Tone =>
   tab.status === "querendo" ? "wait" : tab.status === "rodando" ? "run" : tab.unseen ? "done" : "idle";
+
+/// Redraw without losing a half-typed answer: cached panels move into the new tree, so the
+/// focused field and its selection come back whenever its panel is still shown. Read focus before
+/// building, because moving a panel into the detached tree already blurs it.
+export function redraw(host: HTMLElement, build: () => HTMLElement) {
+  const field = document.activeElement instanceof HTMLInputElement && host.contains(document.activeElement) ? document.activeElement : null;
+  const [start, end] = [field?.selectionStart ?? null, field?.selectionEnd ?? null];
+  host.replaceChildren(build());
+  if (!field?.isConnected) return;
+  field.focus();
+  field.setSelectionRange(start, end);
+}
 
 /// Native overlay and browser mock render the same escaped content.
 export function islandView(snapshot: IslandSnapshot, layout: IslandLayout, notice: Notice | null, actions: IslandActions) {
@@ -115,22 +127,28 @@ export function requestPanels(control: (tab: string, frame: ConversationCommandV
   return {
     panel(tab: IslandTab) {
       const request = tab.request!;
-      const known = panels.get(request.id);
+      // Provider request IDs are only unique within one conversation.
+      const key = `${tab.id}:${request.id}`;
+      const known = panels.get(key);
       if (known) return known;
       // Hold the panel while its answer travels; the next snapshot removes it once the request closes.
       const respond = (response: RequestResponse) => {
         panel.inert = true;
         void control(tab.id, { v: 1, type: "request.respond", requestId: request.id, response })
-          .catch(error => { panel.inert = false; console.error(error); });
+          .catch(error => {
+            panel.inert = false;
+            panel.querySelector(".island-error")?.remove();
+            panel.append(h("p", "island-error", fromBack(error)));
+          });
       };
       const panel = h("div", `island-request ${request.requestKind}`);
       if (request.requestKind === "question") question(panel, tab, request, respond, () => open(tab.id));
       else approval(panel, request, respond, () => open(tab.id));
-      panels.set(request.id, panel);
+      panels.set(key, panel);
       return panel;
     },
     prune(snapshot: IslandSnapshot) {
-      const live = new Set(snapshot.tabs.flatMap(tab => tab.request ? [tab.request.id] : []));
+      const live = new Set(snapshot.tabs.flatMap(tab => tab.request ? [`${tab.id}:${tab.request.id}`] : []));
       for (const id of panels.keys()) if (!live.has(id)) panels.delete(id);
     },
   };
