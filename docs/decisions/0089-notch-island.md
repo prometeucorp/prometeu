@@ -39,8 +39,9 @@ expands while the pointer is over it or while a notice is showing.
   second while the island is on and compares it with the overlay frame.
 - **Geometry.** On macOS the overlay sits on the display with a notch, using
   `safeAreaInsets` and the auxiliary top areas; without one it sits inside the
-  menu bar of the main window's display. Other desktops place it at the top
-  center and let the compositor decide stacking.
+  menu bar of the main window's display, and it is placed again on every
+  display configuration change. Other desktops place it at the top center and
+  let the compositor decide stacking.
 
 ## Trade-offs
 

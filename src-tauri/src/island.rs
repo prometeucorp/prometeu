@@ -62,7 +62,11 @@ pub fn island_enable(
     ENABLED.store(enabled, Ordering::SeqCst);
     if enabled {
         let handle = app.clone();
-        WATCH.call_once(move || watch(handle));
+        WATCH.call_once(move || {
+            #[cfg(target_os = "macos")]
+            follow_screens(handle.clone());
+            watch(handle);
+        });
     }
     schedule(&app);
     Ok(())
@@ -265,6 +269,23 @@ fn arrange(
     }
     native.orderFrontRegardless();
     Ok(top)
+}
+
+/// AppKit moves windows when displays are connected, removed or rearranged, and the notched
+/// display can change with them; rearrange right away instead of waiting for the next hover.
+#[cfg(target_os = "macos")]
+fn follow_screens(app: tauri::AppHandle) {
+    use objc2_foundation::{NSNotification, NSNotificationCenter};
+    let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| schedule(&app));
+    // The center holds the observer strongly; it lives as long as the app and is never removed.
+    let _ = unsafe {
+        NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+            Some(objc2_app_kit::NSApplicationDidChangeScreenParametersNotification),
+            None,
+            None,
+            &block,
+        )
+    };
 }
 
 /// Other desktops have no camera housing; the compositor decides stacking.
