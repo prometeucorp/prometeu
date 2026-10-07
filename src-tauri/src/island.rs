@@ -277,7 +277,7 @@ fn arrange(
 ) -> Result<f64, String> {
     const TOP: f64 = 30.0;
     let (width, height) = if expanded {
-        (EXPANDED_WIDTH, content.max(TOP + 56.0).min(MAX_HEIGHT))
+        (EXPANDED_WIDTH, content.clamp(TOP + 56.0, MAX_HEIGHT))
     } else {
         (2.0 * WING + 48.0, TOP)
     };
