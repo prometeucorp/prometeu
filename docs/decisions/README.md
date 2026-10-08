@@ -106,3 +106,4 @@ Status: Proposed
 | [0085](0085-portable-core.md) | Portable core with injected effects |
 | [0088](0088-github-app.md) | GitHub App for issues, PRs and notifications |
 | [0089](0089-notch-island.md) | Notch island over the main window's state |
+| [0090](0090-approved-remote-input.md) | Remote input only from approved identities, with separate rights |

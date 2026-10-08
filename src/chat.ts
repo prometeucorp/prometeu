@@ -43,6 +43,7 @@ import * as paths from "./paths";
 import { pasteFiles } from "./paste";
 import * as voice from "./voice";
 import * as team from "./team";
+import * as ui from "./ui";
 import { pieces, Timeline, touched, turnMetadata, type Ask, type Block, type Command, type Item, type Piece } from "./timeline";
 import type { Choice, ProviderId, Selection, Status } from "./types";
 import { h, template } from "./util";
@@ -111,6 +112,8 @@ export function attachReview(tab: string, draft: ReviewDraft) {
 
 export class ChatView {
   private feed!: HTMLElement;
+  /// Owner notices above the composer, such as input paused from a changed device.
+  private notices!: HTMLElement;
   private box!: HTMLElement;
   private area!: HTMLTextAreaElement;
   private ctx!: Ctx;
@@ -148,8 +151,10 @@ export class ChatView {
     this.ctx = ctx;
     this.disposed = false;
     this.feed = h("div", "feed");
+    this.notices = h("div", "chat-notices");
+    this.notices.hidden = true;
     this.box = h("div", "composer");
-    host.append(this.feed, this.box);
+    host.append(this.feed, this.notices, this.box);
     this.buildComposer();
     const draftChangedHere = (key: string) => {
       if (this.key !== key) return;
@@ -1018,6 +1023,7 @@ export class ChatView {
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
     this.box.hidden = !hasKey;
+    this.paintPausedInput(info);
     if (!hasKey) { this.gauge.update(null); return; }
     this.paintContext(info);
     // Local file attachment is unavailable for agents running on another Mac.
@@ -1291,9 +1297,30 @@ export class ChatView {
     btn.onclick = () => {
       btn.disabled = true;
       void team.remoteControl(info.workspace!, !info.remoteControl)
+        .then(count => { if (count) this.ctx.say(tn(count, "team.input.approvedOwn")); })
         .catch(error => this.ctx.say(fromBack(error), true))
         .finally(() => { btn.disabled = false; });
     };
+  }
+
+  /// Input from a changed or new device is discarded until the owner answers (ADR 0090). The notice names the
+  /// person, stays across restarts and repaints only when its content changes, so typing keeps focus.
+  private paintPausedInput(info: Info) {
+    const paused = this.key && !info.remote && info.workspace ? team.pausedIn(info.workspace) : [];
+    const signature = JSON.stringify(paused);
+    if (this.notices.dataset.paused === signature) return;
+    this.notices.dataset.paused = signature;
+    this.notices.hidden = !paused.length;
+    this.notices.replaceChildren(...paused.map(({ person, name, own }) => {
+      const row = h("div", "chat-notice");
+      const allow = ui.button(t("team.input.allow"), () => void team.allowInput(person)
+        .then(count => { if (count) this.ctx.say(own ? tn(count, "team.input.approvedOwn") : tn(count, "team.input.approved", { name })); })
+        .catch(error => this.ctx.say(fromBack(error), true)));
+      const later = ui.button(t("team.input.later"), () => void team.dismissInput(person)
+        .catch(error => this.ctx.say(fromBack(error), true)), "ghost");
+      row.append(ui.notice(own ? t("team.input.pausedOwn") : t("team.input.paused", { name }), "warning"), allow, later);
+      return row;
+    }));
   }
 
   /// Offer selection comments only when collaboration and selected text are available.

@@ -2,7 +2,11 @@ import { isId, MEMBERS_MAX } from "../relay/src/protocol";
 import { generateIdentity, validateIdentity, validatePublicKey, type Identity } from "./team-crypto";
 
 type Scope = { identity: Identity; peers: Record<string, string>; receipts?: Record<string, number>; clock?: number;
-  sequence?: number; shares?: Record<string, { owner: string; key: string; revision: number; message: string }> };
+  sequence?: number; shares?: Record<string, { owner: string; key: string; revision: number; message: string }>;
+  /** Member → key whose remote input the owner approved (ADR 0090). */
+  approved: Record<string, string>;
+  /** Member → workspaces where input from an unapproved key was discarded, until the owner answers. */
+  paused?: Record<string, string[]> };
 type State = { version: 1; scopes: Record<string, unknown> };
 type Write = (state: unknown) => Promise<void>;
 
@@ -10,7 +14,11 @@ const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 const dictionary = <T>(source: Record<string, T> = {}): Record<string, T> => Object.assign(Object.create(null), source);
 
-/** Identity pins survive tickets, reconnects and organization switches; a member's new key replaces the pin. */
+/// Workspaces remembered per paused member; each one names where the owner sees the notice.
+const PAUSED_MAX = 64;
+
+/** Identity pins survive tickets, reconnects and organization switches; a member's new key replaces the pin.
+ *  Remote input additionally requires the owner's approval of that member and key (ADR 0090). */
 export class TeamSecurity {
   readonly identity: Identity;
   private observed = new Map<string, string | undefined>();
@@ -48,10 +56,24 @@ export class TeamSecurity {
       if (saved.shares !== undefined && (!record(saved.shares) || Object.keys(saved.shares).length > 4096 ||
         Object.entries(saved.shares).some(([ws, v]) => !isId(ws) || !record(v) || !isId(v.owner) || !isId(v.message) ||
           typeof v.key !== "string" || !Number.isSafeInteger(v.revision) || Number(v.revision) < 1))) throw new Error("Invalid share history");
+      if (saved.approved !== undefined && (!record(saved.approved) || Object.keys(saved.approved).length > MEMBERS_MAX)) {
+        throw new Error("Invalid input approvals");
+      }
+      // Files from before approvals existed trust the keys already pinned, so upgrading does not stop teams.
+      const approved = dictionary<string>(saved.approved === undefined ? peers : {});
+      for (const [member, key] of Object.entries(saved.approved ?? {})) {
+        if (!isId(member) || typeof key !== "string") throw new Error("Invalid input approvals");
+        await validatePublicKey(key);
+        approved[member] = key;
+      }
+      if (saved.paused !== undefined && (!record(saved.paused) || Object.keys(saved.paused).length > MEMBERS_MAX ||
+        Object.entries(saved.paused).some(([member, list]) => !isId(member) || !Array.isArray(list) ||
+          list.length > PAUSED_MAX || !list.every(isId)))) throw new Error("Invalid paused input");
       current = { identity, peers, receipts: saved.receipts as Scope["receipts"], clock: saved.clock as number | undefined,
-        sequence: saved.sequence as number | undefined, shares: saved.shares as Scope["shares"] };
+        sequence: saved.sequence as number | undefined, shares: saved.shares as Scope["shares"], approved,
+        paused: saved.paused === undefined ? undefined : dictionary(saved.paused as Record<string, string[]>) };
     } else {
-      current = { identity: await generateIdentity(), peers: dictionary() };
+      current = { identity: await generateIdentity(), peers: dictionary(), approved: dictionary() };
       state.scopes[scope] = current;
       await write(state);
     }
@@ -139,6 +161,60 @@ export class TeamSecurity {
   key(member: string): string | undefined {
     const pinned = member === this.self ? this.identity.publicKey : this.current.peers[member];
     return pinned !== undefined && this.observed.get(member) === pinned ? pinned : undefined;
+  }
+
+  /** Content follows any adopted key (ADR 0042); input runs only from a member and key the owner approved. */
+  approved(member: string): boolean {
+    const key = this.key(member);
+    return key !== undefined && (member === this.self || this.current.approved[member] === key);
+  }
+
+  /** Approve the current keys of these members and forget their paused input. Resolves how many became approved. */
+  approve(members: string[]): Promise<number> {
+    let count = 0;
+    return this.serialize(async () => {
+      const approved = dictionary(this.current.approved);
+      const paused = dictionary(this.current.paused);
+      let answered = false;
+      for (const member of new Set(members)) {
+        const key = this.key(member);
+        if (key === undefined || member === this.self) continue;
+        if (approved[member] !== key) { approved[member] = key; count++; }
+        if (paused[member]) { delete paused[member]; answered = true; }
+      }
+      if (!count && !answered) return;
+      if (Object.keys(approved).length > MEMBERS_MAX) throw new Error("Too many input approvals");
+      await this.commit({ ...this.current, approved, paused });
+    }).then(() => count);
+  }
+
+  /** Remember that input from an unapproved member was discarded in a workspace. Resolves whether that is news. */
+  pause(member: string, ws: string): Promise<boolean> {
+    let added = false;
+    return this.serialize(async () => {
+      if (!isId(member) || !isId(ws) || this.approved(member) || this.current.paused?.[member]?.includes(ws)) return;
+      const paused = dictionary(this.current.paused);
+      paused[member] = [...(paused[member] ?? []), ws].slice(-PAUSED_MAX);
+      if (Object.keys(paused).length > MEMBERS_MAX) throw new Error("Too many paused members");
+      await this.commit({ ...this.current, paused });
+      added = true;
+    }).then(() => added);
+  }
+
+  /** Forget paused input without approving it; the next discarded input brings the notice back. */
+  dismiss(members: string[]): Promise<void> {
+    return this.serialize(async () => {
+      if (!members.some(member => this.current.paused?.[member])) return;
+      const paused = dictionary(this.current.paused);
+      for (const member of members) delete paused[member];
+      await this.commit({ ...this.current, paused });
+    });
+  }
+
+  /** Workspaces with discarded input for each member whose current key is still unapproved. */
+  paused(): Record<string, string[]> {
+    return Object.fromEntries(Object.entries(this.current.paused ?? {})
+      .filter(([member]) => this.key(member) !== undefined && !this.approved(member)));
   }
 
   /** Persist before executing remote input; clock rollback fails closed. */

@@ -295,6 +295,16 @@ function sendConfirmed(frame: Up): Promise<boolean> {
   });
 }
 
+/// Reconnecting waits for this queue before loading the store again, so a write from an older connection can never
+/// replace newer receipts, links or approvals.
+function secure<T>(work: (security: TeamSecurity) => Promise<T>): Promise<T | null> {
+  const active = channel, generation = connection;
+  if (!active) return Promise.resolve(null);
+  const result = wireQueue.then(() => generation === connection ? work(active.security) : null);
+  wireQueue = result.then(() => {}, () => {});
+  return result;
+}
+
 function sendBinary(data: Uint8Array, recipients: () => string[], valid: Gate): boolean {
   if (!sock || phase !== "online" || !channel) return false;
   const socket = sock, active = channel;
@@ -346,7 +356,7 @@ function handle(frame: Down) {
 }
 
 const ctx: Context = {
-  send, sendConfirmed, sendBinary, changed,
+  send, sendConfirmed, sendBinary, secure, changed,
   fail: (text) => fail?.(text),
   generation: () => connection,
   phase: () => phase,

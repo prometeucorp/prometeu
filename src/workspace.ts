@@ -478,7 +478,10 @@ function shareLabel(ws: Workspace): string {
 function shareItems(ws: Workspace): menu.Item[] {
   const me = team.status();
   const others = team.people().filter((m) => m.id !== team.personOf(me.you));
-  const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch((e) => ctx.say(fromBack(e), true));
+  // Choosing a person approves the devices they have now for input; say how many (ADR 0090).
+  const set = (audience: string[] | null | false, name?: string) => team.share(ws.id, audience)
+    .then((count) => { if (count && name) ctx.say(tn(count, "team.input.approved", { name })); })
+    .catch((e) => ctx.say(fromBack(e), true));
   const all = team.sharedWithTeam(ws) && !ws.audience;
   const some = team.sharedWithTeam(ws) && ws.audience ? ws.audience : [];
   const items: menu.Item[] = [
@@ -491,7 +494,7 @@ function shareItems(ws: Workspace): menu.Item[] {
         glyph: avatar(m.name),
         hint: m.online ? undefined : t("team.offline"),
         checked: on,
-        run: () => set(on ? some.filter((id) => id !== m.id) : [...some, m.id]),
+        run: () => set(on ? some.filter((id) => id !== m.id) : [...some, m.id], m.name),
       };
     }),
   ];

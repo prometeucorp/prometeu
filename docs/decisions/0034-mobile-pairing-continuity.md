@@ -27,8 +27,10 @@ snapshots. Old clients and relays keep the previous path. A real connection loss
 still uses backoff and snapshots.
 
 The Mac forwards the original text when the authenticated sender is a device
-belonging to the person themselves. Peers are still identified by the team's
-prefix. Encryption, remote control consent and replay protection stay mandatory.
+belonging to the person themselves and approved on that Mac
+([ADR 0090](0090-approved-remote-input.md)). Peers are still identified by the
+team's prefix. Encryption, remote control consent and replay protection stay
+mandatory.
 
 The mobile shell limits the width of the transcript's columns and keeps
 horizontal scrolling inside code blocks and tables. The form uses shared 44px

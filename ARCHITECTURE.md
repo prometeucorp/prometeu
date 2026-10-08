@@ -32,7 +32,10 @@ The agent process and the workspace files have the local user's permissions.
 The worktree separates Git changes, but it is not a sandbox. Shared content
 uses E2EE v4; the relay receives ciphertext and routing metadata. The initial
 identity is accepted by the server directory (TOFU). See
-[limits](docs/decisions/0022-end-to-end-encryption.md).
+[limits](docs/decisions/0022-end-to-end-encryption.md). Remote messages and
+control run only from member and key pairs approved on the owner's Mac; content
+does not need that approval
+([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
 
 ## Containers and responsibilities
 
@@ -244,7 +247,8 @@ depend on the canonical primitives in `conversation.rs`.
 - The frontend does not access the filesystem or processes directly; it uses IPC.
 - The relay validates every input and enforces the audience on the server; the
   client also authenticates content and enforces the audience, without trusting
-  `watch` as authorization.
+  `watch` as authorization. The owner runs remote input only from identities it
+  approved; the relay does not know that rule.
 - Transcript and board compatibility take precedence over cosmetic cleanup.
 - Support differences visible in the UI use `AgentCapabilities`; dispatch by
   `ProviderId` stays in the catalog or in the adapters.

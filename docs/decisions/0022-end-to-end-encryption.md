@@ -44,9 +44,10 @@ The owner is still the authority over their process and the local audience.
 `watch` grants no access. Authenticated audience announcements have persisted
 revisions; the relay cannot replace the owner or restore a revision already
 superseded in the client. Remote messages have a two-minute deadline and a
-receipt persisted before execution, including after a restart. After decryption,
-the validation of `chat_control_remote` against requests open on the owner's Mac
-remains.
+receipt persisted before execution, including after a restart. They run only
+from a member and key the owner approved on that Mac
+([ADR 0090](0090-approved-remote-input.md)). After decryption, the validation
+of `chat_control_remote` against requests open on the owner's Mac remains.
 
 ## Alternatives and costs
 
@@ -66,8 +67,17 @@ review; swapping the cipher is not enough.
 ## Security limits
 
 - A malicious server can replace keys, at first contact and afterwards: since
-  ADR 0042 the change is adopted silently. There is no external code
-  comparison and no key transparency.
+  ADR 0042 the change is adopted silently for content, so the server can read
+  that person's new content. There is no external code comparison and no key
+  transparency.
+- Remote input is execution, not only disclosure: agents run tools without
+  per-tool approval by default and `request.respond` answers the human gate.
+  Messages and control therefore run only from member and key pairs approved on
+  the owner's Mac ([ADR 0090](0090-approved-remote-input.md)). A changed key, a
+  new device, including the owner's own, and a member that first appears in the
+  directory keep receiving content, but their input is discarded until the
+  owner approves them. Approval itself still trusts the keys the directory
+  shows at that moment.
 - The relay knows the organization, members, names, workspace/tab IDs,
   recipients, mentions, presence, timestamps, sizes and terminal dimensions. It
   can omit, delay or reorder messages and deny service. The cipher does not

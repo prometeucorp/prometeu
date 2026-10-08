@@ -49,7 +49,8 @@ member.register(viewer.install);
 
 export const { useTransport, onChange, onError, nameOf, people, personOf } = member;
 export const { setSink, isRemote, attachedTab, attach, detach, write } = viewer;
-export const { boardChanged, share, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf } = owner;
+export const { boardChanged, share, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf, pausedIn, allowInput, dismissInput } = owner;
+export type { PausedInput } from "./team-owner";
 export const { inboxCount, inboxItems, supportsThreads, inboxList } = comments;
 
 /* Configuration. */
