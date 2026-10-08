@@ -49,6 +49,8 @@ consumer depends on native submission. The `native` field takes part in
 send their own commands still validate the domain rules before saving.
 Opening a dropdown focuses its menu options. Arrow keys move actual focus,
 not only the visual selection, and closing restores focus to the trigger.
+Submenus open beside their row, and on its left when the right edge of the
+window has no room, so they never cover the menu that opened them.
 
 `formDialog` uses `dialog.showModal()`: content behind it becomes inert, focus
 returns on close and Tab/Shift+Tab cycle within the form. The body scrolls and
