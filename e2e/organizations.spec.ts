@@ -51,8 +51,9 @@ test("footer remote control persists without sharing with the organization", asy
 
   await control.click();
   await expect(control).toHaveAttribute("aria-pressed", "true");
+  // Remote control alone grants teammates nothing: the saved rights stay empty (ADR 0090).
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem("mock:shared")!)[0])).toEqual([
-    "sessao-0929", [], "organization:organization1:membership1", true,
+    "sessao-0929", [], "organization:organization1:membership1", true, { send: [], control: [] },
   ]);
 
   await page.reload();

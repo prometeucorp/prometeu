@@ -1,6 +1,14 @@
+import type { Right } from "./team-rights";
+
 /// Validate peer control before it reaches the agent. Recognize malformed control payloads and discard them so they never become ordinary prompts.
 
 export type RemoteControl = { recognized: boolean; frame: unknown | null };
+
+/// Answering a request needs Control; prompts and interrupts need Send messages (ADR 0090).
+export function rightOf(control: RemoteControl): Right {
+  const type = (control.frame as { type?: unknown } | null)?.type;
+  return type === "request.respond" || type === "control_response" ? "control" : "send";
+}
 
 export function remoteControl(data: string): RemoteControl {
   if (!data.startsWith("{")) return { recognized: false, frame: null };

@@ -761,9 +761,10 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   skills: tab?.task ? null : (w?.skills ?? null),
   pending: tab?.pending_prompt ?? null,
   worktree: w?.worktree ?? null,
-  remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online } : null,
+  remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online, ...team.rightsIn(w.id) } : null,
   team: !!team.status().config && !!w && (team.sharedHere(w) || !!w.remote),
   remoteControl: w?.remote_control ?? false,
+  rightsNotice: !!w && team.rightsNoticeDue(w),
   // Tab choice presence controls inheritance. An explicitly empty model still selects the CLI default rather than workspace defaults.
   agent: tab?.choice ? tab.choice.agent : (w?.agent ?? "claude"),
   model: tab?.choice ? tab.choice.model : (w?.model ?? ""),

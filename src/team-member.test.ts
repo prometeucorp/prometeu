@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import type { Share } from "../relay/src/protocol";
 import * as comments from "./team-comments";
 import * as member from "./team-member";
@@ -12,8 +12,10 @@ const share: Share = {
   active: "mt1", tabs: [{ id: "mt1", title: "", status: "rodando", note: null, tokens: null }], sizes: { mt1: [80, 24] }, audience: null,
 };
 const storage = new Map<string, string>();
+let rights: { send: string[]; control: string[] } | undefined;
 
 beforeEach(() => {
+  rights = undefined;
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => storage.get(key) ?? null,
     setItem: (key: string, value: string) => storage.set(key, value),
@@ -24,8 +26,11 @@ beforeEach(() => {
   member.useSecurityStore({ read: async () => structuredClone(security), write: async (state) => { security = structuredClone(state); } });
   member.useTransport({
     needsRelay: false, create: vi.fn(), enroll: vi.fn(),
-    socket: (url) => simulatedSocket(url, "first conversation line\n", share, () => true),
+    socket: (url) => simulatedSocket(url, "first conversation line\n", share, () => true, rights),
   });
+});
+// Features register once per module, as in a real shell.
+beforeAll(() => {
   member.register(comments.install);
   member.register(viewer.install);
 });
@@ -55,4 +60,17 @@ it("watches a remote share and reads its inbox with only the viewer and comments
   expect(comments.notesOf(share.id)).toHaveLength(1);
   expect(await comments.addNote(share.id, null, null, "reply from the phone", [], null)).toBe(true);
   await vi.waitFor(() => expect(comments.notesOf(share.id).some(note => note.text === "reply from the phone")).toBe(true));
+});
+
+it("reflects the rights the owner announced, so a viewer without them sees no action controls", async () => {
+  rights = { send: [], control: ["eu_mock"] };
+  const scope = JSON.stringify(["team", "ws://mock", "fakeTeam"]);
+  await member.connect({
+    member: "eu_mock", scope, privateScope: JSON.stringify([scope, "", "eu_mock"]), shareScope: "team:fakeTeam", legacy: true,
+    url: async () => "ws://mock/team/fakeTeam?m=eu_mock&n=Me",
+  });
+  await vi.waitFor(() => expect(viewer.remotes()).toHaveLength(1));
+  const [remote] = viewer.remotes();
+  expect(viewer.rightsIn(remote.id)).toEqual({ send: false, control: true });
+  expect(viewer.announcedRights(remote.id)).toEqual({ send: [], control: ["eu_mock"] });
 });

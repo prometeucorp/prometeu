@@ -293,7 +293,8 @@
       "question",
       "permission",
       "plan",
-      "answered"
+      "answered",
+      "waiting"
     ]
   },
   {

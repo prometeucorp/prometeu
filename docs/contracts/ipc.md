@@ -143,7 +143,7 @@ The `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
 [catalog contract](cloud-catalog.md). Catalog refresh runs through
 `cloud_status` with `refresh: true`. They do not return a Bearer or a
 password to the webview. `cloud_organizations`, `cloud_relay_ticket` and the
-`remoteControl` and `team` arguments of `set_shared` are in the
+`remoteControl`, `team` and `rights` arguments of `set_shared` are in the
 [organizations contract](cloud-organizations.md); only the short ticket crosses
 IPC to authenticate the WebSocket.
 

@@ -1,9 +1,10 @@
 import { SNAPSHOT, decodeBinary, encodeLive, encodeSnapshot, type Down, type Segment, type Share, type Up, type Watching } from "../relay/src/protocol";
 import { t } from "./i18n";
 import { personOf, type TeamChannel } from "./team-channel";
-import { remoteControl as parseRemoteControl } from "./team-control";
+import { remoteControl as parseRemoteControl, rightOf } from "./team-control";
 import type { Context, Feature, Gate, OwnerHost } from "./team-ports";
-import type { Board, Workspace } from "./types";
+import { NO_RIGHTS, type Right } from "./team-rights";
+import type { Board, ShareRights, Workspace } from "./types";
 
 /// Owner feature: announce shared local workspaces, stream their conversations to authorized viewers and run
 /// remote input on the local agent. Only the machine that executes agents installs it.
@@ -35,8 +36,10 @@ let flushTimer = 0;
 /// Hold live output while its snapshot is being sent to preserve ordering.
 const holding = new Map<string, number>();
 const accessVersions = new Map<string, number>();
-type Access = { audience: string[] | null; remoteControl: boolean };
+type Access = { audience: string[] | null; remoteControl: boolean; rights: ShareRights };
 const pendingAccess = new Map<string, Access | false>();
+/// Shares from before rights existed keep `null` and let people only view and comment (ADR 0090).
+const rightsOf = (w: Workspace | undefined): ShareRights => w?.rights ?? NO_RIGHTS;
 
 export function install(context: Context, actions: OwnerHost): Feature {
   ctx = context;
@@ -48,7 +51,9 @@ export function install(context: Context, actions: OwnerHost): Feature {
 
 function connecting(channel: TeamChannel) {
   for (const workspace of lastBoard?.workspaces ?? []) {
-    if (sharedHere(workspace) && !workspace.remote && !workspace.archived && !workspace.cleaned) channel.own(toShare(workspace), workspace.remote_control);
+    if (sharedHere(workspace) && !workspace.remote && !workspace.archived && !workspace.cleaned) {
+      channel.own(toShare(workspace), workspace.remote_control, rightsOf(workspace));
+    }
   }
 }
 
@@ -135,14 +140,14 @@ export function boardChanged(board: Board) {
   for (const w of board.workspaces) {
     if (!sharedHere(w) || w.remote) continue;
     if (w.archived || w.cleaned) {
-      void host.setShared(w.id, false, null, false, null);
+      void host.setShared(w.id, false, null, false, null, null);
       continue;
     }
     seen.add(w.id);
     const share = toShare(w);
-    const json = JSON.stringify([share, w.remote_control]);
+    const json = JSON.stringify([share, w.remote_control, rightsOf(w)]);
     if (announced.get(w.id) === json) continue;
-    ctx.channel()?.own(share, w.remote_control);
+    ctx.channel()?.own(share, w.remote_control, rightsOf(w));
     if (ctx.send({ t: "share", share })) announced.set(w.id, json);
   }
   for (const id of [...announced.keys()]) {
@@ -169,29 +174,49 @@ function admitted(audience: string[] | null, remoteControl: boolean, member: str
   return !audience || audience.includes(member) || audience.includes(person);
 }
 
+/// The access in force for a workspace, including a change still being saved; false while sharing stops.
+function accessOf(w: Workspace): Access | false {
+  return pendingAccess.get(w.id) ?? { audience: w.audience, remoteControl: w.remote_control, rights: rightsOf(w) };
+}
+
+const workspaceOf = (tab: string) => lastBoard?.workspaces.find(w => w.tabs.some(t => t.id === tab));
+
 function canReceive(tab: string, member: string): boolean {
-  const w = lastBoard?.workspaces.find(w => w.tabs.some(t => t.id === tab));
+  const w = workspaceOf(tab);
   if (!w || !sharedHere(w) || w.archived || w.cleaned || !ctx.channel()?.security.key(member)) return false;
-  const pending = pendingAccess.get(w.id);
-  if (pending === false) return false;
-  const access = pending ?? { audience: w.audience, remoteControl: w.remote_control };
-  return admitted(access.audience, access.remoteControl, member);
+  const access = accessOf(w);
+  return !!access && admitted(access.audience, access.remoteControl, member);
 }
 
-/// Share with everyone using null, selected people using IDs, or stop team sharing using false. Choosing a person
-/// grants their input, so the devices they have now become approved; the whole organization approves nobody (ADR 0090).
-/// Resolves how many devices became approved.
-export async function share(id: string, audience: string[] | null | false): Promise<number> {
-  const workspace = lastBoard?.workspaces.find(w => w.id === id);
-  const before = workspace && sharedWithTeam(workspace) ? workspace.audience ?? [] : [];
-  await setAudience(id, audience);
-  return approve((audience || []).filter(person => !before.includes(person)));
+/// Viewing never grants acting. The owner's devices act through remote control; anyone else needs the right on their
+/// person, and the whole organization never holds one (ADR 0090).
+function entitled(access: Access, member: string, right: Right): boolean {
+  const owner = ctx.you();
+  if (member === owner) return true;
+  const members = ctx.members();
+  const person = personOf(members, member);
+  if (owner && person === personOf(members, owner)) return access.remoteControl;
+  return access.rights[right].includes(person);
 }
 
-async function setAudience(id: string, audience: string[] | null | false) {
+/// Share with everyone using null, selected people using IDs, or stop team sharing using false. The audience views and
+/// comments; people who stop viewing lose their rights.
+export async function share(id: string, audience: string[] | null | false) {
   const workspace = lastBoard?.workspaces.find(w => w.id === id);
   const teamAudience = audience !== false && (audience === null || audience.length > 0) ? audience : [];
-  await setAccess(id, teamAudience, workspace?.remote_control ?? false);
+  await setAccess(id, teamAudience, workspace?.remote_control ?? false, rightsOf(workspace));
+}
+
+/// Grant or revoke Send messages or Control for one person. Acting needs viewing, so an explicit audience gains the
+/// person; granting approves the devices they have now (ADR 0090). Resolves how many became approved.
+export async function grant(id: string, person: string, right: Right, on: boolean): Promise<number> {
+  const workspace = lastBoard?.workspaces.find(w => w.id === id);
+  if (!workspace) return 0;
+  const current = rightsOf(workspace);
+  const rights = { ...current, [right]: on ? [...new Set([...current[right], person])] : current[right].filter(p => p !== person) };
+  const audience = sharedWithTeam(workspace) ? workspace.audience : [];
+  await setAccess(id, !on || audience === null || audience.includes(person) ? audience : [...audience, person], workspace.remote_control, rights);
+  return on ? approve([person]) : 0;
 }
 
 /// Toggle access for the owner's companion devices without changing the team audience. Turning it on approves the
@@ -200,30 +225,34 @@ export async function remoteControl(id: string, enabled: boolean): Promise<numbe
   const workspace = lastBoard?.workspaces.find(w => w.id === id);
   if (!workspace) return 0;
   const audience = workspace.shared && (workspace.audience === null || workspace.audience.length > 0) ? workspace.audience : [];
-  await setAccess(id, audience, enabled);
+  await setAccess(id, audience, enabled, rightsOf(workspace));
   const you = ctx.you();
   return enabled && you ? approve([personOf(ctx.members(), you)]) : 0;
 }
 
-async function setAccess(id: string, audience: string[] | null, remoteControl: boolean) {
+async function setAccess(id: string, audience: string[] | null, remoteControl: boolean, rights: ShareRights) {
   const on = remoteControl || audience === null || audience.length > 0;
   const membership = ctx.membership();
   if (on && !membership) throw t("err.team.noRelay");
   if (pendingAccess.has(id)) throw t("err.team.encryption");
+  // Acting needs viewing: an explicit audience keeps only the rights of the people it names.
+  const kept = audience === null ? rights
+    : { send: rights.send.filter(p => audience.includes(p)), control: rights.control.filter(p => audience.includes(p)) };
   const generation = ctx.generation();
-  pendingAccess.set(id, on ? { audience, remoteControl } : false);
+  pendingAccess.set(id, on ? { audience, remoteControl, rights: kept } : false);
   accessVersions.set(id, (accessVersions.get(id) ?? 0) + 1);
   try {
-    await host.setShared(id, on, on ? audience : null, on && remoteControl, on ? membership!.shareScope : null);
+    await host.setShared(id, on, on ? audience : null, on && remoteControl, on ? membership!.shareScope : null, on ? kept : null);
     if (generation !== ctx.generation()) return;
     // IPC completion can precede the board event. Presence must not reannounce
     // the old audience during that gap.
     if (lastBoard) lastBoard = { ...lastBoard, workspaces: lastBoard.workspaces.map(w => w.id === id
-      ? { ...w, shared: on, audience: on ? audience : null, remote_control: on && remoteControl, share_team: on ? membership!.shareScope : null } : w) };
+      ? { ...w, shared: on, audience: on ? audience : null, remote_control: on && remoteControl, share_team: on ? membership!.shareScope : null,
+          rights: on ? kept : null } : w) };
     const w = lastBoard?.workspaces.find(w => w.id === id);
     if (w && on) {
       const updated = { ...toShare(w), audience };
-      ctx.channel()?.own(updated, remoteControl);
+      ctx.channel()?.own(updated, remoteControl, kept);
       if (ctx.phase() === "online" && !await ctx.sendConfirmed({ t: "share", share: updated })) throw t("err.team.encryption");
     } else if (!on && ctx.phase() === "online") {
       if (!await ctx.sendConfirmed({ t: "unshare", ws: id })) throw t("err.team.encryption");
@@ -232,12 +261,12 @@ async function setAccess(id: string, audience: string[] | null, remoteControl: b
 }
 
 /// Expand an owned share's audience before mentioning a new member, so the relay accepts the mention that follows.
-/// A mention lets that person read and comment; it is not the owner's consent to their input.
+/// A mention lets that person view and comment, never act.
 export async function includeMentioned(id: string, mentions: string[]) {
   const w = lastBoard?.workspaces.find((x) => x.id === id);
   if (w && sharedHere(w) && !w.remote && w.audience) {
     const missing = mentions.filter((m) => !w.audience!.includes(m));
-    if (missing.length) await setAudience(id, [...w.audience, ...missing]);
+    if (missing.length) await share(id, [...w.audience, ...missing]);
   }
 }
 
@@ -254,15 +283,17 @@ async function approve(people: string[]): Promise<number> {
   return await ctx.secure(security => security.approve(devices)) ?? 0;
 }
 
-/// People with discarded input in this workspace who can still reach it, named as people, never devices (ADR 0041).
+/// People with discarded input in this workspace who can still act there, named as people, never devices (ADR 0041).
 export function pausedIn(id: string): PausedInput[] {
   const security = ctx.channel()?.security;
   const w = lastBoard?.workspaces.find(w => w.id === id);
-  if (!security || !w || w.remote || !sharedHere(w)) return [];
+  const access = w && accessOf(w);
+  if (!security || !w || !access || w.remote || !sharedHere(w)) return [];
   const you = ctx.you(), members = ctx.members();
   const people = new Set<string>();
   for (const [member, workspaces] of Object.entries(security.paused())) {
-    if (workspaces.includes(id) && admitted(w.audience, w.remote_control, member)) people.add(personOf(members, member));
+    if (workspaces.includes(id) && admitted(access.audience, access.remoteControl, member) &&
+      (entitled(access, member, "send") || entitled(access, member, "control"))) people.add(personOf(members, member));
   }
   const self = you && personOf(members, you);
   return [...people].map(person => ({ person, name: ctx.nameOf(person), own: person === self }));
@@ -393,17 +424,21 @@ function push(data: Uint8Array): boolean {
 
 /// Revalidate remote input and control against announced local tabs before writing to a real process, even though the relay already filters it.
 function typed(ws: string, tab: string, data: string, from: string) {
-  if (!announced.has(ws) || !mine(tab)) return;
-  if (!canReceive(tab, from)) return;
-  // Input is execution on this Mac: it runs only from a member and key the owner approved. The channel already
-  // spent this message's replay receipt, so discarded input can never run later (ADR 0090).
+  const w = workspaceOf(tab);
+  const access = w && accessOf(w);
+  if (!announced.has(ws) || !mine(tab) || !access || !canReceive(tab, from)) return;
+  const parsed = parseRemoteControl(data);
+  if (parsed.recognized && !parsed.frame) return;
+  // Input is execution on this Mac. It needs the right for its kind, and then a member and key the owner approved;
+  // only the latter leaves a notice. The channel already spent this message's replay receipt, so discarded input
+  // can never run later (ADR 0090).
+  if (!entitled(access, from, rightOf(parsed))) return;
   if (!ctx.channel()?.security.approved(from)) {
     void ctx.secure(security => security.pause(from, ws)).then(added => { if (added) ctx.changed(); }).catch(() => {});
     return;
   }
-  const parsed = parseRemoteControl(data);
   if (parsed.recognized) {
-    if (parsed.frame) void host.control(tab, parsed.frame).catch(() => {});
+    void host.control(tab, parsed.frame).catch(() => {});
     return;
   }
   const you = ctx.you(), members = ctx.members();

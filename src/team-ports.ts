@@ -1,6 +1,7 @@
 import type { Down, Member, Shared, Up } from "../relay/src/protocol";
 import type { TeamChannel } from "./team-channel";
 import type { TeamSecurity } from "./team-security";
+import type { ShareRights } from "./types";
 
 /// Contracts between the portable collaboration core (team-member.ts and its features) and the shell that hosts it.
 /// The desktop shell is team.ts; a browser shell supplies the same ports without Tauri. See ADR 0026.
@@ -79,7 +80,8 @@ export type GuestSink = {
 
 /// Local agent actions the owner feature needs from the shell.
 export type OwnerHost = {
-  setShared(id: string, shared: boolean, audience: string[] | null, remoteControl: boolean, team: string | null): Promise<void>;
+  setShared(id: string, shared: boolean, audience: string[] | null, remoteControl: boolean, team: string | null,
+    rights: ShareRights | null): Promise<void>;
   snapshot(tab: string): Promise<{ text: string; seq: number }>;
   control(tab: string, frame: unknown): Promise<void>;
   prompt(tab: string, text: string): Promise<void>;

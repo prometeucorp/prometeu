@@ -226,6 +226,9 @@ export type Workspace = {
   audience: string[] | null;
   /// Allow companion devices belonging to the owner to view and control this workspace.
   remote_control: boolean;
+  /// People allowed to act beyond viewing and commenting (ADR 0090). Absent or null on shares made before rights
+  /// existed, which grant viewing and commenting only.
+  rights?: ShareRights | null;
   /// Publish the workspace card before its worktree finishes preparing. No tabs exist during preparation.
   preparing: boolean;
   /// Structured backend preparation error, translated by fromBack.
@@ -237,6 +240,9 @@ export type Workspace = {
 };
 
 export type Remote = { owner: string; online: boolean };
+
+/// Send messages covers prompts and interrupts; Control covers answering the agent's requests. Lists name people.
+export type ShareRights = { send: string[]; control: string[] };
 
 /// GitHub PR data; state is OPEN, MERGED, or CLOSED. `checks` is GitHub's CI rollup for an open
 /// PR's head commit, absent when unknown.

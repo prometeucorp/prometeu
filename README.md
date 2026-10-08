@@ -87,10 +87,11 @@ optional for local work; model access comes from your own provider account.
   setup, Run scripts and preview. See [external registration](docs/contracts/embedded-mcp.md#external-client-registration).
 - **Tools per workspace.** Select MCP servers, plugins, and skills. Reusable
   actions include an editable code review profile.
-- **Optional collaboration.** Share live conversations and comment on them
-  with your team, or continue from your own companion devices. Execution stays
-  on the owner's computer; messages and request answers from a new or changed
-  device wait until the owner allows that device there.
+- **Optional collaboration.** Share live conversations so your team can view
+  and comment, and choose per person who may also send messages or answer the
+  agent's requests; or continue from your own companion devices. Execution stays
+  on the owner's computer, and input from a new or changed device waits until
+  the owner allows that device there.
 - **Dictation.** Speak into the message box; the transcript appears as you
   talk, and the dictation language is a preference of its own.
 - **Portuguese and English UI.** Agent output and your content keep their
@@ -316,9 +317,10 @@ display behavior depends on the desktop compositor.
 Shared conversation content uses end-to-end encryption. The relay still sees
 routing metadata, and member keys are trusted as the relay directory reports
 them, including later key changes. Remote messages and control, which run on
-your Mac, are accepted only from devices you approved there; a new or changed
-device keeps seeing shared content but its input waits for your answer. There
-is no forward secrecy. This encryption does not cover content sent to model
+your Mac, are accepted only from people you granted them in that workspace and
+only from devices you approved there; a new or changed device keeps seeing
+shared content but its input waits for your answer. There is no forward
+secrecy. This encryption does not cover content sent to model
 providers or protect a compromised device. See the
 [security design and limits](docs/decisions/0022-end-to-end-encryption.md).
 

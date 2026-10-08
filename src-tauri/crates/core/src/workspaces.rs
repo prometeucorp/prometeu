@@ -573,6 +573,7 @@ fn in_place(
         share_team: None,
         audience: None,
         remote_control: false,
+        rights: None,
         preparing: false,
         failed: None,
         mcp: None,

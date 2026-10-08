@@ -2,11 +2,14 @@ import { decodeBinary, encodeSnapshot, encryptedBinary, isEncryptedUp, parseDown
   SNAPSHOT, TEXT_FRAME_MAX, DOWN_FRAME_MAX, NOTE_TEXT_MAX, NOTE_QUOTE_MAX, MENTIONS_MAX,
   type Down, type Encrypted, type Inbox, type Member, type Note, type Share, type Shared, type Up } from "../relay/src/protocol";
 import { decodeBase64Url, encodeBase64Url, open, seal, signIdentity } from "./team-crypto";
+import { NO_RIGHTS, parseRights } from "./team-rights";
 import { TeamSecurity } from "./team-security";
+import type { ShareRights } from "./types";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
-type Payload = { frame: Up; expires?: number; revision?: number } | { binary: string };
+/// `rights` travels only inside an authenticated share announcement; older clients ignore it (ADR 0090).
+type Payload = { frame: Up; expires?: number; revision?: number; rights?: unknown } | { binary: string };
 
 /// The person a member acts for: a companion device maps to its primary member, anyone else to itself.
 export const personOf = (members: ReadonlyArray<Pick<Member, "id" | "person">>, id: string): string =>
@@ -18,17 +21,26 @@ export class TeamChannel {
   readonly shares = new Map<string, Shared>();
   private owned = new Map<string, Shared>();
   private remoteControl = new Set<string>();
+  /// Rights announced with owned shares, and those read from other owners' authenticated announcements.
+  private ownedRights = new Map<string, ShareRights>();
+  private announcedRights = new Map<string, ShareRights>();
   private attached: { ws: string; tab: string } | null = null;
   private pendingWelcome: Extract<Down, { t: "welcome" }> | null = null;
   ready = false;
 
   constructor(readonly security: TeamSecurity, readonly scope: string, readonly self: string) {}
 
-  own(share: Share, remoteControl = false) {
+  own(share: Share, remoteControl = false, rights: ShareRights = NO_RIGHTS) {
     const current = { ...share, owner: this.self, online: true };
     this.owned.set(share.id, current); this.shares.set(share.id, current);
+    this.ownedRights.set(share.id, rights);
     if (remoteControl) this.remoteControl.add(share.id);
     else this.remoteControl.delete(share.id);
+  }
+
+  /// The rights another owner announced for a share; undefined when that owner predates rights.
+  rightsOf(ws: string): ShareRights | undefined {
+    return this.announcedRights.get(ws);
   }
 
   async identity(challenge: string): Promise<Up> {
@@ -100,7 +112,8 @@ export class TeamChannel {
         // presence update reannounces the share after that member is ready.
         const audience = this.recipients(frame.share).filter(id => !!this.security.key(id));
         const plain: Share = { ...frame.share, audience: audience.filter(id => id !== this.self) };
-        const encrypted = await this.pack({ frame: { t: "share", share: plain }, revision: await this.security.nextRevision() }, audience);
+        const encrypted = await this.pack({ frame: { t: "share", share: plain }, revision: await this.security.nextRevision(),
+          rights: this.ownedRights.get(plain.id) ?? NO_RIGHTS }, audience);
         const wire: Share = { ...plain, title: "", repo_name: "", branch: "", stage: "", issue: null,
           tabs: plain.tabs.map(tab => ({ ...tab, title: "", note: null, tokens: null, status: "desligada" })), encrypted };
         this.shares.set(plain.id, { ...plain, owner: this.self, online: true });
@@ -108,7 +121,8 @@ export class TeamChannel {
         out = { t: "share", share: wire };
         break;
       }
-      case "unshare": this.shares.delete(frame.ws); this.owned.delete(frame.ws); this.remoteControl.delete(frame.ws); break;
+      case "unshare": this.shares.delete(frame.ws); this.owned.delete(frame.ws); this.remoteControl.delete(frame.ws);
+        this.ownedRights.delete(frame.ws); break;
       case "attach": this.allowed(frame.ws, this.self); this.attached = frame; break;
       case "detach": this.attached = null; break;
       case "write": {
@@ -180,6 +194,8 @@ export class TeamChannel {
     await this.security.observeShare(wire.id, wire.owner, this.security.key(wire.owner)!,
       "revision" in payload ? payload.revision! : 0, wire.encrypted!.id);
     this.shares.set(result.id, result);
+    if ("rights" in payload) this.announcedRights.set(result.id, parseRights(payload.rights));
+    else this.announcedRights.delete(result.id);
     return result;
   }
 
@@ -242,7 +258,7 @@ export class TeamChannel {
     if (!this.ready) return null;
     switch (frame.t) {
       case "share": return { ...frame, share: await this.readShare(frame.share) };
-      case "unshare": if (!this.owned.has(frame.ws)) this.shares.delete(frame.ws); return frame;
+      case "unshare": if (!this.owned.has(frame.ws)) { this.shares.delete(frame.ws); this.announcedRights.delete(frame.ws); } return frame;
       case "watch": {
         const share = this.shares.get(frame.ws);
         if (!share || share.owner !== this.self || !share.tabs.some(t => t.id === frame.tab)) return null;

@@ -11,12 +11,14 @@ export type RequestActions = {
   allowAlways?: () => void;
   feedbackOpen: boolean;
   feedbackChanged: (open: boolean) => void;
+  /// The viewer cannot answer, so the request shows as waiting, without actions.
+  observer?: boolean;
 };
 
 export function requestCard(ask: Ask, options: RequestActions): HTMLElement {
-  if (ask.answered) {
-    const el = template("div", "sys done", `${icon("check", 12)}<span></span>`);
-    el.querySelector("span")!.textContent = t("chat.answered", { what: toolLabel(ask.tool) });
+  if (ask.answered || options.observer) {
+    const el = template("div", `sys ${ask.answered ? "done" : "waiting"}`, `${icon(ask.answered ? "check" : "eye", 12)}<span></span>`);
+    el.querySelector("span")!.textContent = t(ask.answered ? "chat.answered" : "chat.awaitingAnswer", { what: toolLabel(ask.tool) });
     return el;
   }
   const el = h("div", "ask");

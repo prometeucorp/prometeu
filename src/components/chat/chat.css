@@ -237,7 +237,7 @@
 /* System lines. */
 .sys { font-size: 12px; color: var(--fg-3); text-align: center; }
 .sys.err { color: var(--err); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
-.sys.done { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.sys.done, .sys.waiting { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .sys { overflow-wrap: anywhere; }
 .sysnote { font-size: 12px; color: var(--fg-2); }
 .sysnote > summary { list-style: none; display: flex; align-items: center; gap: 7px; cursor: default; }
@@ -267,6 +267,7 @@
 .chat-notices[hidden] { display: none; }
 .chat-notice { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .chat-notice > .ui-notice { flex: 1 1 240px; }
+.chat-viewonly { margin: 0 0 var(--space-3); text-align: center; }
 
 /* The composer uses a raised background. */
 .composer {

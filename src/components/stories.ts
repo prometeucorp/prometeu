@@ -174,7 +174,8 @@ export const stories: Record<string, Factory> = {
         { label: "Changed files", description: "Review the current changes" }, { label: "All files", description: "Review the entire project" },
       ] }] },
     };
-    return wrap(requestCard(ask, { respond: value => report(JSON.stringify(value)), allowAlways: () => report("allowAlways"), feedbackOpen: false, feedbackChanged: open => report(String(open)) }));
+    return wrap(requestCard(ask, { respond: value => report(JSON.stringify(value)), allowAlways: () => report("allowAlways"),
+      feedbackOpen: false, feedbackChanged: open => report(String(open)), observer: state === "waiting" }));
   },
   composer(state, report) {
     const view = composer({ send: () => report(view.area.value), stop: () => report("stop"), addFile: () => report("addFile"),

@@ -43,6 +43,9 @@ audience contains only the authorized devices.
 - Enabling remote control approves the input of the owner's devices that exist
   then; a device added or changed later waits for the owner's answer on the Mac
   ([ADR 0090](0090-approved-remote-input.md)).
+- Remote control gives the owner's devices the three rights of ADR 0090: view
+  and comment, send messages and control. Teammates receive the last two only
+  per person.
 - Disabling it revokes the personal devices without removing the team's
   audience.
 - Old boards receive `remote_control: false` by default.

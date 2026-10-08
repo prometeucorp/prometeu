@@ -3,7 +3,7 @@ import type { Down, Member, Up } from "../relay/src/protocol";
 import { generateIdentity, seal, type Identity } from "./team-crypto";
 import { t } from "./i18n";
 import type { Membership, OwnerHost } from "./team-ports";
-import type { Board, Workspace } from "./types";
+import type { Board, ShareRights, Workspace } from "./types";
 
 /** The owner feature over the portable member core, with an injected host and storage: no Tauri, no IPC. */
 
@@ -46,11 +46,11 @@ let socket: Socket;
 
 const device = async (id: string, name: string, person?: string): Promise<Device> => ({ id, name, person, identity: await generateIdentity() });
 const roster = (): Member[] => devices.map(d => ({ id: d.id, name: d.name, online: true, key: d.identity.publicKey, ...(d.person ? { person: d.person } : {}) }));
-const workspace = (audience: string[] | null, remoteControl = false): Workspace => ({
+const workspace = (audience: string[] | null, remoteControl = false, rights: ShareRights | null = { send: [], control: [] }): Workspace => ({
   id: "ws1", title: "Work", project: "p", repo: "/r", repo_name: "repo", branch: "main", worktree: "/w/ws1", repos: [],
   stage: "", archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "", mcp: null, plugins: null,
   skills: null, port: null, issue: null, cleaned: false, shared: true, share_team: membership.shareScope, audience,
-  remote_control: remoteControl, preparing: false, failed: null, remote: null, active: "tab1",
+  remote_control: remoteControl, rights, preparing: false, failed: null, remote: null, active: "tab1",
   tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }],
 } as Workspace);
 const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
@@ -80,6 +80,10 @@ async function write(from: Device, data: string): Promise<Down> {
 
 const receipts = () => (disk as { scopes: Record<string, { receipts?: Record<string, number> }> }).scopes[PRIVATE].receipts ?? {};
 const prompts = () => host.prompt.mock.calls.map(([, text]) => text);
+const controls = () => host.control.mock.calls.map(([, frame]) => (frame as { type: string }).type);
+const respond = JSON.stringify({ v: 1, type: "request.respond", requestId: "r1", response: { outcome: "allow" } });
+const interrupt = JSON.stringify({ v: 1, type: "turn.interrupt" });
+const send = (...people: string[]): ShareRights => ({ send: people, control: [] });
 /// Remote input is handled asynchronously after decryption; wait until its receipt is persisted and the queue settles.
 async function settled(frame: Down) {
   if (frame.t !== "write") throw new Error("Not an input frame");
@@ -110,14 +114,14 @@ async function upgradedFrom(work: Workspace) {
 }
 
 it("keeps teammates and devices pinned before the upgrade able to send input", async () => {
-  await upgradedFrom(workspace(null, true));
+  await upgradedFrom(workspace(null, true, send("bob")));
   await settled(await write(devices[1], "Merge it"));
   await settled(await write(devices[0], "Merge it"));
   expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "Merge it" }), "Merge it"]);
 });
 
 it("pauses input after a key change while content keeps flowing", async () => {
-  await upgradedFrom(workspace(["bob"]));
+  await upgradedFrom(workspace(["bob"], false, send("bob")));
   devices[1] = { ...devices[1], identity: await generateIdentity() };
   socket.presence();
   await vi.waitFor(() => expect(Object.keys(socket.shares().slice(-1)[0].share.encrypted!.boxes)).toContain("bob"));
@@ -135,11 +139,22 @@ it("does not run input from a member who first appears in an organization-wide s
   devices.push(await device("dave", "Dave"));
   socket.presence();
   await settled(await write(devices[3], "Delete the branch"));
+  await settled(await write(devices[3], respond));
   expect(host.prompt).not.toHaveBeenCalled();
   expect(host.control).not.toHaveBeenCalled();
-  await settled(await write(devices[3], JSON.stringify({ v: 1, type: "request.respond", requestId: "r1", response: { outcome: "allow" } })));
+  // Without a right there is nothing to approve, so no notice either.
+  expect(owner.pausedIn("ws1")).toEqual([]);
+});
+
+it("pauses a new device of a person who has the right", async () => {
+  await upgradedFrom(workspace(null, false, { send: ["bob"], control: ["bob"] }));
+  devices.push(await device("bob-phone", "Bob (iPhone)", "bob"));
+  socket.presence();
+  await settled(await write(devices[3], "Delete the branch"));
+  await settled(await write(devices[3], respond));
+  expect(host.prompt).not.toHaveBeenCalled();
   expect(host.control).not.toHaveBeenCalled();
-  await vi.waitFor(() => expect(owner.pausedIn("ws1")).toEqual([{ person: "dave", name: "Dave", own: false }]));
+  await vi.waitFor(() => expect(owner.pausedIn("ws1")).toEqual([{ person: "bob", name: "Bob", own: false }]));
 });
 
 it("does not run input from a new device of the owner's person even with remote control", async () => {
@@ -157,7 +172,7 @@ it("does not run input from a new device of the owner's person even with remote 
 });
 
 it("runs input from every current device of a person after the owner allows them", async () => {
-  await upgradedFrom(workspace(null));
+  await upgradedFrom(workspace(null, false, send("dave")));
   devices.push(await device("dave", "Dave"), await device("dave-phone", "Dave (iPhone)", "dave"));
   socket.presence();
   await settled(await write(devices[3], "first"));
@@ -170,13 +185,13 @@ it("runs input from every current device of a person after the owner allows them
 });
 
 it("keeps the pause and its notice across a restart until the owner answers", async () => {
-  await upgradedFrom(workspace(["bob"]));
+  await upgradedFrom(workspace(["bob"], false, send("bob")));
   devices[1] = { ...devices[1], identity: await generateIdentity() };
   socket.presence();
   await settled(await write(devices[1], "before"));
   await vi.waitFor(() => expect(owner.pausedIn("ws1")).toHaveLength(1));
   member.reset();
-  await connect(workspace(["bob"]));
+  await connect(workspace(["bob"], false, send("bob")));
   await vi.waitFor(() => expect(owner.pausedIn("ws1")).toEqual([{ person: "bob", name: "Bob", own: false }]));
   await settled(await write(devices[1], "after"));
   expect(host.prompt).not.toHaveBeenCalled();
@@ -187,7 +202,7 @@ it("keeps the pause and its notice across a restart until the owner answers", as
 });
 
 it("spends the replay receipt of discarded input so approval cannot run it later", async () => {
-  await upgradedFrom(workspace(["bob"]));
+  await upgradedFrom(workspace(["bob"], false, send("bob")));
   devices[1] = { ...devices[1], identity: await generateIdentity() };
   socket.presence();
   const blocked = await write(devices[1], "Merge it");
@@ -210,14 +225,14 @@ it("approves the owner's current devices when remote control is turned on", asyn
   expect(await owner.remoteControl("ws1", false)).toBe(0);
 });
 
-it("approves people chosen for the audience, never the whole organization", async () => {
+it("approves a person's devices when granting a right, never when choosing who views", async () => {
   await connect(workspace(["carol"]));
-  expect(await owner.share("ws1", null)).toBe(0);
-  await settled(await write(devices[1], "from the organization"));
+  await owner.share("ws1", ["carol", "bob"]);
+  await settled(await write(devices[1], "seen, not granted"));
   expect(host.prompt).not.toHaveBeenCalled();
-  expect(await owner.share("ws1", ["bob"])).toBe(1);
-  await settled(await write(devices[1], "chosen"));
-  expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "chosen" })]);
+  expect(await owner.grant("ws1", "bob", "send", true)).toBe(1);
+  await settled(await write(devices[1], "granted"));
+  expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "granted" })]);
 });
 
 it("writes approvals on the connection's queue and drops them once that connection is gone", async () => {
@@ -228,4 +243,53 @@ it("writes approvals on the connection's queue and drops them once that connecti
   expect(await approval).toBe(0);
   const scope = (disk as { scopes: Record<string, { approved?: Record<string, string> }> }).scopes[PRIVATE];
   expect(scope.approved).toEqual({});
+});
+
+it("needs Send messages to prompt or interrupt and Control to answer, even when the whole organization views", async () => {
+  await upgradedFrom(workspace(null));
+  await settled(await write(devices[1], "Merge it"));
+  await settled(await write(devices[1], interrupt));
+  await settled(await write(devices[1], respond));
+  expect(prompts()).toEqual([]);
+  expect(controls()).toEqual([]);
+  owner.boardChanged(board(workspace(null, false, send("bob"))));
+  await settled(await write(devices[1], "Merge it"));
+  await settled(await write(devices[1], interrupt));
+  await settled(await write(devices[1], respond));
+  expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "Merge it" })]);
+  expect(controls()).toEqual(["turn.interrupt"]);
+  owner.boardChanged(board(workspace(null, false, { send: [], control: ["bob"] })));
+  await settled(await write(devices[1], "Merge it again"));
+  await settled(await write(devices[1], respond));
+  expect(prompts()).toHaveLength(1);
+  expect(controls()).toEqual(["turn.interrupt", "request.respond"]);
+});
+
+it("lets shares from before rights only view and comment", async () => {
+  await upgradedFrom(workspace(["bob"], false, null));
+  await settled(await write(devices[1], "Merge it"));
+  await settled(await write(devices[1], respond));
+  expect(host.prompt).not.toHaveBeenCalled();
+  expect(host.control).not.toHaveBeenCalled();
+  socket.says({ t: "watch", ws: "ws1", tab: "tab1", members: ["bob"], added: ["bob"] });
+  await vi.waitFor(() => expect(socket.sent.some(frame => frame instanceof Uint8Array)).toBe(true));
+});
+
+it("lets the owner's devices act through remote control without per-person rights", async () => {
+  await upgradedFrom(workspace([], true));
+  await settled(await write(devices[0], "Merge it"));
+  await settled(await write(devices[0], respond));
+  expect(prompts()).toEqual(["Merge it"]);
+  expect(controls()).toEqual(["request.respond"]);
+});
+
+it("adds a granted person to the audience and drops the rights of people who stop viewing", async () => {
+  await connect(workspace(["carol"]));
+  expect(await owner.grant("ws1", "bob", "control", true)).toBe(1);
+  expect(host.setShared).toHaveBeenLastCalledWith("ws1", true, ["carol", "bob"], false, membership.shareScope, { send: [], control: ["bob"] });
+  await owner.share("ws1", ["carol"]);
+  expect(host.setShared).toHaveBeenLastCalledWith("ws1", true, ["carol"], false, membership.shareScope, { send: [], control: [] });
+  expect(await owner.grant("ws1", "carol", "send", false)).toBe(0);
+  await owner.share("ws1", false);
+  expect(host.setShared).toHaveBeenLastCalledWith("ws1", false, null, false, null, null);
 });

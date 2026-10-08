@@ -158,7 +158,7 @@ export type Commands = {
   set_awake: { args: { mode: "off" | "system" | "display" }; result: void };
   set_resource_detail: { args: { open: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };
-  set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null }; result: void };
+  set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null; rights?: T.ShareRights | null }; result: void };
   set_stage: { args: { id: string; stage: string }; result: void };
   set_tab_choice: { args: { id: string; tab: string; choice: T.Choice }; result: void };
   set_tools_global: { args: { mcp?: T.Selection | null; plugins?: T.Selection | null; skills?: T.Selection | null }; result: void };

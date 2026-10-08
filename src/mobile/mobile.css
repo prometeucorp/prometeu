@@ -65,6 +65,9 @@ h2 { font-size: 15px; font-weight: 550; }
 .m-form .ui-button { flex: none; min-width: 44px; min-height: 44px; }
 .m-composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); padding-bottom: max(var(--space-3), env(safe-area-inset-bottom)); }
 .m-composer .m-send { padding: 0; border-radius: 50%; width: 44px; height: 44px; }
+/* A viewer without Send messages sees why there is no composer instead of one (ADR 0090). */
+.m-viewonly { padding: var(--space-3) var(--space-4); padding-bottom: max(var(--space-3), env(safe-area-inset-bottom)); border-top: 1px solid var(--line); text-align: center; }
+.m-composer[hidden], .m-viewonly[hidden] { display: none; }
 .m-connection { grid-column: 1 / -1; color: var(--fg-3); font-size: var(--text-sm); }
 .m-connection:empty { display: none; }
 .m-toast { position: fixed; left: var(--space-4); right: var(--space-4); top: calc(72px + env(safe-area-inset-top)); padding: var(--space-3) var(--space-4); border-radius: 12px; background: var(--fg); color: var(--bg); font-size: var(--text-sm); box-shadow: 0 8px 24px rgb(0 0 0 / .25); }

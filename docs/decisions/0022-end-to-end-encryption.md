@@ -45,7 +45,8 @@ The owner is still the authority over their process and the local audience.
 revisions; the relay cannot replace the owner or restore a revision already
 superseded in the client. Remote messages have a two-minute deadline and a
 receipt persisted before execution, including after a restart. They run only
-from a member and key the owner approved on that Mac
+for people granted the matching right in that workspace and only from a member
+and key the owner approved on that Mac
 ([ADR 0090](0090-approved-remote-input.md)). After decryption, the validation
 of `chat_control_remote` against requests open on the owner's Mac remains.
 

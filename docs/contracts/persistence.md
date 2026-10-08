@@ -425,7 +425,18 @@ replacing a legacy configuration, `team.rs` writes a private
 `Workspace.remote_control`, false by default, records consent for the owner's
 companion devices. It is independent of `audience`: an empty list represents
 remote control without a team audience. Turning off the last kind of access also
-clears `shared`, `share_team` and `audience`.
+clears `shared`, `share_team`, `audience` and `rights`.
+
+`Workspace.rights` is `{ send, control }`, two lists of person IDs: who may send
+messages (prompts and interrupts) and who may control (answer the agent's
+requests) beyond viewing and commenting. Both lists only name people who can view;
+the audience `null` never grants them by itself. Every share saved from
+[ADR 0090](../decisions/0090-approved-remote-input.md) on writes the field, even
+empty. Shares saved before it load with `rights` null and let people only view
+and comment. The owner sees that change once on each Mac, which records the
+dismissal in `localStorage` under `prometeu:share-rights-notice`. Tests:
+`share_tests` in `crates/core/src/workspace_lifecycle.rs` and
+`fixtures/backend-contract.json`.
 
 ## Delegations
 

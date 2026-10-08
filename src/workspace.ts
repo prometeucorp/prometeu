@@ -404,11 +404,28 @@ function layout(parts: Parts) {
   $("dock").hidden = !parts.dock;
 }
 
+/// People who may act beyond viewing and commenting, local or announced by a remote owner (ADR 0090).
+function drawActors(ws: Workspace) {
+  const chip = $("actors");
+  const rights = team.status().config && !ws.cleaned ? team.actorsOf(ws) : null;
+  const people = rights ? [...new Set([...rights.send, ...rights.control])] : [];
+  chip.hidden = !people.length;
+  if (!rights || !people.length) return;
+  const names = (list: string[]) => list.map(team.nameOf).join(", ");
+  chip.innerHTML = `${icon("terminal", 12)}<span></span>`;
+  chip.querySelector("span")!.textContent = people.length > 2 ? `${names(people.slice(0, 2))} +${people.length - 2}` : names(people);
+  chip.title = [
+    rights.send.length ? t("share.actors.send", { names: names(rights.send) }) : "",
+    rights.control.length ? t("share.actors.control", { names: names(rights.control) }) : "",
+  ].filter(Boolean).join("\n");
+}
+
 /// Local shared workspaces offer audience selection and viewer avatars. The relay enforces visibility; remote workspaces belong to their owners.
 function drawShare(ws: Workspace, tab?: Tab) {
   const btn = $("share") as HTMLButtonElement;
   const chips = $("watchers");
   chips.replaceChildren();
+  drawActors(ws);
   // Keep inactive sharing in the menu; active sharing uses its icon and avatars without a long status label.
   if (ws.remote || ws.cleaned || !team.status().config || !team.sharedWithTeam(ws)) {
     btn.hidden = true;
@@ -474,14 +491,13 @@ function shareLabel(ws: Workspace): string {
   return tn(ws.audience.length, "share.some");
 }
 
-/// Toggle individual viewers or the whole team; removing the final viewer stops sharing.
+/// Toggle individual viewers or the whole team, then choose among the viewers who may send messages or control
+/// (ADR 0090). Removing the final viewer stops sharing.
 function shareItems(ws: Workspace): menu.Item[] {
   const me = team.status();
   const others = team.people().filter((m) => m.id !== team.personOf(me.you));
-  // Choosing a person approves the devices they have now for input; say how many (ADR 0090).
-  const set = (audience: string[] | null | false, name?: string) => team.share(ws.id, audience)
-    .then((count) => { if (count && name) ctx.say(tn(count, "team.input.approved", { name })); })
-    .catch((e) => ctx.say(fromBack(e), true));
+  const fail = (e: unknown) => ctx.say(fromBack(e), true);
+  const set = (audience: string[] | null | false) => team.share(ws.id, audience).catch(fail);
   const all = team.sharedWithTeam(ws) && !ws.audience;
   const some = team.sharedWithTeam(ws) && ws.audience ? ws.audience : [];
   const items: menu.Item[] = [
@@ -494,12 +510,36 @@ function shareItems(ws: Workspace): menu.Item[] {
         glyph: avatar(m.name),
         hint: m.online ? undefined : t("team.offline"),
         checked: on,
-        run: () => set(on ? some.filter((id) => id !== m.id) : [...some, m.id], m.name),
+        run: () => set(on ? some.filter((id) => id !== m.id) : [...some, m.id]),
       };
     }),
   ];
   if (!others.length) items.push({ label: t("share.alone"), disabled: true });
-  if (team.sharedWithTeam(ws)) items.push("sep", { label: t("share.stop"), glyph: icon("x", 14), danger: true, run: () => set(false) });
+  if (team.sharedWithTeam(ws)) {
+    // Rights go to people who view, one by one; granting approves the devices they have now and says how many.
+    const viewers = all ? others : others.filter((m) => some.includes(m.id));
+    const rights = ws.rights ?? { send: [], control: [] };
+    const grant = (right: "send" | "control"): menu.Item[] => [
+      { label: t(`share.${right}.about`), disabled: true },
+      "sep",
+      ...(viewers.length ? viewers.map((m): menu.Item => {
+        const on = rights[right].includes(m.id);
+        return {
+          label: m.name,
+          glyph: avatar(m.name),
+          checked: on,
+          run: () => void team.grant(ws.id, m.id, right, !on)
+            .then((count) => { if (count) ctx.say(tn(count, "team.input.approved", { name: m.name })); })
+            .catch(fail),
+        };
+      }) : [{ label: t("share.rights.nobody"), disabled: true }]),
+    ];
+    const granted = (right: "send" | "control") => viewers.filter((m) => rights[right].includes(m.id)).length;
+    items.push("sep",
+      { label: t("share.send"), glyph: icon("message-square", 14), hint: String(granted("send")), sub: grant("send") },
+      { label: t("share.control"), glyph: icon("check", 14), hint: String(granted("control")), sub: grant("control") },
+      "sep", { label: t("share.stop"), glyph: icon("x", 14), danger: true, run: () => set(false) });
+  }
   return items;
 }
 

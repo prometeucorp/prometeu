@@ -2,7 +2,10 @@ import { SNAPSHOT, decodeBinary, type Down, type Shared } from "../relay/src/pro
 import { t } from "./i18n";
 import { AttachLifecycle } from "./attach-lifecycle";
 import { Mirror } from "./mirror";
+import { personOf } from "./team-channel";
 import type { Context, Feature, GuestSink } from "./team-ports";
+import { viewerRights, type Right } from "./team-rights";
+import type { ShareRights } from "./types";
 
 /// Viewer feature: list shares owned by other members, attach to one tab at a time, mirror its transcript
 /// and forward input to the online owner. Any member client installs it.
@@ -101,6 +104,22 @@ export const relayId = (id: string) => remoteIds.get(id)?.ws ?? id;
 
 /// Translate a relay identity to its prefixed ID when it belongs to a known remote share.
 export const boardId = (ws: string) => [...remoteIds].find(([, r]) => r.ws === ws)?.[0] ?? ws;
+
+/// The rights a remote owner announced for one of its shares; undefined when that owner predates rights (ADR 0090).
+export function announcedRights(id: string): ShareRights | undefined {
+  const found = remoteIds.get(id);
+  return found && ctx.channel()?.rightsOf(found.ws);
+}
+
+/// What this member may do in a remote conversation, so the interface hides what the owner would discard anyway.
+export function rightsIn(id: string): Record<Right, boolean> {
+  const found = remoteIds.get(id);
+  const s = found && ctx.shares().get(found.ws);
+  const you = ctx.you();
+  if (!s || !you) return { send: false, control: false };
+  const members = ctx.members(), person = personOf(members, you);
+  return viewerRights(ctx.channel()?.rightsOf(s.id), person, personOf(members, s.owner) === person);
+}
 
 /// Use the active remote attachment to route input; tab ID alone does not identify its owner.
 export const attachedTab = () => attached?.tab ?? null;

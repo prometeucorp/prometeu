@@ -33,9 +33,9 @@ The worktree separates Git changes, but it is not a sandbox. Shared content
 uses E2EE v4; the relay receives ciphertext and routing metadata. The initial
 identity is accepted by the server directory (TOFU). See
 [limits](docs/decisions/0022-end-to-end-encryption.md). Remote messages and
-control run only from member and key pairs approved on the owner's Mac; content
-does not need that approval
-([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
+control run only for people the owner granted them in that workspace and only
+from member and key pairs approved on the owner's Mac; viewing and commenting
+need neither ([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
 
 ## Containers and responsibilities
 
@@ -247,8 +247,8 @@ depend on the canonical primitives in `conversation.rs`.
 - The frontend does not access the filesystem or processes directly; it uses IPC.
 - The relay validates every input and enforces the audience on the server; the
   client also authenticates content and enforces the audience, without trusting
-  `watch` as authorization. The owner runs remote input only from identities it
-  approved; the relay does not know that rule.
+  `watch` as authorization. The owner runs remote input only for granted people
+  and approved identities; the relay knows neither rule.
 - Transcript and board compatibility take precedence over cosmetic cleanup.
 - Support differences visible in the UI use `AgentCapabilities`; dispatch by
   `ProviderId` stays in the catalog or in the adapters.
@@ -281,7 +281,7 @@ The detailed rules and the current state of each one are in
 | Local diff review | `src/review-comments.ts` (rules), `src/review-store.ts` (local storage), `src/workspace-review.ts` (coordination), `src/review-context.ts` (text contract); see [review notes](docs/contracts/diff-review.md) |
 | Git and files | `src/workspace-changes.ts`, `src/changes-menu.ts`, `src/file-menu.ts`, `src/diff.ts`, `src/viewer.ts`, `src/find.ts`, `src/quick-open.ts`, `src/csv.ts`, `src-tauri/src/session/find.rs`, `src-tauri/src/session/git.rs`, `src-tauri/src/session/diff.rs`, `src-tauri/src/session/files.rs` |
 | MCP and plugins | `src/mcp.ts`, `src/plugins.ts`, `src-tauri/src/mcp.rs`, `src-tauri/src/plugins.rs`, `docs/contracts/plugin-marketplace.md` |
-| collaboration | shells `src/team.ts` (desktop) and `src/mobile/` (browser, bundle for the Cloud); core `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `relay/src/` |
+| collaboration | shells `src/team.ts` (desktop) and `src/mobile/` (browser, bundle for the Cloud); core `src/team-member.ts`, `src/team-ports.ts`, features `src/team-owner.ts`, `src/team-viewer.ts`, `src/team-comments.ts`; `src/team-transport.ts`, `src/team-control.ts`, `src/team-rights.ts`, `relay/src/` |
 | optional context evaluation | `src-tauri/src/evaluation.rs` (port), `src-tauri/src/typesafe.rs` (adapter, key), `src/context-review.ts`, `src/context-review-view.ts`, `src/typesafe.ts`, `src/typesafe-settings.ts` |
 | bounded command execution | `src-tauri/crates/core/src/command.rs` (ports), `src-tauri/crates/process/src/command.rs` and `query.rs` (Unix implementations) |
 | terminal execution | `src-tauri/crates/core/src/terminal.rs` (ports and output), `src-tauri/crates/process/src/terminal.rs` (Unix PTYs), `src-tauri/src/pty.rs` (desktop composition) |

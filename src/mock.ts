@@ -18,7 +18,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type Tab, type Tools, type Workspace } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type ShareRights, type Tab, type Tools, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -136,6 +136,7 @@ const ws = (
   shared: false,
   audience: null,
   remote_control: false,
+  rights: null,
   preparing: false,
   failed: null,
   remote: null,
@@ -943,13 +944,15 @@ function controlInto(tab: string, frame: Record<string, any>) {
 
 /// Persist shared workspaces and their access choices across browser reloads, mirroring board.json.
 const SHARED = "mock:shared";
-for (const [id, audience, shareTeam, remoteControl] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null, string?, boolean?][]) {
+for (const [id, audience, shareTeam, remoteControl, rights] of JSON.parse(localStorage.getItem(SHARED) ?? "[]") as [string, string[] | null, string?, boolean?, ShareRights?][]) {
   const ws = board.workspaces.find((x) => x.id === id);
   if (ws) {
     ws.shared = true;
     ws.audience = audience;
     ws.share_team = shareTeam;
     ws.remote_control = remoteControl ?? false;
+    // Records saved before rights existed mirror old boards: viewing and commenting only.
+    ws.rights = rights ?? null;
   }
 }
 
@@ -1788,9 +1791,10 @@ const mockCommands: IpcHandlers = {
       target.share_team = args.shared ? args.team : null;
       target.audience = args.shared ? args.audience ?? null : null;
       target.remote_control = args.shared && args.remoteControl;
+      target.rights = args.shared ? args.rights ?? { send: [], control: [] } : null;
     }
     // Persist sharing choices across page reloads, matching board.json.
-    localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team, x.remote_control])));
+    localStorage.setItem(SHARED, JSON.stringify(board.workspaces.filter((x) => x.shared).map((x) => [x.id, x.audience, x.share_team, x.remote_control, x.rights])));
     emit("board", board);
     return;
   },
@@ -2607,8 +2611,10 @@ const marcusShare = (): Share => ({
   sizes: { mt1: [100, 30], mt2: [100, 30] },
   audience: null,
 });
+/// `mock:marcusRights` replaces the rights Marcus announces, to preview a share you may only view (ADR 0090).
+const marcusRights = (): ShareRights | undefined => JSON.parse(localStorage.getItem("mock:marcusRights") ?? "null") ?? undefined;
 function fakeSocket(url: string): team.SocketLike {
-  const socket = simulatedSocket(url, SAMPLE, marcusShare(), () => marcusOnline);
+  const socket = simulatedSocket(url, SAMPLE, marcusShare(), () => marcusOnline, marcusRights());
   fakes.push(socket);
   return socket;
 }

@@ -3,7 +3,8 @@ use crate::domain::Pr;
 use crate::lock::lock;
 use crate::selection::{Selection, Tools};
 use crate::state::{
-    publish, Board, Choice, Project, ProviderId, Repo, Status, Tab, ToolTrust, Workspace,
+    publish, Board, Choice, Project, ProviderId, Repo, ShareRights, Status, Tab, ToolTrust,
+    Workspace,
 };
 use crate::workspace_tools::{self, Axis};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
@@ -539,6 +540,7 @@ pub fn set_unread(app: AppHandle, state: State<AppState>, id: String, unread: bo
 /// Persist sharing intent so reopening the app restores it. The frontend owns relay announcements
 /// and stream forwarding.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn set_shared(
     app: AppHandle,
     state: State<AppState>,
@@ -547,15 +549,21 @@ pub fn set_shared(
     audience: Option<Vec<String>>,
     remote_control: bool,
     team: Option<String>,
+    rights: Option<ShareRights>,
 ) {
     {
         let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&id) {
-            ws.shared = shared;
-            ws.share_team = if shared { team } else { None };
-            ws.audience = if shared { audience } else { None };
-            ws.remote_control = shared && remote_control;
-        }
+        let _ = workspace_lifecycle::apply(
+            &mut board,
+            &id,
+            Change::Share {
+                shared,
+                audience,
+                remote_control,
+                team,
+                rights,
+            },
+        );
     }
     publish(&app);
 }
@@ -1037,6 +1045,7 @@ pub(crate) fn create_workspace_owned(
         share_team: None,
         audience: None,
         remote_control: false,
+        rights: None,
         preparing: true,
         failed: None,
         agent: draft.launch.agent,
@@ -2039,6 +2048,7 @@ mod tests {
             share_team: None,
             audience: None,
             remote_control: false,
+            rights: None,
             preparing: false,
             mcp: None,
             plugins: None,
@@ -2286,6 +2296,7 @@ mod tests {
             share_team: None,
             audience: None,
             remote_control: false,
+            rights: None,
             preparing: false,
             mcp: None,
             plugins: None,
@@ -3564,6 +3575,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             share_team: None,
             audience: None,
             remote_control: false,
+            rights: None,
             preparing: false,
             mcp: None,
             plugins: None,
