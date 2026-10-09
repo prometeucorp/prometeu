@@ -89,6 +89,10 @@ Option 3.
 - **Writes.** Approvals and paused input are written on the connection's
   encrypted queue, like receipts and links, so a reconnect or an organization
   switch never reloads the store under a write from the previous connection.
+  An approval belongs to the connection the owner acted on: consent still
+  being saved when the owner switches organizations approves nobody in the
+  next one, and an answer given while a reconnect reloads the store does
+  nothing, so the notice stays to be answered again.
 
 ### Rights per workspace
 
@@ -177,7 +181,8 @@ Each change updates this section and the contracts when it lands.
   first seen under `audience: null` and from a new device of the owner's
   person despite remote control. It also covers approval through the notice,
   remote control and the share menu, restarts, spent replay receipts and
-  approvals dropped once their connection is gone.
+  approvals dropped once their connection is gone, including an organization
+  switch during consent and an answer during a reconnect.
 - [Organizations](../../src/team-organizations.test.ts): the desktop facade
   keeps companion and colleague authorship once the owner consents.
 - [Critical flows](../../e2e/critical-flows.spec.ts): content keeps flowing
