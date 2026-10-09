@@ -49,10 +49,15 @@ DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, AES-256-GCM. The `info` binds the JSON
 never from a free field of the envelope.
 
 The plaintext contains `{ frame: Up }` or `{ binary: base64url }`. `share`
-includes `revision`, monotonic and persisted by the owner. `write` includes
-`expires`, at most two minutes ahead. The client validates the payload again
-after opening the box and checks the workspace, tab, author, recipient and
-audience.
+includes `revision`, monotonic and persisted by the owner, and `rights`
+`{ send, control }`, the people allowed to send messages and to control
+([ADR 0090](../decisions/0090-approved-remote-input.md)). Rights travel only
+inside the authenticated payload, never in the outer frame, so
+`relay/src/protocol.ts` does not carry them. Older clients ignore the field; an
+announcement without it comes from an owner that predates rights, and peers keep
+showing its controls. `write` includes `expires`, at most two minutes ahead. The
+client validates the payload again after opening the box and checks the
+workspace, tab, author, recipient and audience.
 
 In the outer frame:
 
@@ -113,15 +118,20 @@ the action. The receipts survive reconnection and restart. Local card validation
 is still mandatory. Conversation sequences handle snapshot/live duplicates; the
 relay may still omit content or present an incomplete history.
 
-The owner runs remote input (prompts, `turn.interrupt` and `request.respond`)
-only from a member whose current key it approved locally
-([ADR 0090](../decisions/0090-approved-remote-input.md)). Approvals are per
-scope and per member and key; the relay neither receives nor enforces them. For
-any other sender, the owner opens the envelope and spends the receipt as usual,
-then discards the input without running it and records a notice that names the
-person. A changed key, a member that first appears in the directory and a new
-device, including one whose `person` is the owner, fall in that case. `watch`,
-snapshots, the live stream and comments do not depend on approval.
+Remote input needs a right on the sender's person, enforced by the owner from
+its board whatever the peer shows: prompts and `turn.interrupt` need Send
+messages, and `request.respond` needs Control. The owner's devices hold both
+through `remote_control`. Input without the right is discarded silently.
+
+The owner then runs remote input only from a member whose current key it
+approved locally ([ADR 0090](../decisions/0090-approved-remote-input.md)).
+Approvals are per scope and per member and key; the relay neither receives nor
+enforces rights or approvals. For any other sender, the owner opens the
+envelope and spends the receipt as usual, then discards the input without
+running it and records a notice that names the person. A changed key, a member
+that first appears in the directory and a new device, including one whose
+`person` is the owner, fall in that case. `watch`, snapshots, the live stream
+and comments depend on neither.
 
 An authenticated and approved message from a companion whose `person` is the
 conversation's owner reaches the agent with the original text, as a message

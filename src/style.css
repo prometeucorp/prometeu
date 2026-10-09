@@ -1079,6 +1079,12 @@ body.noside .side { display: none; }
 .watcher.more { width: auto; min-width: 20px; padding: 0 4px; font-size: 10px; color: var(--fg-2); }
 #share.on { color: var(--done); }
 #share.on .ic { color: var(--done); }
+/* Who may act beyond viewing: a compact chip beside the viewers; the title lists each right. */
+.actors {
+  display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; max-width: 200px;
+  border-radius: 5px; background: var(--bg-raised-2); color: var(--fg-2); font-size: 11px; white-space: nowrap;
+}
+.actors span { overflow: hidden; text-overflow: ellipsis; }
 
 /* Team comments. */
 

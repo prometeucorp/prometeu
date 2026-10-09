@@ -229,6 +229,25 @@ describe("end-to-end encrypted channel through the relay", () => {
     await expect(reopened.incoming(downForMember(echo, "bob"))).rejects.toThrow("Repeated or replaced share");
   });
 
+  it("announces rights inside the encrypted share and reads an owner without them as older", async () => {
+    const t = await team();
+    t.alice.own(shared, false, { send: ["bob", "privatemarkerperson"], control: [] });
+    await t.send("alice", { t: "share", share: shared });
+    expect(t.bob.rightsOf(shared.id)).toEqual({ send: ["bob", "privatemarkerperson"], control: [] });
+    expect(JSON.stringify(t.wire)).not.toContain("privatemarkerperson");
+    // An owner from before rights seals the same announcement without the field.
+    const id = crypto.randomUUID();
+    const plain = { ...shared, audience: ["bob"] };
+    const box = await seal(t.alice.security.identity, t.bob.security.identity.publicKey, ["organization", "alice", "bob", id],
+      encoder.encode(JSON.stringify({ frame: { t: "share", share: plain }, revision: 99 })));
+    const wire = { ...plain, title: "", repo_name: "", branch: "", stage: "", issue: null,
+      tabs: plain.tabs.map(tab => ({ ...tab, title: "", note: null, tokens: null, status: "desligada" as const })),
+      encrypted: { id, boxes: { bob: box } }, owner: "alice", online: true };
+    await t.bob.incoming({ t: "share", share: wire });
+    expect(t.bob.shares.get(shared.id)?.title).toBe(shared.title);
+    expect(t.bob.rightsOf(shared.id)).toBeUndefined();
+  });
+
   it("rejects comments and resolutions from outsiders even with valid encryption", async () => {
     const t = await team();
     await t.send("alice", { t: "share", share: shared });

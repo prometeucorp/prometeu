@@ -58,14 +58,16 @@ export type Info = {
   status: Status | null;
   /// A prompt waiting for worktree setup.
   pending: string | null;
-  /// Remote owner name and online state.
-  remote: { name: string; online: boolean } | null;
+  /// Remote owner name and online state, and what the owner's announcement lets this member do (ADR 0090).
+  remote: { name: string; online: boolean; send: boolean; control: boolean } | null;
   /// Agent working directory and default file-picker location; internal attachments use relative paths.
   worktree: string | null;
   /// Comments require an active local or remote share, not merely configured team membership.
   team: boolean;
   /// Owner companion devices may view and control this workspace.
   remoteControl: boolean;
+  /// The local share predates rights; its owner hears once that it now only lets people view and comment.
+  rightsNotice?: boolean;
   /// Resolved tab or workspace model/effort; empty values mean CLI defaults.
   agent: ProviderId;
   model: string;
@@ -114,6 +116,8 @@ export class ChatView {
   private feed!: HTMLElement;
   /// Owner notices above the composer, such as input paused from a changed device.
   private notices!: HTMLElement;
+  /// Request cards were last drawn without answers because this member lacks Control.
+  private observing = false;
   private box!: HTMLElement;
   private area!: HTMLTextAreaElement;
   private ctx!: Ctx;
@@ -711,7 +715,10 @@ export class ChatView {
   /* Response requests. */
 
   private askCard(ask: Ask, _i: number): HTMLElement {
+    const info = this.ctx.info();
+    this.observing = !!info.remote && !info.remote.control;
     return requestCard(ask, {
+      observer: this.observing,
       respond: response => this.respond(ask, response),
       allowAlways: () => {
         void this.control({ v: 1, type: "permission.mode.set", mode: "bypass" })
@@ -1022,8 +1029,10 @@ export class ChatView {
 
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
-    this.box.hidden = !hasKey;
-    this.paintPausedInput(info);
+    // A viewer without Send messages gets no composer: the owner would discard what it sends (ADR 0090).
+    this.box.hidden = !hasKey || (!!info.remote && !info.remote.send);
+    this.paintNotices(info);
+    this.paintObserver(info);
     if (!hasKey) { this.gauge.update(null); return; }
     this.paintContext(info);
     // Local file attachment is unavailable for agents running on another Mac.
@@ -1303,24 +1312,45 @@ export class ChatView {
     };
   }
 
-  /// Input from a changed or new device is discarded until the owner answers (ADR 0090). The notice names the
-  /// person, stays across restarts and repaints only when its content changes, so typing keeps focus.
-  private paintPausedInput(info: Info) {
-    const paused = this.key && !info.remote && info.workspace ? team.pausedIn(info.workspace) : [];
-    const signature = JSON.stringify(paused);
-    if (this.notices.dataset.paused === signature) return;
-    this.notices.dataset.paused = signature;
-    this.notices.hidden = !paused.length;
-    this.notices.replaceChildren(...paused.map(({ person, name, own }) => {
+  /// Notices above the composer (ADR 0090): input from a changed or new device waits for the owner, who names the
+  /// person and answers; a share from before rights now only lets people view and comment, said once; a viewer
+  /// without Send messages learns why there is no composer. They repaint only when their content changes, so typing
+  /// keeps focus.
+  private paintNotices(info: Info) {
+    const local = !!this.key && !info.remote && !!info.workspace;
+    const paused = local ? team.pausedIn(info.workspace!) : [];
+    const rights = local && !!info.rightsNotice;
+    const viewOnly = this.key && info.remote && !info.remote.send ? info.remote.name : null;
+    const signature = JSON.stringify([paused, rights, viewOnly]);
+    if (this.notices.dataset.shown === signature) return;
+    this.notices.dataset.shown = signature;
+    this.notices.hidden = !paused.length && !rights && viewOnly === null;
+    const fail = (error: unknown) => this.ctx.say(fromBack(error), true);
+    const rows = paused.map(({ person, name, own }) => {
       const row = h("div", "chat-notice");
       const allow = ui.button(t("team.input.allow"), () => void team.allowInput(person)
         .then(count => { if (count) this.ctx.say(own ? tn(count, "team.input.approvedOwn") : tn(count, "team.input.approved", { name })); })
-        .catch(error => this.ctx.say(fromBack(error), true)));
-      const later = ui.button(t("team.input.later"), () => void team.dismissInput(person)
-        .catch(error => this.ctx.say(fromBack(error), true)), "ghost");
+        .catch(fail));
+      const later = ui.button(t("team.input.later"), () => void team.dismissInput(person).catch(fail), "ghost");
       row.append(ui.notice(own ? t("team.input.pausedOwn") : t("team.input.paused", { name }), "warning"), allow, later);
       return row;
-    }));
+    });
+    if (rights) {
+      const row = h("div", "chat-notice");
+      row.append(ui.notice(t("team.rights.notice"), "warning"), ui.button(t("team.rights.gotIt"), team.dismissRightsNotice, "ghost"));
+      rows.push(row);
+    }
+    if (viewOnly !== null) rows.push(h("p", "ui-hint chat-viewonly", t("chat.viewOnly", { name: viewOnly })));
+    this.notices.replaceChildren(...rows);
+  }
+
+  /// Request cards follow the Control right; redraw them when the owner's announcement changes it.
+  private paintObserver(info: Info) {
+    const observing = !!info.remote && !info.remote.control;
+    if (observing === this.observing) return;
+    this.observing = observing;
+    const asks = new Set(this.tl.items.flatMap((item, at) => item.kind === "ask" ? [at] : []));
+    if (asks.size && this.sync(asks)) this.paintCommentPins();
   }
 
   /// Offer selection comments only when collaboration and selected text are available.

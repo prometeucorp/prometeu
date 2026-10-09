@@ -4,9 +4,11 @@ import { TeamSecurity } from "./team-security";
 import { TeamChannel } from "./team-channel";
 import { verifyIdentity } from "./team-crypto";
 import type { SocketLike } from "./team-transport";
+import type { ShareRights } from "./types";
 
-/** Browser demo uses real encrypted endpoints and the production relay reducer. */
-export function simulatedSocket(url: string, sample: string, share: Share, online: () => boolean): SocketLike & { presence(): void } {
+/** Browser demo uses real encrypted endpoints and the production relay reducer. Unless told otherwise, the demo owner
+ *  lets the local member send messages and answer requests, as a teammate granted both rights (ADR 0090). */
+export function simulatedSocket(url: string, sample: string, share: Share, online: () => boolean, rights?: ShareRights): SocketLike & { presence(): void } {
   const endpoint = new URL(url);
   const self = endpoint.searchParams.get("m") ?? "eu_mock";
   const name = endpoint.searchParams.get("n") ?? "You";
@@ -58,6 +60,7 @@ export function simulatedSocket(url: string, sample: string, share: Share, onlin
       await deliver(run(frame, self));
       if (frame.t === "identity" && !seeded) {
         seeded = true;
+        peer.own(share, false, rights ?? { send: [self], control: [self] });
         await peerSend({ t: "share", share });
         await peerSend({ t: "note", ws: share.id, tab: "mt1", anchor: "w3.0",
           text: `Completing a todo now sets completed_at instead of deleting the row. @${name}, the remaining call is yours.`,

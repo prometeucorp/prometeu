@@ -171,6 +171,17 @@ pub struct Repo {
     pub pr: Option<crate::domain::Pr>,
 }
 
+/// Person IDs allowed to act on a shared workspace's agent. The frontend enforces them for remote input.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShareRights {
+    /// Send messages: prompts and interrupts.
+    #[serde(default)]
+    pub send: Vec<String>,
+    /// Control: answers to the agent's approvals and questions.
+    #[serde(default)]
+    pub control: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Workspace {
     pub id: String,
@@ -246,6 +257,10 @@ pub struct Workspace {
     /// Allow companion devices belonging to the owner to view and control this workspace.
     #[serde(default)]
     pub remote_control: bool,
+    /// People the owner lets act beyond viewing and commenting (ADR 0090). `None` on shares made before rights
+    /// existed, which grant viewing and commenting only.
+    #[serde(default)]
+    pub rights: Option<ShareRights>,
     /// Worktree preparation is running after the launcher closes. The board can show progress
     /// before any agent tab exists; processes start only after their working directories are ready.
     #[serde(default)]

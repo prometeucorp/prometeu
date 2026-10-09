@@ -9,7 +9,7 @@ import * as owner from "./team-owner";
 import type { Membership, Phase } from "./team-ports";
 import { wsUrl as transportWsUrl } from "./team-transport";
 import * as viewer from "./team-viewer";
-import type { Workspace } from "./types";
+import type { ShareRights, Workspace } from "./types";
 
 export type { SocketLike, Transport } from "./team-transport";
 export type { GuestSink, Phase } from "./team-ports";
@@ -39,7 +39,7 @@ member.useSecurityStore({
   write: (state) => invoke("team_security_set", { state }),
 });
 member.register((ctx) => owner.install(ctx, {
-  setShared: (id, shared, audience, remoteControl, team) => invoke("set_shared", { id, shared, audience, remoteControl, team }),
+  setShared: (id, shared, audience, remoteControl, team, rights) => invoke("set_shared", { id, shared, audience, remoteControl, team, rights }),
   snapshot: (tab) => invoke("chat_snapshot", { session: tab }),
   control: (tab, frame) => invoke("chat_control_remote", { session: tab, frame }),
   prompt: (tab, text) => invoke("chat_send", { session: tab, text }),
@@ -48,8 +48,8 @@ member.register(comments.install);
 member.register(viewer.install);
 
 export const { useTransport, onChange, onError, nameOf, people, personOf } = member;
-export const { setSink, isRemote, attachedTab, attach, detach, write } = viewer;
-export const { boardChanged, share, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf, pausedIn, allowInput, dismissInput } = owner;
+export const { setSink, isRemote, attachedTab, attach, detach, write, rightsIn } = viewer;
+export const { boardChanged, share, grant, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf, pausedIn, allowInput, dismissInput } = owner;
 export type { PausedInput } from "./team-owner";
 export const { inboxCount, inboxItems, supportsThreads, inboxList } = comments;
 
@@ -300,6 +300,7 @@ export function remotes(): Workspace[] {
     shared: false,
     audience: null,
     remote_control: false,
+    rights: null,
     // Remote shares are announced only after preparation is complete.
     preparing: false,
     failed: null,
@@ -334,6 +335,22 @@ export async function replyNote(id: string, note: string, text: string, mentions
 }
 
 export const resolveNote = (id: string, note: string) => comments.resolveNote(viewer.relayId(id), note);
+
+/// People who may act in a workspace beyond viewing and commenting: the local rights, or the ones a remote owner
+/// announced. Null when nothing is known, as for remote owners from before rights (ADR 0090).
+export function actorsOf(ws: Workspace): ShareRights | null {
+  if (ws.remote) return viewer.announcedRights(ws.id) ?? null;
+  return owner.sharedWithTeam(ws) ? ws.rights ?? null : null;
+}
+
+/// Shares made before rights now let people only view and comment; the owner hears about it once on this Mac.
+const RIGHTS_NOTICE_KEY = "prometeu:share-rights-notice";
+export const rightsNoticeDue = (ws: Workspace) =>
+  !ws.remote && ws.rights == null && owner.sharedWithTeam(ws) && globalThis.localStorage?.getItem(RIGHTS_NOTICE_KEY) !== "seen";
+export function dismissRightsNotice() {
+  globalThis.localStorage?.setItem(RIGHTS_NOTICE_KEY, "seen");
+  member.notify();
+}
 
 export function readInbox(id: string): { workspace: string; note: string; tab: string | null } | null {
   const item = comments.readInbox(id);

@@ -106,13 +106,31 @@ Send messages and Control are never granted to the whole organization and do
 not expand from `audience: null`. Interrupting stops work but cannot start
 any, so it stays with Send messages.
 
+- **Board.** `Workspace.rights` holds `{ send, control }`, two lists of people
+  next to `audience` and `remote_control`. Both only name people who can view:
+  granting a right to someone outside an explicit audience adds them to it, and
+  removing someone from the audience drops their rights. Changing a right also
+  drops the people who left the organization, so a list never outgrows the
+  directory and peers read every grant.
+- **Enforcement.** The owner checks the right before the approval: input
+  without the right is discarded silently, since there is nothing to approve,
+  and only a person with the right can leave the notice above.
+- **Share menu.** It keeps choosing who views and comments, and adds Send
+  messages and Control submenus that list only the people who view. Choosing
+  someone for the audience or mentioning them approves nothing.
+- **Conversation header.** A chip next to the viewers names who may act, and
+  its title lists each right. Remote conversations show the people their
+  owner announced.
+
 ### Migration
 
 - On upgrade, the keys already pinned in `peers` become approved: a scope
   without approvals approves its links once. Teams and the owner's devices with
   `remote_control` keep working.
-- Existing shares become View and comment, with a one-time notice explaining
-  the new rights.
+- Existing shares become View and comment: they load with `rights: null`,
+  which grants nothing, and every share saved afterwards records its rights.
+  The owner sees a one-time notice above those shares' conversations explaining
+  the new rights. "Got it" dismisses it on that Mac.
 
 ### Owner confirmation
 
@@ -131,24 +149,27 @@ any, so it stays with Send messages.
   `rights` field next to `revision` in the encrypted payload.
   `relay/src/protocol.ts` does not change: `parseShare` drops unknown fields
   inside the share itself.
-- Peers hide the controls they lack. The owner enforces the rights even when a
-  peer ignores the announcement.
-- The phone only reflects the rights in its existing controls, for example by
-  hiding the composer without Send messages. It gains no approval buttons.
+- Peers hide the controls they lack. On the desktop, a viewer without Send
+  messages gets no composer, and therefore no Stop, but a line explaining why.
+  Without Control, request cards show as waiting for an answer. The owner
+  enforces the rights even when a peer ignores the announcement.
+- An announcement without `rights` comes from an owner that predates them, so
+  peers keep that owner's controls.
+- The phone only reflects the rights in its existing controls: it hides the
+  composer without Send messages. It gains no approval buttons.
 
 ## Rollout
 
 The decision lands in three changes, in this order:
 
-1. **Approved identities.** Implemented in this checkout: the rule, the
-   notice, the approval moments and the migration of approvals. Until the
-   rights exist, the audience still grants the three powers, and choosing a
-   specific person in the share menu counts as granting them, so it approves
-   that person's devices.
-2. **Rights per workspace.** View and comment, Send messages and Control in
-   the board, the share menu, the conversation header, the announcement, the
-   desktop and phone controls and the migration of existing shares.
-3. **Owner confirmation.**
+1. **Approved identities.** Implemented: the rule, the notice, the approval
+   moments and the migration of approvals.
+2. **Rights per workspace.** Implemented: View and comment, Send messages and
+   Control in the board, the share menu, the conversation header, the
+   announcement, the desktop and phone controls and the migration of existing
+   shares.
+3. **Owner confirmation.** Not implemented yet: until it lands, a granted
+   teammate's message runs as soon as it arrives.
 
 Each change updates this section and the contracts when it lands.
 
@@ -163,8 +184,11 @@ Each change updates this section and the contracts when it lands.
   person approves whatever keys the directory shows for that person's devices
   then. The device count is the only hint of an unexpected device.
 - The migration trusts links that ADR 0042 may already have replaced silently.
-- A new Mac approves nobody until the owner chooses people, turns remote
+- A new Mac approves nobody until the owner grants a right, turns remote
   control on or answers a notice.
+- After the upgrade, teammates who used to prompt a shared agent lose that
+  until the owner grants them Send messages or Control; their messages are
+  discarded without feedback, which the one-time notice explains to the owner.
 - `team-security.json` gains the additive `approved` and `paused` fields per
   scope. A rollback to a version without them drops both at its next write;
   upgrading again approves the links present then. The relay protocol, IPC,
@@ -179,11 +203,25 @@ Each change updates this section and the contracts when it lands.
 - [Owner input](../../src/team-owner.test.ts): the portable core without Tauri
   discards input from a changed key while snapshots still flow, from a member
   first seen under `audience: null` and from a new device of the owner's
-  person despite remote control. It also covers approval through the notice,
-  remote control and the share menu, restarts, spent replay receipts and
-  approvals dropped once their connection is gone, including an organization
-  switch during consent and an answer during a reconnect.
-- [Organizations](../../src/team-organizations.test.ts): the desktop facade
-  keeps companion and colleague authorship once the owner consents.
+  person despite remote control. It needs Send messages for prompts and
+  interrupts and Control for answers, even when the whole organization views,
+  and lets shares from before rights only view and comment. It also covers
+  approval through the notice, remote control and grants, restarts, spent
+  replay receipts and approvals dropped once their connection is gone,
+  including an organization switch during consent and an answer during a
+  reconnect.
+- [Rights](../../src/team-rights.test.ts): the right each frame needs, tolerant
+  parsing, grants that drop people who left the organization and what a viewer
+  may do from an announcement, an older owner or its own devices.
+- [Encrypted channel](../../src/team-channel.test.ts): rights travel inside the
+  authenticated announcement and never in the relay's view; an announcement
+  without them reads as an older owner. The
+  [browser core](../../src/team-member.test.ts) reflects them for a viewer.
+- [Organizations](../../src/team-organizations.test.ts): through the desktop
+  facade, companion input keeps its authorship, and a colleague who views acts
+  only once granted Send messages.
+- `share_tests` in `src-tauri/crates/core/src/workspace_lifecycle.rs` and
+  `fixtures/backend-contract.json`: boards from before rights load with
+  `rights: null`, and new consent records and clears them.
 - [Critical flows](../../e2e/critical-flows.spec.ts): content keeps flowing
   after a peer reinstalls, without a review.

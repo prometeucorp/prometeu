@@ -77,6 +77,12 @@
             "worktree": "/contract/worktree"
           }
         ],
+        "rights": {
+          "control": [],
+          "send": [
+            "member"
+          ]
+        },
         "share_team": "team",
         "shared": true,
         "skills": null,
@@ -175,6 +181,7 @@
         "repo": "/contract/repo",
         "repo_name": "Project",
         "repos": [],
+        "rights": null,
         "share_team": null,
         "shared": false,
         "skills": null,

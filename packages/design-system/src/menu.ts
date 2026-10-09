@@ -220,8 +220,10 @@ function panel(items: Item[]): HTMLElement {
       opener = row; openers.set(sub, row);
       row.setAttribute("aria-expanded", "true");
       const at = row.getBoundingClientRect();
-      // Anchor the submenu to its row rather than the pointer position.
-      place(sub, at.right - 4, at.top - 6);
+      // Anchor the submenu to its row rather than the pointer position. Without room on the right it opens on the
+      // left, so it never covers the menu that opened it.
+      const width = sub.getBoundingClientRect().width;
+      place(sub, at.right - 4 + width > innerWidth - 8 ? at.left - width + 4 : at.right - 4, at.top - 6);
       return sub;
     };
     if (item.sub && !item.disabled) {

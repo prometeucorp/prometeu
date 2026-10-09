@@ -77,7 +77,9 @@ it("selects accepted organizations without enrolling and keeps the desktop beare
   await sockets[0].welcome("membership1");
   expect(team.status().phase).toBe("online");
   await team.share("workspace1", null);
-  expect(fake.invoke).toHaveBeenCalledWith("set_shared", { id: "workspace1", shared: true, audience: null, remoteControl: false, team: "organization:organization1:membership1" }, undefined);
+  // Sharing with the organization lets it view and comment; nobody gains a right to act (ADR 0090).
+  expect(fake.invoke).toHaveBeenCalledWith("set_shared", { id: "workspace1", shared: true, audience: null, remoteControl: false,
+    team: "organization:organization1:membership1", rights: { send: [], control: [] } }, undefined);
 });
 
 it("persists remote control independently and encrypts only for owner devices", async () => {
@@ -92,14 +94,14 @@ it("persists remote control independently and encrypts only for owner devices", 
   await team.remoteControl(work.id, true);
   expect(fake.invoke).toHaveBeenCalledWith("set_shared", {
     id: work.id, shared: true, audience: [], remoteControl: true,
-    team: "organization:organization1:membership1",
+    team: "organization:organization1:membership1", rights: { send: [], control: [] },
   }, undefined);
   const share = sockets[0].sent.find((frame): frame is Extract<Up, { t: "share" }> => !(frame instanceof Uint8Array) && frame.t === "share");
   expect(Object.keys(share!.share.encrypted!.boxes).sort()).toEqual(["membership1", "phone1"]);
 
   await team.remoteControl(work.id, false);
   expect(fake.invoke).toHaveBeenLastCalledWith("set_shared", {
-    id: work.id, shared: false, audience: null, remoteControl: false, team: null,
+    id: work.id, shared: false, audience: null, remoteControl: false, team: null, rights: null,
   }, undefined);
 
   const teamWork = workspace("organization:organization1:membership1");
@@ -108,11 +110,11 @@ it("persists remote control independently and encrypts only for owner devices", 
   await team.remoteControl(teamWork.id, false);
   expect(fake.invoke).toHaveBeenCalledWith("set_shared", {
     id: teamWork.id, shared: true, audience: null, remoteControl: false,
-    team: "organization:organization1:membership1",
+    team: "organization:organization1:membership1", rights: { send: [], control: [] },
   }, undefined);
 });
 
-it("sends the owner's companion input as their own message and still identifies colleagues", async () => {
+it("sends the owner's companion input as their own message and needs a granted right for colleagues", async () => {
   await team.selectOrganization("organization1"); await vi.advanceTimersByTimeAsync(0);
   const phone = await generateIdentity(), colleague = await generateIdentity();
   await sockets[0].welcome("membership1", {}, [
@@ -121,18 +123,27 @@ it("sends the owner's companion input as their own message and still identifies 
   ]);
   team.boardChanged(board({ ...workspace("organization:organization1:membership1"), remote_control: true }));
   await vi.waitFor(() => expect(sockets[0].sent.some(frame => !(frame instanceof Uint8Array) && frame.t === "share")).toBe(true));
-  // Turning remote control on and choosing the colleague are the owner's consent to their current devices (ADR 0090).
+  // Turning remote control on is the owner's consent to their current devices (ADR 0090).
   expect(await team.remoteControl("workspace1", true)).toBe(1);
-  expect(await team.share("workspace1", ["colleague"])).toBe(1);
   const identity = sockets[0].sent.find((frame): frame is Extract<Up, { t: "identity" }> => !(frame instanceof Uint8Array) && frame.t === "identity")!;
-  for (const [from, sender, expected] of [["phone1", phone, "Faz o merge"], ["colleague", colleague, t("team.remotePrompt", { name: "Bob", text: "Faz o merge" })]] as const) {
+  const sends = () => fake.invoke.mock.calls.filter(([command]) => command === "chat_send");
+  const write = async (from: string, sender: typeof phone, text: string) => {
     const id = crypto.randomUUID();
-    const data = { frame: { t: "write", ws: "workspace1", tab: "tab1", data: "Faz o merge" }, expires: Date.now() + 120_000 };
+    const data = { frame: { t: "write", ws: "workspace1", tab: "tab1", data: text }, expires: Date.now() + 120_000 };
     const box = await seal(sender, identity.key, [JSON.stringify(["organization", account.origin, "organization1"]), from, "membership1", id], new TextEncoder().encode(JSON.stringify(data)));
     sockets[0].says({ t: "write", ws: "workspace1", tab: "tab1", from, data: "", encrypted: { id, boxes: { membership1: box } } });
-    await vi.waitFor(() => expect(fake.invoke.mock.calls.filter(([command]) => command === "chat_send"))
-      .toContainEqual(["chat_send", { session: "tab1", text: expected }, undefined]));
-  }
+    await vi.waitFor(() => expect((fake.security as { scopes: Record<string, { receipts?: Record<string, number> }> })
+      .scopes[JSON.stringify([JSON.stringify(["organization", account.origin, "organization1"]), "user1", "membership1"])].receipts?.[id]).toBeDefined());
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  await write("phone1", phone, "Faz o merge");
+  expect(sends()).toEqual([["chat_send", { session: "tab1", text: "Faz o merge" }, undefined]]);
+  // The whole organization views the workspace, but the colleague acts only once granted Send messages.
+  await write("colleague", colleague, "Faz o merge");
+  expect(sends()).toHaveLength(1);
+  expect(await team.grant("workspace1", "colleague", "send", true)).toBe(1);
+  await write("colleague", colleague, "Faz o merge");
+  expect(sends()).toContainEqual(["chat_send", { session: "tab1", text: t("team.remotePrompt", { name: "Bob", text: "Faz o merge" }) }, undefined]);
 });
 
 it("renews organization access on the same socket without changing presence or repeating identity", async () => {

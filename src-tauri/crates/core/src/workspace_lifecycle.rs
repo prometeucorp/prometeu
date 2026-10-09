@@ -1,18 +1,33 @@
 //! Existing board mutations shared by desktop and execution hosts. Effects stay with the host.
 use crate::{
-    board::{Board, Choice, Status},
+    board::{Board, Choice, ShareRights, Status},
     error::code,
 };
 
 pub enum Change {
+    /// Sharing consent: who views and comments, the owner's own devices, and who may act (ADR 0090). Turning
+    /// sharing off clears every grant.
+    Share {
+        shared: bool,
+        audience: Option<Vec<String>>,
+        remote_control: bool,
+        team: Option<String>,
+        rights: Option<ShareRights>,
+    },
     Rename(String),
-    RenameTab { tab: String, title: String },
+    RenameTab {
+        tab: String,
+        title: String,
+    },
     Pin(bool),
     Unread(bool),
     Archive(bool),
     Finish,
     Remove,
-    Retune { tab: String, choice: Choice },
+    Retune {
+        tab: String,
+        choice: Choice,
+    },
     Cleaned,
 }
 
@@ -30,6 +45,20 @@ pub fn apply(board: &mut Board, id: &str, change: Change) -> Result<(), String> 
                 .find(|t| t.id == tab)
                 .ok_or_else(|| code("err.session.noTab"))?;
             rename(&mut tab.title, &title);
+        }
+        Change::Share {
+            shared,
+            audience,
+            remote_control,
+            team,
+            rights,
+        } => {
+            workspace.shared = shared;
+            workspace.share_team = if shared { team } else { None };
+            workspace.audience = if shared { audience } else { None };
+            workspace.remote_control = shared && remote_control;
+            // A share saved from now on records its rights, even when empty; `None` marks one from before them.
+            workspace.rights = shared.then(|| rights.unwrap_or_default());
         }
         Change::Pin(pinned) => workspace.pinned = pinned,
         Change::Unread(unread) => workspace.unread = unread,
@@ -193,5 +222,96 @@ mod archive_tests {
             ArchiveEffects::default()
         );
         assert_eq!(serde_json::to_value(&board).unwrap(), before);
+    }
+}
+
+#[cfg(test)]
+mod share_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn board(workspace: serde_json::Value) -> Board {
+        serde_json::from_value(json!({ "stages": ["Working"], "workspaces": [workspace] })).unwrap()
+    }
+
+    #[test]
+    fn shares_from_before_rights_load_without_them_and_new_consent_records_them() {
+        // A board written before ADR 0090: shared with the organization, no rights field.
+        let mut board = board(json!({
+            "id": "first", "title": "Task", "repo": "/repo", "repo_name": "repo", "branch": "task",
+            "worktree": "/worktree", "stage": "Working", "shared": true, "audience": null,
+            "share_team": "organization:org:member", "remote_control": true
+        }));
+        let workspace = &board.workspaces[0];
+        assert!(workspace.shared && workspace.remote_control);
+        assert_eq!(workspace.rights, None);
+        assert_eq!(
+            serde_json::to_value(&board).unwrap()["workspaces"][0]["rights"],
+            json!(null)
+        );
+
+        let rights = ShareRights {
+            send: vec!["bob".into()],
+            control: vec![],
+        };
+        apply(
+            &mut board,
+            "first",
+            Change::Share {
+                shared: true,
+                audience: Some(vec!["bob".into()]),
+                remote_control: false,
+                team: Some("organization:org:member".into()),
+                rights: Some(rights.clone()),
+            },
+        )
+        .unwrap();
+        let saved = serde_json::to_value(&board).unwrap();
+        assert_eq!(
+            saved["workspaces"][0]["rights"],
+            json!({ "send": ["bob"], "control": [] })
+        );
+        let reloaded: Board = serde_json::from_value(saved).unwrap();
+        assert_eq!(reloaded.workspaces[0].rights, Some(rights));
+
+        apply(
+            &mut board,
+            "first",
+            Change::Share {
+                shared: true,
+                audience: None,
+                remote_control: false,
+                team: Some("organization:org:member".into()),
+                rights: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(board.workspaces[0].rights, Some(ShareRights::default()));
+
+        apply(
+            &mut board,
+            "first",
+            Change::Share {
+                shared: false,
+                audience: Some(vec!["bob".into()]),
+                remote_control: true,
+                team: Some("organization:org:member".into()),
+                rights: Some(ShareRights {
+                    send: vec!["bob".into()],
+                    control: vec!["bob".into()],
+                }),
+            },
+        )
+        .unwrap();
+        let workspace = &board.workspaces[0];
+        assert!(!workspace.shared && !workspace.remote_control);
+        assert_eq!(
+            (
+                workspace.audience.clone(),
+                workspace.share_team.clone(),
+                workspace.rights.clone()
+            ),
+            (None, None, None)
+        );
     }
 }
