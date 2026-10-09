@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { remoteControl, rightOf } from "./team-control";
-import { NO_RIGHTS, parseRights, viewerRights } from "./team-rights";
+import { MEMBERS_MAX } from "../relay/src/protocol";
+import { NO_RIGHTS, parseRights, viewerRights, withGrant } from "./team-rights";
 
 describe("rights in shared workspaces", () => {
   it("needs Control to answer requests and Send messages for everything else", () => {
@@ -17,6 +18,16 @@ describe("rights in shared workspaces", () => {
     expect(parseRights({ send: "bob" })).toEqual(NO_RIGHTS);
     expect(parseRights(null)).toEqual(NO_RIGHTS);
     expect(parseRights({ send: Array.from({ length: 80 }, (_, i) => `p${i}`) }).send).toHaveLength(64);
+  });
+
+  it("drops people who left the organization whenever a right changes, so peers read every grant", () => {
+    const left = Array.from({ length: MEMBERS_MAX }, (_, i) => `gone${i}`);
+    const granted = withGrant(left, "bob", true, new Set(["alice", "bob"]));
+    expect(granted).toEqual(["bob"]);
+    expect(parseRights({ send: granted }).send).toEqual(["bob"]);
+    expect(withGrant(["carol", "gone"], "carol", false, new Set(["carol", "bob"]))).toEqual([]);
+    // Without a directory nobody can be told apart from people who left.
+    expect(withGrant(["gone"], "bob", true, new Set())).toEqual(["gone", "bob"]);
   });
 
   it("lets a viewer act only where the owner's announcement says so", () => {

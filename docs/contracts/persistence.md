@@ -430,7 +430,9 @@ clears `shared`, `share_team`, `audience` and `rights`.
 `Workspace.rights` is `{ send, control }`, two lists of person IDs: who may send
 messages (prompts and interrupts) and who may control (answer the agent's
 requests) beyond viewing and commenting. Both lists only name people who can view;
-the audience `null` never grants them by itself. Every share saved from
+the audience `null` never grants them by itself. Changing a right drops the people
+no longer in the organization's directory, so each list stays within the
+`MEMBERS_MAX` people that peers read from the announcement. Every share saved from
 [ADR 0090](../decisions/0090-approved-remote-input.md) on writes the field, even
 empty. Shares saved before it load with `rights` null and let people only view
 and comment. The owner sees that change once on each Mac, which records the

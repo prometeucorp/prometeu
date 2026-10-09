@@ -291,6 +291,13 @@ it("lets the owner's devices act through remote control without per-person right
   expect(controls()).toEqual(["request.respond"]);
 });
 
+it("drops people who left the organization when a right changes, so a new grant reaches peers", async () => {
+  const left = Array.from({ length: 64 }, (_, i) => `gone${i}`);
+  await connect(workspace(null, false, { send: left, control: ["gone0"] }));
+  expect(await owner.grant("ws1", "bob", "send", true)).toBe(1);
+  expect(host.setShared).toHaveBeenLastCalledWith("ws1", true, null, false, membership.shareScope, { send: ["bob"], control: ["gone0"] });
+});
+
 it("adds a granted person to the audience and drops the rights of people who stop viewing", async () => {
   await connect(workspace(["carol"]));
   expect(await owner.grant("ws1", "bob", "control", true)).toBe(1);

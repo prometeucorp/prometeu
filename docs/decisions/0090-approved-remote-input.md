@@ -109,7 +109,9 @@ any, so it stays with Send messages.
 - **Board.** `Workspace.rights` holds `{ send, control }`, two lists of people
   next to `audience` and `remote_control`. Both only name people who can view:
   granting a right to someone outside an explicit audience adds them to it, and
-  removing someone from the audience drops their rights.
+  removing someone from the audience drops their rights. Changing a right also
+  drops the people who left the organization, so a list never outgrows the
+  directory and peers read every grant.
 - **Enforcement.** The owner checks the right before the approval: input
   without the right is discarded silently, since there is nothing to approve,
   and only a person with the right can leave the notice above.
@@ -209,8 +211,8 @@ Each change updates this section and the contracts when it lands.
   including an organization switch during consent and an answer during a
   reconnect.
 - [Rights](../../src/team-rights.test.ts): the right each frame needs, tolerant
-  parsing and what a viewer may do from an announcement, an older owner or its
-  own devices.
+  parsing, grants that drop people who left the organization and what a viewer
+  may do from an announcement, an older owner or its own devices.
 - [Encrypted channel](../../src/team-channel.test.ts): rights travel inside the
   authenticated announcement and never in the relay's view; an announcement
   without them reads as an older owner. The

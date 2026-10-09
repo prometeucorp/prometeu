@@ -16,6 +16,14 @@ export function parseRights(value: unknown): ShareRights {
   return { send: people(source.send), control: people(source.control) };
 }
 
+/// A right's people after granting or revoking one of them. People who left the organization drop out, so a list never
+/// outgrows the directory (at most MEMBERS_MAX devices) and every grant stays within what `parseRights` reads. Without a
+/// directory nobody can be told apart from people who left, so nobody drops out.
+export function withGrant(list: string[], person: string, on: boolean, present: ReadonlySet<string>): string[] {
+  const kept = present.size ? list.filter(p => present.has(p)) : list;
+  return on ? [...new Set([...kept, person])] : kept.filter(p => p !== person);
+}
+
 /// What a viewer may do in a remote conversation. The owner's own devices act through remote control, and an owner
 /// from before rights announces none while still letting its audience act, so its controls stay.
 export function viewerRights(announced: ShareRights | undefined, person: string, ownDevice: boolean): Record<Right, boolean> {

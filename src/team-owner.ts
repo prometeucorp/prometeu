@@ -3,7 +3,7 @@ import { t } from "./i18n";
 import { personOf, type TeamChannel } from "./team-channel";
 import { remoteControl as parseRemoteControl, rightOf } from "./team-control";
 import type { Context, Feature, Gate, OwnerHost } from "./team-ports";
-import { NO_RIGHTS, type Right } from "./team-rights";
+import { NO_RIGHTS, withGrant, type Right } from "./team-rights";
 import type { Board, ShareRights, Workspace } from "./types";
 
 /// Owner feature: announce shared local workspaces, stream their conversations to authorized viewers and run
@@ -208,12 +208,13 @@ export async function share(id: string, audience: string[] | null | false) {
 }
 
 /// Grant or revoke Send messages or Control for one person. Acting needs viewing, so an explicit audience gains the
-/// person; granting approves the devices they have now (ADR 0090). Resolves how many became approved.
+/// person; people who left the organization drop out of that right; granting approves the devices the person has now
+/// (ADR 0090). Resolves how many became approved.
 export async function grant(id: string, person: string, right: Right, on: boolean): Promise<number> {
   const workspace = lastBoard?.workspaces.find(w => w.id === id);
   if (!workspace) return 0;
-  const current = rightsOf(workspace);
-  const rights = { ...current, [right]: on ? [...new Set([...current[right], person])] : current[right].filter(p => p !== person) };
+  const current = rightsOf(workspace), members = ctx.members();
+  const rights = { ...current, [right]: withGrant(current[right], person, on, new Set(members.map(m => personOf(members, m.id)))) };
   const audience = sharedWithTeam(workspace) ? workspace.audience : [];
   const generation = ctx.generation();
   await setAccess(id, !on || audience === null || audience.includes(person) ? audience : [...audience, person], workspace.remote_control, rights);
