@@ -13,6 +13,13 @@ const membership: Membership = {
   member: "alice", scope: SCOPE, privateScope: PRIVATE, shareScope: "organization:org1:alice", legacy: false,
   url: async () => "wss://relay.test/organization/org1?ticket=t",
 };
+/// Another organization of the same person, whose devices carry the same IDs in this harness.
+const OTHER_SCOPE = JSON.stringify(["organization", "https://cloud.test", "org2"]);
+const OTHER_PRIVATE = JSON.stringify([OTHER_SCOPE, "user1", "alice"]);
+const otherMembership: Membership = {
+  ...membership, scope: OTHER_SCOPE, privateScope: OTHER_PRIVATE, shareScope: "organization:org2:alice",
+  url: async () => "wss://relay.test/organization/org2?ticket=t",
+};
 
 class Socket {
   sent: (Up | Uint8Array)[] = [];
@@ -55,10 +62,10 @@ const workspace = (audience: string[] | null, remoteControl = false, rights: Sha
 } as Workspace);
 const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
 
-async function connect(work: Workspace, announced = true) {
+async function connect(work: Workspace, announced = true, using = membership) {
   const sockets: Socket[] = [];
   member.useTransport({ needsRelay: true, create: vi.fn(), enroll: vi.fn(), socket: () => { const s = new Socket(roster); sockets.push(s); return s; } });
-  await member.connect(membership);
+  await member.connect(using);
   await vi.waitFor(() => expect(sockets).toHaveLength(1));
   socket = sockets[0];
   socket.onopen?.();
@@ -79,6 +86,7 @@ async function write(from: Device, data: string): Promise<Down> {
 }
 
 const receipts = () => (disk as { scopes: Record<string, { receipts?: Record<string, number> }> }).scopes[PRIVATE].receipts ?? {};
+const approvedIn = (scope: string) => (disk as { scopes: Record<string, { approved?: Record<string, string> }> }).scopes[scope]?.approved;
 const prompts = () => host.prompt.mock.calls.map(([, text]) => text);
 const controls = () => host.control.mock.calls.map(([, frame]) => (frame as { type: string }).type);
 const respond = JSON.stringify({ v: 1, type: "request.respond", requestId: "r1", response: { outcome: "allow" } });
@@ -292,4 +300,47 @@ it("adds a granted person to the audience and drops the rights of people who sto
   expect(await owner.grant("ws1", "carol", "send", false)).toBe(0);
   await owner.share("ws1", false);
   expect(host.setShared).toHaveBeenLastCalledWith("ws1", false, null, false, null, null);
+});
+
+it.each([
+  ["turning remote control on", () => owner.remoteControl("ws1", true)],
+  ["granting a right", () => owner.grant("ws1", "bob", "send", true)],
+])("approves nobody in another organization after %s while switching to it", async (_, act) => {
+  await connect({ ...workspace([]), shared: false }, false);
+  let saved!: () => void;
+  host.setShared.mockImplementationOnce(() => new Promise<void>(resolve => { saved = resolve; }));
+  const acting = act();
+  // The owner switches organizations while the board write is still in flight; consent given in the first one
+  // must not approve the devices the second directory shows.
+  member.reset();
+  await connect({ ...workspace([]), shared: false }, false, otherMembership);
+  saved();
+  expect(await acting).toBe(0);
+  expect(approvedIn(OTHER_PRIVATE)).toEqual({});
+});
+
+it("never writes an answer through the store a reconnect is replacing", async () => {
+  await upgradedFrom(workspace(["bob"], false, send("bob")));
+  devices[1] = { ...devices[1], identity: await generateIdentity() };
+  socket.presence();
+  await settled(await write(devices[1], "Merge it"));
+  await vi.waitFor(() => expect(owner.pausedIn("ws1")).toHaveLength(1));
+  // The next connection has read the store but not finished loading it when the owner answers.
+  let reads = 0, release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  member.useSecurityStore({
+    read: async () => { const state = structuredClone(disk); reads++; await held; return state; },
+    write: async (state) => { disk = structuredClone(state); },
+  });
+  const reconnected = connect(workspace(["bob"], false, send("bob")));
+  await vi.waitFor(() => expect(reads).toBe(1));
+  const answer = owner.allowInput("bob");
+  release();
+  await reconnected;
+  // The answer did nothing rather than vanish after the load: the notice is still there and can be answered.
+  expect(await answer).toBe(0);
+  expect(owner.pausedIn("ws1")).toEqual([{ person: "bob", name: "Bob", own: false }]);
+  expect(await owner.allowInput("bob")).toBe(1);
+  await settled(await write(devices[1], "Merge it now"));
+  expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "Merge it now" })]);
 });

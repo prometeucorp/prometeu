@@ -215,8 +215,9 @@ export async function grant(id: string, person: string, right: Right, on: boolea
   const current = rightsOf(workspace);
   const rights = { ...current, [right]: on ? [...new Set([...current[right], person])] : current[right].filter(p => p !== person) };
   const audience = sharedWithTeam(workspace) ? workspace.audience : [];
+  const generation = ctx.generation();
   await setAccess(id, !on || audience === null || audience.includes(person) ? audience : [...audience, person], workspace.remote_control, rights);
-  return on ? approve([person]) : 0;
+  return on ? approve([person], generation) : 0;
 }
 
 /// Toggle access for the owner's companion devices without changing the team audience. Turning it on approves the
@@ -225,9 +226,10 @@ export async function remoteControl(id: string, enabled: boolean): Promise<numbe
   const workspace = lastBoard?.workspaces.find(w => w.id === id);
   if (!workspace) return 0;
   const audience = workspace.shared && (workspace.audience === null || workspace.audience.length > 0) ? workspace.audience : [];
+  const generation = ctx.generation();
   await setAccess(id, audience, enabled, rightsOf(workspace));
   const you = ctx.you();
-  return enabled && you ? approve([personOf(ctx.members(), you)]) : 0;
+  return enabled && you ? approve([personOf(ctx.members(), you)], generation) : 0;
 }
 
 async function setAccess(id: string, audience: string[] | null, remoteControl: boolean, rights: ShareRights) {
@@ -275,8 +277,10 @@ export async function includeMentioned(id: string, mentions: string[]) {
 /// A person whose discarded input in a local workspace awaits the owner's answer; `own` marks the owner's devices.
 export type PausedInput = { person: string; name: string; own: boolean };
 
-/// Approve the current keys of every device of these people; resolves how many became approved.
-async function approve(people: string[]): Promise<number> {
+/// Approve the current keys of every device of these people; resolves how many became approved. Consent belongs to
+/// the connection it was given on, so nothing is approved once the owner reconnected or switched organizations.
+async function approve(people: string[], generation = ctx.generation()): Promise<number> {
+  if (generation !== ctx.generation()) return 0;
   const members = ctx.members();
   const devices = members.filter(m => people.includes(personOf(members, m.id))).map(m => m.id);
   if (!devices.length) return 0;

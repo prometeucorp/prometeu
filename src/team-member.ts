@@ -101,6 +101,9 @@ async function reconnect() {
   if (!m) return;
   retry = 0;
   const generation = ++connection;
+  // The store is about to be read again: a write through the old channel would miss the replacement and be erased by
+  // its next write, so answers given meanwhile do nothing instead.
+  channel = null;
   try {
     await wireQueue;
     const loading = identityLoading.catch(() => {}).then(() => TeamSecurity.load(m.privateScope, store.read, store.write));
