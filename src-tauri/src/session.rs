@@ -568,6 +568,17 @@ pub fn set_shared(
     publish(&app);
 }
 
+/// Persist whether teammates' messages wait for the owner in this workspace (ADR 0090). The frontend holds them in
+/// memory; the board keeps only the choice.
+#[tauri::command]
+pub fn set_confirm_messages(app: AppHandle, state: State<AppState>, id: String, confirm: bool) {
+    {
+        let mut board = lock(&state.board);
+        let _ = workspace_lifecycle::apply(&mut board, &id, Change::ConfirmMessages(confirm));
+    }
+    publish(&app);
+}
+
 /// The visible workspace must not acquire unread status for updates the person is already watching.
 #[tauri::command]
 pub fn look_at(app: AppHandle, state: State<AppState>, id: Option<String>) {
@@ -1046,6 +1057,7 @@ pub(crate) fn create_workspace_owned(
         audience: None,
         remote_control: false,
         rights: None,
+        confirm_messages: true,
         preparing: true,
         failed: None,
         agent: draft.launch.agent,
@@ -2049,6 +2061,7 @@ mod tests {
             audience: None,
             remote_control: false,
             rights: None,
+            confirm_messages: true,
             preparing: false,
             mcp: None,
             plugins: None,
@@ -2297,6 +2310,7 @@ mod tests {
             audience: None,
             remote_control: false,
             rights: None,
+            confirm_messages: true,
             preparing: false,
             mcp: None,
             plugins: None,
@@ -3576,6 +3590,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             audience: None,
             remote_control: false,
             rights: None,
+            confirm_messages: true,
             preparing: false,
             mcp: None,
             plugins: None,

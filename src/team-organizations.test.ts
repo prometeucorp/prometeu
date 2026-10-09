@@ -138,11 +138,16 @@ it("sends the owner's companion input as their own message and needs a granted r
   };
   await write("phone1", phone, "Faz o merge");
   expect(sends()).toEqual([["chat_send", { session: "tab1", text: "Faz o merge" }, undefined]]);
-  // The whole organization views the workspace, but the colleague acts only once granted Send messages.
+  // The whole organization views the workspace, but the colleague acts only once granted Send messages, and then
+  // the message waits for the owner, who sends it with the team prefix.
   await write("colleague", colleague, "Faz o merge");
   expect(sends()).toHaveLength(1);
   expect(await team.grant("workspace1", "colleague", "send", true)).toBe(1);
   await write("colleague", colleague, "Faz o merge");
+  expect(sends()).toHaveLength(1);
+  const [held] = team.pendingIn("tab1");
+  expect(held).toMatchObject({ name: "Bob", text: "Faz o merge" });
+  expect(await team.sendPending(held.id)).toBe(true);
   expect(sends()).toContainEqual(["chat_send", { session: "tab1", text: t("team.remotePrompt", { name: "Bob", text: "Faz o merge" }) }, undefined]);
 });
 

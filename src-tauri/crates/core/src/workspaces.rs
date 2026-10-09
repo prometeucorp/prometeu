@@ -574,6 +574,7 @@ fn in_place(
         audience: None,
         remote_control: false,
         rights: None,
+        confirm_messages: true,
         preparing: false,
         failed: None,
         mcp: None,

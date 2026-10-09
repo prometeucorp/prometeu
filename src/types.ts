@@ -229,6 +229,9 @@ export type Workspace = {
   /// People allowed to act beyond viewing and commenting (ADR 0090). Absent or null on shares made before rights
   /// existed, which grant viewing and commenting only.
   rights?: ShareRights | null;
+  /// Teammates' messages wait in the owner's composer until the owner sends, edits or discards them (ADR 0090). Rust
+  /// loads boards saved before the option as true.
+  confirm_messages: boolean;
   /// Publish the workspace card before its worktree finishes preparing. No tabs exist during preparation.
   preparing: boolean;
   /// Structured backend preparation error, translated by fromBack.

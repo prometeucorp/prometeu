@@ -53,11 +53,13 @@ let socket: Socket;
 
 const device = async (id: string, name: string, person?: string): Promise<Device> => ({ id, name, person, identity: await generateIdentity() });
 const roster = (): Member[] => devices.map(d => ({ id: d.id, name: d.name, online: true, key: d.identity.publicKey, ...(d.person ? { person: d.person } : {}) }));
-const workspace = (audience: string[] | null, remoteControl = false, rights: ShareRights | null = { send: [], control: [] }): Workspace => ({
+/// Owner confirmation stays off unless a test is about it, so these tests see input run as soon as it is allowed.
+const workspace = (audience: string[] | null, remoteControl = false, rights: ShareRights | null = { send: [], control: [] },
+  confirm = false): Workspace => ({
   id: "ws1", title: "Work", project: "p", repo: "/r", repo_name: "repo", branch: "main", worktree: "/w/ws1", repos: [],
   stage: "", archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "", mcp: null, plugins: null,
   skills: null, port: null, issue: null, cleaned: false, shared: true, share_team: membership.shareScope, audience,
-  remote_control: remoteControl, rights, preparing: false, failed: null, remote: null, active: "tab1",
+  remote_control: remoteControl, rights, confirm_messages: confirm, preparing: false, failed: null, remote: null, active: "tab1",
   tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }],
 } as Workspace);
 const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
@@ -350,4 +352,114 @@ it("never writes an answer through the store a reconnect is replacing", async ()
   expect(await owner.allowInput("bob")).toBe(1);
   await settled(await write(devices[1], "Merge it now"));
   expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "Merge it now" })]);
+});
+
+/* Owner confirmation (ADR 0090): a teammate's message waits in the owner's composer, only in memory. */
+
+/// Bob may send messages, the owner's phone acts through remote control and messages wait for the owner.
+const holding = (rights: ShareRights = send("bob")) => workspace(["bob"], true, rights, true);
+
+it("holds a teammate's message until the owner sends it, keeping the team prefix", async () => {
+  await upgradedFrom(holding());
+  await settled(await write(devices[1], "Merge it"));
+  expect(host.prompt).not.toHaveBeenCalled();
+  const [held] = owner.pendingIn("tab1");
+  expect(held).toEqual({ id: expect.any(String), name: "Bob", text: "Merge it" });
+  expect(await owner.sendPending(held.id)).toBe(true);
+  expect(prompts()).toEqual([t("team.remotePrompt", { name: "Bob", text: "Merge it" })]);
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  expect(await owner.sendPending(held.id)).toBe(false);
+  expect(prompts()).toHaveLength(1);
+});
+
+it("hands an edited message to the owner without the prefix and forgets a discarded one", async () => {
+  await upgradedFrom(holding());
+  await settled(await write(devices[1], "Merge it"));
+  await settled(await write(devices[1], "Then deploy"));
+  const [first, second] = owner.pendingIn("tab1");
+  expect(owner.editPending(first.id)).toBe("Merge it");
+  owner.discardPending(second.id);
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  expect(owner.editPending(first.id)).toBeNull();
+  expect(host.prompt).not.toHaveBeenCalled();
+});
+
+it("keeps a held message when sending it fails, so the owner can try again", async () => {
+  await upgradedFrom(holding());
+  await settled(await write(devices[1], "Merge it"));
+  const [held] = owner.pendingIn("tab1");
+  host.prompt.mockRejectedValueOnce("err.session.noTab");
+  await expect(owner.sendPending(held.id)).rejects.toBe("err.session.noTab");
+  expect(owner.pendingIn("tab1")).toEqual([held]);
+  expect(await owner.sendPending(held.id)).toBe(true);
+});
+
+it.each([
+  ["its conversation closes", (w: Workspace): Board => board({ ...w, tabs: [{ ...w.tabs[0], id: "tab2" }], active: "tab2" })],
+  ["its workspace is archived", (w: Workspace): Board => board({ ...w, archived: true })],
+  ["its workspace is removed", (): Board => ({ workspaces: [], projects: [], stages: [] })],
+  ["sharing stops", (w: Workspace): Board => board({ ...w, shared: false, audience: null, remote_control: false, rights: null })],
+  ["the sender loses Send messages", (w: Workspace): Board => board({ ...w, rights: { send: [], control: ["bob"] } })],
+])("drops a held message when %s", async (_, change) => {
+  await upgradedFrom(holding());
+  await settled(await write(devices[1], "Merge it"));
+  const [held] = owner.pendingIn("tab1");
+  owner.boardChanged(change(holding()));
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  expect(await owner.sendPending(held.id)).toBe(false);
+  expect(owner.editPending(held.id)).toBeNull();
+  owner.boardChanged(board(holding()));
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  expect(host.prompt).not.toHaveBeenCalled();
+});
+
+it("drops a held message as soon as the owner revokes the sender's right", async () => {
+  await upgradedFrom(holding());
+  await settled(await write(devices[1], "Merge it"));
+  expect(owner.pendingIn("tab1")).toHaveLength(1);
+  await owner.grant("ws1", "bob", "send", false);
+  expect(owner.pendingIn("tab1")).toEqual([]);
+});
+
+it("runs the owner's devices, interrupts and answers at once, and teammates' messages once confirmation is off", async () => {
+  await upgradedFrom(holding({ send: ["bob"], control: ["bob"] }));
+  await settled(await write(devices[0], "From my phone"));
+  await settled(await write(devices[1], interrupt));
+  await settled(await write(devices[1], respond));
+  expect(prompts()).toEqual(["From my phone"]);
+  expect(controls()).toEqual(["turn.interrupt", "request.respond"]);
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  owner.boardChanged(board({ ...holding(), confirm_messages: false }));
+  await settled(await write(devices[1], "Merge it"));
+  expect(prompts()).toEqual(["From my phone", t("team.remotePrompt", { name: "Bob", text: "Merge it" })]);
+});
+
+it("holds messages on boards saved before the option and never writes them to disk", async () => {
+  const { confirm_messages: _, ...older } = workspace(["bob"], false, send("bob"));
+  await upgradedFrom(older as Workspace);
+  await settled(await write(devices[1], "the release plan"));
+  expect(owner.pendingIn("tab1")).toEqual([expect.objectContaining({ text: "the release plan" })]);
+  expect(JSON.stringify(disk)).not.toContain("the release plan");
+  expect(host.setShared).not.toHaveBeenCalled();
+  expect(host.prompt).not.toHaveBeenCalled();
+});
+
+it("keeps held messages while the connection drops and forgets them with the organization", async () => {
+  await upgradedFrom(holding());
+  await settled(await write(devices[1], "Merge it"));
+  await settled(await write(devices[1], "Then deploy"));
+  socket.close();
+  const [first] = owner.pendingIn("tab1");
+  expect(await owner.sendPending(first.id)).toBe(true);
+  expect(owner.pendingIn("tab1")).toHaveLength(1);
+  member.reset();
+  expect(owner.pendingIn("tab1")).toEqual([]);
+});
+
+it("keeps only the latest messages a teammate floods one conversation with", async () => {
+  await upgradedFrom(holding());
+  for (let i = 0; i <= 20; i++) await settled(await write(devices[1], `message ${i}`));
+  const held = owner.pendingIn("tab1");
+  expect(held).toHaveLength(20);
+  expect(held[0].text).toBe("message 1");
 });

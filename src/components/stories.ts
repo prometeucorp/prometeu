@@ -7,6 +7,7 @@ import { icon, iconNames, fileIcon, stageIcon, brand, avatar, avatars } from "./
 import { iconButton } from "./icon-button";
 import { conversationBlock, workCard, errorCard, noticeCard } from "./chat/blocks";
 import { requestCard } from "./chat/requests";
+import { pendingCard } from "./chat/pending";
 import { composer, attachmentChip } from "./chat/composer";
 import { contextGauge, openUsagePanel } from "./chat/usage";
 import * as menu from "./menu";
@@ -177,6 +178,10 @@ export const stories: Record<string, Factory> = {
     return wrap(requestCard(ask, { respond: value => report(JSON.stringify(value)), allowAlways: () => report("allowAlways"),
       feedbackOpen: false, feedbackChanged: open => report(String(open)), observer: state === "waiting" }));
   },
+  "chat-pending": (state, report) => wrap(pendingCard({ name: "Marcus Hale", text: state === "short"
+    ? "Can you also run the migrations before merging?"
+    : "Before merging, please:\n\n1. Run the migrations against a copy of production.\n2. Check that completed todos keep their completed_at.\n3. Compare the weekly digest before and after.\n4. Leave the old column until the next release.\n5. Tell me if any test needed a new fixture.\n6. Then merge and tag the release." },
+    { send: () => report("send"), edit: () => report("edit"), discard: () => report("discard") })),
   composer(state, report) {
     const view = composer({ send: () => report(view.area.value), stop: () => report("stop"), addFile: () => report("addFile"),
       voice: () => report("voice"), quote: () => report("quote"), actions: () => report("actions"), voiceAvailable: true });

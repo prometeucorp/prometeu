@@ -9,6 +9,7 @@ import { contextBand, contextForGauge, replayIsCurrent, turnUsageText } from "./
 import { onTelemetryCleared } from "./telemetry";
 import { conversationBlock, errorCard, noticeCard, workCard, paintWorkHead } from "./components/chat/blocks";
 import { requestCard } from "./components/chat/requests";
+import { pendingCard } from "./components/chat/pending";
 import * as actions from "./actions";
 import * as background from "./background";
 import { invoke } from "./ipc";
@@ -1314,17 +1315,18 @@ export class ChatView {
 
   /// Notices above the composer (ADR 0090): input from a changed or new device waits for the owner, who names the
   /// person and answers; a share from before rights now only lets people view and comment, said once; a viewer
-  /// without Send messages learns why there is no composer. They repaint only when their content changes, so typing
-  /// keeps focus.
+  /// without Send messages learns why there is no composer; teammates' messages wait closest to the composer for the
+  /// owner to send, edit or discard. They repaint only when their content changes, so typing keeps focus.
   private paintNotices(info: Info) {
     const local = !!this.key && !info.remote && !!info.workspace;
     const paused = local ? team.pausedIn(info.workspace!) : [];
     const rights = local && !!info.rightsNotice;
     const viewOnly = this.key && info.remote && !info.remote.send ? info.remote.name : null;
-    const signature = JSON.stringify([paused, rights, viewOnly]);
+    const waiting = local ? team.pendingIn(this.key!) : [];
+    const signature = JSON.stringify([paused, rights, viewOnly, waiting.map(message => message.id)]);
     if (this.notices.dataset.shown === signature) return;
     this.notices.dataset.shown = signature;
-    this.notices.hidden = !paused.length && !rights && viewOnly === null;
+    this.notices.hidden = !paused.length && !rights && viewOnly === null && !waiting.length;
     const fail = (error: unknown) => this.ctx.say(fromBack(error), true);
     const rows = paused.map(({ person, name, own }) => {
       const row = h("div", "chat-notice");
@@ -1341,7 +1343,25 @@ export class ChatView {
       rows.push(row);
     }
     if (viewOnly !== null) rows.push(h("p", "ui-hint chat-viewonly", t("chat.viewOnly", { name: viewOnly })));
+    for (const message of waiting) rows.push(pendingCard(message, {
+      send: () => void team.sendPending(message.id).catch(fail),
+      edit: () => this.adopt(message.id),
+      discard: () => team.discardPending(message.id),
+    }));
     this.notices.replaceChildren(...rows);
+  }
+
+  /// Editing moves a teammate's waiting message into this conversation's draft, after anything already typed; from
+  /// there it is the owner's own message. Drafts stay in memory, so the text still never reaches disk.
+  private adopt(id: string) {
+    const key = this.key;
+    const text = key ? team.editPending(id) : null;
+    if (!key || text === null) return;
+    const draft = drafts.says.get(key)?.trimEnd() ?? "";
+    drafts.says.set(key, draft ? `${draft}\n\n${text}` : text);
+    draftChanged(key);
+    this.area.focus();
+    this.area.setSelectionRange(this.area.value.length, this.area.value.length);
   }
 
   /// Request cards follow the Control right; redraw them when the owner's announcement changes it.

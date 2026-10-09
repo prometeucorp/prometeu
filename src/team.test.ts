@@ -50,7 +50,7 @@ const workspace = (id: string, shared: boolean): Workspace => ({
   id, title: id, project: "p", repo: "/r", repo_name: "r", branch: "b", worktree: `/w/${id}`,
   repos: [], stage: "", archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "",
   mcp: null, plugins: null, skills: null, port: null, issue: null, cleaned: false, shared, audience: null, remote_control: false,
-  preparing: false, failed: null, remote: null, tabs: [], active: null,
+  confirm_messages: true, preparing: false, failed: null, remote: null, tabs: [], active: null,
 });
 const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: [], workspaces });
 async function welcome() {

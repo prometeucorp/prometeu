@@ -49,8 +49,9 @@ member.register(viewer.install);
 
 export const { useTransport, onChange, onError, nameOf, people, personOf } = member;
 export const { setSink, isRemote, attachedTab, attach, detach, write, rightsIn } = viewer;
-export const { boardChanged, share, grant, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf, pausedIn, allowInput, dismissInput } = owner;
-export type { PausedInput } from "./team-owner";
+export const { boardChanged, share, grant, remoteControl, sharedHere, sharedWithTeam, isShared, watchersOf, pausedIn, allowInput, dismissInput,
+  pendingIn, sendPending, editPending, discardPending } = owner;
+export type { PausedInput, PendingMessage } from "./team-owner";
 export const { inboxCount, inboxItems, supportsThreads, inboxList } = comments;
 
 /* Configuration. */
@@ -301,6 +302,8 @@ export function remotes(): Workspace[] {
     audience: null,
     remote_control: false,
     rights: null,
+    // This Mac holds nothing for a remote owner, whose choice is not announced.
+    confirm_messages: false,
     // Remote shares are announced only after preparation is complete.
     preparing: false,
     failed: null,

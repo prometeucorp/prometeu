@@ -298,6 +298,21 @@
     ]
   },
   {
+    "id": "chat-pending",
+    "name": "pendingCard",
+    "source": "src/components/chat/pending.ts",
+    "exports": [
+      "pendingCard"
+    ],
+    "consumers": [
+      "src/chat.ts"
+    ],
+    "states": [
+      "short",
+      "long"
+    ]
+  },
+  {
     "id": "composer",
     "name": "composer · attachmentChip",
     "source": "src/components/chat/composer.ts",

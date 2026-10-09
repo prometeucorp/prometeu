@@ -440,6 +440,14 @@ dismissal in `localStorage` under `prometeu:share-rights-notice`. Tests:
 `share_tests` in `crates/core/src/workspace_lifecycle.rs` and
 `fixtures/backend-contract.json`.
 
+`Workspace.confirm_messages`, true when absent, records whether teammates'
+messages wait in the owner's composer until the owner sends, edits or discards
+them ([ADR 0090](../decisions/0090-approved-remote-input.md)). Only
+`set_confirm_messages` changes it; stopping sharing keeps the choice. The board
+keeps only this choice: waiting messages live in the frontend's memory and are
+never persisted. Tests: `share_tests` and `fixtures/backend-contract.json`,
+which carries a workspace saved with the option off and one from before it.
+
 ## Delegations
 
 `Board.delegations` defaults to `[]` for older boards. It persists owner client ID,

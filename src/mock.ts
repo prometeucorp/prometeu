@@ -8,7 +8,7 @@ import { islandView, redraw, requestPanels } from "./island-view";
 import type { IpcCommand, IpcHandlers } from "./ipc";
 import { emptyCatalog, initializeDefaults, type Catalog, type Profile } from "./actions";
 /// Browser backend for sample data. Loaded only when window.__TAURI_INTERNALS__ is absent; never loaded in Tauri.
-import { simulatedSocket } from "./team-mock";
+import { simulatedSocket, type SimulatedSocket } from "./team-mock";
 import * as browser from "./mock-browser";
 import type { Share } from "../relay/src/protocol";
 import { parseConversationEvent } from "./conversation";
@@ -137,6 +137,7 @@ const ws = (
   audience: null,
   remote_control: false,
   rights: null,
+  confirm_messages: true,
   preparing: false,
   failed: null,
   remote: null,
@@ -954,6 +955,12 @@ for (const [id, audience, shareTeam, remoteControl, rights] of JSON.parse(localS
     // Records saved before rights existed mirror old boards: viewing and commenting only.
     ws.rights = rights ?? null;
   }
+}
+/// Workspaces where the owner turned confirmation off; every other one holds teammates' messages.
+const UNCONFIRMED = "mock:unconfirmed";
+for (const id of JSON.parse(localStorage.getItem(UNCONFIRMED) ?? "[]") as string[]) {
+  const ws = board.workspaces.find((x) => x.id === id);
+  if (ws) ws.confirm_messages = false;
 }
 
 function emit(event: string, payload: unknown) {
@@ -1810,6 +1817,14 @@ const mockCommands: IpcHandlers = {
     emit("board", board);
     return;
   },
+  set_confirm_messages(args) {
+    const target = board.workspaces.find((x) => x.id === args.id);
+    if (target) target.confirm_messages = args.confirm;
+    // Persist the choice across page reloads, matching board.json; held messages stay in memory.
+    localStorage.setItem(UNCONFIRMED, JSON.stringify(board.workspaces.filter((x) => !x.confirm_messages).map((x) => x.id)));
+    emit("board", board);
+    return;
+  },
   look_at(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
     if (target?.unread) {
@@ -2594,7 +2609,7 @@ function call(cmd: string, args: Record<string, any> = {}): unknown {
 
 /// A fixed two-member team enables collaboration UI without a relay. mock.presence(false) simulates an offline member.
 let marcusOnline = true;
-const fakes: team.SocketLike[] = [];
+const fakes: SimulatedSocket[] = [];
 /// Marcus's shared workspace provides a running remote conversation.
 const marcusShare = (): Share => ({
   id: "ws-marcus",
@@ -2613,7 +2628,7 @@ const marcusShare = (): Share => ({
 });
 /// `mock:marcusRights` replaces the rights Marcus announces, to preview a share you may only view (ADR 0090).
 const marcusRights = (): ShareRights | undefined => JSON.parse(localStorage.getItem("mock:marcusRights") ?? "null") ?? undefined;
-function fakeSocket(url: string): team.SocketLike {
+function fakeSocket(url: string): SimulatedSocket {
   const socket = simulatedSocket(url, SAMPLE, marcusShare(), () => marcusOnline, marcusRights());
   fakes.push(socket);
   return socket;
@@ -2662,7 +2677,13 @@ w.mock = {
   team: () => ({ status: team.status(), remotes: team.remotes() }),
   presence: (online: boolean) => {
     marcusOnline = online;
-    for (const s of fakes) (s as unknown as { presence: () => void }).presence();
+    for (const s of fakes) s.presence();
+  },
+  /// Marcus messages the open conversation of a workspace you share with him. Grant him Send messages in the share
+  /// menu first; with confirmation on, the message waits above your composer (ADR 0090).
+  message: (text = "Can you also run the migrations before merging?", workspace?: string) => {
+    const ws = board.workspaces.find((x) => x.shared && (!workspace || x.id === workspace));
+    if (ws?.active) for (const s of fakes) s.message(ws.id, ws.active, text);
   },
   /// Simulate Tauri file drops using macOS logical window coordinates; see dropTarget in main.ts.
   drop: (paths: string[], x = innerWidth / 2, y = innerHeight / 2, dropX = x, dropY = y) => {

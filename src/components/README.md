@@ -29,6 +29,7 @@ The same state identifiers are stable navigation keys and machine-readable data.
 | Resource library | `resource-view.ts` | Settings Resources |
 | Tool, reasoning, text, work and error blocks | `chat/blocks.ts` | `ChatView` in workspace and desk |
 | Questions, plans, permissions | `chat/requests.ts` | `ChatView`; callbacks send canonical responses in the host |
+| Teammate message waiting for the owner | `chat/pending.ts` | `ChatView`; the collaboration core holds, sends and drops the message |
 | Composer and attachments | `chat/composer.ts` | `ChatView`; host owns drafts, completion, voice and transport |
 | User message, browser context, tool input, context report | `chat/content.ts` | Desktop and existing mobile consumers via compatibility facade |
 | Markdown and fenced code | `chat/markdown.ts` | Existing consumers via `src/markdown.ts`; preserves escaping and copy behavior |
