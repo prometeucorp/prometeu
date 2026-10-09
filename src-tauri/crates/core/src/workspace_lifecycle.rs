@@ -14,6 +14,8 @@ pub enum Change {
         team: Option<String>,
         rights: Option<ShareRights>,
     },
+    /// Whether teammates' messages wait for the owner (ADR 0090). Independent of sharing, so it survives a stop.
+    ConfirmMessages(bool),
     Rename(String),
     RenameTab {
         tab: String,
@@ -60,6 +62,7 @@ pub fn apply(board: &mut Board, id: &str, change: Change) -> Result<(), String> 
             // A share saved from now on records its rights, even when empty; `None` marks one from before them.
             workspace.rights = shared.then(|| rights.unwrap_or_default());
         }
+        Change::ConfirmMessages(confirm) => workspace.confirm_messages = confirm,
         Change::Pin(pinned) => workspace.pinned = pinned,
         Change::Unread(unread) => workspace.unread = unread,
         Change::Retune { tab, choice } => workspace.retune(&tab, choice)?,
@@ -232,6 +235,41 @@ mod share_tests {
 
     fn board(workspace: serde_json::Value) -> Board {
         serde_json::from_value(json!({ "stages": ["Working"], "workspaces": [workspace] })).unwrap()
+    }
+
+    #[test]
+    fn boards_from_before_confirmation_hold_messages_and_the_choice_outlives_sharing() {
+        // A board written before owner confirmation: shared, Bob may send messages, no confirm_messages field.
+        let mut board = board(json!({
+            "id": "first", "title": "Task", "repo": "/repo", "repo_name": "repo", "branch": "task",
+            "worktree": "/worktree", "stage": "Working", "shared": true, "audience": ["bob"],
+            "share_team": "organization:org:member", "rights": { "send": ["bob"], "control": [] }
+        }));
+        assert!(board.workspaces[0].confirm_messages);
+
+        apply(&mut board, "first", Change::ConfirmMessages(false)).unwrap();
+        let saved = serde_json::to_value(&board).unwrap();
+        assert_eq!(saved["workspaces"][0]["confirm_messages"], json!(false));
+        let mut reloaded: Board = serde_json::from_value(saved).unwrap();
+        assert!(!reloaded.workspaces[0].confirm_messages);
+
+        apply(
+            &mut reloaded,
+            "first",
+            Change::Share {
+                shared: false,
+                audience: None,
+                remote_control: false,
+                team: None,
+                rights: None,
+            },
+        )
+        .unwrap();
+        assert!(!reloaded.workspaces[0].confirm_messages);
+        assert_eq!(
+            apply(&mut reloaded, "missing", Change::ConfirmMessages(true)),
+            Err(code("err.session.noWorkspace"))
+        );
     }
 
     #[test]

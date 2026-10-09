@@ -134,14 +134,28 @@ any, so it stays with Send messages.
 
 ### Owner confirmation
 
-- Enabled by default, as a per-workspace option. A teammate's message becomes a
-  pending item in the owner's composer with Send, Edit and Discard.
-- The pending item lives only in memory while the app is open. There is no
+- Enabled by default, as a per-workspace option: "Confirm each message before
+  it runs" in the Send messages submenu. `Workspace.confirm_messages` holds the
+  choice; boards from before it load with confirmation on, and stopping sharing
+  keeps it.
+- Only a teammate's message waits. Interrupts and answers already need their
+  own right and an approved device, and the owner's devices act for the owner,
+  so they run at once.
+- The message becomes a pending item above the composer of its conversation,
+  including desk tiles, drawn as an attention card with Send, Edit and Discard.
+  It names the person, never the device.
+- The pending item lives only in memory while the app is open: it outlasts a
+  dropped connection, but not an organization switch or quitting. There is no
   offline inbox, and a third party's content is never written to disk.
-- An edited message is sent as the owner's own. An unedited one keeps the
-  "Message from {name}" prefix.
-- The pending item is dropped when its workspace, tab or the sender's right
-  disappears.
+- Send keeps the "Message from {name}" prefix and works like the composer: the
+  item leaves at once and a failure is only reported, because a stopped agent
+  may already have queued the text before its restart failed. Edit ends any
+  dictation and moves the text into the owner's draft, after anything already
+  typed; whatever the owner sends from there is the owner's own message.
+- The pending item is dropped when its workspace or conversation disappears or
+  stops being shared here, or when the sender loses Send messages. Turning the
+  option off releases nothing already waiting.
+- At most 20 messages wait per conversation; a flood drops the oldest first.
 
 ### Announcement and phone
 
@@ -168,8 +182,8 @@ The decision lands in three changes, in this order:
    Control in the board, the share menu, the conversation header, the
    announcement, the desktop and phone controls and the migration of existing
    shares.
-3. **Owner confirmation.** Not implemented yet: until it lands, a granted
-   teammate's message runs as soon as it arrives.
+3. **Owner confirmation.** Implemented: the per-workspace option, the pending
+   item with Send, Edit and Discard, and the rules that drop it.
 
 Each change updates this section and the contracts when it lands.
 
@@ -189,10 +203,16 @@ Each change updates this section and the contracts when it lands.
 - After the upgrade, teammates who used to prompt a shared agent lose that
   until the owner grants them Send messages or Control; their messages are
   discarded without feedback, which the one-time notice explains to the owner.
+- With confirmation on, a teammate's message runs only once the owner sends
+  it. A message still waiting when the app quits is lost, and its sender gets
+  no receipt either way.
 - `team-security.json` gains the additive `approved` and `paused` fields per
   scope. A rollback to a version without them drops both at its next write;
-  upgrading again approves the links present then. The relay protocol, IPC,
+  upgrading again approves the links present then. The relay protocol,
   receipts and Rust validation do not change.
+- `board.json` gains `confirm_messages` per workspace, and IPC gains
+  `set_confirm_messages`. A rollback drops the field at its next board write;
+  upgrading again turns confirmation back on.
 
 ## Evidence
 
@@ -217,11 +237,21 @@ Each change updates this section and the contracts when it lands.
   authenticated announcement and never in the relay's view; an announcement
   without them reads as an older owner. The
   [browser core](../../src/team-member.test.ts) reflects them for a viewer.
+- [Owner confirmation](../../src/team-owner.test.ts): through the portable
+  core, a teammate's message waits; Send keeps the prefix, Edit hands back the
+  text alone, Discard forgets it and a failed send is reported without holding
+  the message again. It drops with its
+  conversation, workspace, share or the sender's right, survives a dropped
+  connection but not the organization, and a flood keeps the latest 20.
+  Interrupts, answers and the owner's devices run at once, boards from before
+  the option hold messages, and nothing reaches the security store.
 - [Organizations](../../src/team-organizations.test.ts): through the desktop
   facade, companion input keeps its authorship, and a colleague who views acts
-  only once granted Send messages.
+  only once granted Send messages, after the owner sends the waiting message.
 - `share_tests` in `src-tauri/crates/core/src/workspace_lifecycle.rs` and
   `fixtures/backend-contract.json`: boards from before rights load with
-  `rights: null`, and new consent records and clears them.
+  `rights: null`, and new consent records and clears them; boards from before
+  owner confirmation load with it on, the choice outlives sharing, and the
+  fixture carries both values.
 - [Critical flows](../../e2e/critical-flows.spec.ts): content keeps flowing
   after a peer reinstalls, without a review.

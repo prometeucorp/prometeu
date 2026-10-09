@@ -90,8 +90,10 @@ optional for local work; model access comes from your own provider account.
 - **Optional collaboration.** Share live conversations so your team can view
   and comment, and choose per person who may also send messages or answer the
   agent's requests; or continue from your own companion devices. Execution stays
-  on the owner's computer, and input from a new or changed device waits until
-  the owner allows that device there.
+  on the owner's computer: a teammate's message waits above your message box
+  until you send, edit or discard it, unless you turn that off for the
+  workspace, and input from a new or changed device waits until you allow that
+  device there.
 - **Dictation.** Speak into the message box; the transcript appears as you
   talk, and the dictation language is a preference of its own.
 - **Portuguese and English UI.** Agent output and your content keep their
@@ -319,8 +321,9 @@ routing metadata, and member keys are trusted as the relay directory reports
 them, including later key changes. Remote messages and control, which run on
 your Mac, are accepted only from people you granted them in that workspace and
 only from devices you approved there; a new or changed device keeps seeing
-shared content but its input waits for your answer. There is no forward
-secrecy. This encryption does not cover content sent to model
+shared content but its input waits for your answer. By default a teammate's
+message also waits for you to send it, and it stays only in memory. There is
+no forward secrecy. This encryption does not cover content sent to model
 providers or protect a compromised device. See the
 [security design and limits](docs/decisions/0022-end-to-end-encryption.md).
 

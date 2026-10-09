@@ -7,7 +7,8 @@ import { NO_RIGHTS, withGrant, type Right } from "./team-rights";
 import type { Board, ShareRights, Workspace } from "./types";
 
 /// Owner feature: announce shared local workspaces, stream their conversations to authorized viewers and run
-/// remote input on the local agent. Only the machine that executes agents installs it.
+/// remote input on the local agent, holding teammates' messages for the owner. Only the machine that executes agents
+/// installs it.
 
 /// Split retained transcripts into whole-line chunks, leaving room for encryption and encoding within the relay's 1 MiB binary frame limit.
 const SNAPSHOT_PART = 128 * 1024;
@@ -109,10 +110,12 @@ function closed() {
   flushTimer = 0;
 }
 
+/// Held messages outlive a dropped connection, but not the membership their workspace was shared through.
 function reset() {
   closed();
   accessVersions.clear();
   pendingAccess.clear();
+  held = [];
 }
 
 /* Announcements. */
@@ -135,6 +138,7 @@ function toShare(w: Workspace): Share {
 /// Announce changed eligible local shares and withdraw archived, cleaned, or removed workspaces.
 export function boardChanged(board: Board) {
   lastBoard = board;
+  dropStale();
   if (!ctx.membership()) return;
   const seen = new Set<string>();
   for (const w of board.workspaces) {
@@ -252,6 +256,7 @@ async function setAccess(id: string, audience: string[] | null, remoteControl: b
     if (lastBoard) lastBoard = { ...lastBoard, workspaces: lastBoard.workspaces.map(w => w.id === id
       ? { ...w, shared: on, audience: on ? audience : null, remote_control: on && remoteControl, share_team: on ? membership!.shareScope : null,
           rights: on ? kept : null } : w) };
+    dropStale();
     const w = lastBoard?.workspaces.find(w => w.id === id);
     if (w && on) {
       const updated = { ...toShare(w), audience };
@@ -431,7 +436,7 @@ function push(data: Uint8Array): boolean {
 function typed(ws: string, tab: string, data: string, from: string) {
   const w = workspaceOf(tab);
   const access = w && accessOf(w);
-  if (!announced.has(ws) || !mine(tab) || !access || !canReceive(tab, from)) return;
+  if (!announced.has(ws) || !mine(tab) || !w || !access || !canReceive(tab, from)) return;
   const parsed = parseRemoteControl(data);
   if (parsed.recognized && !parsed.frame) return;
   // Input is execution on this Mac. It needs the right for its kind, and then a member and key the owner approved;
@@ -447,6 +452,78 @@ function typed(ws: string, tab: string, data: string, from: string) {
     return;
   }
   const you = ctx.you(), members = ctx.members();
-  const ownDevice = !!you && personOf(members, from) === personOf(members, you);
-  void host.prompt(tab, ownDevice ? data : t("team.remotePrompt", { name: ctx.nameOf(from), text: data })).catch(() => {});
+  if (you && personOf(members, from) === personOf(members, you)) {
+    void host.prompt(tab, data).catch(() => {});
+    return;
+  }
+  // A teammate's message waits for the owner unless this workspace turned confirmation off; interrupts, answers and
+  // the owner's devices never wait (ADR 0090).
+  if (w.confirm_messages !== false) return hold(w.id, tab, from, data);
+  void host.prompt(tab, t("team.remotePrompt", { name: ctx.nameOf(from), text: data })).catch(() => {});
+}
+
+/* Owner confirmation: a teammate's message waits in the owner's composer (ADR 0090). */
+
+/// A teammate's message waiting on this Mac, named by the sender's person rather than the device (ADR 0041).
+export type PendingMessage = { id: string; name: string; text: string };
+/// `author` names the sending device in the team prefix, exactly as a message that runs at once.
+type Held = PendingMessage & { ws: string; tab: string; person: string; author: string };
+/// Bounds what one flooding sender can hold in memory; a conversation drops its oldest message first.
+const HELD_MAX = 20;
+/// Only in memory and in arrival order: there is no offline inbox, and a third party's content never reaches disk.
+let held: Held[] = [];
+let heldIds = 0;
+
+function hold(ws: string, tab: string, from: string, text: string) {
+  const person = personOf(ctx.members(), from);
+  held.push({ id: String(++heldIds), name: ctx.nameOf(person), text, ws, tab, person, author: ctx.nameOf(from) });
+  const here = held.filter(m => m.tab === tab);
+  if (here.length > HELD_MAX) held = held.filter(m => m !== here[0]);
+  ctx.changed();
+}
+
+/// A held message lasts while its workspace stays shared here with that conversation and its sender keeps Send
+/// messages, including a change of access still being saved.
+function holds(m: Held): boolean {
+  const w = lastBoard?.workspaces.find(w => w.id === m.ws);
+  if (!w || w.remote || !sharedHere(w) || w.archived || w.cleaned || !w.tabs.some(t => t.id === m.tab)) return false;
+  const access = accessOf(w);
+  return !!access && access.rights.send.includes(m.person);
+}
+
+function dropStale() {
+  const kept = held.filter(holds);
+  if (kept.length === held.length) return;
+  held = kept;
+  ctx.changed();
+}
+
+/// Messages waiting in a local conversation, oldest first.
+export const pendingIn = (tab: string): PendingMessage[] =>
+  held.filter(m => m.tab === tab && holds(m)).map(({ id, name, text }) => ({ id, name, text }));
+
+/// Take a message out of the wait; null when it no longer exists or no longer holds.
+function take(id: string): Held | null {
+  const at = held.findIndex(m => m.id === id);
+  if (at === -1) return null;
+  const [m] = held.splice(at, 1);
+  ctx.changed();
+  return holds(m) ? m : null;
+}
+
+/// Send a held message as its sender's, with the team prefix, the way the composer sends: it leaves the wait at once
+/// and a failure is only reported, because a stopped agent may already have queued the text before its restart failed.
+/// Resolves false when it is gone.
+export async function sendPending(id: string): Promise<boolean> {
+  const m = take(id);
+  if (!m) return false;
+  await host.prompt(m.tab, t("team.remotePrompt", { name: m.author, text: m.text }));
+  return true;
+}
+
+/// Hand a held message to the owner's composer: whatever the owner sends from it is the owner's own message.
+export const editPending = (id: string): string | null => take(id)?.text ?? null;
+
+export function discardPending(id: string) {
+  take(id);
 }

@@ -261,6 +261,10 @@ pub struct Workspace {
     /// existed, which grant viewing and commenting only.
     #[serde(default)]
     pub rights: Option<ShareRights>,
+    /// Teammates' messages wait in the owner's composer until the owner sends, edits or discards them (ADR 0090).
+    /// On by default, including boards saved before the option existed.
+    #[serde(default = "confirm_by_default")]
+    pub confirm_messages: bool,
     /// Worktree preparation is running after the launcher closes. The board can show progress
     /// before any agent tab exists; processes start only after their working directories are ready.
     #[serde(default)]
@@ -287,6 +291,10 @@ pub struct Workspace {
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub active: Option<String>,
+}
+
+fn confirm_by_default() -> bool {
+    true
 }
 
 /// Read one workspace tool axis from either the layered `Selection` object or the legacy

@@ -12,7 +12,7 @@ fn board() -> state::Board {
             "branch":"task","worktree":"/contract/worktree","stage":"Working",
             "repos":[{"path":"/contract/repo","name":"Project","worktree":"/contract/worktree","base":"main","pr":{"number":7,"title":"Review","state":"OPEN","isDraft":true}}],
             "port":1420,"audience":["member"],"shared":true,"share_team":"team",
-            "rights":{"send":["member"],"control":[]},
+            "rights":{"send":["member"],"control":[]},"confirm_messages":false,
             "mcp":{"base":"none","add":[],"remove":[]},
             "plugins":{"base":"inherit","add":["plugin"],"remove":["disabled"]},
             "tabs":[

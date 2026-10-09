@@ -35,7 +35,8 @@ identity is accepted by the server directory (TOFU). See
 [limits](docs/decisions/0022-end-to-end-encryption.md). Remote messages and
 control run only for people the owner granted them in that workspace and only
 from member and key pairs approved on the owner's Mac; viewing and commenting
-need neither ([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
+need neither. By default a teammate's message also waits, only in memory, until
+the owner sends it ([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
 
 ## Containers and responsibilities
 
@@ -248,7 +249,8 @@ depend on the canonical primitives in `conversation.rs`.
 - The relay validates every input and enforces the audience on the server; the
   client also authenticates content and enforces the audience, without trusting
   `watch` as authorization. The owner runs remote input only for granted people
-  and approved identities; the relay knows neither rule.
+  and approved identities, holding teammates' messages for confirmation; the
+  relay knows none of these rules.
 - Transcript and board compatibility take precedence over cosmetic cleanup.
 - Support differences visible in the UI use `AgentCapabilities`; dispatch by
   `ProviderId` stays in the catalog or in the adapters.

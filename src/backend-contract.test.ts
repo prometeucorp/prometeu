@@ -12,6 +12,8 @@ it("consumes serialized backend workspaces without requiring frontend-only field
   expect(repoLabel(board.workspaces[0])).toBe("Project");
   expect(board.workspaces[0].remote).toBeUndefined();
   expect(board.workspaces[1].port).toBeNull();
+  // Owner confirmation is a saved choice; a board from before it holds teammates' messages (ADR 0090).
+  expect(board.workspaces.map(w => w.confirm_messages)).toEqual([false, true]);
   expect(board.workspaces[0].tabs[0].kickoff).toBe("package/skill");
 });
 

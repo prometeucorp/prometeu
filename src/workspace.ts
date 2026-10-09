@@ -533,6 +533,9 @@ function shareItems(ws: Workspace): menu.Item[] {
             .catch(fail),
         };
       }) : [{ label: t("share.rights.nobody"), disabled: true }]),
+      // Messages from the people above wait for the owner unless this is off (ADR 0090).
+      ...(right === "send" ? ["sep", { label: t("share.confirm"), checked: ws.confirm_messages !== false,
+        run: () => void invoke("set_confirm_messages", { id: ws.id, confirm: ws.confirm_messages === false }).catch(fail) }] satisfies menu.Item[] : []),
     ];
     const granted = (right: "send" | "control") => viewers.filter((m) => rights[right].includes(m.id)).length;
     items.push("sep",

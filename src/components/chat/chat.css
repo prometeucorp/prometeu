@@ -208,6 +208,8 @@
 .ask .row .spacer { flex: 1; }
 .ask .fb { display: flex; flex-direction: column; gap: 6px; }
 .ask .fb textarea { width: 100%; resize: vertical; }
+/* A teammate's message waiting for the owner keeps its text as typed and scrolls when long. */
+.ask.pending .pending-text { margin: 0; max-height: 8.5em; overflow: auto; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask .qtabs { display: flex; gap: 2px; border-bottom: 1px solid rgb(224 160 48 / 0.35); }
 .ask .qtab {
   height: 28px; padding: 0 10px; gap: 6px; border: none; border-radius: 0; background: none;

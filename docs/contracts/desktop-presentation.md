@@ -64,15 +64,22 @@ component gallery does not initialize that integration.
 ## Chat and Git components
 
 `src/components/chat/` owns conversation blocks, work summaries, request cards,
-composer structure, attachments, content helpers and Markdown. The canonical
-`Block` and `Ask` data are presentation inputs. Components have no ChatView,
-Tauri or catalog subscriptions. Domain components use the existing i18n adapter,
-which reads the language preference. Shared layout components receive labels.
+waiting teammate messages, composer structure, attachments, content helpers and
+Markdown. The canonical `Block` and `Ask` data are presentation inputs.
+Components have no ChatView, Tauri or catalog subscriptions. Domain components
+use the existing i18n adapter, which reads the language preference. Shared
+layout components receive labels.
 
 `requestCard` reports a typed `RequestResponse`; `allowAlways` is a distinct
 callback. ChatView still sends the permission mode change and waits for success
 before allowing the request. Local question answers and feedback focus remain
 in the card. The host keeps the identity of an open feedback request.
+
+`pendingCard` draws a teammate's waiting message as an attention card and
+reports Send, Edit and Discard through callbacks; the text renders as typed,
+never as markup. The collaboration core holds, sends and drops the message, and
+ChatView ends dictation before moving an edited one into the shared draft
+([ADR 0090](../decisions/0090-approved-remote-input.md)).
 
 `composer` returns its root, textarea and named controls. ChatView supplies click
 callbacks and retains completion, keyboard dispatch, paste, voice, transport,

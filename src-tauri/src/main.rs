@@ -238,6 +238,7 @@ fn main() {
             session::set_tab_choice,
             session::set_unread,
             session::set_shared,
+            session::set_confirm_messages,
             session::look_at,
             session::rename_workspace,
             session::remove_workspace,

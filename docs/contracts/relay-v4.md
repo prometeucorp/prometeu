@@ -137,7 +137,10 @@ An authenticated and approved message from a companion whose `person` is the
 conversation's owner reaches the agent with the original text, as a message
 from the person themselves. Peers and legacy teams keep the team's authorship
 prefix. That distinction uses the authorized roster, never the name or a field
-sent freely in the message.
+sent freely in the message. A peer's message waits on the owner's Mac, in
+memory, until the owner sends, edits or discards it, unless the workspace turned
+owner confirmation off; interrupts and answers do not wait. The sender receives
+no receipt either way.
 
 Peers' comments use the last authenticated audience they received. If the relay
 omits an update, revocation may be delayed for those senders. Content already
