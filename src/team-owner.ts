@@ -511,18 +511,13 @@ function take(id: string): Held | null {
   return holds(m) ? m : null;
 }
 
-/// Send a held message as its sender's, with the team prefix. Resolves false when it is gone; a failed send keeps it
-/// waiting so the owner can try again.
+/// Send a held message as its sender's, with the team prefix, the way the composer sends: it leaves the wait at once
+/// and a failure is only reported, because a stopped agent may already have queued the text before its restart failed.
+/// Resolves false when it is gone.
 export async function sendPending(id: string): Promise<boolean> {
-  const at = held.findIndex(m => m.id === id);
   const m = take(id);
   if (!m) return false;
-  try {
-    await host.prompt(m.tab, t("team.remotePrompt", { name: m.author, text: m.text }));
-  } catch (error) {
-    if (holds(m)) { held.splice(Math.min(at, held.length), 0, m); ctx.changed(); }
-    throw error;
-  }
+  await host.prompt(m.tab, t("team.remotePrompt", { name: m.author, text: m.text }));
   return true;
 }
 

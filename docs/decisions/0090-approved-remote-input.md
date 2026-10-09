@@ -147,8 +147,10 @@ any, so it stays with Send messages.
 - The pending item lives only in memory while the app is open: it outlasts a
   dropped connection, but not an organization switch or quitting. There is no
   offline inbox, and a third party's content is never written to disk.
-- Send keeps the "Message from {name}" prefix, and a failed send keeps the item
-  waiting. Edit moves the text into the owner's draft, after anything already
+- Send keeps the "Message from {name}" prefix and works like the composer: the
+  item leaves at once and a failure is only reported, because a stopped agent
+  may already have queued the text before its restart failed. Edit ends any
+  dictation and moves the text into the owner's draft, after anything already
   typed; whatever the owner sends from there is the owner's own message.
 - The pending item is dropped when its workspace or conversation disappears or
   stops being shared here, or when the sender loses Send messages. Turning the
@@ -237,7 +239,8 @@ Each change updates this section and the contracts when it lands.
   [browser core](../../src/team-member.test.ts) reflects them for a viewer.
 - [Owner confirmation](../../src/team-owner.test.ts): through the portable
   core, a teammate's message waits; Send keeps the prefix, Edit hands back the
-  text alone, Discard forgets it and a failed send keeps it. It drops with its
+  text alone, Discard forgets it and a failed send is reported without holding
+  the message again. It drops with its
   conversation, workspace, share or the sender's right, survives a dropped
   connection but not the organization, and a flood keeps the latest 20.
   Interrupts, answers and the owner's devices run at once, boards from before

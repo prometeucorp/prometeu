@@ -78,7 +78,7 @@ in the card. The host keeps the identity of an open feedback request.
 `pendingCard` draws a teammate's waiting message as an attention card and
 reports Send, Edit and Discard through callbacks; the text renders as typed,
 never as markup. The collaboration core holds, sends and drops the message, and
-ChatView moves an edited one into the shared draft
+ChatView ends dictation before moving an edited one into the shared draft
 ([ADR 0090](../decisions/0090-approved-remote-input.md)).
 
 `composer` returns its root, textarea and named controls. ChatView supplies click

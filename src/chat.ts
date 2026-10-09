@@ -1352,8 +1352,10 @@ export class ChatView {
   }
 
   /// Editing moves a teammate's waiting message into this conversation's draft, after anything already typed; from
-  /// there it is the owner's own message. Drafts stay in memory, so the text still never reaches disk.
+  /// there it is the owner's own message. Drafts stay in memory, so the text still never reaches disk. Dictation ends
+  /// first, as when sending, so a late transcript cannot overwrite the moved text.
   private adopt(id: string) {
+    this.stopVoice?.(true);
     const key = this.key;
     const text = key ? team.editPending(id) : null;
     if (!key || text === null) return;

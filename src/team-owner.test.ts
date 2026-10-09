@@ -384,14 +384,16 @@ it("hands an edited message to the owner without the prefix and forgets a discar
   expect(host.prompt).not.toHaveBeenCalled();
 });
 
-it("keeps a held message when sending it fails, so the owner can try again", async () => {
+it("reports a failed send like the composer, without holding the message again", async () => {
   await upgradedFrom(holding());
   await settled(await write(devices[1], "Merge it"));
   const [held] = owner.pendingIn("tab1");
+  // A stopped agent queues the text before its restart fails, so offering it again could run it twice.
   host.prompt.mockRejectedValueOnce("err.session.noTab");
   await expect(owner.sendPending(held.id)).rejects.toBe("err.session.noTab");
-  expect(owner.pendingIn("tab1")).toEqual([held]);
-  expect(await owner.sendPending(held.id)).toBe(true);
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  expect(await owner.sendPending(held.id)).toBe(false);
+  expect(host.prompt).toHaveBeenCalledTimes(1);
 });
 
 it.each([
