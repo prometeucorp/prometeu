@@ -44,7 +44,9 @@ to a primary member of the same roster, without chains, and persists the field.
 In the client, audiences and mentions still name people. The encrypted channel
 expands each person into their devices when choosing the boxes' recipients, in
 the audience published in the relay and in the mentions. The owner accepts a
-device through the person it belongs to when validating `watch` and `write`. The
+device through the person it belongs to when validating `watch` and `write`,
+and runs that device's input only after approving its key
+([ADR 0090](0090-approved-remote-input.md)). The
 interface chooses the audience and mentions among people (`people()`). The
 members list also shows people since [ADR 0041](0041-members-list-shows-people.md);
 keys stay pinned per device, because the TOFU link is per key.

@@ -23,7 +23,9 @@ send other updates to a socket that has not identified itself yet.
 
 The client records each member/key link before use. A changed key replaces the
 link automatically, with no local acceptance ([ADR 0042](../decisions/0042-automatic-key-rotation.md)). Missing keys receive no
-content and do not erase links. Renewing tickets does not reset TOFU.
+content and do not erase links. Renewing tickets does not reset TOFU. Content
+follows the link; remote input additionally needs the owner's approval of that
+member and key, described under [Authority and replay](#authority-and-replay).
 See [organizations](cloud-organizations.md) for leases and Cloud authorization.
 
 After the identity, organization sockets receive `lease { expires_in }` (1 to
@@ -111,11 +113,21 @@ the action. The receipts survive reconnection and restart. Local card validation
 is still mandatory. Conversation sequences handle snapshot/live duplicates; the
 relay may still omit content or present an incomplete history.
 
-An authenticated message from a companion whose `person` is the conversation's
-owner reaches the agent with the original text, as a message from the person
-themselves. Peers and legacy teams keep the team's authorship prefix. That
-distinction uses the authorized roster, never the name or a field sent freely in
-the message.
+The owner runs remote input (prompts, `turn.interrupt` and `request.respond`)
+only from a member whose current key it approved locally
+([ADR 0090](../decisions/0090-approved-remote-input.md)). Approvals are per
+scope and per member and key; the relay neither receives nor enforces them. For
+any other sender, the owner opens the envelope and spends the receipt as usual,
+then discards the input without running it and records a notice that names the
+person. A changed key, a member that first appears in the directory and a new
+device, including one whose `person` is the owner, fall in that case. `watch`,
+snapshots, the live stream and comments do not depend on approval.
+
+An authenticated and approved message from a companion whose `person` is the
+conversation's owner reaches the agent with the original text, as a message
+from the person themselves. Peers and legacy teams keep the team's authorship
+prefix. That distinction uses the authorized roster, never the name or a field
+sent freely in the message.
 
 Peers' comments use the last authenticated audience they received. If the relay
 omits an update, revocation may be delayed for those senders. Content already
@@ -134,8 +146,9 @@ encrypting, the client expands each person into their devices that have a key:
 the boxes, the audience published in the relay and the frame's `mentions` come
 to list devices, so the relay applies `watch`, `attach`, `write` and inbox per
 device without knowing the rule. The owner accepts `watch` and `write` from a
-device through the person it belongs to. Key links and receipts stay per device. Decision and limits in
-[ADR 0027](../decisions/0027-companion-devices.md).
+device through the person it belongs to, and runs that `write` only once the
+device's key is approved. Key links, approvals and receipts stay per device.
+Decision and limits in [ADR 0027](../decisions/0027-companion-devices.md).
 
 The owner's companion devices enter the recipient list only when the local
 `Workspace.remote_control` is active. That permission does not cross the
@@ -170,8 +183,9 @@ content in v3 collaboration; see the limits and the operation in ADR 0022.
 ## Evidence
 
 `team-crypto.test.ts`, `team-security.test.ts` and `team-channel.test.ts` check
-the client's boundary with real cryptography. `protocol.test.ts` and
-`logic.test.ts` check the relay's contracts and rules. The real local Worker is
+the client's boundary with real cryptography; `team-owner.test.ts` checks that
+input runs only from approved identities while content keeps flowing.
+`protocol.test.ts` and `logic.test.ts` check the relay's contracts and rules. The real local Worker is
 exercised in `relay/src/worker.integration.test.ts`, and the web mock uses the
 same encrypted channel for the E2E flows. There has been no independent security
 audit. `team-organizations.test.ts` covers renewal on the same socket, discarding

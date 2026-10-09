@@ -40,6 +40,9 @@ audience contains only the authorized devices.
 ## Consequences
 
 - Enabling remote control does not share the workspace with other people.
+- Enabling remote control approves the input of the owner's devices that exist
+  then; a device added or changed later waits for the owner's answer on the Mac
+  ([ADR 0090](0090-approved-remote-input.md)).
 - Disabling it revokes the personal devices without removing the team's
   audience.
 - Old boards receive `remote_control: false` by default.

@@ -89,7 +89,8 @@ optional for local work; model access comes from your own provider account.
   actions include an editable code review profile.
 - **Optional collaboration.** Share live conversations and comment on them
   with your team, or continue from your own companion devices. Execution stays
-  on the owner's computer.
+  on the owner's computer; messages and request answers from a new or changed
+  device wait until the owner allows that device there.
 - **Dictation.** Speak into the message box; the transcript appears as you
   talk, and the dictation language is a preference of its own.
 - **Portuguese and English UI.** Agent output and your content keep their
@@ -314,7 +315,10 @@ display behavior depends on the desktop compositor.
 
 Shared conversation content uses end-to-end encryption. The relay still sees
 routing metadata, and member keys are trusted as the relay directory reports
-them, including later key changes. There is no forward secrecy. This encryption does not cover content sent to model
+them, including later key changes. Remote messages and control, which run on
+your Mac, are accepted only from devices you approved there; a new or changed
+device keeps seeing shared content but its input waits for your answer. There
+is no forward secrecy. This encryption does not cover content sent to model
 providers or protect a compromised device. See the
 [security design and limits](docs/decisions/0022-end-to-end-encryption.md).
 

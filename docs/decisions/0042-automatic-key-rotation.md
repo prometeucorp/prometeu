@@ -50,10 +50,17 @@ absence of key transparency; now it also applies to later changes. Whoever needs
 external verification depends on a future feature — a comparable code or key
 transparency — and not on a block nobody reads.
 
-The `team-security.json` file keeps the same format: the `peers` field still
-stores one key per member, it is just overwritten now. There is no migration
-and no change to IPC, the relay protocol or a persisted format, so a format
-compatibility test does not apply.
+The silent adoption covers content only. Input is execution on the owner's Mac:
+agents run tools without per-tool approval by default, and `request.respond`
+answers the approvals that exist as a human gate. Since
+[ADR 0090](0090-approved-remote-input.md), a replaced key keeps receiving
+content without intervention, but messages and control from it are discarded
+until the owner approves that device on the Mac. The cost of a silent
+replacement is the disclosure of new content, not the execution of commands.
+
+The `peers` field of `team-security.json` still stores one key per member and
+is overwritten on a change. ADR 0090 adds the owner's input approvals next to
+it; the links keep their meaning.
 
 ## Evidence
 

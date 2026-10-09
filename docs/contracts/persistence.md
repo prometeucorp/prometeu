@@ -89,9 +89,21 @@ sequence, the last owner/key/revision/ID per share, receipts for remote messages
 and the clock of the last consumption. Limits: 64 links, 4096 shares and 4096
 unexpired receipts per scope. Receipts expire within two minutes.
 
-Identity creation, a member link — first or replaced —, a revision and a receipt
-are written before the corresponding use. Corruption, an unknown version and a
-read/write failure block collaboration; they do not silently regenerate keys.
+Each scope also holds `approved`, the member → key pairs whose remote input the
+owner approved, and `paused`, the member → workspace IDs where input from an
+unapproved key was discarded until the owner answers its notice. `paused`
+holds identifiers only, never message content. Limits: 64 approvals and 64
+paused members with up to 64 workspaces each. A scope written before approvals
+existed has no `approved` field: on load, its links become approved, so an
+upgrade keeps teams working. A new scope starts with no approvals. A rollback
+to a version without these fields drops them at its next write; upgrading again
+approves the links present then. See
+[ADR 0090](../decisions/0090-approved-remote-input.md).
+
+Identity creation, a member link — first or replaced —, an approval, a revision
+and a receipt are written before the corresponding use. Corruption, an unknown
+version and a read/write failure block collaboration; they do not silently
+regenerate keys.
 Leaving the team, switching organizations, logging out and renewing a ticket do
 not remove the file. The webview's operations are serialized; the Rust write
 uses the same lock during read/validation/write.

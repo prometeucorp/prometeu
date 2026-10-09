@@ -34,7 +34,10 @@ devices is connected. The per-member code button goes away, along with the
 comparison dialog and the `code()` method of `TeamSecurity`.
 
 There is no changed-key review. Key persistence and automatic adoption remain
-per device under ADR 0042, independently of the person shown in the list.
+per device under ADR 0042, independently of the person shown in the list. Input
+from a changed or new device waits for the owner's answer above the
+conversations of the workspace where it arrived, never in this list, and that
+notice also names the person ([ADR 0090](0090-approved-remote-input.md)).
 
 ## Consequences
 

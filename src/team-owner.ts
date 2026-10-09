@@ -178,19 +178,33 @@ function canReceive(tab: string, member: string): boolean {
   return admitted(access.audience, access.remoteControl, member);
 }
 
-/// Share with everyone using null, selected members using IDs, or stop team sharing using false.
-export async function share(id: string, audience: string[] | null | false) {
+/// Share with everyone using null, selected people using IDs, or stop team sharing using false. Choosing a person
+/// grants their input, so the devices they have now become approved; the whole organization approves nobody (ADR 0090).
+/// Resolves how many devices became approved.
+export async function share(id: string, audience: string[] | null | false): Promise<number> {
+  const workspace = lastBoard?.workspaces.find(w => w.id === id);
+  const before = workspace && sharedWithTeam(workspace) ? workspace.audience ?? [] : [];
+  const generation = ctx.generation();
+  await setAudience(id, audience);
+  return approve((audience || []).filter(person => !before.includes(person)), generation);
+}
+
+async function setAudience(id: string, audience: string[] | null | false) {
   const workspace = lastBoard?.workspaces.find(w => w.id === id);
   const teamAudience = audience !== false && (audience === null || audience.length > 0) ? audience : [];
   await setAccess(id, teamAudience, workspace?.remote_control ?? false);
 }
 
-/// Toggle access for the owner's companion devices without changing the team audience.
-export async function remoteControl(id: string, enabled: boolean) {
+/// Toggle access for the owner's companion devices without changing the team audience. Turning it on approves the
+/// devices the owner has now (ADR 0090); resolves how many became approved.
+export async function remoteControl(id: string, enabled: boolean): Promise<number> {
   const workspace = lastBoard?.workspaces.find(w => w.id === id);
-  if (!workspace) return;
+  if (!workspace) return 0;
   const audience = workspace.shared && (workspace.audience === null || workspace.audience.length > 0) ? workspace.audience : [];
+  const generation = ctx.generation();
   await setAccess(id, audience, enabled);
+  const you = ctx.you();
+  return enabled && you ? approve([personOf(ctx.members(), you)], generation) : 0;
 }
 
 async function setAccess(id: string, audience: string[] | null, remoteControl: boolean) {
@@ -220,12 +234,57 @@ async function setAccess(id: string, audience: string[] | null, remoteControl: b
 }
 
 /// Expand an owned share's audience before mentioning a new member, so the relay accepts the mention that follows.
+/// A mention lets that person read and comment; it is not the owner's consent to their input.
 export async function includeMentioned(id: string, mentions: string[]) {
   const w = lastBoard?.workspaces.find((x) => x.id === id);
   if (w && sharedHere(w) && !w.remote && w.audience) {
     const missing = mentions.filter((m) => !w.audience!.includes(m));
-    if (missing.length) await share(id, [...w.audience, ...missing]);
+    if (missing.length) await setAudience(id, [...w.audience, ...missing]);
   }
+}
+
+/* Input approval: content follows a peer's adopted key, input waits for the owner (ADR 0090). */
+
+/// A person whose discarded input in a local workspace awaits the owner's answer; `own` marks the owner's devices.
+export type PausedInput = { person: string; name: string; own: boolean };
+
+/// Approve the current keys of every device of these people; resolves how many became approved. Consent belongs to
+/// the connection it was given on, so nothing is approved once the owner reconnected or switched organizations.
+async function approve(people: string[], generation = ctx.generation()): Promise<number> {
+  if (generation !== ctx.generation()) return 0;
+  const members = ctx.members();
+  const devices = members.filter(m => people.includes(personOf(members, m.id))).map(m => m.id);
+  if (!devices.length) return 0;
+  return await ctx.secure(security => security.approve(devices)) ?? 0;
+}
+
+/// People with discarded input in this workspace who can still reach it, named as people, never devices (ADR 0041).
+export function pausedIn(id: string): PausedInput[] {
+  const security = ctx.channel()?.security;
+  const w = lastBoard?.workspaces.find(w => w.id === id);
+  if (!security || !w || w.remote || !sharedHere(w)) return [];
+  const you = ctx.you(), members = ctx.members();
+  const people = new Set<string>();
+  for (const [member, workspaces] of Object.entries(security.paused())) {
+    if (workspaces.includes(id) && admitted(w.audience, w.remote_control, member)) people.add(personOf(members, member));
+  }
+  const self = you && personOf(members, you);
+  return [...people].map(person => ({ person, name: ctx.nameOf(person), own: person === self }));
+}
+
+/// The owner's answer to the notice: input from the person's current devices runs again across the scope.
+export async function allowInput(person: string): Promise<number> {
+  const count = await approve([person]);
+  ctx.changed();
+  return count;
+}
+
+/// Hide the notice without approving; the next discarded input from that person shows it again.
+export async function dismissInput(person: string) {
+  const members = ctx.members();
+  const devices = members.filter(m => personOf(members, m.id) === person).map(m => m.id);
+  await ctx.secure(security => security.dismiss(devices));
+  ctx.changed();
 }
 
 export const sharedHere = (workspace: Workspace) => {
@@ -340,6 +399,12 @@ function push(data: Uint8Array): boolean {
 function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab)) return;
   if (!canReceive(tab, from)) return;
+  // Input is execution on this Mac: it runs only from a member and key the owner approved. The channel already
+  // spent this message's replay receipt, so discarded input can never run later (ADR 0090).
+  if (!ctx.channel()?.security.approved(from)) {
+    void ctx.secure(security => security.pause(from, ws)).then(added => { if (added) ctx.changed(); }).catch(() => {});
+    return;
+  }
   const parsed = parseRemoteControl(data);
   if (parsed.recognized) {
     if (parsed.frame) void host.control(tab, parsed.frame).catch(() => {});

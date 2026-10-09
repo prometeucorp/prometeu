@@ -1,5 +1,6 @@
 import type { Down, Member, Shared, Up } from "../relay/src/protocol";
 import type { TeamChannel } from "./team-channel";
+import type { TeamSecurity } from "./team-security";
 
 /// Contracts between the portable collaboration core (team-member.ts and its features) and the shell that hosts it.
 /// The desktop shell is team.ts; a browser shell supplies the same ports without Tauri. See ADR 0026.
@@ -63,6 +64,9 @@ export type Context = {
   shares(): Map<string, Shared>;
   membership(): Membership | null;
   channel(): TeamChannel | null;
+  /// Write security state on the connection's queue, after the frames already queued and before a reconnect
+  /// reloads the store. Resolves null instead of writing once that connection is gone.
+  secure<T>(work: (security: TeamSecurity) => Promise<T>): Promise<T | null>;
   nameOf(member: string): string;
 };
 

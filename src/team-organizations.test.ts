@@ -121,6 +121,9 @@ it("sends the owner's companion input as their own message and still identifies 
   ]);
   team.boardChanged(board({ ...workspace("organization:organization1:membership1"), remote_control: true }));
   await vi.waitFor(() => expect(sockets[0].sent.some(frame => !(frame instanceof Uint8Array) && frame.t === "share")).toBe(true));
+  // Turning remote control on and choosing the colleague are the owner's consent to their current devices (ADR 0090).
+  expect(await team.remoteControl("workspace1", true)).toBe(1);
+  expect(await team.share("workspace1", ["colleague"])).toBe(1);
   const identity = sockets[0].sent.find((frame): frame is Extract<Up, { t: "identity" }> => !(frame instanceof Uint8Array) && frame.t === "identity")!;
   for (const [from, sender, expected] of [["phone1", phone, "Faz o merge"], ["colleague", colleague, t("team.remotePrompt", { name: "Bob", text: "Faz o merge" })]] as const) {
     const id = crypto.randomUUID();
