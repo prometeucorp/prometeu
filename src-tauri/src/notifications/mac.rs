@@ -6,9 +6,10 @@ use objc2::{
     define_class, msg_send,
     rc::Retained,
     runtime::{Bool, ProtocolObject},
-    AnyThread, DefinedClass,
+    AnyThread, DefinedClass, MainThreadMarker,
 };
-use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+use objc2_app_kit::NSScreen;
+use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSProcessInfo, NSString};
 use objc2_user_notifications::*;
 use std::{cell::RefCell, ptr::NonNull, sync::mpsc, time::Duration};
 
@@ -64,6 +65,55 @@ fn available() -> bool {
     let bundle = NSBundle::mainBundle();
     // UserNotifications can abort an unbundled `tauri dev` process, even with an embedded plist.
     bundle.bundlePath().to_string().ends_with(".app") && bundle.bundleIdentifier().is_some()
+}
+
+pub fn top_offset(monitor: &tauri::Monitor) -> f64 {
+    let scale = monitor.scale_factor();
+    let x = f64::from(monitor.position().x) / scale;
+    let width = f64::from(monitor.size().width) / scale;
+    let height = f64::from(monitor.size().height) / scale;
+    let Some(mtm) = MainThreadMarker::new() else {
+        return 0.0;
+    };
+    NSScreen::screens(mtm)
+        .iter()
+        .find(|screen| {
+            let frame = screen.frame();
+            (frame.origin.x - x).abs() <= 0.5
+                && (frame.size.width - width).abs() <= 0.5
+                && (frame.size.height - height).abs() <= 0.5
+        })
+        .map(|screen| {
+            let frame = screen.frame();
+            let visible = screen.visibleFrame();
+            let menu_bar =
+                (frame.origin.y + frame.size.height) - (visible.origin.y + visible.size.height);
+            offset(notch_top(&screen), menu_bar)
+        })
+        .unwrap_or(0.0)
+}
+
+// safeAreaInsets needs macOS 12; older releases have no notch to hang from.
+fn notch_top(screen: &NSScreen) -> f64 {
+    if NSProcessInfo::processInfo()
+        .operatingSystemVersion()
+        .majorVersion
+        >= 12
+    {
+        screen.safeAreaInsets().top
+    } else {
+        0.0
+    }
+}
+
+// A notched display hangs the island from the top edge over the camera housing;
+// anywhere else the island would cover the menu bar, so it starts below it.
+fn offset(notch_top: f64, menu_bar: f64) -> f64 {
+    if notch_top > 0.0 {
+        0.0
+    } else {
+        menu_bar
+    }
 }
 
 pub fn install(app: &tauri::AppHandle) {
@@ -150,4 +200,15 @@ pub fn banner(notice: &Notice) -> Result<(), String> {
     UNUserNotificationCenter::currentNotificationCenter()
         .addNotificationRequest_withCompletionHandler(&request, Some(&callback));
     rx.recv_timeout(Duration::from_secs(10)).map_err(i18n::io)?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notchless_displays_push_the_island_below_the_menu_bar() {
+        assert_eq!(offset(37.0, 25.0), 0.0);
+        assert_eq!(offset(0.0, 25.0), 25.0);
+    }
 }

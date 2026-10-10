@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
 const WINDOW: &str = "notification";
+const WIDTH: f64 = 360.0;
+const HEIGHT: f64 = 96.0;
 static CURRENT: Mutex<Option<Notice>> = Mutex::new(None);
 static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -172,7 +174,7 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
             tauri::WebviewUrl::App("notification.html".into()),
         )
         .title("Prometeu")
-        .inner_size(360.0, 96.0)
+        .inner_size(WIDTH, HEIGHT)
         .decorations(false)
         .resizable(false)
         .focused(false)
@@ -185,18 +187,7 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
         .build()
         .map_err(i18n::io)?
     };
-    let monitor = app
-        .get_webview_window("main")
-        .and_then(|main| main.current_monitor().ok().flatten())
-        .or_else(|| overlay.primary_monitor().ok().flatten())
-        .ok_or_else(|| i18n::t("err.notifications.unavailable"))?;
-    let scale = monitor.scale_factor();
-    let x =
-        (f64::from(monitor.position().x) + f64::from(monitor.size().width) / 2.0) / scale - 180.0;
-    let y = f64::from(monitor.position().y) / scale;
-    overlay
-        .set_position(tauri::LogicalPosition::new(x, y))
-        .map_err(i18n::io)?;
+    place(app, &overlay)?;
     *lock(&CURRENT) = Some(notice.clone());
     overlay.emit("notification", notice).map_err(i18n::io)?;
     #[cfg(target_os = "macos")]
@@ -243,6 +234,74 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
         });
     });
     Ok(())
+}
+
+fn place(app: &tauri::AppHandle, overlay: &tauri::WebviewWindow) -> Result<(), String> {
+    let monitor = select_monitor(app, overlay)?;
+    let scale = monitor.scale_factor();
+    #[cfg(target_os = "macos")]
+    let top = mac::top_offset(&monitor);
+    #[cfg(not(target_os = "macos"))]
+    let top = 0.0;
+    let (x, y) = island_point(
+        monitor.position().x,
+        monitor.size().width,
+        monitor.position().y,
+        scale,
+        top,
+    );
+    overlay
+        .set_position(tauri::LogicalPosition::new(x, y))
+        .map_err(i18n::io)
+}
+
+// The island follows the display in use: the pointer's, then the main window's, then the primary.
+fn select_monitor(
+    app: &tauri::AppHandle,
+    overlay: &tauri::WebviewWindow,
+) -> Result<tauri::Monitor, String> {
+    cursor_monitor(app)
+        .or_else(|| {
+            app.get_webview_window("main")
+                .and_then(|main| main.current_monitor().ok().flatten())
+        })
+        .or_else(|| overlay.primary_monitor().ok().flatten())
+        .ok_or_else(|| i18n::t("err.notifications.unavailable"))
+}
+
+// tao reports the cursor in physical points of the primary display while monitor frames
+// mix per-display scales, so the lookup compares everything in logical space.
+fn cursor_monitor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    let point = app.cursor_position().ok()?;
+    let scale = app.primary_monitor().ok().flatten()?.scale_factor();
+    let (x, y) = (point.x / scale, point.y / scale);
+    app.available_monitors().ok()?.into_iter().find(|monitor| {
+        let scale = monitor.scale_factor();
+        contains_logical(
+            f64::from(monitor.position().x) / scale,
+            f64::from(monitor.position().y) / scale,
+            f64::from(monitor.size().width) / scale,
+            f64::from(monitor.size().height) / scale,
+            x,
+            y,
+        )
+    })
+}
+
+fn contains_logical(mx: f64, my: f64, mw: f64, mh: f64, x: f64, y: f64) -> bool {
+    x >= mx && x < mx + mw && y >= my && y < my + mh
+}
+
+fn island_point(
+    physical_x: i32,
+    physical_width: u32,
+    physical_y: i32,
+    scale: f64,
+    top_offset: f64,
+) -> (f64, f64) {
+    let x = (f64::from(physical_x) + f64::from(physical_width) / 2.0) / scale - WIDTH / 2.0;
+    let y = f64::from(physical_y) / scale + top_offset;
+    (x, y)
 }
 
 #[tauri::command]
@@ -319,8 +378,19 @@ pub fn shutdown() {
 pub fn install(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     mac::install(app);
-    #[cfg(not(target_os = "macos"))]
-    let _ = app;
+    let Some(main) = app.get_webview_window("main") else {
+        return;
+    };
+    let handle = app.clone();
+    main.on_window_event(move |event| {
+        if let tauri::WindowEvent::Moved(_) = event {
+            if let Some(overlay) = handle.get_webview_window(WINDOW) {
+                if overlay.is_visible().unwrap_or(false) {
+                    let _ = place(&handle, &overlay);
+                }
+            }
+        }
+    });
 }
 
 #[cfg(test)]
@@ -338,5 +408,19 @@ mod tests {
         let mut invalid = json;
         invalid["sound"] = serde_json::json!("/tmp/arbitrary.aiff");
         assert!(serde_json::from_value::<Notice>(invalid).is_err());
+    }
+
+    #[test]
+    fn island_centers_on_the_monitor_and_applies_the_top_offset() {
+        assert_eq!(island_point(0, 3024, 0, 2.0, 0.0), (576.0, 0.0));
+        assert_eq!(island_point(0, 3024, 0, 2.0, 25.0), (576.0, 25.0));
+        assert_eq!(island_point(3024, 3840, 0, 2.0, 0.0), (2292.0, 0.0));
+    }
+
+    #[test]
+    fn cursor_lookup_uses_each_monitor_logical_frame() {
+        assert!(contains_logical(0.0, 0.0, 1512.0, 982.0, 1511.0, 500.0));
+        assert!(!contains_logical(0.0, 0.0, 1512.0, 982.0, 1512.0, 500.0));
+        assert!(contains_logical(1512.0, 0.0, 1920.0, 1080.0, 1512.0, 500.0));
     }
 }

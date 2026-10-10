@@ -73,16 +73,19 @@ revalidates the workspace before opening it. Notification body contains only
 the workspace title, not conversation or tool output.
 
 The notch is a separate local Tauri window with a dedicated built entry and
-event-listening capability. It renders text nodes, stays at the top center of
-the main window's display and does not activate the application when shown.
-Its 360-by-96-point surface reserves the top strip for the camera and clips its
-lower corners in AppKit as well as CSS; an opaque rectangular window would
-otherwise cover the rounded web content.
-It also works on displays without a physical notch. One notice replaces the
-previous notice; it disappears after eight seconds. A generation check prevents
-an older timer from dismissing a replacement. Opening an actual conversation
-is the only action that focuses the main window. The local page is not a new
-remote IPC surface.
+event-listening capability. It renders text nodes and does not activate the
+application when shown. It stays at the top center of the display in use: the
+one under the pointer, falling back to the main window's display and then to
+the primary display; while a notice is visible it follows the main window
+across displays. On displays with a camera notch its 360-by-96-point surface
+hangs from the top edge and reserves the top strip for the camera; on displays
+without a notch it sits directly below the menu bar, so it never covers the
+menus. It clips its lower corners in AppKit as well as CSS; an opaque
+rectangular window would otherwise cover the rounded web content. One notice
+replaces the previous notice; it disappears after eight seconds. A generation
+check prevents an older timer from dismissing a replacement. Opening an actual
+conversation is the only action that focuses the main window. The local page is
+not a new remote IPC surface.
 
 Sound is independent of visual delivery and uses `/usr/bin/afplay` with three
 fixed system files: Pop, Glass and Ping. It never accepts a filename or shell
