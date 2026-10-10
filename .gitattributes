@@ -1,0 +1,3 @@
+# Check out LF everywhere, including Windows with core.autocrlf. Shell scripts and fixtures are
+# embedded byte for byte (include_str!) and run inside WSL, where CRLF breaks sh.
+* text=auto eol=lf

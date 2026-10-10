@@ -21,7 +21,8 @@ const forbidden = [
 
 const sources = new Map();
 for (const root of ["src", "relay/src", "packages/design-system/src"]) {
-  const files = (await readdir(root, { recursive: true })).sort()
+  // Windows returns backslash-separated entries; the checker resolves POSIX paths.
+  const files = (await readdir(root, { recursive: true })).map((file) => file.replaceAll("\\", "/")).sort()
     .filter((file) => /\.[cm]?[jt]sx?$/.test(file) && !/\.(?:test|spec|d)\.[cm]?[jt]sx?$/.test(file));
   for (const file of files) sources.set(`${root}/${file}`, await readFile(`${root}/${file}`, "utf8"));
 }
