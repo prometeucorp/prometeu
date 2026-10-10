@@ -1,7 +1,7 @@
 {
   "name": "prometeu",
   "private": true,
-  "version": "0.28.1",
+  "version": "0.29.0",
   "type": "module",
   "packageManager": "npm@11.9.0",
   "engines": {

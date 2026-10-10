@@ -4,6 +4,25 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.29.0] - 2026-10-10
+
+### New
+
+- **team:** Run remote messages and control only from devices you allow
+- **team:** Choose per person who may message or control a shared agent
+- **team:** Hold a teammate's message until you send, edit or discard it
+
+### Fixes
+
+- **notifications:** Keep the notch island in place when displays change
+- **team:** Never carry a device approval into another organization or lose it on reconnect
+- **ui:** Open submenus on the left when the window edge has no room
+- **team:** Keep a newly granted teammate's controls when people have left the organization
+- **team:** Send a waiting message once and keep it when editing during dictation
+- **notifications:** Move the notch island with the main window
+- **notifications:** Use the app mark with an execution sweep in the island
+- **notifications:** Scale the mark into the icon box and keep the sweep in phase
+
 ## [0.28.1] - 2026-10-07
 
 ### Fixes
