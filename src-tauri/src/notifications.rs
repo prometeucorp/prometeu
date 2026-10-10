@@ -238,9 +238,14 @@ fn show_notch(app: &tauri::AppHandle, notice: &Notice) -> Result<(), String> {
 
 fn place(app: &tauri::AppHandle, overlay: &tauri::WebviewWindow) -> Result<(), String> {
     let monitor = select_monitor(app, overlay)?;
+    place_on(overlay, &monitor)
+}
+
+// A visible notice follows the main window across displays even when the pointer stays behind.
+fn place_on(overlay: &tauri::WebviewWindow, monitor: &tauri::Monitor) -> Result<(), String> {
     let scale = monitor.scale_factor();
     #[cfg(target_os = "macos")]
-    let top = mac::top_offset(&monitor);
+    let top = mac::top_offset(monitor);
     #[cfg(not(target_os = "macos"))]
     let top = 0.0;
     let (x, y) = island_point(
@@ -386,7 +391,13 @@ pub fn install(app: &tauri::AppHandle) {
         if let tauri::WindowEvent::Moved(_) = event {
             if let Some(overlay) = handle.get_webview_window(WINDOW) {
                 if overlay.is_visible().unwrap_or(false) {
-                    let _ = place(&handle, &overlay);
+                    let moved = handle
+                        .get_webview_window("main")
+                        .and_then(|main| main.current_monitor().ok().flatten());
+                    let _ = match moved {
+                        Some(monitor) => place_on(&overlay, &monitor),
+                        None => place(&handle, &overlay),
+                    };
                 }
             }
         }

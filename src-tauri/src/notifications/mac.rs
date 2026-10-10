@@ -70,18 +70,30 @@ fn available() -> bool {
 pub fn top_offset(monitor: &tauri::Monitor) -> f64 {
     let scale = monitor.scale_factor();
     let x = f64::from(monitor.position().x) / scale;
+    let y = f64::from(monitor.position().y) / scale;
     let width = f64::from(monitor.size().width) / scale;
     let height = f64::from(monitor.size().height) / scale;
     let Some(mtm) = MainThreadMarker::new() else {
         return 0.0;
     };
-    NSScreen::screens(mtm)
+    let screens = NSScreen::screens(mtm);
+    let Some(reference_height) = screens.firstObject().map(|main| main.frame().size.height) else {
+        return 0.0;
+    };
+    screens
         .iter()
         .find(|screen| {
             let frame = screen.frame();
-            (frame.origin.x - x).abs() <= 0.5
-                && (frame.size.width - width).abs() <= 0.5
-                && (frame.size.height - height).abs() <= 0.5
+            matches_frame(
+                (
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                ),
+                (x, y, width, height),
+                reference_height,
+            )
         })
         .map(|screen| {
             let frame = screen.frame();
@@ -91,6 +103,20 @@ pub fn top_offset(monitor: &tauri::Monitor) -> f64 {
             offset(notch_top(&screen), menu_bar)
         })
         .unwrap_or(0.0)
+}
+
+// AppKit frames are bottom-left anchored on the main display, so the top-anchored
+// logical y converts through the reference height; including it keeps vertically
+// stacked displays of identical size apart.
+fn matches_frame(
+    (frame_x, frame_y, frame_width, frame_height): (f64, f64, f64, f64),
+    (x, y, width, height): (f64, f64, f64, f64),
+    reference_height: f64,
+) -> bool {
+    (frame_x - x).abs() <= 0.5
+        && (frame_y - (reference_height - y - height)).abs() <= 0.5
+        && (frame_width - width).abs() <= 0.5
+        && (frame_height - height).abs() <= 0.5
 }
 
 // safeAreaInsets needs macOS 12; older releases have no notch to hang from.
@@ -210,5 +236,17 @@ mod tests {
     fn notchless_displays_push_the_island_below_the_menu_bar() {
         assert_eq!(offset(37.0, 25.0), 0.0);
         assert_eq!(offset(0.0, 25.0), 25.0);
+    }
+
+    #[test]
+    fn stacked_identical_displays_match_by_converted_y() {
+        let reference = 2160.0;
+        let top = ((0.0, 1080.0, 1920.0, 1080.0), (0.0, 0.0, 1920.0, 1080.0));
+        let bottom = ((0.0, 0.0, 1920.0, 1080.0), (0.0, 1080.0, 1920.0, 1080.0));
+        for (frame, logical) in [top, bottom] {
+            assert!(matches_frame(frame, logical, reference));
+            let swapped = (logical.0, 1080.0 - logical.1, logical.2, logical.3);
+            assert!(!matches_frame(frame, swapped, reference));
+        }
     }
 }
