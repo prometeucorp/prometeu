@@ -94,7 +94,7 @@ dedicated built entry and event-listening capability
 ([ADR 0089](../decisions/0089-notch-island.md)). It renders text nodes, never
 activates the application when shown, and accepts the first click. On macOS it
 sits on the display with a notch, collapsed to the camera housing's height and
-width plus a wing on each side for the flame and the count of waiting (or else
+width plus a wing on each side for the app mark and the count of waiting (or else
 running) conversations; without a notch it sits inside the menu bar of the main
 window's display. It is placed again whenever the display configuration
 changes, because AppKit may move it or the notched display may change, and
@@ -105,7 +105,8 @@ opaque rectangular window would otherwise cover the rounded web content.
 The island expands to 560 points while the pointer is over it or while a notice
 is showing, and returns to the housing otherwise. With the notch style, done and
 error notices only play the selected sound: the island already recolors the
-flame and shows a green signal for activity not yet looked at (the Dock's
+app mark, sweeps it while an agent executes, and shows a green signal for
+activity not yet looked at (the Dock's
 pending state). Approval notices and GitHub notices expand it; a notice about a
 conversation highlights its row, and only notices without one get a line. The backend samples the
 pointer every 100 ms while the island is on because the webview receives no

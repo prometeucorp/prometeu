@@ -1,5 +1,5 @@
 import { icon } from "../../packages/design-system/src/icons";
-export { icon, iconNames, wave, type IconName } from "../../packages/design-system/src/icons";
+export { icon, iconNames, mark, wave, type IconName } from "../../packages/design-system/src/icons";
 const CLAUDE_MARK = new URL("../claude.svg", import.meta.url).href;
 
 /* Stage icons. */
