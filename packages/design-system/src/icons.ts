@@ -79,7 +79,8 @@ const PATHS = {
     '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   "list-tree":
     '<path d="M21 12h-8"/><path d="M21 6H8"/><path d="M21 18h-8"/><path d="M3 6v4c0 1.1.9 2 2 2h3"/><path d="M3 10v6c0 1.1.9 2 2 2h3"/>',
-  flame: `<g fill="#F5683D" stroke="none">${MARK}</g>`,
+  // The app mark is drawn on a 512-unit grid, scaled into the 24px box every icon shares.
+  flame: `<g transform="scale(.046875)" fill="#F5683D" stroke="none">${MARK}</g>`,
   "git-branch":
     '<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
   "git-pull-request":

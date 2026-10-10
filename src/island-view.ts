@@ -18,8 +18,20 @@ type Tone = "run" | "wait" | "done" | "idle";
 /// The app mark carries the status tone. While running or waiting, a sweep layer wipes over a
 /// dimmed base: the revealed side grows until the mark appears, then the visible side disappears
 /// in the same direction, reading as ongoing execution.
-const flame = (tone: Tone) =>
-  template("span", `island-mark ${tone}`, `<i class="base">${mark(16)}</i><i class="sweep">${mark(16)}</i>`);
+const SWEEP: Partial<Record<Tone, number>> = { run: 1.6, wait: 3.2 };
+
+/// Snapshots arrive every 100ms while an agent works, and a fresh node would restart the sweep at
+/// its hidden frame, so busy execution would only ever show the dim base. Taking the phase from
+/// the clock instead lets every rebuild pick the loop up where the previous one was.
+const flame = (tone: Tone) => {
+  const root = template("span", `island-mark ${tone}`, `<i class="base">${mark(16)}</i><i class="sweep">${mark(16)}</i>`);
+  const seconds = SWEEP[tone];
+  if (!seconds) return root;
+  const sweep = root.querySelector<HTMLElement>(".sweep")!;
+  sweep.style.animationDuration = `${seconds}s`;
+  sweep.style.animationDelay = `-${(Date.now() / 1000) % seconds}s`;
+  return root;
+};
 
 const toneOf = (tab: IslandTab): Tone =>
   tab.status === "querendo" ? "wait" : tab.status === "rodando" ? "run" : tab.unseen ? "done" : "idle";
