@@ -62,9 +62,11 @@ pub fn island_enable(
     ENABLED.store(enabled, Ordering::SeqCst);
     if enabled {
         let handle = app.clone();
+        let main = window.clone();
         WATCH.call_once(move || {
             #[cfg(target_os = "macos")]
             follow_screens(handle.clone());
+            follow_main_window(&main, &handle);
             watch(handle);
         });
     }
@@ -286,6 +288,20 @@ fn follow_screens(app: tauri::AppHandle) {
             &block,
         )
     };
+}
+
+/// Without a notch the island anchors to the main window's display (ADR 0089), so it must be
+/// rearranged when that window moves to another display. AppKit only reports screen parameter
+/// changes, not window moves, and moving the main window across displays changes neither.
+fn follow_main_window(main: &tauri::WebviewWindow, app: &tauri::AppHandle) {
+    let app = app.clone();
+    main.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Moved(_))
+            && (ENABLED.load(Ordering::SeqCst) || notifications::notification_current().is_some())
+        {
+            schedule(&app);
+        }
+    });
 }
 
 /// Other desktops have no camera housing; the compositor decides stacking.

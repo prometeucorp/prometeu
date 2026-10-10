@@ -40,8 +40,9 @@ expands while the pointer is over it or while a notice is showing.
 - **Geometry.** On macOS the overlay sits on the display with a notch, using
   `safeAreaInsets` and the auxiliary top areas; without one it sits inside the
   menu bar of the main window's display, and it is placed again on every
-  display configuration change. Other desktops place it at the top center and
-  let the compositor decide stacking.
+  display configuration change and whenever the main window moves, so on a
+  display without a notch it follows the window it anchors to. Other desktops
+  place it at the top center and let the compositor decide stacking.
 
 ## Trade-offs
 
