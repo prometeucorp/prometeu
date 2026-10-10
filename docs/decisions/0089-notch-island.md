@@ -16,8 +16,9 @@ live conversation stream, the agent catalog, account selection and i18n.
 
 With notifications enabled and the `notch` style selected, the existing
 `notification` overlay window becomes a persistent island. It stays collapsed
-around the camera housing (a pixel-art flame and a waiting/running count) and
-expands while the pointer is over it or while a notice is showing.
+around the camera housing (the app mark, swept while an agent executes, and a
+waiting/running count) and expands while the pointer is over it or while a
+notice is showing.
 
 - **Content source.** `src/island.ts` in the main window reduces live `chat`
   events (last prompt, latest tool, open requests) and the board into a bounded
@@ -29,7 +30,7 @@ expands while the pointer is over it or while a notice is showing.
   the tab. The backend's `request.closed` then updates every view, including
   the main window's cards. Plan edits and "allow and stop asking" stay in the
   chat.
-- **Attention.** Finished turns only play the sound; the flame color and a
+- **Attention.** Finished turns only play the sound; the mark color and a
   green signal mark activity the Dock still counts as pending. Requests expand
   the island because they block the agent.
 - **Navigation.** Clicking a row calls `island_open`, which reuses the notice

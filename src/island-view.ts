@@ -1,7 +1,7 @@
 import { toolLabel } from "./components/chat/content";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
 import { fromBack, t } from "./i18n";
-import { brand } from "./icons";
+import { brand, mark } from "./icons";
 import type { IslandRequest, IslandSnapshot, IslandTab, IslandUsage } from "./island";
 import type { Notice } from "./notifications";
 import { button, input } from "./ui";
@@ -15,18 +15,11 @@ export type IslandActions = {
 };
 type Tone = "run" | "wait" | "done" | "idle";
 
-/// Pixel-art flame: a shared base and two alternating tips. o/m/c/w run from the outer edge to the
-/// core; the status class recolors them.
-const BASE = [".oommmoo.", ".omccmmo.", "oomcccmoo", "omccwccmo", "omcwwwcmo", ".omcwcmo.", "..ooooo.."];
-const TIPS = [
-  ["....o....", "...oo..o.", "..omo.oo.", "..ommomo."],
-  [".....o...", ".o..oo...", ".oo.omo..", ".omoommo."],
-];
-const pixels = (rows: string[], top: number) => rows.flatMap((row, y) => [...row].flatMap((cell, x) =>
-  cell === "." ? [] : [`<rect class="${cell}" x="${x}" y="${y + top}" width="1" height="1"/>`])).join("");
-const FLAME = `<svg viewBox="0 0 9 11" shape-rendering="crispEdges" aria-hidden="true">${pixels(BASE, 4)}${
-  TIPS.map((tip, i) => `<g class="tip${i}">${pixels(tip, 0)}</g>`).join("")}</svg>`;
-const flame = (tone: Tone) => template("span", `island-flame ${tone}`, FLAME);
+/// The app mark carries the status tone. While running or waiting, a sweep layer wipes over a
+/// dimmed base: the revealed side grows until the mark appears, then the visible side disappears
+/// in the same direction, reading as ongoing execution.
+const flame = (tone: Tone) =>
+  template("span", `island-mark ${tone}`, `<i class="base">${mark(16)}</i><i class="sweep">${mark(16)}</i>`);
 
 const toneOf = (tab: IslandTab): Tone =>
   tab.status === "querendo" ? "wait" : tab.status === "rodando" ? "run" : tab.unseen ? "done" : "idle";
