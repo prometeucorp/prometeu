@@ -97,9 +97,10 @@ sits on the display with a notch, collapsed to the camera housing's height and
 width plus a wing on each side for the flame and the count of waiting (or else
 running) conversations; without a notch it sits inside the menu bar of the main
 window's display. It is placed again whenever the display configuration
-changes, because AppKit may move it or the notched display may change. Its lower
-corners are clipped in AppKit as well as CSS; an opaque rectangular window would
-otherwise cover the rounded web content.
+changes, because AppKit may move it or the notched display may change, and
+whenever the main window moves, so on a display without a notch it follows the
+window it anchors to. Its lower corners are clipped in AppKit as well as CSS; an
+opaque rectangular window would otherwise cover the rounded web content.
 
 The island expands to 560 points while the pointer is over it or while a notice
 is showing, and returns to the housing otherwise. With the notch style, done and
