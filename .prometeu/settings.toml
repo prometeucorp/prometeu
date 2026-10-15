@@ -13,7 +13,7 @@ setup = "npm install"
 # Start the real app with this worktree's own port and ~/.prometeu-dev-<workspace> state root, including
 # native Tauri, PTY and agent behavior.
 [scripts.run.app]
-command = "sh scripts/app.sh"
+command = "node scripts/app.mjs"
 default = true
 
 # Build a debug .app and open it through LaunchServices. Only this path can dictate: macOS TCC

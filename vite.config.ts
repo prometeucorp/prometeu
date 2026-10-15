@@ -14,6 +14,7 @@ export default defineConfig({
   // Limit Vitest to this repository; nested worktrees are not excluded automatically through .gitignore.
   test: {
     include: ["src/**/*.test.ts", "relay/src/**/*.test.ts"],
+    setupFiles: ["vitest.setup.ts"],
     // Relay integration tests drive a real Worker; GitHub-hosted macOS runners need more than the
     // 5 s test and 1 s poll defaults.
     testTimeout: 30_000,
