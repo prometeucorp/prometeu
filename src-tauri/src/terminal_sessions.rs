@@ -14,6 +14,11 @@ use tauri::{AppHandle, Manager, State};
 
 type Ptys = Mutex<HashMap<String, pty::Pty>>;
 
+/// Serializes starting, ending and closing a session's shell. An end the shell reached on its own
+/// removes the record; without this, a shell started between reading that record and removing it
+/// would keep running with no sidebar entry.
+static LIFECYCLE: Mutex<()> = Mutex::new(());
+
 /// Without a folder the session starts in the home folder. Creating one registers no project,
 /// creates no worktree or branch, reserves no port and starts no agent; opening its view starts
 /// the shell.
@@ -56,16 +61,19 @@ pub fn rename_terminal(app: AppHandle, state: State<AppState>, id: String, title
 /// dock shell gets (hangup, terminate, kill).
 #[tauri::command]
 pub fn close_terminal(app: AppHandle, state: State<AppState>, id: String) {
-    let removed = sessions::remove(&mut lock(&state.board), &id).is_some();
-    pty::kill(&state, &sessions::key(&id));
+    let removed = {
+        let _lifecycle = lock(&LIFECYCLE);
+        let removed = sessions::remove(&mut lock(&state.board), &id).is_some();
+        pty::kill(&state, &sessions::key(&id));
+        removed
+    };
     if removed {
         publish(&app);
     }
     machine::publish_counts(&app);
 }
 
-/// Start the session's shell, or reuse the running one with its retained output. A folder that is
-/// gone is refused rather than replaced, so a restored session never opens somewhere else.
+/// Reattach the running shell with its retained output, or start a new one in the session's folder.
 pub(crate) fn open_shell(
     app: &AppHandle,
     state: &State<AppState>,
@@ -74,18 +82,7 @@ pub(crate) fn open_shell(
     rows: u16,
 ) -> Result<String, String> {
     let key = sessions::key(id);
-    let folder = {
-        let board = lock(&state.board);
-        sessions::find(&board, id).map(|session| PathBuf::from(&session.folder))
-    }
-    .ok_or_else(|| i18n::t("err.terminal.gone"))?;
-    let root = checked(&folder)?;
-    {
-        // Check and insert under one lock so a repeated open cannot start a second shell.
-        let mut ptys = lock(&state.ptys);
-        if ptys.get(&key).is_some_and(|pty| pty.alive()) {
-            return Ok(key);
-        }
+    let started = start(&state.board, &state.ptys, id, |root| {
         let (exit_app, exit_id) = (app.clone(), id.to_string());
         let on_exit: pty::OnExit = Box::new(move |_| {
             let Some(state) = exit_app.try_state::<AppState>() else {
@@ -95,18 +92,47 @@ pub(crate) fn open_shell(
                 publish(&exit_app);
             }
         });
-        let cmd = dock::shell_command(&platform::shell(), &root, None);
+        let cmd = dock::shell_command(&platform::shell(), root, None);
         let dock = pty::Dock {
             on_exit: Some(on_exit),
             ..pty::Dock::default()
         };
-        ptys.insert(key.clone(), pty::spawn(app, &key, cmd, cols, rows, dock)?);
+        pty::spawn(app, &key, cmd, cols, rows, dock)
+    })?;
+    if let Some(changed) = started {
+        if changed {
+            publish(app);
+        }
+        machine::publish_counts(app);
     }
-    if sessions::set_running(&mut lock(&state.board), id, true) {
-        publish(app);
-    }
-    machine::publish_counts(app);
     Ok(key)
+}
+
+/// A live shell is reused even when its starting folder moved meanwhile. A new shell needs the
+/// record and its folder: a folder that is gone is refused rather than replaced, so a restored
+/// session never opens somewhere else. Answer `None` for a reused shell, otherwise whether the
+/// board changed.
+fn start(
+    board: &Mutex<Board>,
+    ptys: &Ptys,
+    id: &str,
+    spawn: impl FnOnce(&Path) -> Result<pty::Pty, String>,
+) -> Result<Option<bool>, String> {
+    let _lifecycle = lock(&LIFECYCLE);
+    let key = sessions::key(id);
+    let folder = sessions::find(&lock(board), id)
+        .map(|session| PathBuf::from(&session.folder))
+        .ok_or_else(|| i18n::t("err.terminal.gone"))?;
+    {
+        // Check and insert under one lock so a repeated open cannot start a second shell.
+        let mut ptys = lock(ptys);
+        if ptys.get(&key).is_some_and(|pty| pty.alive()) {
+            return Ok(None);
+        }
+        let root = checked(&folder)?;
+        ptys.insert(key, spawn(&root)?);
+    }
+    Ok(Some(sessions::set_running(&mut lock(board), id, true)))
 }
 
 /// The webview's folders must be absolute existing directories; the same check guards a restored
@@ -126,6 +152,7 @@ fn checked(folder: &Path) -> Result<PathBuf, String> {
 /// ends the session: closing it, quitting the app and starting a replacement take the PTY out of
 /// the map first, so the record stays. Answer whether the board changed.
 fn ended(board: &Mutex<Board>, ptys: &Ptys, id: &str) -> bool {
+    let _lifecycle = lock(&LIFECYCLE);
     let key = sessions::key(id);
     let (gone, running) = {
         let mut ptys = lock(ptys);
@@ -226,6 +253,78 @@ mod tests {
         let board = lock(&board);
         assert_eq!(board.terminals.len(), 2);
         assert!(board.projects.is_empty() && board.workspaces.is_empty());
+    }
+
+    /// A spawn that must not run.
+    fn no_spawn(_: &Path) -> Result<pty::Pty, String> {
+        panic!("no shell may start here")
+    }
+
+    #[test]
+    fn a_stopped_session_starts_its_shell_in_its_folder_and_only_there() {
+        let folder = Folder::new();
+        let board = Mutex::new(Board::default());
+        let session = create(&board, Some(&folder.0), &folder.0).unwrap();
+        let ptys: Ptys = Mutex::new(HashMap::new());
+
+        let mut root = None;
+        let started = start(&board, &ptys, &session.id, |at| {
+            root = Some(at.to_path_buf());
+            Ok(shell(true))
+        });
+        assert_eq!(started, Ok(Some(true)));
+        assert_eq!(root.as_deref(), Some(folder.0.as_path()));
+        assert!(lock(&ptys)[&sessions::key(&session.id)].alive());
+        assert!(sessions::find(&lock(&board), &session.id).unwrap().running);
+
+        // A restored session whose folder is gone is refused instead of opening elsewhere.
+        let gone = Folder::new();
+        let restored = create(&board, Some(&gone.0), &gone.0).unwrap();
+        std::fs::remove_dir_all(&gone.0).unwrap();
+        let error = start(&board, &ptys, &restored.id, no_spawn).unwrap_err();
+        assert!(error.contains("err.terminal.folder"), "{error}");
+        assert!(!sessions::find(&lock(&board), &restored.id).unwrap().running);
+    }
+
+    #[test]
+    fn a_live_shell_is_reattached_even_after_its_folder_moved() {
+        let folder = Folder::new();
+        let board = Mutex::new(Board::default());
+        let session = running_session(&board, &folder.0);
+        let ptys: Ptys = Mutex::new(HashMap::from([(sessions::key(&session.id), shell(true))]));
+        std::fs::remove_dir_all(&folder.0).unwrap();
+
+        assert_eq!(start(&board, &ptys, &session.id, no_spawn), Ok(None));
+    }
+
+    #[test]
+    fn reopening_after_the_shell_ended_on_its_own_starts_nothing() {
+        let folder = Folder::new();
+        let board = Mutex::new(Board::default());
+        let session = running_session(&board, &folder.0);
+        let ptys: Ptys = Mutex::new(HashMap::from([(sessions::key(&session.id), shell(false))]));
+
+        assert!(ended(&board, &ptys, &session.id));
+        let error = start(&board, &ptys, &session.id, no_spawn).unwrap_err();
+        assert!(error.contains("err.terminal.gone"), "{error}");
+        assert!(lock(&ptys).is_empty());
+    }
+
+    #[test]
+    fn an_old_shell_ending_after_a_reopen_leaves_the_new_one_listed() {
+        let folder = Folder::new();
+        let board = Mutex::new(Board::default());
+        let session = running_session(&board, &folder.0);
+        // The old shell ended, but its end has not been handled yet.
+        let ptys: Ptys = Mutex::new(HashMap::from([(sessions::key(&session.id), shell(false))]));
+
+        assert_eq!(
+            start(&board, &ptys, &session.id, |_| Ok(shell(true))),
+            Ok(Some(false))
+        );
+        assert!(!ended(&board, &ptys, &session.id));
+        assert!(sessions::find(&lock(&board), &session.id).unwrap().running);
+        assert!(lock(&ptys)[&sessions::key(&session.id)].alive());
     }
 
     #[test]

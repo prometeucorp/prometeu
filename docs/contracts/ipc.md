@@ -397,7 +397,8 @@ travels in the `board` event as `Board.terminals`; see
 answers `err.terminal.folder` with `path`; it registers no project, creates no
 worktree or branch and reserves no port. Its shell starts when the view calls
 `open_dock` with the session id and `kind: "terminal"`, the only kind a session
-accepts (`err.dock.unknown` otherwise). That call checks the folder again, so a
+accepts (`err.dock.unknown` otherwise). A running shell is reattached even if its
+starting folder moved meanwhile. A new shell checks the folder again, so a
 restored session whose folder was removed answers `err.terminal.folder` instead
 of starting elsewhere, and a missing session answers `err.terminal.gone`. The
 shell runs under the dock key `<id>:terminal` with Prometeu's terminal identity
@@ -408,7 +409,9 @@ Starting the shell sets `running` and publishes the board. A shell that ends on
 its own, through `exit`, a crash or an outside signal, removes the record and
 publishes the board; its terminal is retired first, so no `pty-closed` follows
 and the board event is the signal. Closing it, quitting the app or replacing it removes the
-PTY first, so its end only clears `running`. `session.rs::cwd_of` does not
+PTY first, so its end only clears `running`. Starting, ending and closing a
+session's shell are serialized, so a shell started as the previous one ends is
+never left running without its record. `session.rs::cwd_of` does not
 resolve session ids, so file commands keep accepting only workspaces and
 projects. The commands are additive and ship with their frontend; the browser
 mock applies the same folder, kind and record rules. The WSL runtime does not

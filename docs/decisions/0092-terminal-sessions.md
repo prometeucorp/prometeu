@@ -41,13 +41,16 @@ cannot collide with a workspace UUID or a project path, so dock keys
   creates no worktree or branch, reserves no port and starts no agent.
 - **Run:** its single shell goes through the dock shell path, with Prometeu's
   terminal identity and no workspace variables. Navigation keeps it alive and
-  reattaches its retained output. A restored session whose folder is gone shows
-  a translated error instead of starting elsewhere.
+  reattaches its retained output, even if its starting folder moved. A restored
+  session whose folder is gone shows a translated error instead of starting
+  elsewhere.
 - **End:** × in the sidebar, Close in its menu, ⌘W on its view, or `exit` in the
   shell ends the session and stops the process (hangup, terminate, kill). Only a
   shell that ends on its own removes the record; closing, quitting the app and a
-  replacement take the PTY out first. Quitting the app keeps the session listed,
-  and revival clears `running`.
+  replacement take the PTY out first. Starting, ending and closing are
+  serialized, so a shell started as the previous one ends always keeps its
+  record. Quitting the app keeps the session listed, and revival clears
+  `running`.
 - **Name:** the person's name wins over the folder's own name; an empty name
   returns to the folder name. Program titles from
   [#202](https://github.com/prometeucorp/prometeu/issues/202) will sit between
