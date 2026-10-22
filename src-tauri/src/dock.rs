@@ -6,6 +6,7 @@ use crate::session::cwd_of;
 use crate::state::{Board, Workspace};
 use crate::{chat, i18n, pty, scripts, AppState};
 use portable_pty::CommandBuilder;
+use prometeu_core::terminal_sessions;
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
@@ -32,6 +33,15 @@ pub fn open_dock(
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
+    // A terminal session owns exactly one shell and no workspace state (ADR 0092).
+    if terminal_sessions::is_session(&id) {
+        return match kind.as_str() {
+            terminal_sessions::SHELL => {
+                crate::terminal_sessions::open_shell(&app, &state, &id, cols, rows)
+            }
+            other => Err(i18n::ta("err.dock.unknown", &[("kind", other.to_string())])),
+        };
+    }
     ensure_port(&app, &state, &id);
     let found = workspace_copy(&state, &id);
     let key = format!("{id}:{kind}");
@@ -293,8 +303,9 @@ fn script_name(ws: &Workspace) -> String {
         .unwrap_or_else(|| ws.branch.replace('/', "-"))
 }
 
-/// A workspace shell gets the script variables; a registered project's shell has only its folder.
-fn shell_command(shell: &str, root: &Path, ws: Option<&Workspace>) -> CommandBuilder {
+/// A workspace shell gets the script variables; a registered project's shell and a terminal
+/// session's shell have only their folder.
+pub(crate) fn shell_command(shell: &str, root: &Path, ws: Option<&Workspace>) -> CommandBuilder {
     let mut cmd = CommandBuilder::new(shell);
     cmd.cwd(root);
     prometeu_process::terminal::own_terminal(&mut cmd, Some(env!("CARGO_PKG_VERSION")));

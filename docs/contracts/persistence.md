@@ -256,6 +256,17 @@ invented name `conversa` or `conversa N` are normalized to empty on load.
 `Board.tool_trust` the decisions that let a repository's declaration activate;
 both are described in [Tool selection layers](#tool-selection-layers).
 
+`Board.terminals` lists terminal sessions in sidebar order
+([ADR 0092](../decisions/0092-terminal-sessions.md)). Each record keeps `id`
+(`terminal-<uuid>`, never containing `:`), the absolute `folder` its shell
+starts in, the person's `title` (empty shows the folder name) and `running`.
+Shells do not survive the app, so revival clears `running` and keeps the
+session listed. The list is written only when not empty, so boards without
+sessions load and save unchanged; an older version ignores the field and drops
+it on its next save. No scrollback is persisted. Tests:
+`boards_without_terminal_sessions_keep_the_previous_format` and
+`terminal_sessions_survive_a_restart_stopped` in `crates/core/src/board.rs`.
+
 Removing a project only takes its registration out of the board. The repository,
 worktrees and conversations are not deleted; workspaces linked to it appear
 under **No project**. On load, only legacy workspaces without the `project`

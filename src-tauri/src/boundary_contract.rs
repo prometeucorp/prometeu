@@ -7,6 +7,10 @@ fn board() -> state::Board {
     let mut board: state::Board = serde_json::from_value(json!({
         "stages": ["Working", "Done"],
         "projects": [{"id":"project","name":"Project","path":"/contract/repo"}],
+        "terminals": [
+            {"id":"terminal-named","folder":"/contract/home","title":"Logs","running":true},
+            {"id":"terminal-stopped","folder":"/contract/repo","title":"","running":false}
+        ],
         "workspaces": [{
             "id":"workspace","title":"Contract task","repo":"/contract/repo","repo_name":"Project",
             "branch":"task","worktree":"/contract/worktree","stage":"Working",

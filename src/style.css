@@ -122,6 +122,12 @@ body.norail .top .nav { margin-left: 0; }
 .navitem.sub.unread .lbl { color: var(--fg); font-weight: 600; }
 .navitem.sub .av { display: flex; margin: 2px -2px 0 0; }
 .navitem.sub .av .avatar { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; }
+/* Terminal sessions show the live wave while their shell runs and dim once it stopped. */
+.navitem.termsession .ic { flex: none; }
+.navitem.termsession.off { color: var(--fg-3); }
+.navitem.termsession .tabx { flex: none; opacity: 0; }
+.navitem.termsession:hover .tabx, .navitem.termsession.on .tabx, .navitem.termsession:focus-visible .tabx { opacity: 1; }
+.navitem.termsession .tabx:hover { color: var(--err); }
 /* Split multi-repository avatars while keeping each initial legible at small sizes; scale with em units. */
 .avatar.multi { position: relative; overflow: hidden; background: none; }
 .avatar.multi i { position: absolute; display: grid; place-items: center; font-style: normal; font-size: .6em; }
@@ -187,6 +193,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
 .crumb { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--fg-2); }
 .crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb .sep { color: var(--fg-3); display: flex; }
+.crumb .term-path { flex: 1; min-width: 0; color: var(--fg-3); font-family: var(--mono); font-size: 11.5px; }
 /* Use monospace for the branch breadcrumb's identity. */
 .crumb .branch {
   flex: none; max-width: 220px; height: 22px; padding: 0 8px; margin-left: 2px;
@@ -255,6 +262,7 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Inline rename preserves the label's dimensions; show the pencil on hover. */
 .rename { background: var(--bg); border-color: var(--line-ghost); }
 .rename.sub { height: 30px; margin: 1px 0; padding: 0 8px; font-size: 13px; }
+.rename.term { flex: 1; min-width: 0; height: 22px; padding: 0 6px; font-size: 13px; }
 .rename.crumb { width: 260px; height: 24px; padding: 0 8px; }
 .rename.tab { width: 150px; height: 24px; padding: 0 8px; }
 /* The tree types a new or renamed entry's name in place, at the row's indentation and height. */

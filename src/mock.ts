@@ -18,7 +18,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
-import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type ShareRights, type Tab, type Tools, type Workspace } from "./types";
+import { hasWorktree, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type ShareRights, type Tab, type TerminalSession, type Tools, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
 const handlers = new Map<string, Handler[]>();
@@ -686,6 +686,8 @@ function workspaceTools(ws: Workspace): Tools {
 
 /// Dock keys match Rust: <workspace>:<kind>. Setup finishes on a timer so retained output is available in the browser.
 const docks = new Map<string, boolean>();
+/// The folder a terminal session opens in when none is picked; matches the sample clone paths.
+const MOCK_HOME = "/Users/gustavo";
 const DONE = "\r\n\x1b[32m✓ finished\x1b[0m\r\n";
 
 const SCRIPT_OUT =
@@ -2453,6 +2455,16 @@ const mockCommands: IpcHandlers = {
   },
   open_dock(args) {
     const key = `${args.id}:${args.kind}`;
+    const session = board.terminals?.find((item) => item.id === args.id);
+    if (args.id.startsWith("terminal-")) {
+      if (!session) throw 'i18n:{"code":"err.terminal.gone"}';
+      if (args.kind !== "terminal") throw `i18n:${JSON.stringify({ code: "err.dock.unknown", args: { kind: args.kind } })}`;
+      if (session.folder.endsWith("/missing")) throw `i18n:${JSON.stringify({ code: "err.terminal.folder", args: { path: session.folder } })}`;
+      if (!session.running) {
+        session.running = true;
+        emit("board", board);
+      }
+    }
     docks.set(key, true);
     if (args.kind === "setup") {
       setTimeout(() => {
@@ -2466,7 +2478,34 @@ const mockCommands: IpcHandlers = {
   },
   close_dock(args) {
     docks.delete(`${args.id}:${args.kind}`);
+    const session = board.terminals?.find((item) => item.id === args.id);
+    if (session?.running) {
+      session.running = false;
+      emit("board", board);
+    }
     return;
+  },
+  // Mirrors terminal_sessions.rs: home or an existing absolute folder, and a record that outlives its shell.
+  create_terminal(args) {
+    const folder = args.folder ?? MOCK_HOME;
+    if (!folder.startsWith("/") || folder.endsWith("/missing")) {
+      throw `i18n:${JSON.stringify({ code: "err.terminal.folder", args: { path: folder } })}`;
+    }
+    const session: TerminalSession = { id: `terminal-${crypto.randomUUID().replace(/-/g, "")}`, folder, title: "", running: false };
+    (board.terminals ??= []).push(session);
+    emit("board", board);
+    return session;
+  },
+  rename_terminal(args) {
+    const session = board.terminals?.find((item) => item.id === args.id);
+    if (!session || session.title === args.title.trim()) return;
+    session.title = args.title.trim();
+    emit("board", board);
+  },
+  close_terminal(args) {
+    docks.delete(`${args.id}:terminal`);
+    board.terminals = board.terminals?.filter((item) => item.id !== args.id);
+    emit("board", board);
   },
   new_tab(args) {
     const workspace = board.workspaces.find(workspace => workspace.id === args.workspace);

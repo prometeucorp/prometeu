@@ -1,11 +1,12 @@
-import { avatar, avatars, brand, icon, stageIcon } from "./icons";
+import { avatar, avatars, brand, icon, stageIcon, wave } from "./icons";
 import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import { keys } from "./platform";
 import * as team from "./team";
 import { accountButton } from "./cloud";
 import * as rename from "./rename";
-import { hasWorktree, label, repoLabel, stateLabel, statusOf, tabLabel, type Board, type Status, type Workspace } from "./types";
+import { terminalSessions } from "./terminal-sessions";
+import { hasWorktree, label, repoLabel, stateLabel, statusOf, tabLabel, terminalName, type Board, type Status, type TerminalSession, type Workspace } from "./types";
 import { h, template } from "./util";
 
 /// Actions shared by sidebar rows and workspace menus.
@@ -43,6 +44,14 @@ export type Hooks = {
   /// Open clone files without creating a workspace.
   openProject: (id: string) => void;
   newWorkspace: (projectId?: string) => void;
+  /// Terminal sessions (ADR 0092): the home folder, or one the person picks.
+  openTerminal: (id: string) => void;
+  newTerminal: () => void;
+  newTerminalIn: () => void;
+  /// Closing ends the session and stops its shell.
+  closeTerminal: (id: string) => void;
+  /// Null keeps the name; an empty title returns to the folder name.
+  renameTerminal: (id: string, title: string | null) => void;
 };
 
 /// The desk page uses a sentinel that cannot collide with a workspace ID.
@@ -288,6 +297,8 @@ function renderRail(board: Board, hooks: Hooks) {
     renderGroup(rail, board, hooks, t("rail.loose"), icon("folder", 14), loose, "@soltos", { avatars: true });
   }
 
+  if (terminalSessions()) renderTerminals(rail, board.terminals ?? [], hooks);
+
   // Represent archived work with a count and separate page so it does not crowd active projects out of the sidebar.
   const gone = board.workspaces.filter((w) => w.archived).length;
   if (gone) {
@@ -433,6 +444,54 @@ function renderGroup(
     rail.append(card);
   }
   return head;
+}
+
+/// Terminal sessions sit apart from projects and workspaces. Each row shows its name, the live wave while its shell runs and a close action (ADR 0092).
+function renderTerminals(rail: HTMLElement, list: TerminalSession[], hooks: Hooks) {
+  rail.append(document.createElement("hr"));
+  const sect = template("div", "sect", `<span></span>`);
+  sect.children[0].textContent = t("rail.terminals");
+  const pick = template("button", "ico sm", icon("folder-open"));
+  pick.title = t("rail.newTerminalIn");
+  pick.addEventListener("click", hooks.newTerminalIn);
+  const add = template("button", "ico sm", icon("plus"));
+  add.title = t("rail.newTerminal");
+  add.addEventListener("click", hooks.newTerminal);
+  sect.append(pick, add);
+  rail.append(sect);
+
+  for (const session of list) {
+    const row = template(
+      "button",
+      "navitem termsession" + (session.id === openId ? " on" : "") + (session.running ? "" : " off"),
+      `${session.running ? wave() : icon("terminal", 14)}<span class="lbl"></span><span class="tabx ico sm">${icon("x", 12)}</span>`,
+    );
+    row.dataset.terminal = session.id;
+    const name = row.querySelector<HTMLElement>(".lbl")!;
+    name.textContent = terminalName(session);
+    row.title = session.running ? session.folder : `${session.folder}\n${t("terminal.stopped")}`;
+    row.addEventListener("click", () => hooks.openTerminal(session.id));
+    const close = row.querySelector<HTMLElement>(".tabx")!;
+    close.title = t("terminal.close");
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hooks.closeTerminal(session.id);
+    });
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      menu.openAt({ x: e.clientX, y: e.clientY }, [
+        {
+          label: t("terminal.rename"),
+          glyph: icon("pencil"),
+          run: () => rename.start(name, terminalName(session), (title) => hooks.renameTerminal(session.id, title), "term"),
+        },
+        ...(session.title ? [{ label: t("terminal.resetName"), glyph: icon("folder"), run: () => hooks.renameTerminal(session.id, "") } as menu.Item] : []),
+        "sep",
+        { label: t("terminal.close"), glyph: icon("x"), danger: true, run: () => hooks.closeTerminal(session.id) },
+      ]);
+    });
+    rail.append(row);
+  }
 }
 
 /// Pixels the pointer must travel before a press on a heading becomes a drag instead of a click.

@@ -158,6 +158,24 @@ pub struct Project {
     pub path: String,
 }
 
+/// A local shell the person opened on its own, outside any workspace or project (ADR 0092). The
+/// record outlives its process, as a workspace outlives its agent: after a restart it is listed
+/// stopped, and opening it starts a new shell in the same folder.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TerminalSession {
+    /// `terminal-<uuid>`; see `terminal_sessions::PREFIX` for why it cannot collide.
+    pub id: String,
+    /// The absolute folder its shell starts in, checked when the session is created and again
+    /// before each new shell.
+    pub folder: String,
+    /// The name the person gave it; empty shows the folder name.
+    #[serde(default)]
+    pub title: String,
+    /// Whether its shell is running. Processes do not survive the app, so revival clears it.
+    #[serde(default)]
+    pub running: bool,
+}
+
 /// A repository's source clone and working copy. Multi-repository workspaces keep one adjacent
 /// worktree per repository on the same branch.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
@@ -425,6 +443,10 @@ pub struct Board {
     pub stages: Vec<String>,
     #[serde(default)]
     pub projects: Vec<Project>,
+    /// Terminal sessions in sidebar order. Written only when not empty, so boards without any load
+    /// and save unchanged (ADR 0092).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals: Vec<TerminalSession>,
     /// `cards` is the legacy name from when a workspace contained one session.
     #[serde(alias = "cards")]
     pub workspaces: Vec<Workspace>,
@@ -497,6 +519,7 @@ impl Default for Board {
                 .map(String::from)
                 .to_vec(),
             projects: Vec::new(),
+            terminals: Vec::new(),
             workspaces: Vec::new(),
         }
     }
@@ -616,6 +639,11 @@ impl Board {
             if !self.projects.iter().any(|p| p.path == project.path) {
                 self.projects.push(project);
             }
+        }
+
+        // A terminal session's shell ended with the app; the session stays listed, stopped.
+        for session in &mut self.terminals {
+            session.running = false;
         }
     }
 
@@ -1085,5 +1113,54 @@ mod tests {
         assert!(old.get("kickoff").is_none());
         let new = serde_json::to_value(&tabs[1]).unwrap();
         assert_eq!(new["kickoff"], "sdd-kit/specify");
+    }
+
+    /// A board written by v0.29.0, before terminal sessions, loads with none and saves without
+    /// the field (ADR 0092).
+    #[test]
+    fn boards_without_terminal_sessions_keep_the_previous_format() {
+        let mut board = board_json("");
+        board.revive();
+        assert!(board.terminals.is_empty());
+        let saved = serde_json::to_value(&board).unwrap();
+        assert!(saved.get("terminals").is_none());
+        assert!(saved.get("workspaces").is_some());
+    }
+
+    /// Shells end with the app; their sessions come back listed, in order, and stopped.
+    #[test]
+    fn terminal_sessions_survive_a_restart_stopped() {
+        let mut board: Board = serde_json::from_value(serde_json::json!({
+            "stages": ["Fazendo"], "workspaces": [],
+            "terminals": [
+                {"id":"terminal-a","folder":"/home/person","title":"","running":true},
+                {"id":"terminal-b","folder":"/srv/api","title":"API logs","running":false},
+                {"id":"terminal-c","folder":"/tmp"}
+            ]
+        }))
+        .unwrap();
+        board.revive();
+        let listed: Vec<(&str, &str, &str, bool)> = board
+            .terminals
+            .iter()
+            .map(|s| {
+                (
+                    s.id.as_str(),
+                    s.folder.as_str(),
+                    s.title.as_str(),
+                    s.running,
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("terminal-a", "/home/person", "", false),
+                ("terminal-b", "/srv/api", "API logs", false),
+                ("terminal-c", "/tmp", "", false),
+            ]
+        );
+        let saved = serde_json::to_value(&board).unwrap();
+        assert_eq!(saved["terminals"][1]["title"], "API logs");
     }
 }

@@ -10,6 +10,7 @@ import type { Commands, Target } from "./host";
 import { useApplicationMenu, windowsApplicationMenu } from "../appmenu";
 import { useAttachmentPicker } from "../file-input";
 import { installWslDrops, pickWslAttachments } from "./file-input";
+import { withoutTerminalSessions } from "../terminal-sessions";
 import "../style.css";
 
 function host<K extends keyof Commands>(command: K, ...args: Commands[K]["args"] extends undefined ? [] : [Commands[K]["args"]]): Promise<Commands[K]["result"]> {
@@ -28,6 +29,8 @@ try {
   useIpc(wslCommands);
   useApplicationMenu(windowsApplicationMenu);
   useAttachmentPicker(pickWslAttachments);
+  // The runtime has no terminal sessions yet; see the Windows contract.
+  withoutTerminalSessions();
   useTerminalSnapshots({ read: async session => {
     const snapshot = await invoke<TerminalOutput | number[] | null>("application_request", { command: "pty_buffer", args: { session, snapshot: true } });
     return Array.isArray(snapshot) ? { data: snapshot } : snapshot ?? { data: [], seq: 0, running: false };
