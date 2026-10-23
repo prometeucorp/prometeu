@@ -39,4 +39,6 @@ pub mod git;
 
 pub mod projects;
 
+pub mod terminal_sessions;
+
 pub mod tool_resolution;

@@ -108,3 +108,4 @@ Status: Proposed
 | [0089](0089-notch-island.md) | Notch island over the main window's state |
 | [0090](0090-approved-remote-input.md) | Remote input only from approved identities, with separate rights |
 | [0091](0091-keep-unreadable-state.md) | Keep unreadable state before replacing it |
+| [0092](0092-terminal-sessions.md) | Terminal sessions owned by the person |

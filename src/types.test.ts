@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { use } from "./i18n";
-import { branchTaken, dockLabel, fmtTokens, repoPath, tabLabel, toggleSelection, type Board, type Selection, type Tab, type Workspace } from "./types";
+import { branchTaken, dockLabel, fmtTokens, repoPath, tabLabel, terminalName, toggleSelection, type Board, type Selection, type Tab, type Workspace } from "./types";
 
 use("en");
 
@@ -131,6 +131,18 @@ describe("repoPath", () => {
 describe("dockLabel", () => {
   it("numbers later shells the way their dock tabs do", () => {
     expect((["terminal", "terminal-2", "terminal-10"] as const).map(dockLabel)).toEqual(["Terminal", "Terminal 2", "Terminal 10"]);
+  });
+});
+
+describe("terminalName", () => {
+  const session = (folder: string, title = "") => ({ id: "terminal-a", folder, title, running: false });
+
+  it("shows the folder's own name until the person names the session, as the backend does", () => {
+    expect(terminalName(session("/Users/person/dev/api"))).toBe("api");
+    expect(terminalName(session("/Users/person/dev/api/"))).toBe("api");
+    expect(terminalName(session("/Users/person/dev/api", "  server logs "))).toBe("server logs");
+    expect(terminalName(session("/Users/person/dev/api", "   "))).toBe("api");
+    expect(terminalName(session("/"))).toBe("/");
   });
 });
 

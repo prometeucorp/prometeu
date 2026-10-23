@@ -10,6 +10,7 @@ import * as sidebar from "./sidebar";
 import * as browser from "./browser";
 import { openCleanup } from "./cleanup";
 import * as diff from "./diff";
+import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import type * as fileMenu from "./file-menu";
 import { avatar, icon, stageIcon, wave } from "./icons";
@@ -33,10 +34,12 @@ import {
   pending,
   repoPath,
   tabLabel,
+  terminalName,
   type Board,
   type Choice,
   type Project,
   type Tab,
+  type TerminalSession,
   type Workspace,
 } from "./types";
 import { $, debounce, h, template } from "./util";
@@ -172,6 +175,9 @@ export function init(context: Ctx) {
 
 export async function open(ws: Workspace, tab?: string) {
   proj = null;
+  // Remote workspaces return before the dock resets, so let go of a session's shell here.
+  if (terminal) dock.detach();
+  terminal = null;
   if (tab && openWs === ws.id) return selectTab(ws.id, tab);
   const epoch = ++navigation;
   // Direct workspace switching bypasses leave; hide the previous native webview here.
@@ -250,6 +256,9 @@ export function leave() {
   gitRefresh.clear();
   turns.clear();
   proj = null;
+  // The session's shell keeps running; only the view lets go of it.
+  if (terminal) dock.detach();
+  terminal = null;
   browser.hide();
   restoreBrowserSide();
   session.detach();
@@ -1463,6 +1472,55 @@ async function closeProjectFile(path: string) {
     await showProjectFile();
   }
   drawProjectTabs();
+}
+
+/* Terminal session view. */
+
+/// The terminal session on screen (ADR 0092). Its one shell fills the center: no conversation, files, scripts, PR or sharing.
+let terminal: TerminalSession | null = null;
+
+export const terminalId = () => terminal?.id ?? null;
+
+/// Reattach a running shell with its output, or start a new one in the session's folder.
+export async function openTerminal(target: TerminalSession) {
+  leave();
+  terminal = target;
+  const epoch = navigation;
+  $("wsView").hidden = false;
+  layout({});
+  $("offline").hidden = true;
+  center("termview");
+  // A session that already ended sends the person home instead.
+  drawTerminal();
+  if (navigation !== epoch) return;
+  try {
+    await dock.open(target.id, "terminal");
+    if (navigation === epoch) dock.focus("shell");
+  } catch (err) {
+    if (navigation === epoch) ctx.say(fromBack(err), true);
+  }
+}
+
+/// Board updates rename the breadcrumb; a session that ended returns home.
+export function drawTerminal() {
+  const current = ctx.board().terminals?.find((item) => item.id === terminal?.id);
+  if (!current) return ctx.home();
+  terminal = current;
+  const crumb = $("crumb");
+  if (crumb.dataset.terminal !== current.id || !crumb.querySelector(".term-name")) {
+    crumb.dataset.workspace = "";
+    crumb.dataset.terminal = current.id;
+    crumb.innerHTML = `${icon("terminal", 14)}<span class="nm term-name"></span><span class="term-path"></span>`;
+  }
+  const name = crumb.querySelector<HTMLElement>(".term-name")!;
+  name.textContent = terminalName(current);
+  name.title = t("ws.rename");
+  name.ondblclick = () => rename.start(name, terminalName(current), (title) => {
+    if (title !== null) invoke("rename_terminal", { id: current.id, title }).catch((e) => ctx.say(fromBack(e), true));
+  }, "crumb");
+  const path = crumb.querySelector<HTMLElement>(".term-path")!;
+  path.textContent = current.folder;
+  path.title = current.running ? "" : t("terminal.stopped");
 }
 
 /* Side panel. */

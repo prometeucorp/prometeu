@@ -8,7 +8,9 @@ declare their status separately; replaced decisions remain in Git history.
 
 Prometeu is a desktop app that organizes agent sessions per workspace.
 Each workspace can have an isolated worktree, several conversation tabs,
-supporting terminals and live sharing with a team.
+supporting terminals and live sharing with a team. Terminal sessions are local
+shells that belong to the person rather than to a workspace or project
+([ADR 0092](docs/decisions/0092-terminal-sessions.md)).
 
 The app does not implement a model. It runs CLIs installed on the machine,
 translates their protocols and presents the work as an ordinary conversation.
@@ -285,6 +287,7 @@ The detailed rules and the current state of each one are in
 | bounded command execution | `src-tauri/crates/core/src/command.rs` (ports), `src-tauri/crates/process/src/command.rs` and `query.rs` (Unix implementations) |
 | terminal execution | `src-tauri/crates/core/src/terminal.rs` (ports and output), `src-tauri/crates/process/src/terminal.rs` (Unix PTYs), `src-tauri/src/pty.rs` (desktop composition) |
 | terminal and preview | `src/dock*.ts`, `src/term.ts`, `src/browser.ts`, `src-tauri/src/dock.rs`, `src-tauri/src/pty.rs` |
+| terminal sessions | `src-tauri/crates/core/src/terminal_sessions.rs` (records), `src-tauri/src/terminal_sessions.rs` (commands and shell lifecycle), the view in `src/workspace.ts`, the sidebar group in `src/sidebar.ts`, `src/terminal-sessions.ts` (availability); see [ADR 0092](docs/decisions/0092-terminal-sessions.md) |
 
 The preview shares the center with the conversation. Inspection and capture
 stay at the edge of the native webview, with validated return values and an

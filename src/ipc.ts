@@ -63,6 +63,7 @@ export type Commands = {
   cleanup_list: { args: undefined; result: T.Cleanable[] };
   cleanup_worktree: { args: { id: string; force: boolean }; result: void };
   close_dock: { args: { id: string; kind: T.DockKind }; result: void };
+  close_terminal: { args: { id: string }; result: void };
   close_tab: { args: { workspace: string; tab: string }; result: void };
   cloud_login_cancel: { args: { id: string }; result: void };
   cloud_login_poll: { args: { id: string }; result: CloudStatus | null };
@@ -74,6 +75,7 @@ export type Commands = {
   context_evaluate: { args: { request: import("./evaluation").EvaluationRequest }; result: import("./evaluation").EvaluationResult };
   create_path: { args: { id: string; rel: string; dir: boolean }; result: void };
   create_scripts_file: { args: { id: string }; result: string };
+  create_terminal: { args: { folder: string | null }; result: T.TerminalSession };
   create_workspace: { args: { draft: Draft; cols: number; rows: number }; result: T.Workspace };
   dock_state: { args: { id: string }; result: T.DockState[] };
   feedback_capture: { args: undefined; result: string | null };
@@ -148,6 +150,7 @@ export type Commands = {
   reorder_projects: { args: { ids: string[] }; result: void };
   remove_workspace: { args: { id: string }; result: void };
   rename_path: { args: { id: string; from: string; to: string }; result: void };
+  rename_terminal: { args: { id: string; title: string }; result: void };
   rename_tab: { args: { workspace: string; tab: string; title: string }; result: void };
   rename_workspace: { args: { id: string; title: string }; result: void };
   reveal_path: { args: { id: string; rel: string }; result: void };

@@ -72,6 +72,10 @@ optional for local work; model access comes from your own provider account.
   find text in the open file (⌘F), open any file by name (⌘P),
   create, rename and trash files from the side tree, restore deleted ones,
   run project scripts, and attach selected page elements or screenshots to a prompt.
+- **Terminal sessions.** Open a shell on its own, in your home folder (⇧⌘T) or
+  any folder, without registering a project or creating a workspace. Sessions
+  stay in the sidebar across navigation and restarts; `exit` or × ends one.
+  macOS and Linux only for now. See [ADR 0092](docs/decisions/0092-terminal-sessions.md).
 - **Delegation through MCP.** The built-in `prometeu` MCP is available but off
   by default. Select it in the coordinator workspace’s tools to create agents
   in isolated workspaces, send messages and inspect their runs, background
@@ -290,7 +294,7 @@ ports starting at `PROMETEU_PORT`; `PORT` has the same starting value.
 Equivalent `CONDUCTOR_` variables preserve compatibility with existing scripts.
 Use these ports instead of a fixed port when running multiple workspaces.
 
-Scripts and workspace terminals run in Prometeu's own terminal: they see
+Scripts, workspace terminals and terminal sessions run in Prometeu's own terminal: they see
 `TERM_PROGRAM=Prometeu` and `TERM=xterm-256color`, and do not inherit the
 identity of the terminal that started Prometeu (such as `TMUX` or
 `ITERM_SESSION_ID`) or the session markers of an agent it runs under (such as

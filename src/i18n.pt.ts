@@ -702,6 +702,14 @@ export const PT = {
   "rail.team": "Compartilhados",
   "rail.agents.one": "{n} agente",
   "rail.agents.other": "{n} agentes",
+  "rail.terminals": "Terminais",
+  "rail.newTerminal": "Terminal novo na sua pasta pessoal  ⇧⌘T",
+  "rail.newTerminalIn": "Terminal novo em uma pasta…",
+  "terminal.pickFolder": "Escolha a pasta do terminal",
+  "terminal.rename": "Renomear",
+  "terminal.resetName": "Usar o nome da pasta",
+  "terminal.close": "Fechar terminal",
+  "terminal.stopped": "Parado; abrir inicia um shell novo na mesma pasta",
 
   /* Mac menu. */
 
@@ -715,6 +723,8 @@ export const PT = {
   "menu.file": "Arquivo",
   "menu.file.newWorkspace": "Novo workspace",
   "menu.file.newChat": "Conversa nova",
+  "menu.file.newTerminal": "Terminal novo",
+  "menu.file.newTerminalIn": "Terminal novo em uma pasta…",
   "menu.file.quickOpen": "Abrir arquivo…",
   "menu.file.close": "Fechar a aba",
   "menu.file.closeWindow": "Fechar a janela",
@@ -1741,6 +1751,8 @@ export const PT = {
   "err.session.noParent": "worktree sem pasta acima",
   "err.session.noWorktree": "worktree sumiu: {path}",
   "err.session.noWorkspace": "workspace sumiu",
+  "err.terminal.gone": "terminal sumiu",
+  "err.terminal.folder": "{path} não é uma pasta",
   "err.session.noTab": "aba não encontrada",
   "err.session.otherAgent":
     "essa conversa é de outro agente — para falar com esse modelo, abra uma conversa nova",

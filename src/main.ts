@@ -4,6 +4,7 @@ import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { onConnectionRestored } from "./connection";
 import { listen } from "@tauri-apps/api/event";
+import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { openProjects } from "./projects";
 import * as alert from "./alert";
 import * as notifications from "./notifications";
@@ -37,9 +38,10 @@ import * as session from "./session";
 import * as settings from "./settings";
 import * as statusbar from "./statusbar";
 import * as team from "./team";
+import { terminalSessions } from "./terminal-sessions";
 import * as trust from "./trust";
 import "./style.css";
-import type { Board, Issue, Project, Tab, Workspace } from "./types";
+import type { Board, Issue, Project, Tab, TerminalSession, Workspace } from "./types";
 import * as update from "./update";
 import { $ } from "./util";
 import { mac } from "./platform";
@@ -124,6 +126,16 @@ const hooks: sidebar.Hooks = {
     if (project) showProject(project);
   },
   newWorkspace: (projectId) => launch(projectId),
+  openTerminal: (id) => {
+    const target = state.terminals?.find((item) => item.id === id);
+    if (target) showTerminal(target);
+  },
+  newTerminal: () => void newTerminal(),
+  newTerminalIn: () => void newTerminalIn(),
+  closeTerminal: (id) => closeTerminal(id),
+  renameTerminal: (id, title) => {
+    if (title !== null) invoke("rename_terminal", { id, title }).catch((e) => say(fromBack(e), true));
+  },
 };
 
 /// Remember board redraws deferred by an open menu so its latest selection appears even if no later backend event arrives.
@@ -141,6 +153,7 @@ function draw() {
   archived.draw();
   desk.draw();
   if (ws.id()) ws.draw();
+  else if (ws.terminalId()) ws.drawTerminal();
   alert.looked();
 }
 
@@ -184,8 +197,10 @@ function travel(dir: -1 | 1) {
   } else {
     const target = view().workspaces.find((w) => w.id === hist[at]);
     const project = state.projects.find((p) => p.id === hist[at]);
+    const terminal = state.terminals?.find((item) => item.id === hist[at]);
     if (target) openWorkspace(target, false);
     else if (project) showProject(project, false);
+    else if (terminal) showTerminal(terminal, false);
     else showDesk(false);
   }
   drawNav();
@@ -235,6 +250,15 @@ function showProject(project: Project, push = true) {
   showOnly(null);
   ws.openProject(project);
   sidebar.setOpen(project.id);
+  draw();
+}
+
+/// A terminal session shows only its shell, with no workspace part (ADR 0092).
+function showTerminal(target: TerminalSession, push = true) {
+  if (push) visit(target.id);
+  showOnly(null);
+  void ws.openTerminal(target);
+  sidebar.setOpen(target.id);
   draw();
 }
 
@@ -304,8 +328,12 @@ listen<Board>("board", ({ payload }) => {
 
 /// Reconcile local or remote workspace changes, remove vanished history entries, and redraw.
 function refresh() {
-  // Remove vanished workspaces/projects from history and merge adjacent duplicates. Projects also own file-view state.
-  const alive = new Set([...view().workspaces.map((w) => w.id), ...state.projects.map((p) => p.id)]);
+  // Remove vanished workspaces, projects and terminal sessions from history and merge adjacent duplicates. Projects also own file-view state.
+  const alive = new Set([
+    ...view().workspaces.map((w) => w.id),
+    ...state.projects.map((p) => p.id),
+    ...(state.terminals ?? []).map((item) => item.id),
+  ]);
   for (let i = hist.length - 1; i >= 0; i--) {
     const id = hist[i];
     if ((!pages.has(id) && !alive.has(id)) || (i > 0 && id === hist[i - 1])) {
@@ -513,6 +541,36 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
   });
 }
 
+/* Terminal sessions. */
+
+/// Create a session in the home folder or a picked one, then open it; its shell starts with the view.
+async function newTerminal(folder: string | null = null) {
+  try {
+    const created = await invoke("create_terminal", { folder });
+    // The command response and board event can arrive in either order, as for new workspaces.
+    const list = (state.terminals ??= []);
+    if (!list.some((item) => item.id === created.id)) list.push(created);
+    showTerminal(created);
+  } catch (err) {
+    say(fromBack(err), true);
+  }
+}
+
+async function newTerminalIn() {
+  try {
+    const folder = await pickFolder({ directory: true, title: t("terminal.pickFolder") });
+    if (typeof folder === "string") await newTerminal(folder);
+  } catch (err) {
+    say(fromBack(err), true);
+  }
+}
+
+/// Closing ends the session and stops its shell. A session on screen returns to the desk first.
+function closeTerminal(id: string) {
+  if (ws.terminalId() === id) showDesk();
+  invoke("close_terminal", { id }).catch((err) => say(fromBack(err), true));
+}
+
 /* Side panels. */
 
 function toggleRail() {
@@ -569,6 +627,14 @@ function act(a: appmenu.Action): boolean {
       if (!own) return false;
       ws.newTab();
       return true;
+    case "newTerminal":
+      if (!terminalSessions()) return false;
+      void newTerminal();
+      return true;
+    case "newTerminalIn":
+      if (!terminalSessions()) return false;
+      void newTerminalIn();
+      return true;
     case "arquivar":
       if (!own) return false;
       hooks.archive(own, true);
@@ -597,9 +663,12 @@ function act(a: appmenu.Action): boolean {
     case "quickOpen":
       ws.quickOpen();
       return true;
-    // Command-W closes the focused dock terminal first. When a native browser view owns focus, ignore stale dock focus and close the active center tab.
-    case "fechar":
-      return (document.hasFocus() && dockbar.closeFocused()) || ws.closeActive();
+    // A terminal session is its only tab, so Command-W closes the session. Elsewhere it closes the focused dock terminal first; when a native browser view owns focus, ignore stale dock focus and close the active center tab.
+    case "fechar": {
+      const terminal = ws.terminalId();
+      if (terminal) closeTerminal(terminal);
+      return !!terminal || (document.hasFocus() && dockbar.closeFocused()) || ws.closeActive();
+    }
     case "voltar":
       travel(-1);
       return true;
@@ -616,6 +685,7 @@ function shortcut(e: KeyboardEvent): appmenu.Action | null {
     if (k === "a") return "arquivar";
     if (k === "d") return "concluir";
     if (k === "m") return "nota";
+    if (k === "t") return "newTerminal";
     return null;
   }
   if (k === "n") return "novoWorkspace";

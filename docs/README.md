@@ -64,6 +64,7 @@ as a short index for agents and `README.md` presents the product.
 - [ADR 0089](decisions/0089-notch-island.md): persistent notch island that follows agents, answers requests and reopens conversations.
 - [ADR 0090](decisions/0090-approved-remote-input.md): remote input only from member and key pairs approved on the owner's Mac, with separate view, message and control rights.
 - [ADR 0091](decisions/0091-keep-unreadable-state.md): unreadable board and team files are copied to a recovery folder before anything replaces them, and saves wait while copying fails.
+- [ADR 0092](decisions/0092-terminal-sessions.md): terminal sessions are local shells owned by the person, kept on the board and listed stopped after a restart.
 
 [Lifecycle and current index](decisions/README.md). Only implemented decisions
 appear below. Retired documents and previous versions remain in Git history;

@@ -20,6 +20,20 @@
       "Done"
     ],
     "telemetry_ids": {},
+    "terminals": [
+      {
+        "folder": "/contract/home",
+        "id": "terminal-named",
+        "running": true,
+        "title": "Logs"
+      },
+      {
+        "folder": "/contract/repo",
+        "id": "terminal-stopped",
+        "running": false,
+        "title": ""
+      }
+    ],
     "tool_trust": [],
     "tools": {
       "mcp": null,

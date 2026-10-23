@@ -58,6 +58,7 @@ mod skills;
 mod state;
 mod team;
 mod telemetry;
+mod terminal_sessions;
 mod tool_materialization;
 mod transcript;
 mod transcript_store;
@@ -275,6 +276,9 @@ fn main() {
             dock::create_scripts_file,
             dock::scripts_prompt,
             dock::open_run,
+            terminal_sessions::create_terminal,
+            terminal_sessions::rename_terminal,
+            terminal_sessions::close_terminal,
             browser::browser_open,
             browser::browser_url,
             browser::browser_navigate,

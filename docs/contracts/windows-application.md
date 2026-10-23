@@ -108,6 +108,13 @@ caches, mutation lock and admission rules; pull and discard refuse while an agen
 runs. Git keeps its original process lifetime, without a new timeout or hook
 cancellation.
 
+Terminal sessions ([ADR 0092](../decisions/0092-terminal-sessions.md)) are not
+implemented in the runtime: `create_terminal`, `rename_terminal` and
+`close_terminal` reject as unknown commands, and the Windows shell calls
+`withoutTerminalSessions()` before loading the interface, so the sidebar group,
+the File menu items and ⇧⌘T are hidden. A shell still needs a workspace or a
+registered project there.
+
 Dock keys keep the desktop `<workspace>:terminal[-N]` format, up to 32 shells per
 workspace. Shells survive window closure and stop on explicit runtime shutdown.
 The transport orders `pty_write` per terminal; a failed write rejects its queued

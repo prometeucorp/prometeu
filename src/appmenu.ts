@@ -1,11 +1,14 @@
 /// Native menu accelerators keep shortcuts working while an embedded webview owns focus. Dispatch the same actions as main.ts; document handlers preventDefault to avoid double execution. Override Tauri's default Command-W window closure with tab closure.
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { t, type Key } from "./i18n";
+import { terminalSessions } from "./terminal-sessions";
 
 /// Shared action names for native-menu and document-keyboard dispatch.
 export type Action =
   | "novoWorkspace"
   | "novaConversa"
+  | "newTerminal"
+  | "newTerminalIn"
   | "fechar"
   | "arquivar"
   | "concluir"
@@ -35,7 +38,7 @@ let applicationMenu = desktopApplicationMenu;
 export function useApplicationMenu(menu: ApplicationMenu) { applicationMenu = menu; }
 
 export async function install(run: (a: Action) => void) {
-  const our = (id: Action, key: Key, accelerator: string) =>
+  const our = (id: Action, key: Key, accelerator?: string) =>
     MenuItem.new({ id, text: t(key), accelerator, action: () => run(id) });
   // The Mac implements system actions such as copy, quit, and full screen; localize their labels here.
   const os = (item: Native, key?: Key) =>
@@ -50,6 +53,10 @@ export async function install(run: (a: Action) => void) {
       bar(t("menu.file"), [
         our("novoWorkspace", "menu.file.newWorkspace", "CmdOrCtrl+N"),
         our("novaConversa", "menu.file.newChat", "CmdOrCtrl+T"),
+        // Terminal sessions are not offered where the backend cannot run them.
+        ...(terminalSessions()
+          ? [our("newTerminal", "menu.file.newTerminal", "CmdOrCtrl+Shift+T"), our("newTerminalIn", "menu.file.newTerminalIn")]
+          : []),
         our("quickOpen", "menu.file.quickOpen", "CmdOrCtrl+P"),
         os("Separator"),
         // Command-W closes the current tab; Shift-Command-W closes the window.

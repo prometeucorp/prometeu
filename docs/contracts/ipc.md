@@ -380,6 +380,45 @@ Run still require a workspace and answer `err.session.noWorkspace`.
 `workspace_scripts` and `dock_state` already tolerated an id without a workspace
 — they return an empty catalog and no port.
 
+## Terminal sessions
+
+A terminal session is a local shell owned by the person, outside any workspace
+or project ([ADR 0092](../decisions/0092-terminal-sessions.md)). Its record
+travels in the `board` event as `Board.terminals`; see
+[persistence](persistence.md#board).
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `create_terminal` | `folder: string \| null` | the new `TerminalSession`; `null` uses the home folder |
+| `rename_terminal` | `id`, `title` | empty; an empty `title` returns to the folder name |
+| `close_terminal` | `id` | empty; removes the record, then stops the shell |
+
+`create_terminal` accepts only an absolute existing directory and otherwise
+answers `err.terminal.folder` with `path`; it registers no project, creates no
+worktree or branch and reserves no port. Its shell starts when the view calls
+`open_dock` with the session id and `kind: "terminal"`, the only kind a session
+accepts (`err.dock.unknown` otherwise). A running shell is reattached even if its
+starting folder moved meanwhile. A new shell checks the folder again, so a
+restored session whose folder was removed answers `err.terminal.folder` instead
+of starting elsewhere, and a missing session answers `err.terminal.gone`. The
+shell runs under the dock key `<id>:terminal` with Prometeu's terminal identity
+and no workspace variables; `dock_state`, `close_dock`, `pty_buffer`,
+`pty_write` and `pty_resize` work on it unchanged.
+
+Starting the shell sets `running` and publishes the board. A shell that ends on
+its own, through `exit`, a crash or an outside signal, removes the record and
+publishes the board; its terminal is retired first, so no `pty-closed` follows
+and the board event is the signal. Closing it, quitting the app or replacing it removes the
+PTY first, so its end only clears `running`. Starting, ending and closing a
+session's shell are serialized, so a shell started as the previous one ends is
+never left running without its record. `session.rs::cwd_of` does not
+resolve session ids, so file commands keep accepting only workspaces and
+projects. The commands are additive and ship with their frontend; the browser
+mock applies the same folder, kind and record rules. The WSL runtime does not
+implement them and rejects them as unknown commands; the Windows shell hides
+every entry point. Tests: `src-tauri/src/terminal_sessions.rs`,
+`src-tauri/crates/core/src/terminal_sessions.rs` and the handler parity test.
+
 ## Tool selection
 
 The global, project and workspace layers of MCP, plugin and skill selection

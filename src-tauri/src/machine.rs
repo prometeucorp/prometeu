@@ -6,6 +6,7 @@
 use crate::background::{self, Context, Power};
 use crate::lock::lock;
 use crate::AppState;
+use prometeu_core::terminal_sessions;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -298,12 +299,14 @@ fn read(app: &AppHandle, memo: &mut Memo, cadence: Duration) -> Option<Machine> 
 /// lifecycle lock order.
 fn roots(state: &tauri::State<AppState>) -> Vec<Root> {
     let board = lock(&state.board).clone();
+    // Terminal sessions show their own name; project shells keep showing the project path.
     let title_of = |id: &str| {
         board
             .workspaces
             .iter()
             .find(|w| w.id == id)
             .map(|w| w.title.clone())
+            .or_else(|| terminal_sessions::find(&board, id).map(terminal_sessions::name))
             .unwrap_or_else(|| id.to_string())
     };
     let mut roots = vec![Root {
