@@ -226,7 +226,7 @@ pub(crate) fn launch(
                 id: id.to_string(),
             }),
         }),
-        host::TelemetryCapture::new(app.clone()),
+        host::TelemetryCapture::new(app.clone(), context.profile.provider),
         Arc::new(SystemClock),
         context.clone(),
         context.clone(),
@@ -285,9 +285,20 @@ fn write_mode(
     frame: &Value,
     idle_only: bool,
 ) -> Result<(), String> {
-    let scope = (frame["type"] == "message.send")
-        .then(|| crate::telemetry::conversation_scope(&lock(&state.board), session))
-        .flatten();
+    let (scope, message) = if frame["type"] == "message.send" {
+        let mut board = lock(&state.board);
+        let scope = crate::telemetry::conversation_scope(&board, session);
+        let message = crate::analytics::MessageContext {
+            is_action: board.tab_mut(session).is_some_and(|tab| tab.task.is_some()),
+            is_delegated: board
+                .delegations
+                .iter()
+                .any(|delegation| delegation.id == session),
+        };
+        (scope, Some(message))
+    } else {
+        (None, None)
+    };
     let (pump, context) = lock(&state.sessions.conversations)
         .get(session)
         .map(|chat| (chat.pump.clone(), chat.context.clone()))
@@ -307,7 +318,7 @@ fn write_mode(
         true => crate::telemetry::conversation_attribution(&context.app, session),
         false => Default::default(),
     };
-    pump.capture((scope, relations, origin), || {
+    pump.capture((scope, relations, origin, message), || {
         let mut chats = lock(&state.sessions.conversations);
         let chat = chats
             .get_mut(session)

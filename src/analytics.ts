@@ -12,6 +12,8 @@ export type AnalyticsEvent =
   | { name: "screen_viewed"; screen: Screen }
   | { name: "workspace_created"; provider: ProviderId; is_worktree: boolean }
   | { name: "conversation_created"; provider: ProviderId }
+  | { name: "message_accepted"; provider: ProviderId; is_action: boolean; is_delegated: boolean }
+  | { name: "turn_finished"; provider: ProviderId; outcome: "completed" | "failed" | "interrupted"; is_action: boolean; is_delegated: boolean; has_agent_activity: boolean }
   | { name: "ui_clicked"; control: Control; target: string | null; area: string | null };
 
 /** Fire and forget: analytics never delays or fails a feature. */
