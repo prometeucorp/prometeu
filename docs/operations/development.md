@@ -8,7 +8,8 @@
 - Playwright's Chromium and WebKit for E2E tests;
 - Claude Code and/or Codex installed to test real sessions.
 
-On Linux, also install the WebKitGTK packages listed in [Linux](linux.md).
+On Linux, also install the WebKitGTK packages listed in [Linux](linux.md). On
+Windows, see [Native Windows/WSL integration](#native-windowswsl-integration).
 
 ```sh
 npm install
@@ -23,8 +24,8 @@ npm run dev
 PORT=1421 npm run dev
 ```
 
-`npm run app` starts Tauri through `scripts/app.sh` and isolates the port and
-the state root per worktree. `npm run dev` opens only the frontend over
+`npm run app` starts Tauri through `scripts/app.mjs` and isolates the port and
+the state root per worktree; on Windows it starts the WSL shell instead. `npm run dev` opens only the frontend over
 `src/mock.ts`, useful for UI work and for the Playwright-driven tests.
 
 The mock does not prove process lifecycle, filesystem behavior or Rust
@@ -66,6 +67,7 @@ npm run build
 npm run build:mobile
 npm run test:release
 npm run test:web
+npm run test:scripts
 npm run test:rust
 npm run test:core
 npm run test:process
@@ -79,7 +81,11 @@ npm run check
 
 `npm run check` runs documentation and architecture checks, Rust formatting,
 desktop and mobile builds/typecheck, the whole test suite and Clippy with
-warnings as errors. It is the same main validation as CI.
+warnings as errors. It is the same main validation as CI. It needs a Unix host:
+`test:release` runs `scripts/release.sh` and `test:rust` builds Unix-only
+crates, so on Windows `check`, `test:release` and `test:rust` stop early and point
+to `npm run check:windows` (see
+[Native Windows/WSL integration](#native-windowswsl-integration)).
 `npm run architecture:check` first runs its
 dependency-checker fixtures with Node's test runner, then checks the repository,
 including the Rust crate graph through `cargo tree` (see
@@ -247,7 +253,7 @@ deployed compatibility.
 ## Simultaneous instances
 
 Debug and release use different roots. Each development worktree gets its own
-configuration through `scripts/app.sh`; that avoids collisions of `board.json`
+configuration through `scripts/app.mjs`; that avoids collisions of `board.json`
 and the Vite port. Do not replace that initialization with a direct `tauri dev`
 without understanding the isolation.
 
@@ -321,12 +327,31 @@ Use an empty root on first run; desktop roots are rejected. Send one
 before a `command` carrying `message.send`. Codex uses the environment's own
 login and configuration.
 
-For the Windows app, run `npm run app:wsl` from a Windows checkout with Node,
-Rust (MSVC) and WebView2. `npm run build:app:wsl` builds the executable without
-an installer. On Linux both commands first build and embed the release runtime;
-elsewhere set `PROMETEU_WSL_RUNTIME` to a matching Linux x86_64 artifact, or
-automatic startup rejects the build. `npm run build:wsl` builds only the
-frontend. Packaging is in [release](release.md#windows-installer).
+For the Windows app, run `npm run app` from a Windows checkout with Node, Rust
+(MSVC) and WebView2. The default WSL distribution needs `build-essential`, Rust
+through rustup, Git and an authenticated Codex. Like the Unix app, it takes the
+port from `PROMETEU_PORT` (default 1421) and isolates state per workspace name,
+in `~/.local/share/prometeu-windows-dev[-<name>]/state` inside WSL unless
+`PROMETEU_WINDOWS_RUNTIME_ROOT` is set. `npm run app:wsl` starts the same shell
+without that isolation, over the default Windows root.
+
+`npm run build:app:wsl` builds the executable without an installer. Without
+`PROMETEU_WSL_RUNTIME`, all these commands first build and embed the release
+runtime: on Linux directly, on Windows through `wsl.exe` in the default
+distribution, with Cargo's target under `~/.cache/prometeu/runtime-target` there
+and the binary copied to `src-tauri/target/wsl-runtime/`. Elsewhere set
+`PROMETEU_WSL_RUNTIME` to a matching Linux x86_64 artifact, or automatic startup
+rejects the build. `npm run build:wsl` builds only the frontend. Packaging is in
+[release](release.md#windows-installer).
+
+`npm run check:windows` is the validation available on Windows: documentation,
+the `scripts/app.mjs` launch plan (`test:scripts`),
+architecture, Rust formatting, the WSL frontend build, contract and web tests,
+and the Windows CI job's Rust tests (`test:windows`) and Clippy
+(`lint:windows`). Git for Windows runs the `commit-msg` hook with its own `sh`.
+`.gitattributes` keeps LF checkouts despite `core.autocrlf`: the bridge embeds
+`install-runtime.sh` byte for byte and WSL's `sh` rejects CRLF. A checkout made
+before that rule needs its files checked out again.
 
 `npm run test:windows:native -- CONFIG.json` is the opt-in acceptance journey.
 It drives the original desk, editor, viewers, terminal, launcher, Setup/Run, Git,
