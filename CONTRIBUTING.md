@@ -2,8 +2,8 @@
 
 Bug reports, documentation changes and code contributions are welcome. Search
 [existing issues](https://github.com/prometeucorp/prometeu/issues) before opening
-a report. Include reproduction steps, expected and actual behavior, macOS and
-Prometeu versions, and the agent CLI version when relevant. Public reports must
+a report. Include reproduction steps, expected and actual behavior, operating
+system and Prometeu versions, and the agent CLI version when relevant. Public reports must
 not contain credentials or private conversations.
 
 ## Make a change
@@ -29,3 +29,10 @@ catalogs and reuse the [design system](docs/architecture/design-system.md).
 Commits follow [Conventional Commits](docs/operations/release.md); the repository
 hook and CI validate them. The short [agent guide](AGENTS.md) applies the same
 boundaries to automated contributions.
+
+## Community and security
+
+Follow our [Code of Conduct](CODE_OF_CONDUCT.md). Browse
+[good first issues](https://github.com/prometeucorp/prometeu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
+for scoped starting points. Report vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md), not in public issues.

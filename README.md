@@ -1,133 +1,60 @@
-<p align="center">
-  <img src="docs/icon.png" alt="Prometeu icon" width="128" height="128">
-</p>
-
-<h1 align="center">Prometeu</h1>
+<p align="center"><img src="docs/icon.png" alt="Prometeu" width="48" height="48"> <strong>Prometeu</strong><br>
+Run Claude Code, Codex and Antigravity agents in parallel — each in its own git worktree, with built-in diff review.</p>
 
 <p align="center">
-  <a href="https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source">
-    <img src="https://www.greptile.com/badge.svg" alt="Greptile: The War on Bugs">
-  </a>
+  <a href="https://github.com/prometeucorp/prometeu/releases/latest"><img src="https://img.shields.io/github/v/release/prometeucorp/prometeu" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/prometeucorp/prometeu" alt="MIT license"></a>
+  <a href="https://github.com/prometeucorp/prometeu/releases"><img src="https://img.shields.io/github/downloads/prometeucorp/prometeu/total" alt="Total downloads"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platforms-macOS%20%2F%20Linux%20%2F%20Windows-blue" alt="macOS / Linux / Windows"></a>
 </p>
 
-Prometeu is an open-source desktop app for working with Claude Code, Codex, and
-Antigravity CLI on macOS and Linux. An experimental Windows app runs Codex in WSL.
-Organize parallel tasks into workspaces, give each task its own Git worktree,
-and keep conversations, files, terminals, and code review in one place.
+<p align="center"><img src="docs/demo.gif" width="640" alt="Prometeu UI demo with simulated agents: start parallel tasks, switch workspaces, review a diff and complete a merge."></p>
 
-The agents run on your computer through their installed CLIs. A Prometeu account is
-optional for local work; model access comes from your own provider account.
+<p align="center">
+  <strong><a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_aarch64.dmg">Download for macOS (.dmg)</a> ·
+  <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x86_64.AppImage">Linux (.AppImage)</a> ·
+  <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe">Windows (.exe)</a></strong><br>
+  macOS Apple Silicon · Linux x86_64 · Windows x64: experimental, Codex through WSL<br>
+  ⭐ <a href="https://github.com/prometeucorp/prometeu">Star the repo if it saves you time</a>
+</p>
 
-[Download](https://github.com/prometeucorp/prometeu/releases/latest) ·
-[Documentation](docs/README.md) ·
-[Report an issue](https://github.com/prometeucorp/prometeu/issues) ·
-[Changelog](CHANGELOG.md) ·
-[Data and privacy](#local-data-and-optional-cloud-features) ·
-[MIT license](LICENSE)
+## Why not just use the CLI?
+
+- Run parallel agents without juggling terminals.
+- Create isolated worktrees automatically for separate tasks, so agents do not edit the same checkout.
+- Review changes visually before committing and merging.
+- Use Claude Code, Codex and Antigravity in one app on macOS and Linux.
+- Free and open source under the MIT license. Bring your own provider account; model usage is billed by your provider.
+
+## Switching from Conductor?
+
+Prometeu reads `.conductor/settings.toml`, including setup, run and archive scripts,
+so your existing project setup carries over. `CONDUCTOR_` environment variables
+remain available. If both settings files exist, `.prometeu/settings.toml` takes
+precedence without merging. See [project scripts](docs/operations/project-scripts.md).
 
 ## Features
 
-- **Parallel workspaces.** Use isolated Git worktrees, work with multiple
-  repositories, or open an ordinary folder without Git. Each workspace keeps
-  its own conversations and terminals. Archiving or finishing offers to remove
-  its worktree and local branch after explicit confirmation. Group projects in
-  collapsible sidebar folders and filter projects or workspaces as the list
-  grows.
-- **Claude Code, Codex, and Antigravity CLI.** Choose a model and supported effort
-  level, manage accounts in Settings, and resume conversations after an agent
-  process stops. A turn cut off by closing or updating the app is marked
-  interrupted, with a **Continue** action. Antigravity CLI uses the account
-  already connected in `agy`; quotas are shown by model group. App-managed
-  login, interactive approvals and plan mode are unavailable.
-  See the [provider matrix](docs/quality/provider-matrix.md) for validation limits.
-  Search models by name or agent, pin favorites, and select the effort directly.
-  Catalogs refresh from each CLI; failed refreshes are visible and extra Codex
-  models are available through “Show additional models”.
+- **Parallel workspaces:** isolated worktrees, multiple repositories and a desk for conversations side by side.
+- **Visual Git review:** unified or split diffs, review notes, staging, commits, history and conflict resolution.
+- **Built-in tools:** editor, terminal, browser preview, MCP servers, plugins, skills and reusable actions.
+- **Issue workflow:** Linear and GitHub issues, PR status and notifications.
+- **Persistent conversations:** resume stopped agents and inspect local token and cost history.
+- **Optional collaboration:** share encrypted conversations and continue from companion devices while execution stays on the owner's Mac.
+- **English and Portuguese UI**, with dictation on macOS.
 
-- **A desk for ongoing conversations.** Arrange conversations side by side,
-  respond to questions, and follow agent activity without opening each workspace.
-  Your workspace stage stays separate from the agent's status.
-- **Issues from Linear and GitHub.** Provider tabs share one inbox. Both list
-  your assigned issues and unassigned ones you can claim; GitHub also lists your
-  open PRs and requested reviews. Click an item to open its source, or open a
-  workspace with its context. Connect GitHub in Settings › Integrations through
-  the Prometeu GitHub App, installed on the repositories you want; the `gh` CLI
-  is not needed. Open PRs show their CI status in the workspace when available.
-  See the [Linear](docs/contracts/linear-issues.md) and
-  [GitHub](docs/contracts/github-issues.md) contracts for setup and limits.
-- **Notifications.** One destination in the sidebar gathers team mentions and
-  GitHub activity on your PRs and issues: approvals, requested changes, comments,
-  review requests, merges and failed CI. GitHub events are grouped by issue or
-  PR, with formatted comment details and actions to open GitHub or a matching
-  workspace. GitHub activity arrives through your Prometeu account with GitHub
-  linked; see the [contract](docs/contracts/github-notifications.md).
-- **Local notifications.** Opt into completion, approval/input and error alerts
-  in Settings. Choose a system banner, the notch island or sound alone. On
-  macOS, the island shows active conversations and quotas, and lets you approve
-  requests, answer questions and open a conversation. Notifications and sound
-  start disabled; phone push is not included.
-- **Local usage and context.** Completed replies show measured tokens, duration
-  and the CLI's cost estimate when available. Context meters offer explicit
-  compact, report and new-conversation actions. Workspace summaries combine
-  conversations and app calls, with model breakdowns and PR attribution where
-  evidence supports it. History stays local and can be cleared in Settings.
-  See [usage semantics and coverage](docs/contracts/telemetry.md).
-- **Git review.** Read unified or side-by-side diffs, stage selected files,
-  commit only the index, inspect history, compare branches, and resolve conflicts.
-  Add persistent notes to lines or files and send a selected review batch through
-  a conversation draft. See [review notes](docs/contracts/diff-review.md).
-- **Files, terminals, and browser preview.** Edit code, read Markdown, view PDFs, CSVs and images,
-  find text in the open file (⌘F), open any file by name (⌘P),
-  create, rename and trash files from the side tree, restore deleted ones,
-  run project scripts, and attach selected page elements or screenshots to a prompt.
-- **Delegation through MCP.** The built-in `prometeu` MCP is available but off
-  by default. Select it in the coordinator workspace’s tools to create agents
-  in isolated workspaces, send messages and inspect their runs, background
-  tasks, conversations and files. External local agents can register a scoped
-  client and use the same MCP while Prometeu is open, without an internal
-  conversation. Each client controls only agents it created, including their
-  setup, Run scripts and preview. See [external registration](docs/contracts/embedded-mcp.md#external-client-registration).
-- **Tools per workspace.** Select MCP servers, plugins, and skills. Reusable
-  actions include an editable code review profile.
-- **Optional collaboration.** Share live conversations so your team can view
-  and comment, and choose per person who may also send messages or answer the
-  agent's requests; or continue from your own companion devices. Execution stays
-  on the owner's computer: a teammate's message waits above your message box
-  until you send, edit or discard it, unless you turn that off for the
-  workspace, and input from a new or changed device waits until you allow that
-  device there. Leave a workspace shared with you from its sidebar menu; its
-  owner can share it with you again.
-- **Dictation.** Speak into the message box; the transcript appears as you
-  talk, and the dictation language is a preference of its own.
-- **Portuguese and English UI.** Agent output and your content keep their
-  original language.
-
-Support differs between providers. For example, initial plan mode is available
-for Claude Code, and local plugin folders are the portable format for Claude Code
-and Codex. See the [provider matrix](docs/quality/provider-matrix.md) for supported
-features, limitations, and test coverage.
-
-## Settings
-
-Settings has five sections: **General** (language, notifications and updates),
-**Agents** (new-workspace defaults and accounts), **Resources** (plugins, MCPs and
-skills), **Actions**, and **Work and team** (organizations, projects and integrations).
-Search settings by name; filter the resource library by type or text. Each resource's
-menu keeps installation, authentication and catalog management together. Installing
-an item does not enable it in existing workspaces. Account usage and detailed
-notification preferences expand in place.
+See the [provider matrix](docs/quality/provider-matrix.md) for agent differences,
+platform limits and test coverage. The demo above uses the real interface with
+simulated agent and Git data; it is not a live provider benchmark.
 
 ## Install
 
-Each release contains separate downloads for **macOS on Apple Silicon**,
-**Linux x86_64** and **Windows x64 (experimental)** under the same version.
+### macOS — Apple Silicon
 
-### macOS
+Download [Prometeu_aarch64.dmg](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_aarch64.dmg),
+open it and drag Prometeu to Applications. In-app updates are available.
 
-1. Download [Prometeu_aarch64.dmg](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_aarch64.dmg).
-2. Open the disk image and move Prometeu to Applications.
-
-### Linux
+### Linux — x86_64
 
 Download [Prometeu_x86_64.AppImage](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x86_64.AppImage)
 to a directory writable by your user, then run:
@@ -137,273 +64,64 @@ chmod +x Prometeu_x86_64.AppImage
 ./Prometeu_x86_64.AppImage
 ```
 
-Each launch adds Prometeu to your application menu, so the dock shows its icon.
-The AppImage is built on Ubuntu 22.04. See the [Linux guide](docs/operations/linux.md)
-for runtime requirements, Arch and Debian source packages, ARM64 builds and
-platform differences. macOS and AppImage installations offer in-app updates;
-other Linux installations use their package manager or a rebuild.
+The AppImage adds a launcher to your application menu and supports in-app updates.
+See the [Linux guide](docs/operations/linux.md) for runtime requirements, source
+packages, ARM64 builds and platform differences.
 
-### Windows (experimental)
+### Windows — x64, experimental
 
-The Windows app opens the same interface in a native window and runs projects,
-Git, shells and Codex inside your default WSL distribution, which must already
-have Git and an authenticated Codex CLI. Only Codex is available; managed login,
-other agents, Cloud synchronization and automatic updates are not implemented.
-Download [Prometeu_x64-setup.exe](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe),
-run the per-user installer and open **Prometeu** from the Start menu. The installer
-is unsigned, and updates require installing the next version manually. For local
-builds, see [packaging instructions](docs/operations/release.md#windows-installer).
-Conversations and files stay in WSL; updating or uninstalling the Windows app
-does not remove them. See the
-[Windows application contract](docs/contracts/windows-application.md) for the
-current coverage.
+Install WSL with a default Linux distribution, Git and an authenticated Codex CLI
+inside that distribution. Download and run
+[Prometeu_x64-setup.exe](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe),
+then open Prometeu from the Start menu.
 
-### Connect an agent
+Windows currently supports **Codex only**. The installer is unsigned; updates
+require installing the next version manually. Managed login and Cloud
+synchronization are unavailable. Conversations and files stay in WSL after
+updating or uninstalling. See [Windows coverage](docs/contracts/windows-application.md).
 
-Install Claude Code, Codex, or Antigravity CLI (minimum 1.2.7). The corresponding
-`claude`, `codex`, or `agy` command must be available in your shell. Authenticate
-through the CLI or Prometeu's account panel; Antigravity uses its external CLI login.
+## Quick start
 
-### Your first workspace
+1. **Connect an agent.** Install and authenticate Claude Code, Codex or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex` or `agy` available in your shell. Antigravity uses its CLI login; Windows uses Codex in WSL.
+2. **Add your project.** Open Prometeu and add a local Git repository or folder. No Prometeu account is required for local work.
+3. **Run your first task.** Create a workspace, choose a model, keep the new-worktree option enabled for isolation, and send a task. Open another workspace for a parallel task, then review changes in the Git view before committing.
 
-1. Add a local Git repository or folder.
-2. Create a workspace, choose a model, and enter your task. Use a new worktree
-   to keep Git changes separate from the original checkout.
-3. Follow the conversation, open files and terminals, and review changes before
-   committing. A folder without Git opens in place without a branch or worktree.
+Agents execute tools without per-tool approval by default, with your local user's
+file and process access. Worktrees separate changes; they are not sandboxes.
+Folders without Git open in place. Use projects and tools you trust.
 
-**Agent permissions:** by default, agents execute tools without per-tool
-approval and have your local user's access to files and processes. A Git
-worktree separates changes; it is not a sandbox. Use repositories and tools you
-trust. See the [architecture](ARCHITECTURE.md) for execution boundaries.
+## Privacy
 
-## Develop locally
+**Usage analytics are opt-in and off by default since v0.34.0, including upgrades.**
+Change **Settings → General → Privacy → Share usage data** at any time.
+Opted-in macOS and Linux builds send content-free feature events to PostHog with
+a random installation ID. Prompts, transcripts, file paths, project names and
+agent output are excluded. See the [analytics contract](docs/contracts/product-analytics.md).
 
-### Prerequisites
+Local usage history stays on your computer and can be exported or deleted.
+App state and Codex/Antigravity transcripts live under `~/.prometeu`; Claude Code
+owns its transcripts. Your chosen model provider receives the content needed to
+run your tasks, under that provider's terms.
 
-For the desktop app:
+Cloud accounts and sharing are optional. Shared conversations use end-to-end
+encryption; the relay sees routing metadata. Keys use trust on first contact
+with automatic adoption of changed keys, and there is no forward secrecy.
+See [security limits](docs/decisions/0022-end-to-end-encryption.md) and
+[local data storage](docs/contracts/persistence.md). Report vulnerabilities
+privately through [SECURITY.md](SECURITY.md).
 
-- macOS with Xcode Command Line Tools (`xcode-select --install`), or Linux
-  with the WebKitGTK packages listed in [Linux](docs/operations/linux.md).
-- Git.
-- Node.js **24.14.0** and npm **11.9.0**, as declared in
-  [package.json](package.json).
-- Rust installed through rustup. The backend pins **1.88.0**, with rustfmt
-  and Clippy, in [rust-toolchain.toml](src-tauri/rust-toolchain.toml).
-- Claude Code, Codex, or Antigravity CLI installed and authenticated to exercise real sessions.
+## Contributing
 
-### Run the desktop app
+Start with [good first issues](https://github.com/prometeucorp/prometeu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22),
+[CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md).
+For local setup and checks, see the [development guide](docs/operations/development.md).
 
-```sh
-git clone https://github.com/prometeucorp/prometeu.git
-cd prometeu
-npm ci
-npm run app
-```
+[Documentation](docs/README.md) · [Architecture](ARCHITECTURE.md) ·
+[Report a bug](https://github.com/prometeucorp/prometeu/issues/new/choose) ·
+[Changelog](CHANGELOG.md)
 
-`npm run app` starts the Tauri app through [scripts/app.sh](scripts/app.sh).
-Development state defaults to `~/.prometeu-dev`, separate from the installed
-app's `~/.prometeu`. When launched through a Prometeu workspace, the script
-uses that workspace's name and port to isolate simultaneous development instances.
-
-`npm run app:bundle` builds a debug `.app` and opens it through LaunchServices.
-Use it to test dictation: macOS only honors the speech usage description of a
-bundle the app launched itself, so `npm run app` hides the microphone button.
-
-### Work on the UI in a browser
-
-After cloning and installing npm dependencies:
-
-```sh
-npm run dev
-```
-
-Open the URL printed by Vite. This mode uses [src/mock.ts](src/mock.ts), so it
-does not require Rust, an agent CLI, or a Prometeu account. It exercises the UI
-with simulated data; real agent execution, filesystem operations, and native
-macOS behavior require the desktop app. Use `PORT=1421 npm run dev` to select
-another port.
-
-### Run the WSL runtime
-
-The Unix execution host used by Windows can also run alone on Linux, WSL or
-macOS. See [development](docs/operations/development.md#native-windowswsl-integration)
-and the [WSL runtime protocol](docs/contracts/wsl-runtime.md).
-
-### Validate changes
-
-Install the test browsers once:
-
-```sh
-npx playwright install chromium webkit
-```
-
-Run the checks relevant to your change:
-
-| Command | Coverage |
-| --- | --- |
-| `npm run docs:check` | Documentation links and index |
-| `npm run typecheck` | TypeScript types |
-| `npm run test:web` | Frontend and relay tests |
-| `npm run test:rust` | Rust backend tests |
-| `npm run test:e2e` | Browser flows against the mock |
-| `npm run check` | Full CI validation, including build, architecture checks, Rust formatting, and Clippy |
-
-Run `npm run check` before submitting a code PR. Playwright covers Chromium
-and WebKit against the browser mock; it does not drive the native Tauri app.
-Changes to native behavior also need a manual desktop check. See the
-[development guide](docs/operations/development.md) for details.
-
-## Create or add projects
-
-Open **Add project** in the sidebar or **Settings / Work and team / Projects on
-this computer**. Choose **Create new project**, enter a name and select a parent
-folder. Prometeu creates the folder, initializes Git and registers the project
-without a terminal or Cloud account. Existing folders are never overwritten.
-The first workspace runs in the project folder; branches and worktrees become
-available after the first commit.
-
-Register Git sources once in the Cloud's **Projects** tab, in your personal or
-organization catalog. In the desktop, open **Settings / Work and team / Projects on this computer** or **Add
-project** in the sidebar. Select projects, choose a destination folder and click
-**Add to this computer**. Each successful clone appears in the project list. Failed
-rows retain their errors and can be retried without repeating completed clones.
-
-**Link existing folder** registers an existing clone after checking its Git
-origin. **Add local folder** remains available without an account. Cloning uses
-the execution host’s Git authentication and does not run setup or install dependencies.
-Deleting catalog definitions preserves local repositories. See the
-[catalog contract](docs/contracts/cloud-catalog.md).
-
-## Configure project scripts
-
-Projects can define workspace lifecycle commands in `.prometeu/settings.toml`.
-Existing `.conductor/settings.toml` files are also supported.
-
-```toml
-[scripts]
-setup = "npm install"
-run = "npm run dev -- --port $PROMETEU_PORT"
-archive = "docker compose down"
-```
-
-These are examples; use commands appropriate to your project. Setup runs when
-a worktree is created, before the first prompt reaches the agent. If setup
-fails, the prompt still proceeds with a warning. Run starts from the workspace
-UI, and archive runs before archiving.
-
-For multiple run commands:
-
-```toml
-[scripts.run.web]
-command = "npm run dev -- --port $PROMETEU_PORT"
-default = true
-```
-
-Scripts receive `PROMETEU_WORKSPACE_PATH`, `PROMETEU_ROOT_PATH`,
-`PROMETEU_WORKSPACE_NAME`, and `PROMETEU_PORT`. Each workspace reserves ten
-ports starting at `PROMETEU_PORT`; `PORT` has the same starting value.
-Equivalent `CONDUCTOR_` variables preserve compatibility with existing scripts.
-Use these ports instead of a fixed port when running multiple workspaces.
-
-Scripts and workspace terminals run in Prometeu's own terminal: they see
-`TERM_PROGRAM=Prometeu` and `TERM=xterm-256color`, and do not inherit the
-identity of the terminal that started Prometeu (such as `TMUX` or
-`ITERM_SESSION_ID`) or the session markers of an agent it runs under (such as
-`CLAUDECODE`). The full list is in `prometeu-process`'s `terminal.rs`.
-
-If a worktree has no settings file, it inherits the original checkout's file.
-This lets you keep private setup commands outside version control.
-
-## Local data and optional Cloud features
-
-Local work does not require a Prometeu account. App state and Codex/Antigravity conversation
-transcripts live under `~/.prometeu`; Claude Code maintains its own transcripts.
-See the [persistence contract](docs/contracts/persistence.md) for paths and
-ownership.
-
-Token and context history stays on your computer. macOS and Linux release builds
-configured with a project analytics key can send feature and interface-use events
-to PostHog with a random installation ID. This is off by default, including after
-upgrades; enable or disable **Share usage data** in **Settings → General → Privacy**.
-The choice persists and takes effect without restarting. Prompts, transcripts,
-paths, project names and agent output are excluded. Windows, the browser mock and the mobile shell do not send
-these events. See the [analytics contract](docs/contracts/product-analytics.md).
-
-A Prometeu Cloud account adds organizations, shared tool catalogs, live
-collaboration, and companion access through the mobile web app. Sharing is
-explicit. Remote conversations still execute only on the owner's Mac, which
-must stay awake with Prometeu open.
-
-On macOS, the status bar offers a separate “Agent active, display may sleep”
-choice. It keeps the Mac awake only while a local agent is working and permits
-the display to sleep. The existing “Agent active” choice continues keeping both
-the Mac and display awake. Linux retains its existing sleep choices because
-display behavior depends on the desktop compositor.
-
-Shared conversation content uses end-to-end encryption. The relay still sees
-routing metadata, and member keys are trusted as the relay directory reports
-them, including later key changes. Remote messages and control, which run on
-your Mac, are accepted only from people you granted them in that workspace and
-only from devices you approved there; a new or changed device keeps seeing
-shared content but its input waits for your answer. By default a teammate's
-message also waits for you to send it, and it stays only in memory. There is
-no forward secrecy. This encryption does not cover content sent to model
-providers or protect a compromised device. See the
-[security design and limits](docs/decisions/0022-end-to-end-encryption.md).
-
-This repository contains the desktop app, the mobile frontend, the shared
-design system, and the Cloudflare relay. The Prometeu Cloud account service is
-a separate project and is not required for local desktop development. See the
-[Cloud account contract](docs/contracts/cloud-account.md) and
-[organization contract](docs/contracts/cloud-organizations.md) for integration
-details.
-
-## Contribute
-
-Bug reports, documentation improvements, and code contributions are welcome.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
-[contributor recipes](docs/operations/contributing.md) for common changes.
-
-1. Search [existing issues](https://github.com/prometeucorp/prometeu/issues)
-   before opening a report. Include reproduction steps, expected and actual
-   behavior, macOS and Prometeu versions, and the agent CLI version when relevant.
-2. Fork the repository and create a branch for your change.
-3. Read [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md), then the
-   documents for the area you are changing. Keep the change focused and update
-   affected documentation and tests.
-4. Run the relevant checks and open a pull request against `main`. Explain
-   the user-visible change, validation performed, and any remaining limitations.
-
-Write code comments and doc comments in English. UI text belongs in the
-Portuguese and English i18n catalogs. Commits follow **Conventional Commits in
-English**, with a lowercase description and no trailing period:
-
-```text
-docs(readme): improve the instructions for new contributors
-```
-
-The description of a `feat`, `fix`, or `perf` commit becomes a changelog line,
-so write what the person using the app sees. See the
-[commit and release guide](docs/operations/release.md) for examples and rules.
-The local commit hook and CI validate commit messages.
-
-GitHub issues are public; remove credentials and private conversation content
-from reports and attachments. The in-app **Feedback** panel opens a new public
-GitHub issue without copying its draft or capture. Its private channel requires
-a Prometeu account and delivers reports privately to the Prometeu team. See the
-[feedback contract](docs/contracts/feedback.md).
-
-## Documentation
-
-- [Documentation index](docs/README.md): contracts, decisions, and operations.
-- [Architecture](ARCHITECTURE.md): system boundaries and code ownership.
-- [Development guide](docs/operations/development.md): environment and testing.
-- [Provider matrix](docs/quality/provider-matrix.md): Claude Code, Codex, and Antigravity CLI support.
-- [Design system](docs/architecture/design-system.md): shared UI components.
-- [Architecture decisions](docs/decisions/README.md): accepted decisions and history.
-- [Release guide](docs/operations/release.md): maintainer release workflow.
+<a href="https://www.greptile.com/?utm_source=oss_badge&utm_medium=readme&utm_campaign=greptile_for_open_source"><img src="https://www.greptile.com/badge.svg" alt="Greptile: The War on Bugs"></a>
 
 ## License
 
-Prometeu is licensed under the [MIT License](LICENSE).
+[MIT](LICENSE).
