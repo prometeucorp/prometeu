@@ -163,6 +163,14 @@ external clients remain usable across desktop restarts. Each delegation starts w
 execution IDs are separate. See the [contract](docs/contracts/embedded-mcp.md)
 and [ADR 0049](docs/decisions/0049-embedded-delegation-mcp.md).
 
+## Personal remote access
+
+The optional `remote_access.rs` backend connects outbound to the personal MCP
+gateway in `relay/src/remote.ts`. Rails owns OAuth and grants; the gateway forwards
+scoped calls to the same local dispatcher and retains task metadata. This explicit
+trust boundary lets the gateway read forwarded content, independently of team
+E2EE. Rails receives no transcripts. See [remote MCP](docs/contracts/remote-mcp.md).
+
 ## Reusable actions
 
 `actions.rs` keeps commands, profiles and runs on top of existing sessions.

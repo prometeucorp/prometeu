@@ -1,6 +1,20 @@
 import { FEEDBACK_PT } from "./feedback-i18n";
 /// Brazilian Portuguese defines Key and requires matching English translations. Group interface strings and backend message codes by feature; their origin does not affect translation.
 export const PT = {
+  "remote.title": "Acesso remoto",
+  "remote.failed": "Não foi possível salvar o acesso remoto. Verifique sua conta Cloud e selecione ao menos um projeto.",
+  "remote.description": "Permita que agentes na nuvem usem projetos selecionados pelo Prometeu Cloud. O gateway pode ler pedidos e resultados encaminhados. As credenciais dos providers ficam neste Mac. Conecte uma conta Cloud primeiro.",
+  "remote.loading": "Carregando acesso remoto…",
+  "remote.online": "Conectado",
+  "remote.offline": "Ativado, desconectado",
+  "remote.disabled": "Desativado",
+  "remote.enable": "Ativar acesso remoto",
+  "remote.disable": "Desativar acesso remoto",
+  "remote.save": "Salvar projetos",
+  "remote.manage": "Gerenciar integrações",
+  "remote.refresh": "Atualizar status",
+  "remote.unavailable": "Acesso remoto indisponível",
+
   "review.continue": "Continuar edição",
   "review.title": "Notas de revisão ({n})",
   "review.note": "Nota de revisão",

@@ -15,7 +15,7 @@ use prometeu_protocols::catalog::{command_output, query_claude, query_codex};
 #[cfg(test)]
 pub(super) use prometeu_protocols::catalog::{parse_claude, parse_codex_page, CatalogProcess};
 
-pub(super) fn fetch(
+pub(crate) fn fetch(
     launcher: &dyn QueryLauncher<Command>,
     agent: ProviderId,
 ) -> Result<ModelCatalog, CatalogError> {

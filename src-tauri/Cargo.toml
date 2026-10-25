@@ -55,6 +55,7 @@ base64 = "0.22"
 # manifest supplies an arbitrary version string.
 semver = "1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 
 # Reuse Tauri bindings to receive screenshots before they exist as files.
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -2491,6 +2491,36 @@
       ]
     },
     {
+      "target": "settings.remoteAccess.disable",
+      "sources": [
+        "src/remote-access.ts"
+      ]
+    },
+    {
+      "target": "settings.remoteAccess.manage",
+      "sources": [
+        "src/remote-access.ts"
+      ]
+    },
+    {
+      "target": "settings.remoteAccess.project",
+      "sources": [
+        "src/remote-access.ts"
+      ]
+    },
+    {
+      "target": "settings.remoteAccess.refresh",
+      "sources": [
+        "src/remote-access.ts"
+      ]
+    },
+    {
+      "target": "settings.remoteAccess.save",
+      "sources": [
+        "src/remote-access.ts"
+      ]
+    },
+    {
       "target": "settings.search",
       "sources": [
         "src/settings.ts"

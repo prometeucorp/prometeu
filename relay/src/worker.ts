@@ -3,6 +3,8 @@
 import { randomToken, sha256, TeamRoom, type Env } from "./room";
 import { parseMembership, type CreatedTeam } from "./protocol";
 import { smallJson } from "./http";
+import { remote, type RemoteEnv } from "./remote";
+export { RemoteDevice } from "./remote";
 
 export { TeamRoom };
 
@@ -13,7 +15,9 @@ const CORS = {
 };
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env & RemoteEnv): Promise<Response> {
+    const response = await remote(req, env);
+    if (response) return response;
     const url = new URL(req.url);
 
     const organization = /^\/organization\/([A-Za-z0-9_-]{8,64})$/.exec(url.pathname);
@@ -78,4 +82,4 @@ export default {
 
     return new Response("prometeu-relay", { status: 404 });
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env & RemoteEnv>;

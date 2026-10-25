@@ -42,8 +42,8 @@ reconnect after the desktop restarts. Internal configs retain their explicit
 discovery file, but does not revoke external registrations. Requests while the
 app is closed fail; no daemon is started. Transport input is limited to 1 MiB;
 responses to 768 KiB. Socket reads/writes have deadlines. The server serializes
-tool operations; preparation and execution continue asynchronously. No HTTP
-listener or relay route is added.
+tool operations; preparation and execution continue asynchronously. No local HTTP listener is added. The opt-in [remote transport](remote-mcp.md)
+reuses the same dispatcher and ownership rules.
 
 ## External client registration
 
@@ -119,6 +119,7 @@ identity, arbitrary workspace ID, or arbitrary repository path.
 
 | Tool | Inputs | Behavior |
 | --- | --- | --- |
+| `list_models` | `provider` (`claude` or `codex`) | Queries the selected local account for model and effort choices without inference. |
 | `list_projects` | optional `offset`, `limit` (1–100) | Lists registered projects within the authenticated client scope, with `project_id` and name. |
 | `delegate` | `request_key`, `title`, `task`, optional `project_id`, `provider`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
 | `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this client's delegations within its scope. |

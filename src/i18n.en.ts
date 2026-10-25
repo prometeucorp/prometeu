@@ -3,6 +3,20 @@ import type * as pt from "./i18n.pt";
 
 /// Implement every Portuguese catalog key in English. Record rejects missing translations and obsolete keys.
 export const EN: Record<keyof typeof pt.PT, string> = {
+  "remote.title": "Remote access",
+  "remote.failed": "Could not save remote access. Check your Cloud account and select at least one project.",
+  "remote.description": "Allow cloud agents to use selected projects through Prometeu Cloud. The gateway can read forwarded requests and results. Provider credentials stay on this Mac. Connect a Cloud account first.",
+  "remote.loading": "Loading remote access…",
+  "remote.online": "Connected",
+  "remote.offline": "Enabled, disconnected",
+  "remote.disabled": "Disabled",
+  "remote.enable": "Enable remote access",
+  "remote.disable": "Disable remote access",
+  "remote.save": "Save projects",
+  "remote.manage": "Manage integrations",
+  "remote.refresh": "Refresh status",
+  "remote.unavailable": "Remote access is unavailable",
+
   "review.continue": "Continue editing",
   "review.title": "Review notes ({n})",
   "review.note": "Review note",

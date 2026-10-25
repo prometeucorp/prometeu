@@ -30,6 +30,7 @@ import { button, disclosure, field, input, select } from "./ui";
 
 import { matchesSettings, settingsDestination, type SettingsPage } from "./settings-navigation";
 import { resourceSettings, setResourceFilter } from "./settings-resources";
+import { remoteAccessRow } from "./remote-access";
 import "./settings.css";
 
 /// Application preferences include Linear, updates, defaults, and interface language.
@@ -115,6 +116,7 @@ const PAGES: Page[] = [
   ] },
   { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
     { id: "team", title: "settings.team", rows: teamRows },
+    { id: "remote", title: "remote.title", rows: () => [remoteAccessRow(actions.projects(), ctx.say)] },
     { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
     { id: "telemetry", title: "telemetry.title", rows: telemetryRows },
     { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), githubRow(), ...typesafeRows(ctx.say, draw)] },

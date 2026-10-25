@@ -344,3 +344,12 @@ provider capability, IPC or V1 event. `review-comments.test.ts`,
 `e2e/git.spec.ts` and `e2e/mobile.spec.ts` cover representative keyboard/reload
 and portable history behavior. These tests do not assert that a provider follows
 every note or that a queued batch has been received by the model.
+
+## Personal remote MCP
+
+Claude and Codex reuse the same local delegation/model catalog paths through the
+remote gateway. Antigravity delegation remains unavailable in this tool schema.
+Cloud coordinator brands are independent of local providers: compatibility requires
+MCP 2025-06-18 or its fallback, OAuth PKCE or a scoped manual Bearer, and a supported
+notification receiver. No vendor-hosted application is certified by fixture tests.
+See [contract and evidence](../contracts/remote-mcp.md).

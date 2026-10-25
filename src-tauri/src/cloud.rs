@@ -319,6 +319,42 @@ pub(crate) fn connected() -> bool {
     load().ok().flatten().is_some()
 }
 
+/// Bind the local remote-access opt-in to one Cloud account, without exposing its credential.
+pub(crate) fn remote_identity() -> Result<(String, String, String, String), String> {
+    let _storage = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let saved = load()?.ok_or("cloud_disconnected")?;
+    let device = device()?;
+    Ok((
+        format!("{}#{}", saved.origin, saved.user.id),
+        saved.origin,
+        device.id,
+        device.label,
+    ))
+}
+
+/// Pin the account before sending remote metadata; checking only the response is too late on logout.
+pub(crate) fn remote_api(
+    account: &str,
+    path: &str,
+    body: Value,
+    timeout: Duration,
+) -> Result<(u16, Value), String> {
+    let _storage = STORAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let saved = load()?.ok_or("cloud_disconnected")?;
+    if format!("{}#{}", saved.origin, saved.user.id) != account {
+        return Err("account_changed".into());
+    }
+    http(
+        &saved.origin,
+        Method::POST,
+        path,
+        Some(&saved.token),
+        Some(body),
+        512 * 1024,
+        timeout,
+    )
+}
+
 fn http(
     origin: &str,
     method: Method,

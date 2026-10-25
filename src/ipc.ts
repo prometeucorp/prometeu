@@ -75,6 +75,8 @@ export type Commands = {
   cloud_organizations: { args: undefined; result: { user: CloudStatus["user"]; origin: string; organizations: Organization[] } };
   cloud_relay_ticket: { args: { organization: string; user: string; expectedOrigin: string }; result: string };
   cloud_status: { args: { refresh: boolean }; result: CloudStatus };
+  remote_access_status: { args: undefined; result: { enabled: boolean; online: boolean; projects: string[]; manage_url: string | null } };
+  remote_access_save: { args: { enabled: boolean; projects: string[] }; result: { enabled: boolean; online: boolean; projects: string[]; manage_url: string | null } };
   context_evaluate: { args: { request: import("./evaluation").EvaluationRequest }; result: import("./evaluation").EvaluationResult };
   create_path: { args: { id: string; rel: string; dir: boolean }; result: void };
   create_scripts_file: { args: { id: string }; result: string };

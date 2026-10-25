@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 mod catalog;
+pub(crate) use catalog::fetch as fetch_models;
 pub use catalog::{CatalogError, ModelCatalog};
 
 /// Discover both CLIs through one login shell so user-defined PATH locations are respected without
