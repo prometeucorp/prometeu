@@ -38,6 +38,6 @@ responses. Their stable asset names are part of the
 [release contract](../contracts/releases.md).
 
 After merging, inspect [Community Standards](https://github.com/prometeucorp/prometeu/community)
-and verify the conduct, contributing, license, README, security, issue-template
+and verify the contributing, license, README, security, issue-template
 and PR-template entries. Private vulnerability reporting must stay enabled for
 the link in `SECURITY.md` to work.

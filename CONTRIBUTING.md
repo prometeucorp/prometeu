@@ -32,7 +32,7 @@ boundaries to automated contributions.
 
 ## Community and security
 
-Follow our [Code of Conduct](CODE_OF_CONDUCT.md). Browse
+Browse
 [good first issues](https://github.com/prometeucorp/prometeu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
 for scoped starting points. Report vulnerabilities privately as described in
 [SECURITY.md](SECURITY.md), not in public issues.

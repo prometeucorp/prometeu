@@ -1,5 +1,5 @@
 <p align="center"><img src="docs/icon.png" alt="Prometeu" width="48" height="48"> <strong>Prometeu</strong><br>
-Run Claude Code, Codex and Antigravity agents in parallel — each in its own git worktree, with built-in diff review.</p>
+Run Claude Code, Codex, Cursor CLI and Antigravity agents in parallel — each in its own git worktree, with built-in diff review.</p>
 
 <p align="center">
   <a href="https://github.com/prometeucorp/prometeu/releases/latest"><img src="https://img.shields.io/github/v/release/prometeucorp/prometeu" alt="Latest release"></a>
@@ -23,7 +23,7 @@ Run Claude Code, Codex and Antigravity agents in parallel — each in its own gi
 - Run parallel agents without juggling terminals.
 - Create isolated worktrees automatically for separate tasks, so agents do not edit the same checkout.
 - Review changes visually before committing and merging.
-- Use Claude Code, Codex and Antigravity in one app on macOS and Linux.
+- Use Claude Code, Codex, Cursor CLI and Antigravity in one app on macOS and Linux.
 - Free and open source under the MIT license. Bring your own provider account; model usage is billed by your provider.
 
 ## Switching from Conductor?
@@ -35,7 +35,7 @@ precedence without merging. See [project scripts](docs/operations/project-script
 
 ## Features
 
-- **Cursor CLI on main:** external CLI login, interactive approvals and account quotas. See [Cursor setup](#cursor-cli--source-builds).
+- **Cursor CLI:** external CLI login, interactive approvals and account quotas. See [Cursor setup](#cursor-cli).
 - **Parallel workspaces:** isolated worktrees, multiple repositories and a desk for conversations side by side.
 - **Visual Git review:** unified or split diffs, review notes, staging, commits, history and conflict resolution.
 - **Built-in tools:** editor, terminal, browser preview, MCP servers, plugins, skills and reusable actions.
@@ -81,19 +81,18 @@ require installing the next version manually. Managed login and Cloud
 synchronization are unavailable. Conversations and files stay in WSL after
 updating or uninstalling. See [Windows coverage](docs/contracts/windows-application.md).
 
-### Cursor CLI — source builds
+### Cursor CLI
 
-Cursor support landed on `main` after v0.34.0. To try it before the next release,
-follow the [source-build guide](docs/operations/development.md). Install a Cursor
-CLI with ACP support, sign in with `agent login`, attach its account in Settings
-and select it in the launcher. Streaming, tools, resume, stop, questions and plan
-approvals are supported. Account quotas use the existing CLI login; hub tool
+Cursor CLI is implemented on macOS and Linux. Install a CLI with ACP support,
+make `cursor-agent` available in your shell, sign in with `agent login`, attach
+its account in Settings and select it in the launcher. Streaming, tools, resume,
+stop, questions and plan approvals are supported. Account quotas use the existing CLI login; hub tool
 selections and per-turn token/cost meters are unavailable. See the
 [Cursor contract](docs/contracts/cursor.md).
 
 ## Quick start
 
-1. **Connect an agent.** Install and authenticate Claude Code, Codex or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex` or `agy` available in your shell. Antigravity uses its CLI login; Windows uses Codex in WSL.
+1. **Connect an agent.** Install and authenticate Claude Code, Codex, Cursor CLI or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex`, `cursor-agent` or `agy` available in your shell. Cursor and Antigravity use their CLI login; Windows uses Codex in WSL.
 2. **Add your project.** Open Prometeu and add a local Git repository or folder. No Prometeu account is required for local work.
 3. **Run your first task.** Create a workspace, choose a model, keep the new-worktree option enabled for isolation, and send a task. Open another workspace for a parallel task, then review changes in the Git view before committing.
 
@@ -123,8 +122,8 @@ privately through [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
-Start with [good first issues](https://github.com/prometeucorp/prometeu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22),
-[CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md).
+Start with [good first issues](https://github.com/prometeucorp/prometeu/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
+and [CONTRIBUTING.md](CONTRIBUTING.md).
 For local setup and checks, see the [development guide](docs/operations/development.md).
 
 [Documentation](docs/README.md) · [Architecture](ARCHITECTURE.md) ·
