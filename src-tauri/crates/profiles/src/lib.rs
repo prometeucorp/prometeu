@@ -80,6 +80,18 @@ impl NativeProfiles {
                 },
                 Adapter {
                     provider: ProviderId::Antigravity,
+                    home: external.clone(),
+                    prepare: |_, _, _| Err(code("err.account.external")),
+                    apply: |_, profile| {
+                        if profile.managed {
+                            Err(code("err.account.external"))
+                        } else {
+                            Ok(())
+                        }
+                    },
+                },
+                Adapter {
+                    provider: ProviderId::Cursor,
                     home: external,
                     prepare: |_, _, _| Err(code("err.account.external")),
                     apply: |_, profile| {

@@ -10,6 +10,11 @@ pub trait ProviderPreparation<Prepared>: Send + Sync {
 }
 
 pub trait AgentInput: ConversationInput + Send {
+    /// False after a terminal protocol failure, even while the child is still running.
+    /// The next input must use the host's normal restart lifecycle.
+    fn is_connected(&self) -> bool {
+        true
+    }
     /// Reader-owned protocol state may remain alive after input closes.
     fn close(&mut self);
     /// Whether a new message must wait for the current turn and its background work to settle.

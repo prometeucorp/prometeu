@@ -59,6 +59,11 @@ fn fetch_for_profile(
             cmd.arg("app-server");
             cmd
         }
+        ProviderId::Cursor => {
+            let mut cmd = Command::new("cursor-agent");
+            cmd.arg("acp");
+            cmd
+        }
         ProviderId::Antigravity => {
             let mut cmd = Command::new("agy");
             cmd.arg("models");
@@ -74,6 +79,12 @@ fn fetch_for_profile(
         ProviderId::Codex => {
             query_codex(launcher, &mut command, TIMEOUT, env!("CARGO_PKG_VERSION"))?
         }
+        ProviderId::Cursor => prometeu_protocols::cursor::query_catalog(
+            launcher,
+            &mut command,
+            TIMEOUT,
+            &paths::home().to_string_lossy(),
+        )?,
         ProviderId::Antigravity => {
             crate::antigravity::parse_catalog(&command_output(launcher, &mut command, TIMEOUT)?)?
         }

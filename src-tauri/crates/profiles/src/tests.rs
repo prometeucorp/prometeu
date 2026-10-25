@@ -47,6 +47,7 @@ fn profiles_resolve_under_explicit_roots_and_capture_the_selected_revision() {
         (ProviderId::Claude, "claude"),
         (ProviderId::Codex, "codex"),
         (ProviderId::Antigravity, "external"),
+        (ProviderId::Cursor, "external"),
     ] {
         let profile = profiles.resolve(&account(provider, key(provider))).unwrap();
         assert!(!profile.managed);
@@ -111,26 +112,26 @@ fn managed_child_environments_remove_alternative_credentials_without_rewriting_c
 }
 
 #[test]
-fn external_antigravity_keeps_its_environment_and_rejects_managed_preparation() {
-    let root = temporary();
-    let backend = backend(&root, Arc::new(Files));
-    let mut profile = backend
-        .resolve(&account(ProviderId::Antigravity, "antigravity"))
-        .unwrap();
-    let mut command = Command::new("unused-fixture-command");
-    command.env("EXTERNAL_AUTH", "unchanged");
-    backend.apply(&profile, &mut command).unwrap();
-    assert_eq!(command.get_envs().count(), 1);
-    profile.managed = true;
-    assert_eq!(
-        backend.apply(&profile, &mut command).err(),
-        Some(code("err.account.external"))
-    );
-    assert_eq!(
-        backend.prepare(&profile).err(),
-        Some(code("err.account.external"))
-    );
-    std::fs::remove_dir_all(root).unwrap();
+fn external_profiles_keep_their_environment_and_reject_managed_preparation() {
+    for provider in [ProviderId::Antigravity, ProviderId::Cursor] {
+        let root = temporary();
+        let backend = backend(&root, Arc::new(Files));
+        let mut profile = backend.resolve(&account(provider, key(provider))).unwrap();
+        let mut command = Command::new("unused-fixture-command");
+        command.env("EXTERNAL_AUTH", "unchanged");
+        backend.apply(&profile, &mut command).unwrap();
+        assert_eq!(command.get_envs().count(), 1);
+        profile.managed = true;
+        assert_eq!(
+            backend.apply(&profile, &mut command).err(),
+            Some(code("err.account.external"))
+        );
+        assert_eq!(
+            backend.prepare(&profile).err(),
+            Some(code("err.account.external"))
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[test]

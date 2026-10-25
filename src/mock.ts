@@ -858,7 +858,7 @@ function mockKickoff(id: string | undefined, agent: ProviderId) {
   if (!id) return;
   const known = [...skillHub.map(s => `skill-${s.id}/${s.id}`), ...pluginSkillsOfHub().map(s => `${s.plugin}/${s.name}`)];
   if (!known.includes(id)) throw `i18n:${JSON.stringify({ code: "err.kickoff.missing", args: { skill: id } })}`;
-  if (agent === "antigravity" || agent === "gemini") throw 'i18n:{"code":"err.kickoff.unsupported"}';
+  if (agent === "antigravity" || agent === "cursor" || agent === "gemini") throw 'i18n:{"code":"err.kickoff.unsupported"}';
 }
 
 /// Plugin creation progress uses timers instead of an agent.
@@ -1192,12 +1192,13 @@ const mockCommands: IpcHandlers = {
   set_resource_detail() { return; },
   account_login(args) {
     if (mockAccounts.login) throw 'i18n:{"code":"err.account.busy"}';
-    if (!["claude", "codex", "antigravity"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
-    if (args.provider === "antigravity") {
-      if ((args.method && args.method !== "external") || (args.id && args.id !== "antigravity")) throw 'i18n:{"code":"err.account.external"}';
-      if (localStorage.getItem("mock:antigravityMissing") === "1") throw 'i18n:{"code":"err.antigravity.version"}';
-      if (!mockAccounts.accounts.some(a => a.id === "antigravity")) mockAccounts.accounts.push({
-        id: "antigravity", provider: "antigravity", email: null, plan: null, connected: false, revision: 0, authMethod: "external",
+    if (!["claude", "codex", "antigravity", "cursor"].includes(args.provider)) throw 'i18n:{"code":"err.account.provider"}';
+    if (args.provider === "antigravity" || args.provider === "cursor") {
+      if ((args.method && args.method !== "external") || (args.id && args.id !== args.provider)) throw 'i18n:{"code":"err.account.external"}';
+      if (args.provider === "antigravity" && localStorage.getItem("mock:antigravityMissing") === "1") throw 'i18n:{"code":"err.antigravity.version"}';
+      if (args.provider === "cursor" && localStorage.getItem("mock:cursorMissing") === "1") throw 'i18n:{"code":"err.cursor.install"}';
+      if (!mockAccounts.accounts.some(a => a.id === args.provider)) mockAccounts.accounts.push({
+        id: args.provider, provider: args.provider, email: null, plan: null, connected: false, revision: 0, authMethod: "external",
       });
       const snapshot = accountSnapshot();
       emit("usage", call("usage"));
@@ -1930,8 +1931,16 @@ const mockCommands: IpcHandlers = {
           },
         },
         {
+          id: "cursor", label: "Cursor", installed: localStorage.getItem("mock:cursorMissing") !== "1",
+          authMethods: [{ id: "external", kind: "external", label: t("account.external.attach", { provider: "Cursor" }) }],
+          accountNotice: t("account.cursor.notice"), models: [],
+          capabilities: { initialPlanMode: true, resume: true, approvals: true, attachments: true,
+            usageTokens: false, usageCost: false, contextWindow: false,
+            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: true },
+        },
+        {
           id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
-          authMethods: [{ id: "external", kind: "external", label: t("account.external.attach") }],
+          authMethods: [{ id: "external", kind: "external", label: t("account.external.attach", { provider: "Antigravity" }) }],
           accountNotice: t("account.external.notice"),
           models: [],
           capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
@@ -1956,13 +1965,16 @@ const mockCommands: IpcHandlers = {
       { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
       { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
       { id: "gpt-5.4", label: "GPT-5.4", efforts: ["low", "medium", "high", "xhigh"] },
-    ] : agent === "antigravity" ? [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", efforts: [] }] : [];
+    ] : agent === "cursor" ? [{ id: "default[]", label: "Auto", efforts: [] }, { id: "composer-2.5[fast=true]", label: "Composer 2.5", efforts: [] }] : agent === "antigravity" ? [{ id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", efforts: [] }] : [];
     return { models, fetchedAt: Date.now() };
   },
   // Sample provider quotas keep usage indicators visible in the browser.
   usage() {
     const now = Math.floor(Date.now() / 1000);
     return {
+      ...(mockAccounts.accounts.some(a => a.id === "cursor") ? { cursor: {
+        windows: [{ kind: "weekly", pct: 14, resets: now + 6 * 86400 }], at: now,
+      } } : {}),
       ...Object.fromEntries(mockAccounts.accounts.filter((account) => account.id !== account.provider && account.connected && account.authMethod !== "apiKey").map((account, index) => [account.id, {
         windows: [{ kind: "session", pct: 9 + index, resets: now + 2 * 3600 }, { kind: "weekly", pct: 25 + index, resets: now + 4 * 86400 }],
         at: now,

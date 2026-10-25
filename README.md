@@ -35,6 +35,7 @@ precedence without merging. See [project scripts](docs/operations/project-script
 
 ## Features
 
+- **Cursor CLI on main:** external CLI login, interactive approvals and account quotas. See [Cursor setup](#cursor-cli--source-builds).
 - **Parallel workspaces:** isolated worktrees, multiple repositories and a desk for conversations side by side.
 - **Visual Git review:** unified or split diffs, review notes, staging, commits, history and conflict resolution.
 - **Built-in tools:** editor, terminal, browser preview, MCP servers, plugins, skills and reusable actions.
@@ -80,6 +81,16 @@ require installing the next version manually. Managed login and Cloud
 synchronization are unavailable. Conversations and files stay in WSL after
 updating or uninstalling. See [Windows coverage](docs/contracts/windows-application.md).
 
+### Cursor CLI — source builds
+
+Cursor support landed on `main` after v0.34.0. To try it before the next release,
+follow the [source-build guide](docs/operations/development.md). Install a Cursor
+CLI with ACP support, sign in with `agent login`, attach its account in Settings
+and select it in the launcher. Streaming, tools, resume, stop, questions and plan
+approvals are supported. Account quotas use the existing CLI login; hub tool
+selections and per-turn token/cost meters are unavailable. See the
+[Cursor contract](docs/contracts/cursor.md).
+
 ## Quick start
 
 1. **Connect an agent.** Install and authenticate Claude Code, Codex or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex` or `agy` available in your shell. Antigravity uses its CLI login; Windows uses Codex in WSL.
@@ -99,7 +110,7 @@ a random installation ID. Prompts, transcripts, file paths, project names and
 agent output are excluded. See the [analytics contract](docs/contracts/product-analytics.md).
 
 Local usage history stays on your computer and can be exported or deleted.
-App state and Codex/Antigravity transcripts live under `~/.prometeu`; Claude Code
+App state and app-managed transcripts live under `~/.prometeu`; Claude Code
 owns its transcripts. Your chosen model provider receives the content needed to
 run your tasks, under that provider's terms.
 

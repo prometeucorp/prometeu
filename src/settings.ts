@@ -193,7 +193,7 @@ export function draw() {
     if (searchQuery.trim()) {
       const results = h("div", "settings-panel settings-results");
       for (const candidate of PAGES) for (const section of candidate.sections) {
-        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity" : "", section.id === "integrations" ? "Linear GitHub TypeSafe" : ""];
+        const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity Cursor" : "", section.id === "integrations" ? "Linear GitHub TypeSafe" : ""];
         if (!matchesSettings(searchQuery, words.join(" "))) continue;
         const result = button("", () => navigate(candidate.id, section.id), "ghost", "settings.search.result");
         result.classList.add("settings-result");

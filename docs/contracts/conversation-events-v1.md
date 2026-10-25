@@ -2,7 +2,7 @@
 
 Status: contract in force since 2026-09-03.
 
-Claude, Codex and Antigravity have different external protocols. The adapters translate them
+Claude, Codex, Antigravity and Cursor have different external protocols. The adapters translate them
 into events and commands owned by Prometeu before the buffer, IPC, new
 persistence or collaboration. The contract's executable sources are
 `src/conversation.ts` and `src-tauri/src/conversation.rs`.
@@ -311,3 +311,7 @@ Pump ordering gate, but never enters the conversation buffer, transport sequence
 transcript or relay. It is consumed only by the owner's local event store.
 Quota `usage.updated` and context `context.updated` retain their existing meanings.
 Replay cannot capture new telemetry.
+
+Cursor ACP uses existing V1 text/thinking, tool, request and completion events;
+no provider messages cross this boundary. Its recorded translation fixture is
+validated by `src/conversation.test.ts`. See [Cursor](cursor.md).

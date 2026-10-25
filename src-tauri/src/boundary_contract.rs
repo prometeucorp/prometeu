@@ -45,6 +45,7 @@ fn serialized_boundary_fixture_is_current() {
         state::ProviderId::Claude,
         state::ProviderId::Codex,
         state::ProviderId::Antigravity,
+        state::ProviderId::Cursor,
         state::ProviderId::RetiredGemini,
     ];
     let capabilities: serde_json::Map<String, Value> = providers

@@ -74,7 +74,7 @@ impl Chat {
     }
 
     pub fn alive(&self) -> bool {
-        self.process.control.running()
+        self.process.control.running() && self.wire.is_connected()
     }
 
     /// Deliver an app-generated warning into the conversation as a `system.notice`, the same path
@@ -592,6 +592,7 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
     {
         crate::state::ProviderId::Codex
         | crate::state::ProviderId::Antigravity
+        | crate::state::ProviderId::Cursor
         | crate::state::ProviderId::RetiredGemini => paths::chat_log(session),
         crate::state::ProviderId::Claude => paths::transcript(session, Path::new(&ws.worktree)),
     }

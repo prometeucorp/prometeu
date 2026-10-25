@@ -30,7 +30,7 @@ model name must not be used to rediscover its provider after the catalog has
 been loaded.
 
 ```ts
-type ProviderId = "claude" | "codex" | "antigravity" | "gemini";
+type ProviderId = "claude" | "codex" | "antigravity" | "cursor" | "gemini";
 
 type AgentModel = {
   id: string;
@@ -57,7 +57,7 @@ When a provider is added, `ProviderId` grows explicitly. An old or unknown value
 coming from disk falls back to the default provider only during persistence
 migration; new code uses exhaustive matching. The recognized retired `gemini`
 value is retained without fallback and cannot execute. The JSON field is still called
-`agent` for compatibility, but its normalized value is `"claude" | "codex" | "antigravity" | "gemini"`.
+`agent` for compatibility, but its normalized value is `"claude" | "codex" | "antigravity" | "cursor" | "gemini"`.
 
 ## Native preparation
 
@@ -380,3 +380,13 @@ queries, pagination and response validation; hosts supply the query launcher,
 prepared command and client version. `ProviderDiscovery` registers providers in
 the runtime. Windows coverage is in the
 [Windows application contract](windows-application.md).
+
+## Cursor
+
+The additive `cursor` provider is discovered through `cursor-agent acp --help`.
+Its descriptor exposes external account attachment, initial plan mode, resume,
+approvals, questions and path mentions. Model discovery uses exact ACP model IDs
+from an unprompted native session, with the existing query deadline and output
+limit. Per-turn usage/context controls and Prometeu-managed tool selections remain
+unavailable. Account quotas use a separate dashboard probe and the existing
+usage scheduler. See the [Cursor contract](cursor.md).

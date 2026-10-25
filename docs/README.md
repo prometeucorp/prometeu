@@ -19,6 +19,8 @@ as a short index for agents and `README.md` presents the product.
 
 ## Contracts
 
+- [Cursor CLI](contracts/cursor.md): ACP transport, external account, conversation lifecycle and capability limits.
+
 - [Portable application core](contracts/application-core.md): core ports, their desktop and WSL adapters and implementation obligations.
 - [Native Windows application](contracts/windows-application.md): shared interface over WSL, command coverage, deadlines and paths.
 - [WSL runtime protocol](contracts/wsl-runtime.md): framing, capabilities, resident attachment, storage and compatibility.
@@ -135,6 +137,8 @@ compatibility still in use stays documented in the current contracts.
 - [ADR 0082](decisions/0082-resident-wsl-attachments.md): resident WSL execution with disposable attachments.
 - [ADR 0084](decisions/0084-shared-windows-desktop.md): shared desktop interface over an injected WSL runtime.
 - [ADR 0085](decisions/0085-portable-core.md): portable core with injected effects.
+
+- [ADR 0095](decisions/0095-cursor-acp.md): Cursor CLI through ACP and an explicit external account.
 
 ## Local telemetry
 

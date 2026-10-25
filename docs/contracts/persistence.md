@@ -40,7 +40,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
 | product analytics consent | `<root>/analytics-enabled.json` | `analytics.rs`; private JSON boolean, default false on new installs and upgrades, including missing or invalid files; see [product analytics](product-analytics.md) |
 | product analytics identity | `<root>/analytics-id` | `analytics.rs`; private random UUID, created only when consent and the build key allow capture; its presence does not imply consent |
-| Codex and Antigravity V1 transcript | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
+| Codex, Antigravity and Cursor V1 transcript | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -552,3 +552,15 @@ reuses these board, transcript, account and tool formats and never adopts a
 desktop root. Its layout, the `workspaces.json` catalog and recovery limits are
 in the [WSL runtime protocol](wsl-runtime.md#storage-and-ownership). Worktree
 cleanup deletes the checkout, not its conversation store.
+
+### Cursor sessions
+
+The additive provider ID `cursor` is explicit in boards, saved model choices and
+accounts. `Tab.agent_session` holds the opaque ACP session ID; Prometeu stores
+canonical V1 presentation in its existing chat log. Native Cursor history stays
+owned by the CLI. Loading it never duplicates presentation history, and a failed
+load does not replace the session. The external account is attached and selected
+explicitly; removal survives restart. Account readers without Cursor support
+preserve its account and active selection opaquely. Older board readers may map
+an unknown provider to Claude, so downgrading a Cursor board is unsupported.
+See the [Cursor contract](cursor.md).

@@ -7,7 +7,7 @@ export type { Member } from "../relay/src/protocol";
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
 /// Carry stable provider identity explicitly alongside the model; only the catalog resolves their association.
-export type ProviderId = "claude" | "codex" | "antigravity" | "gemini";
+export type ProviderId = "claude" | "codex" | "antigravity" | "cursor" | "gemini";
 
 /// Share localized status labels across views while preserving protocol/CSS status values.
 export const label = (status: Status) => t(`status.${status}`);

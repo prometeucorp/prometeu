@@ -344,3 +344,30 @@ provider capability, IPC or V1 event. `review-comments.test.ts`,
 `e2e/git.spec.ts` and `e2e/mobile.spec.ts` cover representative keyboard/reload
 and portable history behavior. These tests do not assert that a provider follows
 every note or that a queued batch has been received by the model.
+
+## Cursor verification boundary
+
+Cursor is an additional desktop provider; the preceding Claude/Codex/Antigravity
+comparison retains its existing scope. Cursor uses the same Git, worktree,
+transcript, sharing and presentation paths after V1 normalization.
+
+| Capability | Cursor | Evidence |
+| --- | --- | --- |
+| Installed CLI and model discovery | ACP capability probe; exact account-visible ACP model IDs | `cursor.rs::installed`, `protocols::cursor::query_catalog`, ignored live smoke |
+| Account | One explicitly attached external login; separate selection; removable | core account round-trip test; shared account UI |
+| Streaming, thinking, tools and errors | Native ACP translated to V1 | recorded `cursor/fixtures/tool.ndjson`, protocol tests, `src/conversation.test.ts` |
+| Resume and interruption | Native load with replay suppression; ACP cancellation; failed handshake disconnects so next input restarts | protocol tests, including failed-handshake pipe release; ignored desktop `live_cursor_round_trip` |
+| Permissions, questions, plan approvals | Existing request cards; option IDs independent of click order and explicit plan decisions | protocol tests include reversed multi-select and free text; live smoke covers permission round trip and initial plan mode |
+| Attachments | Existing local path mentions; no binary upload | shared presentation contract; Cursor image understanding not separately verified |
+| MCP, plugins and skills from Prometeu | Unavailable; absent workspace axes suppress inherited hub tools; explicit nonempty selections fail | `session::tests::tool_resolution_uses_the_tab_provider_and_configured_claude_home` covers global/project inheritance, fresh/resumed launches and rejection; native Cursor configuration still applies |
+| Account quotas | Dashboard API using the CLI login; unified weekly or explicit legacy individual monthly limits | `cursor/quota/tests.rs`: mapping, failure and compatibility tests; ignored `live_cursor_quota` verifies the signed-in account |
+| Per-turn token/cost meters, context and compaction controls | Unavailable | descriptor capabilities; no invented readings |
+| Subagent lifecycle | No separately verified background signal | native prompt terminal settles turn |
+| Windows/WSL | Not registered | existing Codex-only runtime composition |
+
+Native verification targets Cursor CLI `2026.10.22-27dcf5f`. A real scratch
+workspace prompt ran `pwd`, wrote `CURSOR_OK`, and remembered a marker across
+process restart. ACP cancellation returned `cancelled`. Fixtures test question
+and plan decisions; no manual native-webview interaction is claimed. Existing
+browser account/launcher journeys exercise the shared controls without adding
+a provider-by-provider E2E matrix. See [ADR 0095](../decisions/0095-cursor-acp.md).

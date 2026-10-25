@@ -110,3 +110,4 @@ Status: Proposed
 | [0091](0091-keep-unreadable-state.md) | Keep unreadable state before replacing it |
 | [0093](0093-anonymous-product-analytics.md) | Anonymous product analytics in PostHog |
 | [0094](0094-leaving-a-share.md) | Leaving a share, enforced by the relay |
+| [0095](0095-cursor-acp.md) | Cursor CLI through ACP and an explicit external account |

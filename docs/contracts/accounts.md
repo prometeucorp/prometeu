@@ -51,7 +51,7 @@ write. Each account contains:
 ```ts
 type Account = {
   id: string;
-  provider: "claude" | "codex" | "antigravity";
+  provider: "claude" | "codex" | "antigravity" | "cursor";
   email: string | null;
   plan: string | null;
   connected: boolean;
@@ -62,7 +62,7 @@ type Account = {
 type Accounts = {
   accounts: Account[];
   active: Partial<Record<ProviderId, string>>;
-  login: { id: string; provider: "claude" | "codex" | "antigravity" } | null;
+  login: { id: string; provider: "claude" | "codex" | "antigravity" | "cursor" } | null;
 };
 ```
 
@@ -196,7 +196,10 @@ failures are runtime-only; `usage.json` retains the original per-account
 `{ windows, at }` format, and `at` changes only when the reading changes.
 Claude still depends on the internal quota endpoint; Codex prefers the
 app-server, with the previous endpoint as a fallback. Antigravity uses its
-native `/usage` report. Missing quotas are not a zero percentage. The catalog
+native `/usage` report. Missing quotas are not a zero percentage. Cursor's
+dashboard quota queries use the external CLI login;
+weekly unified quotas take precedence over legacy monthly summaries. See the
+[Cursor contract](cursor.md#account-quotas). The model catalog
 is reloaded when switching accounts; late catalog responses from the previous
 selection are discarded.
 
@@ -287,3 +290,14 @@ atomic private writes. It currently registers the installed Codex CLI's external
 account and probes its real identity. Selection/removal persist; attaching an
 external account does not reactivate a removed selection. Additional managed login
 profiles remain pending there. See the [Windows contract](windows-application.md#launcher-and-execution-identity).
+
+## Cursor
+
+Provider `cursor` attaches the single external CLI account, also named `cursor`,
+with method `external`. Attachment and selection remain separate. No managed
+UUID profile, credential copy or API-key form is accepted. Its unknown identity
+fields do not prevent selecting the external card. Removal stays removed across
+restart and does not run logout. Cursor owns account switching outside Prometeu.
+Quota queries read the existing CLI credential without copying or renewing it,
+then normalize the dashboard's account limits into the shared usage windows.
+See the [Cursor contract](cursor.md#account-quotas).

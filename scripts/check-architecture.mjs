@@ -15,8 +15,8 @@ const presentation = [
 ];
 
 const forbidden = [
-  /(?:===|!==)\s*["'](?:claude|codex|gemini|antigravity)["']|["'](?:claude|codex|gemini|antigravity)["']\s*(?:===|!==)/g,
-  /\bcase\s+["'](?:claude|codex|gemini|antigravity)["']/g,
+  /(?:===|!==)\s*["'](?:claude|codex|gemini|antigravity|cursor)["']|["'](?:claude|codex|gemini|antigravity|cursor)["']\s*(?:===|!==)/g,
+  /\bcase\s+["'](?:claude|codex|gemini|antigravity|cursor)["']/g,
 ];
 
 const sources = new Map();

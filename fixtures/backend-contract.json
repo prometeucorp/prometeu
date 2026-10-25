@@ -238,6 +238,20 @@
       "workspaceMcpSelection": true,
       "workspacePluginSelection": true
     },
+    "cursor": {
+      "approvals": true,
+      "attachments": true,
+      "compact": false,
+      "contextReport": false,
+      "contextWindow": false,
+      "initialPlanMode": true,
+      "resume": true,
+      "usageCost": false,
+      "usageTokens": false,
+      "userQuestions": true,
+      "workspaceMcpSelection": false,
+      "workspacePluginSelection": false
+    },
     "gemini": {
       "approvals": false,
       "attachments": true,
@@ -483,6 +497,7 @@
     "claude",
     "codex",
     "antigravity",
+    "cursor",
     "gemini"
   ],
   "snapshot": {

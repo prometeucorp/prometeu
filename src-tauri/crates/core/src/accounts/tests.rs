@@ -211,3 +211,36 @@ fn legacy_and_unknown_provider_entries_survive_a_known_account_change() {
         json!({"future":{"opaque":true},"gemini":"old-gemini"})
     );
 }
+
+#[test]
+fn cursor_external_account_round_trips_without_becoming_a_default_or_managed_login() {
+    let mut registry = Registry::default();
+    assert!(registry.active(ProviderId::Cursor).is_err());
+    registry.accounts.push(Account {
+        id: "cursor".into(),
+        provider: ProviderId::Cursor,
+        revision: 0,
+        auth_method: Some("external".into()),
+        key_suffix: None,
+        identity: Identity::default(),
+    });
+    registry.select("cursor").unwrap();
+    let serialized = serde_json::to_value(&registry).unwrap();
+    let mut loaded: Registry = serde_json::from_value(serialized).unwrap();
+    loaded.validate().unwrap();
+    assert_eq!(loaded.active(ProviderId::Cursor).unwrap().id, "cursor");
+    loaded.accounts.last_mut().unwrap().id = uuid::Uuid::new_v4().to_string();
+    assert!(loaded.validate().is_err());
+    registry.remove("cursor").unwrap();
+    let reopened: Registry =
+        serde_json::from_value(serde_json::to_value(registry).unwrap()).unwrap();
+    assert!(reopened.active(ProviderId::Cursor).is_err());
+    assert_eq!(
+        serde_json::from_str::<ProviderId>("\"cursor\"").unwrap(),
+        ProviderId::Cursor
+    );
+    assert_eq!(
+        serde_json::to_string(&ProviderId::Cursor).unwrap(),
+        "\"cursor\""
+    );
+}

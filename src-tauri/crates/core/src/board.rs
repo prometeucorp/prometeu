@@ -15,6 +15,7 @@ pub enum ProviderId {
     Claude,
     Codex,
     Antigravity,
+    Cursor,
     #[serde(rename = "gemini")]
     RetiredGemini,
 }
@@ -28,6 +29,7 @@ impl<'de> Deserialize<'de> for ProviderId {
         Ok(match value.as_str() {
             "codex" => Self::Codex,
             "antigravity" => Self::Antigravity,
+            "cursor" => Self::Cursor,
             "gemini" => Self::RetiredGemini,
             "" | "claude" => Self::Claude,
             _ => Self::default(),

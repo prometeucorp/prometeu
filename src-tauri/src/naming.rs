@@ -106,7 +106,9 @@ fn ask(
             )
         }
         crate::state::ProviderId::Claude => ask_claude(queries, prompt, context),
-        crate::state::ProviderId::Antigravity | crate::state::ProviderId::RetiredGemini => None,
+        crate::state::ProviderId::Antigravity
+        | crate::state::ProviderId::Cursor
+        | crate::state::ProviderId::RetiredGemini => None,
     }
 }
 

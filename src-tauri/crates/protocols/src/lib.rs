@@ -1,5 +1,6 @@
 //! Provider protocol adapters shared by desktop and headless execution.
 pub mod codex;
+pub mod cursor;
 mod conversation {
     pub use prometeu_core::conversation::event;
     pub fn now() -> u64 {

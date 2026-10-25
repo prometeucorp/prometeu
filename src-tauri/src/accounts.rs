@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-use prometeu_core::accounts::AccountRegistry;
+use prometeu_core::accounts::{key, AccountRegistry};
 pub use prometeu_core::accounts::{Account, Identity, Registry};
 
 fn provider(value: &str) -> Result<ProviderId, String> {
@@ -26,6 +26,7 @@ fn provider(value: &str) -> Result<ProviderId, String> {
         "claude" => Ok(ProviderId::Claude),
         "codex" => Ok(ProviderId::Codex),
         "antigravity" => Ok(ProviderId::Antigravity),
+        "cursor" => Ok(ProviderId::Cursor),
         _ => Err(i18n::t("err.account.provider")),
     }
 }
@@ -182,17 +183,20 @@ pub async fn account_login(
     method: Option<String>,
 ) -> Result<Snapshot, String> {
     let provider = self::provider(&provider)?;
-    if provider == ProviderId::Antigravity {
+    if matches!(provider, ProviderId::Antigravity | ProviderId::Cursor) {
         if method.as_deref().is_some_and(|m| m != "external")
-            || id.as_deref().is_some_and(|id| id != "antigravity")
+            || id.as_deref().is_some_and(|id| id != key(provider))
         {
             return Err(i18n::t("err.account.external"));
         }
-        if !crate::antigravity::installed() {
+        if provider == ProviderId::Cursor && !crate::cursor::installed() {
+            return Err(i18n::t("err.cursor.install"));
+        }
+        if provider == ProviderId::Antigravity && !crate::antigravity::installed() {
             return Err(i18n::t("err.antigravity.version"));
         }
         DesktopLogin(&app).service().attach(Account {
-            id: "antigravity".into(),
+            id: key(provider).into(),
             provider,
             revision: 0,
             auth_method: Some("external".into()),

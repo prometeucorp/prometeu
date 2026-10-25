@@ -94,6 +94,15 @@ opposite direction, it receives `ConversationCommandV1` and builds the matching
 JSON-RPC request without going through Claude's stream-json format. Prometeu
 writes the V1 events in its own transcript.
 
+### Cursor
+
+`cursor.rs` prepares `cursor-agent acp`; `prometeu-protocols::cursor` converts
+JSON-RPC updates and client requests directly to V1. Startup uses the selected
+external account, exact ACP model ID and workspace directory. Native replay is
+suppressed during load because presentation replays the application V1 log.
+Approvals, questions and plan decisions use existing request cards. See the
+[Cursor contract](../contracts/cursor.md).
+
 ### Common path
 
 `Pump.feed` delegates JSON parsing and observation ordering to the core's

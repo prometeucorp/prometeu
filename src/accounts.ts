@@ -83,7 +83,7 @@ async function call(...args: IpcCall<"account_select" | "account_login" | "accou
     if (provider && args[0] !== "account_login") track({ name: "provider_account_action_used", provider, action: args[0] === "account_select" ? "select" : "remove" });
     update(next);
     if (args[0] === "account_login") {
-      say(t(args[1].method === "external" ? "account.external.added" : "account.connected"));
+      say(t(args[1].method === "external" ? "account.external.added" : "account.connected", { provider: descriptor(args[1].provider).label }));
       const added = next.accounts.find(a => !before.has(a.id));
       const id = added?.id ?? args[1].id;
       if (id) focusAccount(id);
@@ -196,10 +196,10 @@ export function render(providers: readonly AgentDescriptor[] = descriptors(), ma
     if (external && list.length) {
       const attached = h("span", "account-attached");
       attached.innerHTML = icon("check", 14);
-      attached.append(document.createTextNode(t("account.external.attached")));
+      attached.append(document.createTextNode(t("account.external.attached", { provider: provider.label })));
       footer.append(attached);
     } else {
-      const addButton = button(t(external ? "account.external.attach" : "account.add"), () => add(provider.id));
+      const addButton = button(t(external ? "account.external.attach" : "account.add", { provider: provider.label }), () => add(provider.id));
       addButton.insertAdjacentHTML("afterbegin", icon("plus", 14));
       addButton.dataset.track = "account.add";
       addButton.dataset.focus = `add-${provider.id}`;

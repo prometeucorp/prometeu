@@ -132,14 +132,14 @@ test("legacy accounts ignore aliases and render email as text", async ({ page })
 test("accounts: Antigravity uses the external account without creating a login or activating it automatically", async ({ page }) => {
   await page.goto("/");
   const panel = await openAccounts(page, "antigravity");
-  await panel.getByRole("button", { name: "Use agy account" }).click();
+  await panel.getByRole("button", { name: "Use Antigravity account" }).click();
   const added = panel.locator('[data-account="antigravity"]');
   await expect(added).toContainText("Antigravity account");
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "false");
   await expect(added.locator(".account-select")).toBeFocused();
   await expect(page.getByRole("dialog")).toHaveCount(1);
-  await expect(panel.getByRole("button", { name: "Use agy account" })).toHaveCount(0);
-  await expect(panel).toContainText("agy account added");
+  await expect(panel.getByRole("button", { name: "Use Antigravity account" })).toHaveCount(0);
+  await expect(panel).toContainText("Antigravity account added");
   await added.locator(".account-select").click();
   await expect(added.locator(".account-select")).toHaveAttribute("aria-pressed", "true");
   await expect(panel).toContainText("Gemini Models");
@@ -166,7 +166,7 @@ test("accounts: removing the last account without a CLI preserves focus on the g
   await action(page, group.locator(".uaccount"), "Remove account");
   await expect(group.locator(".uaccount")).toHaveCount(0);
   await expect(group).toContainText("Install Antigravity");
-  await expect(group.getByRole("button", { name: "Use agy account" })).toBeDisabled();
+  await expect(group.getByRole("button", { name: "Use Antigravity account" })).toBeDisabled();
   await expect(group).toBeFocused();
 });
 

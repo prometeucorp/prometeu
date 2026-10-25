@@ -106,7 +106,7 @@ impl<'de> Deserialize<'de> for Registry {
             .ok_or_else(|| serde::de::Error::custom("accounts must be an array"))?
         {
             match value.get("provider").and_then(Value::as_str) {
-                Some("claude" | "codex" | "antigravity") => accounts
+                Some("claude" | "codex" | "antigravity" | "cursor") => accounts
                     .push(serde_json::from_value(value.clone()).map_err(serde::de::Error::custom)?),
                 Some(_) => unknown_accounts.push(value.clone()),
                 None => {
@@ -123,7 +123,10 @@ impl<'de> Deserialize<'de> for Registry {
             .and_then(Value::as_object)
             .ok_or_else(|| serde::de::Error::custom("active must be an object"))?
         {
-            if matches!(provider.as_str(), "claude" | "codex" | "antigravity") {
+            if matches!(
+                provider.as_str(),
+                "claude" | "codex" | "antigravity" | "cursor"
+            ) {
                 active.insert(
                     provider.clone(),
                     value
@@ -159,9 +162,11 @@ impl Registry {
     pub fn validate(&self) -> Result<(), String> {
         let mut ids = std::collections::HashSet::new();
         for account in &self.accounts {
-            if (account.provider == ProviderId::Antigravity
-                && (account.id != "antigravity"
-                    || account.auth_method.as_deref() != Some("external")))
+            if (matches!(
+                account.provider,
+                ProviderId::Antigravity | ProviderId::Cursor
+            ) && (account.id != key(account.provider)
+                || account.auth_method.as_deref() != Some("external")))
                 || !ids.insert(&account.id)
                 || (account.id != key(account.provider)
                     && uuid::Uuid::parse_str(&account.id)
@@ -217,6 +222,7 @@ pub fn key(provider: ProviderId) -> &'static str {
         ProviderId::Claude => "claude",
         ProviderId::Codex => "codex",
         ProviderId::Antigravity => "antigravity",
+        ProviderId::Cursor => "cursor",
         ProviderId::RetiredGemini => "gemini",
     }
 }

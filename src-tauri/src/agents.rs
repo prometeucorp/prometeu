@@ -58,6 +58,16 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
             ..common
         },
         ProviderId::Codex => common,
+        ProviderId::Cursor => AgentCapabilities {
+            initial_plan_mode: true,
+            workspace_mcp_selection: false,
+            workspace_plugin_selection: false,
+            compact: false,
+            context_report: false,
+            usage_tokens: false,
+            context_window: false,
+            ..common
+        },
         ProviderId::Antigravity | ProviderId::RetiredGemini => AgentCapabilities {
             initial_plan_mode: false,
             approvals: false,
@@ -80,21 +90,43 @@ fn descriptor(id: ProviderId, installed: bool, models: Vec<Model>) -> AgentDescr
             ProviderId::Claude => "Claude".into(),
             ProviderId::Codex => "Codex".into(),
             ProviderId::Antigravity => "Antigravity".into(),
+            ProviderId::Cursor => "Cursor".into(),
             ProviderId::RetiredGemini => "Gemini CLI".into(),
         },
         installed,
         models,
         capabilities: capabilities(id),
-        unavailable_reason: (id == ProviderId::Antigravity && !installed)
-            .then(|| crate::i18n::t("err.antigravity.version")),
-        account_notice: (id == ProviderId::Antigravity)
-            .then(|| crate::i18n::t("account.external.notice")),
+        unavailable_reason: match id {
+            ProviderId::Cursor if !installed => Some(crate::i18n::t("err.cursor.install")),
+            ProviderId::Antigravity if !installed => {
+                Some(crate::i18n::t("err.antigravity.version"))
+            }
+            _ => None,
+        },
+        account_notice: matches!(id, ProviderId::Antigravity | ProviderId::Cursor).then(|| {
+            crate::i18n::t(if id == ProviderId::Cursor {
+                "account.cursor.notice"
+            } else {
+                "account.external.notice"
+            })
+        }),
         auth_methods: match id {
             ProviderId::RetiredGemini => vec![],
-            ProviderId::Antigravity => vec![AuthMethod {
+            ProviderId::Antigravity | ProviderId::Cursor => vec![AuthMethod {
                 id: "external".into(),
                 kind: "external".into(),
-                label: crate::i18n::t("account.external.attach"),
+                label: crate::i18n::ta(
+                    "account.external.attach",
+                    &[(
+                        "provider",
+                        if id == ProviderId::Cursor {
+                            "Cursor"
+                        } else {
+                            "Antigravity"
+                        }
+                        .into(),
+                    )],
+                ),
             }],
             other => vec![AuthMethod {
                 id: "browser".into(),
@@ -123,6 +155,7 @@ pub fn agents() -> Agents {
             ),
             descriptor(ProviderId::Claude, claude, vec![]),
             descriptor(ProviderId::Codex, codex, vec![]),
+            descriptor(ProviderId::Cursor, crate::cursor::installed(), vec![]),
         ],
     }
 }

@@ -163,6 +163,7 @@ fn missing_account_fails_before_any_provider_process() {
         ProviderId::Claude,
         ProviderId::Codex,
         ProviderId::Antigravity,
+        ProviderId::Cursor,
     ] {
         assert_eq!(
             fetch_for_profile(
@@ -430,4 +431,32 @@ read unexpected
     );
     std::fs::remove_dir_all(home).unwrap();
     assert_eq!(result.unwrap()[0].id, "selected-account-model");
+}
+
+#[test]
+fn cursor_discovers_acp_model_ids_without_prompting() {
+    let mut command = fake(
+        r#"
+read init
+case "$init" in *'"method":"initialize"'*) ;; *) exit 1;; esac
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}'
+read auth
+case "$auth" in *'"methodId":"cursor_login"'*) ;; *) exit 2;; esac
+printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{}}'
+read session
+case "$session" in *'"method":"session/new"'*) ;; *) exit 3;; esac
+printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"models":{"availableModels":[{"modelId":"composer[fast=true]","name":"Composer"}]}}}'
+read unexpected
+exit 4
+"#,
+    );
+    let models = prometeu_protocols::cursor::query_catalog(
+        &UnixQueryLauncher,
+        &mut command,
+        Duration::from_secs(2),
+        "/fixture/workspace",
+    )
+    .unwrap();
+    assert_eq!(models[0].id, "composer[fast=true]");
+    assert!(models[0].efforts.is_empty());
 }

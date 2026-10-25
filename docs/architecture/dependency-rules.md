@@ -210,7 +210,7 @@ it owns ([ADR 0085](../decisions/0085-portable-core.md),
 | --- | --- | --- |
 | `prometeu-core` | models, portable rules, sequencing and ports | `serde`, `serde_json`, `uuid` only |
 | `prometeu-oauth` | PKCE, loopback callback and `Consent` port | no workspace crate |
-| `prometeu-protocols` | shared Codex and model-catalog protocols | core |
+| `prometeu-protocols` | shared Codex, Cursor ACP and model-catalog protocols | core |
 | `prometeu-files`, `prometeu-git` | project files, search, scripts, account storage; native Git | core |
 | `prometeu-process`, `prometeu-profiles` (Unix) | processes, PTYs, pipes, bounded commands; account profiles | core |
 | `prometeu-tools` (Unix) | MCP, packages, skills, plugins, MCP credentials | core, profiles, oauth |

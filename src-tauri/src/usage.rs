@@ -232,6 +232,11 @@ fn probe(profile: &accounts::Profile) -> Probe {
             windows: crate::antigravity::quota(),
             complete: true,
         },
+        ProviderId::Cursor => Probe {
+            identity: None,
+            windows: crate::cursor::quota(),
+            complete: true,
+        },
         ProviderId::RetiredGemini => Probe {
             identity: None,
             windows: None,

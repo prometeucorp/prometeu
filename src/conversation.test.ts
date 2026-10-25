@@ -126,3 +126,23 @@ it("accepts and reduces every event emitted by the Antigravity adapter fixture",
   ]));
   expect(timeline.items.filter(item => item.kind === "ask")).toHaveLength(0);
 });
+
+it("validates and replays Cursor ACP output through the shared timeline", async () => {
+  const { default: raw } = await import("../src-tauri/crates/protocols/src/cursor/fixtures/canonical-events.json?raw");
+  const { events } = JSON.parse(raw) as { events: unknown[] };
+  const timeline = new Timeline();
+  for (const event of events) {
+    expect(parseConversationEvent(event)).not.toBeNull();
+    timeline.push(JSON.stringify(event));
+  }
+  expect(timeline.working).toBe(false);
+  expect(timeline.items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: "assistant", blocks: expect.arrayContaining([
+      expect.objectContaining({ kind: "text", text: expect.stringContaining("CURSOR_OK") }),
+      expect.objectContaining({ kind: "tool", name: "Bash", done: true, result: "/fixture/worktree\nCURSOR_OK\n" }),
+    ]) }),
+  ]));
+  const replay = new Timeline();
+  replay.load(events.map(event => JSON.stringify(event)).join("\n"));
+  expect(replay.items).toEqual(timeline.items);
+});

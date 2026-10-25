@@ -119,8 +119,11 @@ resume from a saved identity; fresh starts never infer resume.
 then schedules stdout and stderr consumers. Nonblank stderr becomes
 `provider.stderr`. Stdout EOF waits for exit and releases the waiter before
 `WorkerLifecycle::exited`. `ProviderPreparation` may write files and run bounded
-probes but never spawns the conversation; `AgentInput` carries closure and
-turn-wait policy so shared code never matches a provider enum.
+probes but never spawns the conversation; `AgentInput` carries closure, connection
+health and turn-wait policy so shared code never matches a provider enum.
+Connection health defaults to connected for existing adapters. A terminal protocol
+failure can disconnect before process exit; desktop liveness then causes the next
+input to use the normal restart lifecycle, including process shutdown.
 
 ## Accounts and profiles
 

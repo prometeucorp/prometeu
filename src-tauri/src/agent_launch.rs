@@ -35,6 +35,7 @@ const PROVIDERS: &[(ProviderId, Prepare)] = &[
     (ProviderId::Claude, claude),
     (ProviderId::Codex, codex),
     (ProviderId::Antigravity, antigravity),
+    (ProviderId::Cursor, cursor),
 ];
 impl ProviderPreparation<PreparedAgent> for NativeProviders {
     fn prepare(&self, request: &LaunchRequest) -> Result<PreparedAgent, String> {
@@ -84,6 +85,19 @@ fn codex(
         &request.settings,
         profiles,
         tools,
+    )
+}
+fn cursor(
+    request: &LaunchRequest,
+    profiles: &dyn prometeu_profiles::ProfileBackend,
+    _tools: &dyn prometeu_tools::StartupTools,
+) -> Result<PreparedAgent, String> {
+    crate::cursor::prepare(
+        &request.session,
+        Path::new(&request.worktree),
+        previous(&request.mode),
+        &request.settings,
+        profiles,
     )
 }
 fn antigravity(

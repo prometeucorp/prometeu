@@ -1,0 +1,425 @@
+{
+  "events": [
+    {
+      "at": 0,
+      "messageId": "cursor-message",
+      "type": "assistant.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "thinking",
+        "text": ""
+      },
+      "index": 0,
+      "messageId": "cursor-message",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "Running",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": " the integration smoke",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": " test. I'll execute ",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "`pwd",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "` and create `probe.txt",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "` containing `CURSOR",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "_OK` in the current ",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "working",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": " directory.",
+      "index": 0,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "thinking",
+        "text": "Running the integration smoke test. I'll execute `pwd` and create `probe.txt` containing `CURSOR_OK` in the current working directory."
+      },
+      "index": 0,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "fixture-tool",
+        "input": {
+          "command": "Terminal"
+        },
+        "kind": "tool",
+        "name": "Bash"
+      },
+      "index": 1,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "fixture-tool",
+        "input": {
+          "command": "pwd && echo \"CURSOR_OK\" > probe.txt && cat probe.txt"
+        },
+        "kind": "tool",
+        "name": "Bash"
+      },
+      "index": 1,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "fixture-tool",
+        "input": {
+          "command": "pwd && echo \"CURSOR_OK\" > probe.txt && cat probe.txt"
+        },
+        "kind": "tool",
+        "name": "Bash"
+      },
+      "index": 1,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "input": {
+        "command": "`pwd && echo \"CURSOR_OK\" > probe.txt && cat probe.txt`"
+      },
+      "kind": "approval",
+      "requestId": "cursor-request",
+      "tool": "Bash",
+      "toolId": "fixture-tool",
+      "type": "request.opened",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "outcome": "allowed",
+      "requestId": "cursor-request",
+      "type": "request.closed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "id": "fixture-tool",
+        "input": {
+          "command": "pwd && echo \"CURSOR_OK\" > probe.txt && cat probe.txt"
+        },
+        "kind": "tool",
+        "name": "Bash"
+      },
+      "index": 1,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "background": false,
+      "error": false,
+      "output": "/fixture/worktree\nCURSOR_OK\n",
+      "toolId": "fixture-tool",
+      "type": "tool.completed",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "thinking",
+        "text": ""
+      },
+      "index": 2,
+      "messageId": "cursor-message",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "The",
+      "index": 2,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": " smoke test completed",
+      "index": 2,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": " successfully.",
+      "index": 2,
+      "kind": "thinking",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "thinking",
+        "text": "The smoke test completed successfully."
+      },
+      "index": 2,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": ""
+      },
+      "index": 3,
+      "messageId": "cursor-message",
+      "type": "assistant.block.started",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "**",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "CURSOR_OK**\n\n",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "Working",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": " directory: `/fixture",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "/worktree`\n\n`",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "probe",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": ".txt` ",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "was crea",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "ted in ",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "that dire",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "ctory wit",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "h `CURSOR_OK`",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": ". Mark",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "er **RI",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "VER_5180** not",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "delta": "ed.",
+      "index": 3,
+      "kind": "text",
+      "messageId": "cursor-message",
+      "type": "assistant.delta",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "block": {
+        "kind": "text",
+        "text": "**CURSOR_OK**\n\nWorking directory: `/fixture/worktree`\n\n`probe.txt` was created in that directory with `CURSOR_OK`. Marker **RIVER_5180** noted."
+      },
+      "index": 3,
+      "messageId": "cursor-message",
+      "type": "assistant.block",
+      "v": 1
+    },
+    {
+      "at": 0,
+      "costUsd": null,
+      "durationMs": 0,
+      "message": "",
+      "outcome": "ok",
+      "type": "turn.completed",
+      "v": 1
+    }
+  ]
+}

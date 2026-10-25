@@ -12,6 +12,7 @@ mod antigravity;
 mod awake;
 mod background;
 mod board_store;
+mod cursor;
 
 #[cfg(test)]
 mod boundary_contract;

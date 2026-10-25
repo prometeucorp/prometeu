@@ -85,6 +85,11 @@ const BOOTSTRAP: AgentDescriptor[] = [
     authMethods: [{ id: "external", kind: "external", label: "Antigravity" }],
     capabilities: NO_CAPABILITIES,
   },
+  {
+    id: "cursor", label: "Cursor", installed: false, models: [],
+    authMethods: [{ id: "external", kind: "external", label: "Cursor" }],
+    capabilities: NO_CAPABILITIES,
+  },
 ];
 
 const RETIRED: AgentDescriptor = {

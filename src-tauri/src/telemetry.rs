@@ -364,7 +364,7 @@ impl Event {
                 .scope
                 .provider
                 .as_deref()
-                .is_none_or(|p| matches!(p, "claude" | "codex" | "antigravity"))
+                .is_none_or(|p| matches!(p, "claude" | "codex" | "antigravity" | "cursor"))
             || !fact_valid
             || !self.fact.measurement().is_none_or(model)
         {

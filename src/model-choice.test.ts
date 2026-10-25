@@ -61,3 +61,11 @@ it("does not infer a legacy provider while another installed catalog is unavaila
   await refreshModels("codex", true);
   expect(defaultChoice()).toBeNull();
 });
+
+it("preserves Cursor ACP model IDs in saved selections and favorites", () => {
+  const choice = { agent: "cursor" as const, model: "composer-2.5[fast=true]" };
+  setDefaultChoice(choice);
+  expect(defaultChoice()).toEqual(choice);
+  toggleFavorite(choice);
+  expect(favoriteChoices()).toContainEqual(choice);
+});

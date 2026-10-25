@@ -22,6 +22,7 @@ flowchart LR
     back <--> claude[Claude Code CLI]
     back <--> codex[Codex app-server]
     back <--> agy[Antigravity CLI NDJSON]
+    back <--> cursor[Cursor CLI ACP]
     back <--> local[Git, files and local processes]
     ui <--> relay[Relay — Cloudflare Worker + Durable Object]
     relay <--> peer[Another member's Prometeu]
@@ -46,6 +47,7 @@ the owner sends it ([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
 | Claude adapter | `claude.rs` | convert V1 commands to stream-json and stream-json to V1 events | DOM, board state or relay |
 | Antigravity adapter | `antigravity.rs` | convert native NDJSON to V1; resume native history | DOM, board state or relay |
 | Codex adapter | `crates/protocols/src/codex.rs`, desktop `codex.rs` composition | convert V1 commands to JSON-RPC and JSON-RPC to V1 events | DOM, board state or relay |
+| Cursor adapter | `crates/protocols/src/cursor.rs`, desktop `cursor.rs` composition | convert ACP to V1; preserve native session identity | DOM, board state or relay |
 | Relay | Worker + Durable Object | enrollment, presence, audience, comments and forwarding | agent execution or worktree access |
 | Web mock | `src/mock.ts` | answer the same IPC for UI development and E2E | replace the Rust backend tests |
 | Prometeu Cloud (separate project) | Rails 8.1 + SQLite + ERB | optional account, organizations, invitations and tool catalogs | agent execution, general files, secrets or transcripts |
@@ -58,7 +60,8 @@ The conversation uses a contract owned by Prometeu:
 Claude stream-json ─> claude.rs ───────────┐
                                            ├─> ConversationEventV1 ─> Pump/relay ─> timeline.ts ─> chat.ts
 Codex JSON-RPC ─> protocols::codex ────────────────┤
-Antigravity ────> antigravity.rs ───────────────┘
+Antigravity ────> antigravity.rs ───────────────┤
+Cursor ACP ────> protocols::cursor ────────────┘
 ```
 
 `prometeu-core` retains and numbers V1 lines, coordinates input, account
@@ -180,7 +183,7 @@ resumes the session when there is news. See the
   [core contract](docs/contracts/application-core.md).
 - The logical session is the transcript. The process is disposable and can be
   resumed.
-- Claude writes its own transcript; Prometeu writes the translated Codex and Antigravity lines
+- Claude writes its own transcript; Prometeu writes the translated Codex, Antigravity and Cursor lines
   in `~/.prometeu/chats/`.
 - Agent accounts and the global selection live in `<root>/accounts.json`.
   Registry and login rules live in `prometeu-core::accounts`; `accounts.rs`
@@ -344,3 +347,7 @@ It references the account already connected in agy; no isolated Google profile
 or API-key entry is offered. Native sessions and V1 presentation logs have
 separate responsibilities. Retired Gemini boards remain readable but cannot
 run; see [ADR 0052](docs/decisions/0052-antigravity-runtime.md).
+
+Cursor uses the same conversation boundary through ACP and its existing CLI login.
+See the [contract](docs/contracts/cursor.md) and
+[ADR 0095](docs/decisions/0095-cursor-acp.md) for capability and verification limits.
