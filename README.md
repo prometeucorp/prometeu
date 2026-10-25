@@ -15,6 +15,7 @@ Run Claude Code, Codex, Cursor CLI and Antigravity agents in parallel — each i
   <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x86_64.AppImage">Linux (.AppImage)</a> ·
   <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe">Windows (.exe)</a></strong><br>
   macOS Apple Silicon · Linux x86_64 · Windows x64: experimental, Codex through WSL<br>
+  Cursor CLI is implemented; <a href="#cursor-cli">v0.34.0 users need a source build</a>.<br>
   ⭐ <a href="https://github.com/prometeucorp/prometeu">Star the repo if it saves you time</a>
 </p>
 
@@ -83,7 +84,11 @@ updating or uninstalling. See [Windows coverage](docs/contracts/windows-applicat
 
 ### Cursor CLI
 
-Cursor CLI is implemented on macOS and Linux. Install a CLI with ACP support,
+Cursor CLI is implemented on macOS and Linux. The current release, v0.34.0,
+predates this integration. [Build the latest source](docs/operations/development.md)
+to use Cursor until a release includes it.
+
+Install a Cursor CLI with ACP support,
 make `cursor-agent` available in your shell, sign in with `agent login`, attach
 its account in Settings and select it in the launcher. Streaming, tools, resume,
 stop, questions and plan approvals are supported. Account quotas use the existing CLI login; hub tool
@@ -92,7 +97,7 @@ selections and per-turn token/cost meters are unavailable. See the
 
 ## Quick start
 
-1. **Connect an agent.** Install and authenticate Claude Code, Codex, Cursor CLI or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex`, `cursor-agent` or `agy` available in your shell. Cursor and Antigravity use their CLI login; Windows uses Codex in WSL.
+1. **Connect an agent.** Install and authenticate Claude Code, Codex, Cursor CLI or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex`, `cursor-agent` or `agy` available in your shell. Cursor and Antigravity use their CLI login; [Cursor currently requires a source build](#cursor-cli). Windows uses Codex in WSL.
 2. **Add your project.** Open Prometeu and add a local Git repository or folder. No Prometeu account is required for local work.
 3. **Run your first task.** Create a workspace, choose a model, keep the new-worktree option enabled for isolation, and send a task. Open another workspace for a parallel task, then review changes in the Git view before committing.
 
