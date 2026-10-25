@@ -111,6 +111,22 @@ fn handle_connection(
     let request: Value = serde_json::from_str(&raw).map_err(|_| "invalid_request")?;
     let token = request["token"].as_str().ok_or("unauthorized")?;
     let owner = runtime.owner(token)?;
+    dispatch(
+        app,
+        &owner,
+        request["name"].as_str().ok_or("invalid_tool")?,
+        &request["arguments"],
+    )
+}
+
+/// Both transports pass an authenticated identity through the same serialized tool boundary.
+pub(crate) fn dispatch(
+    app: &AppHandle,
+    owner: &Client,
+    name: &str,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let runtime = RUNTIME.get().ok_or("mcp_unavailable")?;
     let state = app.state::<AppState>();
     if let Some(conversation) = &owner.conversation {
         if !lock(&state.sessions.conversations)
@@ -120,21 +136,15 @@ fn handle_connection(
             return Err("coordinator_unavailable".into());
         }
     }
-    let name = request["name"].as_str().ok_or("invalid_tool")?;
     let definition = tools()
         .into_iter()
         .find(|t| t["name"] == name)
         .ok_or("invalid_tool")?;
-    if !valid_args(&definition["inputSchema"], &request["arguments"]) {
+    if !valid_args(&definition["inputSchema"], arguments) {
         return Err("invalid_arguments".into());
     }
     let _call = lock(&runtime.calls);
-    let result = delegation::call(
-        app,
-        &owner,
-        request["name"].as_str().ok_or("invalid_tool")?,
-        &request["arguments"],
-    )?;
+    let result = delegation::call(app, owner, name, arguments)?;
     if result.to_string().len() > 768 * 1024 {
         return Err("response_too_large: request fewer items".into());
     }
@@ -242,6 +252,8 @@ pub fn tools() -> Vec<Value> {
     let text = json!({"type":"string", "minLength":1});
     let index = json!({"type":"integer", "minimum":0});
     vec![
+        tool("list_models", "List models and effort choices from the selected local provider account. Does not run inference.",
+            json!({"provider":{"type":"string","enum":["claude","codex"]}}), &["provider"], true),
         tool("list_projects", "List registered projects this client can use. Pass a returned project_id to delegate when no conversation context is attached.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
         tool("delegate", "Create a task-bound agent in its own isolated workspace using an allowed project_id or the attached conversation's repositories. Returns immediately while preparation runs. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
@@ -424,7 +436,7 @@ mod tests {
         let reply = protocol
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
-        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 13);
+        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 14);
         let reply = protocol
             .reply(
                 request(

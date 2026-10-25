@@ -146,6 +146,7 @@ pub fn publish_observation(app: &AppHandle, id: &str, event: &Value) {
     let delegated = lock(&state.board).delegations.iter().any(|d| d.id == id);
     if delegated {
         crate::state::publish(app);
+        crate::remote_access::observe(app, id);
     }
 }
 
@@ -469,6 +470,15 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
 
 /// All calls arrive serialized at the local MCP boundary. Work is asynchronous after creation/send.
 pub fn call(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Result<Value, String> {
+    if name == "list_models" {
+        let state = app.state::<AppState>();
+        client.validate(&lock(&state.board))?;
+        let provider =
+            serde_json::from_value(args["provider"].clone()).map_err(|_| "invalid_provider")?;
+        let models = crate::agents::fetch_models(state.query_launcher.as_ref(), provider)
+            .map_err(|_| "models_unavailable")?;
+        return serde_json::to_value(models).map_err(|_| "models_unavailable".into());
+    }
     use crate::analytics::{self, DelegationAction, DelegationClient, Event};
     let result = call_inner(app, client, name, args);
     let action = match name {

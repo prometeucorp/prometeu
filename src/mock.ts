@@ -1287,6 +1287,16 @@ const mockCommands: IpcHandlers = {
     if (args.refresh && localStorage.getItem("mock:cloudExpired")) localStorage.removeItem("mock:cloud");
     return { ...mockCloud(), offline: !!localStorage.getItem("mock:cloudOffline") };
   },
+  remote_access_status() {
+    const saved = JSON.parse(localStorage.getItem("mock:remoteAccess") ?? "null") ?? { enabled: false, projects: [] };
+    return { ...saved, online: false, manage_url: mockCloud().user ? `${mockCloud().origin}/remote` : null };
+  },
+  remote_access_save(args) {
+    if (args.enabled && (!mockCloud().user || !args.projects.length)) throw new Error("remote_projects_required");
+    const saved = { enabled: args.enabled, projects: args.projects };
+    localStorage.setItem("mock:remoteAccess", JSON.stringify(saved));
+    return { ...saved, online: false, manage_url: mockCloud().user ? `${mockCloud().origin}/remote` : null };
+  },
   cloud_organizations() {
     const cloud = mockCloud();
     if (localStorage.getItem("mock:cloudOffline")) throw 'i18n:{"code":"err.cloud.network"}';

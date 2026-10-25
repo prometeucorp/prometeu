@@ -12,3 +12,11 @@ class_name = "TeamRoom"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamRoom"]
+
+[[durable_objects.bindings]]
+name = "REMOTE"
+class_name = "RemoteDevice"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RemoteDevice"]

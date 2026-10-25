@@ -187,3 +187,6 @@ current system until the corresponding implementation is accepted.
 - [Diff review implementation plan](superpowers/plans/2026-09-26-diff-review.md).
 
 - [Local usage and context insights implementation plan](superpowers/plans/2026-10-01-issue-131-usage-insights.md).
+
+- [Personal remote MCP](contracts/remote-mcp.md): scoped Cloud access and durable notifications.
+- [ADR 0095](decisions/0095-personal-remote-mcp.md): personal remote agents through Prometeu Cloud.

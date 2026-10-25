@@ -52,6 +52,7 @@ mod platform;
 mod plugins;
 mod pty;
 mod recovery;
+mod remote_access;
 mod scripts;
 mod selection;
 mod session;
@@ -354,6 +355,8 @@ fn main() {
             team::team_security,
             team::team_security_set,
             cloud::cloud_status,
+            remote_access::remote_access_status,
+            remote_access::remote_access_save,
             cloud::cloud_organizations,
             cloud::cloud_relay_ticket,
             cloud::cloud_login_start,
@@ -386,6 +389,7 @@ fn main() {
             desktop_entry::install(app.handle());
             notifications::install(app.handle());
             embedded_mcp::start(app.handle().clone())?;
+            remote_access::start(app.handle().clone());
             // The account connectors are part of the inherited MCP base; fetch them before the
             // first picker or spawn asks for them (ADR 0063).
             mcp::warm_connectors();
