@@ -58,12 +58,14 @@ $env:PROMETEU_WSL_RUNTIME = 'C:\build\prometeu-runtime'
 npm run package:windows
 ```
 
-`PROMETEU_WSL_RUNTIME` must be the Linux runtime built from the same source. The
-installer is written to `src-tauri/target/release/bundle/nsis/*-setup.exe`. Linux
-builders with NSIS and cargo-xwin can run
+`PROMETEU_WSL_RUNTIME` must be the Linux runtime built from the same source.
+Without it, the script builds the runtime in the default WSL distribution, as in
+[development](development.md#native-windowswsl-integration). The installer is
+written to `src-tauri/target/release/bundle/nsis/*-setup.exe`. Linux builders
+with NSIS and cargo-xwin can run
 `npm run package:windows -- --runner cargo-xwin --target x86_64-pc-windows-msvc`,
-which builds the runtime automatically; building it on newer distributions can
-raise the required glibc.
+which builds the runtime automatically. Building the runtime on newer
+distributions, in WSL or Linux, can raise the required glibc.
 
 The default installation directory is `%LOCALAPPDATA%\Prometeu`. To update, close
 the window and run the next installer. Conversations and projects stay in WSL;
