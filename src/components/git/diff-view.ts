@@ -197,7 +197,11 @@ export function diffView(review: {
         old.sync(view);
         return old.el;
       }
-      if (old) watcher?.unobserve(old.el);
+      if (old) {
+        watcher?.unobserve(old.el);
+        // A new patch drops the Reviewed mark, so reopen the file folded by that mark.
+        if (!review.isSeen(view.id, r.name, c)) shut.delete(k);
+      }
       const made = file(view, r.name, c);
       drawn.set(k, { ...made, stamp: mark });
       return made.el;
@@ -262,7 +266,9 @@ export function diffView(review: {
     };
     seen.control.onchange = () => {
       review.setSeen(currentDiffSnapshot.id, repo, change, seen.control.checked);
-      paintSeen();
+      // Marking a file reviewed folds it away; unmarking reopens it for another read.
+      seen.control.checked ? shut.add(k) : shut.delete(k);
+      paintSeen(); glyph(); fill();
       currentDiffSnapshot.onSeen();
     };
 

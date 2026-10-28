@@ -181,7 +181,7 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   await page.keyboard.press("Space");
   await expect(reviewed).toBeChecked();
   await expect(reviewed).toBeFocused();
-  await expect(file.locator(".dbody")).toBeVisible();
+  await expect(file.locator(".dbody")).toBeHidden();
   await expect(page.locator("#dprogress")).toContainText(/1.*2/);
   await expect(group(page, "changes").locator(".git-file")).toHaveCount(2);
 
@@ -290,11 +290,13 @@ test("Git: unified and side-by-side diffs preserve line numbers, review and keyb
   const file = page.locator('#dlist .dfile[data-key$="src/style.css"]');
   const toggle = file.locator(".dtoggle");
   await expect(file.locator(".drow.ctx").first().locator(".dno")).toHaveCount(2);
-  await file.locator(".dseen").check();
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(toggle).toBeFocused();
+  await expect(file.locator(".dbody")).toBeHidden();
+  await toggle.click();
+  await file.locator(".dseen").check();
   await expect(file.locator(".dbody")).toBeHidden();
 
   const split = page.locator('#dlayout [data-layout="split"]');

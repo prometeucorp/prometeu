@@ -174,7 +174,8 @@ other patches. The path filter affects the list and the diffs; **Stage
 everything** and **Unstage everything** still operate on the whole scope,
 including files outside the filter.
 
-**Reviewed** only records the reading: it does not stage or discard content. The
+**Reviewed** records the reading and folds the file's diff; clearing it reopens
+the diff. It does not stage or discard content. The
 existing mark in localStorage is still associated with the workspace,
 repository, path and patch fingerprint. Changes to the patch invalidate the
 mark. Progress counts every file of the scope; **Next unreviewed** clears the
