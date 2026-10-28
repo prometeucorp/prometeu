@@ -79,7 +79,7 @@ export function init(ctx: Context) {
   $("dseen").onclick = () => {
     const ws = context.workspace();
     if (ws) diff.seeAll(ws.id, review);
-    diff.invalidate(); void drawEditor();
+    diff.fold(diff.keys(review)); void drawEditor();
   };
 }
 

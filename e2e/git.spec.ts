@@ -200,8 +200,12 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   const refresh = page.locator(".git-panel").getByRole("button", { name: "Refresh", exact: true });
   await refresh.click();
   await expect(reviewed).toBeChecked();
+  // A file filtered out while its patch changes still reopens when it returns.
+  await page.locator("#git-filter").fill("logo");
   await page.evaluate(() => { (window as any).changedPatch = true; });
   await refresh.click();
+  await expect(page.locator("#dprogress")).toContainText(/1.*2/);
+  await page.locator("#git-filter").fill("");
   await expect(file.locator(".dbody")).toContainText("change after review");
   await expect(reviewed).not.toBeChecked();
   await expect(binary.locator(".dseen")).toBeChecked();
@@ -315,6 +319,10 @@ test("Git: unified and side-by-side diffs preserve line numbers, review and keyb
   await expect(file.locator(".dbody")).toHaveClass(/\bdlayout-unified\b/);
   await expect(file.locator(".dseen")).toBeChecked();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#dseen").click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator('#dlist .dfile[data-key$="public/logo.png"] .dbody')).toBeHidden();
+  await toggle.click();
 
   await page.locator('#dlayout [data-layout="split"]').click();
   const oldLine = file.locator('.dno.before[data-review-index]').first();

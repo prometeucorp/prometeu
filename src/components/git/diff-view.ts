@@ -32,6 +32,8 @@ export function diffView(review: {
   let signature = "";
   const shut = new Set<string>();
   const shutRepos = new Set<string>();
+  /// Last Reviewed state per workspace file. It outlives cached elements so filtered files still reopen on return.
+  const lastSeen = new Map<string, boolean>();
   /// Cache each file by patch signature. One changed file must not rebuild every unchanged diff on board updates.
   const drawn = new Map<string, Drawn>();
   let drawnId = "";
@@ -131,6 +133,12 @@ export function diffView(review: {
     signature = "";
   }
 
+  /// Fold files the person marked reviewed in bulk.
+  function fold(all: string[]) {
+    for (const k of all) shut.add(k);
+    signature = "";
+  }
+
   function scrollTo(host: HTMLElement, k: string) {
     const target = host.querySelector(`[data-key="${CSS.escape(k)}"]`);
     if (!target) return;
@@ -197,11 +205,7 @@ export function diffView(review: {
         old.sync(view);
         return old.el;
       }
-      if (old) {
-        watcher?.unobserve(old.el);
-        // A new patch drops the Reviewed mark, so reopen the file folded by that mark.
-        if (!review.isSeen(view.id, r.name, c)) shut.delete(k);
-      }
+      if (old) watcher?.unobserve(old.el);
       const made = file(view, r.name, c);
       drawn.set(k, { ...made, stamp: mark });
       return made.el;
@@ -261,13 +265,17 @@ export function diffView(review: {
     seen.control.setAttribute("aria-label", t("diff.reviewFile", { path: change.path }));
     const paintSeen = () => {
       const on = review.isSeen(currentDiffSnapshot.id, repo, change);
+      // Losing the mark, by hand or through a new patch, reopens the file for another read.
+      const seenKey = currentDiffSnapshot.id + "\0" + k;
+      if (lastSeen.get(seenKey) && !on) shut.delete(k);
+      lastSeen.set(seenKey, on);
       box.classList.toggle("seen", on);
       seen.control.checked = on;
     };
     seen.control.onchange = () => {
       review.setSeen(currentDiffSnapshot.id, repo, change, seen.control.checked);
-      // Marking a file reviewed folds it away; unmarking reopens it for another read.
-      seen.control.checked ? shut.add(k) : shut.delete(k);
+      // Only the person's mark folds a file; a patch that matches an old mark again leaves it open.
+      if (seen.control.checked) shut.add(k);
       paintSeen(); glyph(); fill();
       currentDiffSnapshot.onSeen();
     };
@@ -397,8 +405,8 @@ export function diffView(review: {
     return el;
   }
 
-  return { render, invalidate, foldAll, destroy() {
+  return { render, invalidate, foldAll, fold, destroy() {
     watcher?.disconnect(); watcher = null; watched = null;
-    drawn.clear(); shut.clear(); shutRepos.clear(); signature = ""; drawnId = "";
+    drawn.clear(); shut.clear(); shutRepos.clear(); lastSeen.clear(); signature = ""; drawnId = "";
   } };
 }
