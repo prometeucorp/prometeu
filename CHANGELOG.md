@@ -4,6 +4,28 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.37.0] - 2026-10-29
+
+### New
+
+- **analytics:** Record when usage sharing is turned on
+- **terminal:** Open terminal sessions without a workspace or project
+- **app:** Ask before quitting or restarting while work is still running
+
+### Fixes
+
+- **windows:** Connect to wsl from checkouts made on windows
+- **terminal:** Stop a project's shells when the project is removed
+- **terminal:** Stop a shell that exited off screen from coming back as a tab
+- **windows:** Keep a closed shell tab from coming back
+- **terminal:** Stop a shell that starts while its project is removed
+- **terminal:** Stay in the workspace when a terminal session closes in the background
+- **terminal:** Show a terminal session as running only when its shell started
+- **app:** Ask before quitting while a terminal runs a command started with exec
+- **review:** Fold a file's diff when it is marked reviewed
+- **review:** Fold files marked in bulk and reopen changed files after filtering
+- **review:** Reopen bulk-reviewed files that change while filtered out
+
 ## [0.36.0] - 2026-10-26
 
 ### New
