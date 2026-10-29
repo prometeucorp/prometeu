@@ -1006,7 +1006,7 @@ function drawIsland() {
   if (!host) {
     host = document.createElement("div");
     host.className = "island-mock";
-    host.addEventListener("mouseenter", () => { islandHover = true; drawIsland(); });
+    host.addEventListener("mouseenter", () => { islandHover = true; drawIsland(); emit("island-hover", false); });
     host.addEventListener("mouseleave", () => { islandHover = false; drawIsland(); });
     document.body.append(host);
   }

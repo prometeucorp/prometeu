@@ -46,6 +46,8 @@ let polling = false;
 let visible = false;
 let filter: Filter = "all";
 let read: ReadState = { before: "", ids: [] };
+/// Items of the thread in the latest notice; a newer notice replaces the one on screen.
+let announced: string[] = [];
 /// The expanded thread key.
 let expanded = "";
 /// Titles and text fetched for `cachedFor`; a different account or GitHub login must check access again.
@@ -120,7 +122,7 @@ async function poll() {
 }
 
 function forget(next: string) {
-  account = next; items = []; cursor = null; primed = false;
+  account = next; items = []; cursor = null; primed = false; announced = [];
   read = next ? readState(next) : { before: "", ids: [] };
   ctx.changed();
 }
@@ -128,6 +130,7 @@ function forget(next: string) {
 /// One notice per issue or PR; after a long sleep only the newest few interrupt, the rest wait in
 /// the list and badge.
 async function arrived(thread: Thread, announce: boolean) {
+  if (announce) announced = thread.items.map(entry => entry.id);
   if (announce) void deliverGitHub(threadHeadline(thread), subjectLine(thread.lead)).catch(error => ctx.say(fromBack(error), true));
   const item = thread.lead;
   const workspace = await workspaceOf(item);
@@ -135,6 +138,16 @@ async function arrived(thread: Thread, announce: boolean) {
   // The PR changed on GitHub: refresh its state now instead of waiting for the next scan.
   void invoke("set_unread", { id: workspace.id, unread: true }).catch(() => {});
   if (item.subject === "pr") void invoke("pr_open", { id: workspace.id }).catch(() => {});
+}
+
+/// Hovering the notch island while it shows a GitHub notice reads that thread.
+export function readAnnounced() {
+  if (!announced.length) return;
+  read = markRead(read, ...announced);
+  announced = [];
+  saveRead(account, read);
+  ctx.changed();
+  if (visible) draw();
 }
 
 /// Projects can be added later, so `draw` and `poll` drop this before each round of lookups.

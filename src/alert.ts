@@ -73,6 +73,12 @@ export function looked() {
   badge();
 }
 
+/// Hovering the notch island acknowledges the finished activity it shows.
+export function glanced() {
+  for (const conversation of conversations.values()) conversation.pending = false;
+  badge();
+}
+
 /// Snapshots only reconcile ownership and unread indicators, never execution state.
 export function boardChanged(board: Board) {
   const local = board.workspaces.filter((w) => !w.archived && !w.cleaned && !w.remote);

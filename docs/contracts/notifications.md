@@ -110,8 +110,12 @@ activity not yet looked at (the Dock's
 pending state). Approval notices and GitHub notices expand it; a notice about a
 conversation highlights its row, and only notices without one get a line. The backend samples the
 pointer every 100 ms while the island is on because the webview receives no
-pointer movement outside the key window. Opening a conversation keeps it
-collapsed until the pointer leaves. One notice replaces the previous notice; it
+pointer movement outside the key window. When the pointer enters the island,
+the backend sends `island-hover` to the main window with whether the current
+notice has no conversation; the main window clears the pending state of its
+conversations, as looking at them does, and marks the thread of the latest
+GitHub notice as read when that notice is on screen. Opening a conversation
+keeps it collapsed until the pointer leaves. One notice replaces the previous notice; it
 clears after eight seconds. A generation check prevents an older timer from
 clearing a replacement. Opening an actual conversation is the only action that
 focuses the main window. The local page is not a new remote IPC surface.

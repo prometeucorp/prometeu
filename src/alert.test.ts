@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({ setBadgeCount: async (n?: number) => badge(n) }),
 }));
 vi.mock("./team", () => ({ inboxCount: () => inbox.length }));
-import { boardChanged, chatChanged, init, looked, teamChanged, waiting } from "./alert";
+import { boardChanged, chatChanged, glanced, init, looked, teamChanged, unseen, waiting } from "./alert";
 
 const tab = (id: string, status: Status = "rodando") => ({ id, title: id, status, note: null, tokens: null });
 const workspace = (id: string, tabs = [tab(`${id}-t`)], unread = false) =>
@@ -93,6 +93,18 @@ describe("Dock notifications", () => {
     settle();
     expect(waiting()).toBe(1);
     expect(badge).toHaveBeenLastCalledWith(1);
+  });
+
+  it("hovering the notch island acknowledges finished conversations but keeps unread workspaces", () => {
+    boardChanged(board(workspace("a"), workspace("b", [tab("b-t")], true)));
+    begin();
+    done();
+    settle();
+    expect(unseen("a-t")).toBe(true);
+    expect(waiting()).toBe(2);
+    glanced();
+    expect(unseen("a-t")).toBe(false);
+    expect(waiting()).toBe(1);
   });
 
   it("holds the completion while background tasks remain and delivers it when they drain", () => {
