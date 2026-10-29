@@ -105,7 +105,7 @@ refusals, stale-repository checks, conflict handling and commit persistence stay
 in `workspace-changes.ts` and the backend.
 
 Each `diffView({ isSeen, setSeen })` owns its cache, collapsed state and viewport
-observer. `render(host, snapshot)` preserves focus and scroll; `invalidate` and
+observer. `render(host, snapshot)` preserves focus and scroll; `invalidate`, `fold` and
 `foldAll` affect that instance. `destroy` disconnects the observer and releases
 cached elements. The host owns the DOM container and removes it when retiring
 the reader. The existing `src/diff.ts` adapter supplies review persistence with

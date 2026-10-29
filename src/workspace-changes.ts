@@ -78,8 +78,8 @@ export function init(ctx: Context) {
   $("dfold").onclick = () => { diff.foldAll(diff.keys(review)); void drawEditor(); };
   $("dseen").onclick = () => {
     const ws = context.workspace();
-    if (ws) diff.seeAll(ws.id, review);
-    diff.invalidate(); void drawEditor();
+    if (ws) { diff.seeAll(ws.id, review); diff.fold(ws.id, diff.keys(review)); }
+    void drawEditor();
   };
 }
 

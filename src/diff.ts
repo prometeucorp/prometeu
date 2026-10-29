@@ -61,4 +61,5 @@ export function pruneSeen(alive: Set<string>) {
 const reader = diffView({ isSeen, setSeen });
 export const render = reader.render;
 export const invalidate = reader.invalidate;
+export const fold = reader.fold;
 export const foldAll = reader.foldAll;

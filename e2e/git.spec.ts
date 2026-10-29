@@ -181,7 +181,7 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   await page.keyboard.press("Space");
   await expect(reviewed).toBeChecked();
   await expect(reviewed).toBeFocused();
-  await expect(file.locator(".dbody")).toBeVisible();
+  await expect(file.locator(".dbody")).toBeHidden();
   await expect(page.locator("#dprogress")).toContainText(/1.*2/);
   await expect(group(page, "changes").locator(".git-file")).toHaveCount(2);
 
@@ -200,8 +200,15 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   const refresh = page.locator(".git-panel").getByRole("button", { name: "Refresh", exact: true });
   await refresh.click();
   await expect(reviewed).toBeChecked();
+  // A file marked in bulk while filtered out still reopens when a new patch drops the mark.
+  await reviewed.uncheck();
+  await page.locator("#git-filter").fill("logo");
+  await page.locator("#dseen").click();
+  await expect(page.locator("#dprogress")).toContainText(/2.*2/);
   await page.evaluate(() => { (window as any).changedPatch = true; });
   await refresh.click();
+  await expect(page.locator("#dprogress")).toContainText(/1.*2/);
+  await page.locator("#git-filter").fill("");
   await expect(file.locator(".dbody")).toContainText("change after review");
   await expect(reviewed).not.toBeChecked();
   await expect(binary.locator(".dseen")).toBeChecked();
@@ -290,11 +297,13 @@ test("Git: unified and side-by-side diffs preserve line numbers, review and keyb
   const file = page.locator('#dlist .dfile[data-key$="src/style.css"]');
   const toggle = file.locator(".dtoggle");
   await expect(file.locator(".drow.ctx").first().locator(".dno")).toHaveCount(2);
-  await file.locator(".dseen").check();
   await toggle.focus();
   await page.keyboard.press("Enter");
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(toggle).toBeFocused();
+  await expect(file.locator(".dbody")).toBeHidden();
+  await toggle.click();
+  await file.locator(".dseen").check();
   await expect(file.locator(".dbody")).toBeHidden();
 
   const split = page.locator('#dlayout [data-layout="split"]');
@@ -313,6 +322,10 @@ test("Git: unified and side-by-side diffs preserve line numbers, review and keyb
   await expect(file.locator(".dbody")).toHaveClass(/\bdlayout-unified\b/);
   await expect(file.locator(".dseen")).toBeChecked();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await page.locator("#dseen").click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator('#dlist .dfile[data-key$="public/logo.png"] .dbody')).toBeHidden();
+  await toggle.click();
 
   await page.locator('#dlayout [data-layout="split"]').click();
   const oldLine = file.locator('.dno.before[data-review-index]').first();

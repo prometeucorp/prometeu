@@ -32,6 +32,8 @@ export function diffView(review: {
   let signature = "";
   const shut = new Set<string>();
   const shutRepos = new Set<string>();
+  /// Last Reviewed state per workspace file. It outlives cached elements so filtered files still reopen on return.
+  const lastSeen = new Map<string, boolean>();
   /// Cache each file by patch signature. One changed file must not rebuild every unchanged diff on board updates.
   const drawn = new Map<string, Drawn>();
   let drawnId = "";
@@ -128,6 +130,12 @@ export function diffView(review: {
     const allShut = all.length > 0 && all.every((k) => shut.has(k));
     shut.clear();
     if (!allShut) for (const k of all) shut.add(k);
+    signature = "";
+  }
+
+  /// Fold files the person marked reviewed in bulk. Record the mark for files outside the filter too, so a new patch reopens them on return.
+  function fold(id: string, all: string[]) {
+    for (const k of all) { shut.add(k); lastSeen.set(id + "\0" + k, true); }
     signature = "";
   }
 
@@ -257,12 +265,18 @@ export function diffView(review: {
     seen.control.setAttribute("aria-label", t("diff.reviewFile", { path: change.path }));
     const paintSeen = () => {
       const on = review.isSeen(currentDiffSnapshot.id, repo, change);
+      // Losing the mark, by hand or through a new patch, reopens the file for another read.
+      const seenKey = currentDiffSnapshot.id + "\0" + k;
+      if (lastSeen.get(seenKey) && !on) shut.delete(k);
+      lastSeen.set(seenKey, on);
       box.classList.toggle("seen", on);
       seen.control.checked = on;
     };
     seen.control.onchange = () => {
       review.setSeen(currentDiffSnapshot.id, repo, change, seen.control.checked);
-      paintSeen();
+      // Only the person's mark folds a file; a patch that matches an old mark again leaves it open.
+      if (seen.control.checked) shut.add(k);
+      paintSeen(); glyph(); fill();
       currentDiffSnapshot.onSeen();
     };
 
@@ -391,8 +405,8 @@ export function diffView(review: {
     return el;
   }
 
-  return { render, invalidate, foldAll, destroy() {
+  return { render, invalidate, foldAll, fold, destroy() {
     watcher?.disconnect(); watcher = null; watched = null;
-    drawn.clear(); shut.clear(); shutRepos.clear(); signature = ""; drawnId = "";
+    drawn.clear(); shut.clear(); shutRepos.clear(); lastSeen.clear(); signature = ""; drawnId = "";
   } };
 }
