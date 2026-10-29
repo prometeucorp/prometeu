@@ -133,9 +133,9 @@ export function diffView(review: {
     signature = "";
   }
 
-  /// Fold files the person marked reviewed in bulk.
-  function fold(all: string[]) {
-    for (const k of all) shut.add(k);
+  /// Fold files the person marked reviewed in bulk. Record the mark for files outside the filter too, so a new patch reopens them on return.
+  function fold(id: string, all: string[]) {
+    for (const k of all) { shut.add(k); lastSeen.set(id + "\0" + k, true); }
     signature = "";
   }
 

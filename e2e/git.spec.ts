@@ -200,8 +200,11 @@ test("Git: keyboard review preserves the stage and a new patch requires another 
   const refresh = page.locator(".git-panel").getByRole("button", { name: "Refresh", exact: true });
   await refresh.click();
   await expect(reviewed).toBeChecked();
-  // A file filtered out while its patch changes still reopens when it returns.
+  // A file marked in bulk while filtered out still reopens when a new patch drops the mark.
+  await reviewed.uncheck();
   await page.locator("#git-filter").fill("logo");
+  await page.locator("#dseen").click();
+  await expect(page.locator("#dprogress")).toContainText(/2.*2/);
   await page.evaluate(() => { (window as any).changedPatch = true; });
   await refresh.click();
   await expect(page.locator("#dprogress")).toContainText(/1.*2/);
