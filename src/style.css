@@ -52,6 +52,8 @@ body.framed .railtop { padding-left: 12px; }
 body.framed.norail .top { padding-left: 20px; }
 body.norail .top .nav { margin-left: 0; }
 .railbody { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; }
+/* Rows keep their height and scroll instead of shrinking to fit a long rail. */
+.railbody > * { flex-shrink: 0; }
 
 /* Keep the sidebar footer outside the scrolling rail body. */
 .railfoot {
@@ -109,7 +111,7 @@ body.norail .top .nav { margin-left: 0; }
 .railterminal .tabx:hover { color: var(--err); }
 
 .railworkspace {
-  flex: none; margin: 1px 0; padding: 2px; border: 1px solid transparent;
+  margin: 1px 0; padding: 2px; border: 1px solid transparent;
   border-radius: 12px;
 }
 .railworkspace:hover { background: var(--bg-raised); }
