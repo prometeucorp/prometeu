@@ -73,9 +73,12 @@ export function looked() {
   badge();
 }
 
-/// Hovering the notch island acknowledges the finished activity it shows.
-export function glanced() {
-  for (const conversation of conversations.values()) conversation.pending = false;
+/// Hovering the notch island acknowledges the conversations it lists; tabs outside the list stay pending.
+export function glanced(tabs: string[]) {
+  for (const tab of tabs) {
+    const conversation = conversations.get(tab);
+    if (conversation) conversation.pending = false;
+  }
   badge();
 }
 

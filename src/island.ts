@@ -66,6 +66,9 @@ export const changed = debounce(100, () => {
   if (on && board) void invoke("island_update", { snapshot: snapshot(board, live, usage(), unseen) }).catch(console.warn);
 });
 
+/// Tabs the island lists right now.
+export const shown = () => board ? snapshot(board, live, usage(), unseen).tabs.map(tab => tab.id) : [];
+
 export function boardChanged(next: Board) {
   board = next;
   const tabs = new Set(next.workspaces.flatMap(w => w.tabs.map(tab => tab.id)));

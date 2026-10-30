@@ -95,16 +95,18 @@ describe("Dock notifications", () => {
     expect(badge).toHaveBeenLastCalledWith(1);
   });
 
-  it("hovering the notch island acknowledges finished conversations but keeps unread workspaces", () => {
-    boardChanged(board(workspace("a"), workspace("b", [tab("b-t")], true)));
-    begin();
-    done();
+  it("hovering the notch island acknowledges the conversations it lists and nothing else", () => {
+    boardChanged(board(workspace("a"), workspace("b", [tab("b-t")], true), workspace("c")));
+    for (const id of ["a-t", "c-t"]) {
+      begin(id);
+      done(id);
+    }
     settle();
-    expect(unseen("a-t")).toBe(true);
-    expect(waiting()).toBe(2);
-    glanced();
+    expect(waiting()).toBe(3);
+    glanced(["a-t", "b-t"]);
     expect(unseen("a-t")).toBe(false);
-    expect(waiting()).toBe(1);
+    expect(unseen("c-t")).toBe(true);
+    expect(waiting()).toBe(2);
   });
 
   it("holds the completion while background tasks remain and delivers it when they drain", () => {

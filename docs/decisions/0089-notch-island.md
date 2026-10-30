@@ -39,7 +39,7 @@ notice is showing.
   overlay must not take focus. The backend samples the cursor ten times per
   second while the island is on and compares it with the overlay frame.
   Entering the island counts as looking at it: the main window acknowledges
-  finished conversations and reads the GitHub thread of the notice on screen.
+  the conversations it lists and reads the GitHub thread of the notice on screen.
 - **Geometry.** On macOS the overlay sits on the display with a notch, using
   `safeAreaInsets` and the auxiliary top areas; without one it sits inside the
   menu bar of the main window's display, and it is placed again on every

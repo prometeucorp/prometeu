@@ -169,13 +169,6 @@ pub fn notification_current() -> Option<Notice> {
     lock(&CURRENT).clone()
 }
 
-/// A notice without a conversation, such as GitHub activity, is on the island right now.
-pub(crate) fn untargeted() -> bool {
-    lock(&CURRENT)
-        .as_ref()
-        .is_some_and(|notice| notice.tab.is_none())
-}
-
 fn hide(app: &tauri::AppHandle) -> Result<(), String> {
     GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     *lock(&CURRENT) = None;

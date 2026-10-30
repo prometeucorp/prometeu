@@ -5,7 +5,7 @@ import { invoke } from "./ipc";
 import { md } from "./markdown";
 import { issueRefresh, issueTab } from "./issues-controls";
 import { compareId, expandable, isRead, markAll, markRead, merge, readState, saveRead, subjectKey, threads, workspaceFor, type ReadState, type Thread } from "./notification-feed";
-import { deliverGitHub } from "./notifications";
+import { deliverGitHub, type Notice } from "./notifications";
 import * as team from "./team";
 import type { Board, GitHubNotification, GitHubStatus, GitHubSubject, Workspace } from "./types";
 import { button } from "./ui";
@@ -46,8 +46,8 @@ let polling = false;
 let visible = false;
 let filter: Filter = "all";
 let read: ReadState = { before: "", ids: [] };
-/// Items of the thread in the latest notice; a newer notice replaces the one on screen.
-let announced: string[] = [];
+/// Thread of the latest GitHub notice and the notice itself; a newer notice replaces the one on screen.
+let announced: { key: string; notice: Notice } | null = null;
 /// The expanded thread key.
 let expanded = "";
 /// Titles and text fetched for `cachedFor`; a different account or GitHub login must check access again.
@@ -122,7 +122,7 @@ async function poll() {
 }
 
 function forget(next: string) {
-  account = next; items = []; cursor = null; primed = false; announced = [];
+  account = next; items = []; cursor = null; primed = false; announced = null;
   read = next ? readState(next) : { before: "", ids: [] };
   ctx.changed();
 }
@@ -130,8 +130,9 @@ function forget(next: string) {
 /// One notice per issue or PR; after a long sleep only the newest few interrupt, the rest wait in
 /// the list and badge.
 async function arrived(thread: Thread, announce: boolean) {
-  if (announce) announced = thread.items.map(entry => entry.id);
-  if (announce) void deliverGitHub(threadHeadline(thread), subjectLine(thread.lead)).catch(error => ctx.say(fromBack(error), true));
+  if (announce) void deliverGitHub(threadHeadline(thread), subjectLine(thread.lead))
+    .then(notice => { if (notice) announced = { key: thread.key, notice }; })
+    .catch(error => ctx.say(fromBack(error), true));
   const item = thread.lead;
   const workspace = await workspaceOf(item);
   if (!workspace) return;
@@ -140,11 +141,14 @@ async function arrived(thread: Thread, announce: boolean) {
   if (item.subject === "pr") void invoke("pr_open", { id: workspace.id }).catch(() => {});
 }
 
-/// Hovering the notch island while it shows a GitHub notice reads that thread.
-export function readAnnounced() {
-  if (!announced.length) return;
-  read = markRead(read, ...announced);
-  announced = [];
+/// Hovering the notch island reads the thread whose GitHub notice it shows; other notices, such as
+/// the settings preview, match nothing. The whole thread is read, including events from earlier polls.
+export function readAnnounced(shown: Notice) {
+  if (!announced || announced.notice.title !== shown.title || announced.notice.body !== shown.body) return;
+  const thread = threads(items, read).find(item => item.key === announced!.key);
+  announced = null;
+  if (!thread) return;
+  read = markRead(read, ...thread.items.map(entry => entry.id));
   saveRead(account, read);
   ctx.changed();
   if (visible) draw();

@@ -377,9 +377,9 @@ listen<string>("notification-open", ({ payload: tab }) => {
   const workspace = state.workspaces.find(item => !item.archived && !item.cleaned && item.tabs.some(item => item.id === tab));
   if (workspace) void openWorkspace(workspace, true, tab).catch(error => say(fromBack(error), true));
 });
-listen<boolean>("island-hover", ({ payload: notice }) => {
-  alert.glanced();
-  if (notice) notificationCenter.readAnnounced();
+listen<notifications.Notice | null>("island-hover", ({ payload: notice }) => {
+  alert.glanced(island.shown());
+  if (notice && !notice.tab) notificationCenter.readAnnounced(notice);
 });
 listen<[string, string, number]>("chat", ({ payload: [tab, line] }) => {
   alert.chatChanged(tab, line);
