@@ -67,9 +67,12 @@ export async function deliver(kind: NoticeKind, tab: string, name: string) {
   await invoke("notification_show", { notice: { ...makeNotice(kind, tab, name, preferences), style } });
 }
 
-/** GitHub activity from the Cloud feed; never called for the first load after startup. */
-export async function deliverGitHub(title: string, body: string) {
+/** GitHub activity from the Cloud feed; never called for the first load after startup. `showing`
+ * receives the notice before delivery, so the caller can recognize it on the island right away. */
+export async function deliverGitHub(title: string, body: string, showing?: (notice: Notice) => void) {
   const preferences = readPreferences();
   if (!preferences.enabled || !preferences.github || (preferences.style === "none" && !preferences.sound)) return;
-  await invoke("notification_show", { notice: { ...makeNotice("github", null, body, preferences), title: title.slice(0, 200) } });
+  const notice = { ...makeNotice("github", null, body, preferences), title: title.slice(0, 200) };
+  showing?.(notice);
+  await invoke("notification_show", { notice });
 }

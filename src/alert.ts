@@ -73,6 +73,15 @@ export function looked() {
   badge();
 }
 
+/// Hovering the notch island acknowledges the conversations it lists; tabs outside the list stay pending.
+export function glanced(tabs: string[]) {
+  for (const tab of tabs) {
+    const conversation = conversations.get(tab);
+    if (conversation) conversation.pending = false;
+  }
+  badge();
+}
+
 /// Snapshots only reconcile ownership and unread indicators, never execution state.
 export function boardChanged(board: Board) {
   const local = board.workspaces.filter((w) => !w.archived && !w.cleaned && !w.remote);

@@ -378,6 +378,11 @@ fn watch(app: tauri::AppHandle) {
             };
             if changed {
                 schedule(&app);
+                // Pointing at the island counts as looking at what it shows.
+                if inside && ENABLED.load(Ordering::SeqCst) {
+                    let notice = notifications::notification_current();
+                    let _ = app.emit_to("main", "island-hover", notice);
+                }
             }
         }
     });
