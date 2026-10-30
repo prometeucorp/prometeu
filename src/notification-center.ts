@@ -46,8 +46,9 @@ let polling = false;
 let visible = false;
 let filter: Filter = "all";
 let read: ReadState = { before: "", ids: [] };
-/// Thread of the latest GitHub notice and the notice itself; a newer notice replaces the one on screen.
-let announced: { key: string; notice: Notice } | null = null;
+/// Thread keys of recent GitHub notices by their visible text, registered before each is shown.
+const announced = new Map<string, string>();
+const noticeKey = (notice: Notice) => `${notice.title}\n${notice.body}`;
 /// The expanded thread key.
 let expanded = "";
 /// Titles and text fetched for `cachedFor`; a different account or GitHub login must check access again.
@@ -122,7 +123,7 @@ async function poll() {
 }
 
 function forget(next: string) {
-  account = next; items = []; cursor = null; primed = false; announced = null;
+  account = next; items = []; cursor = null; primed = false; announced.clear();
   read = next ? readState(next) : { before: "", ids: [] };
   ctx.changed();
 }
@@ -130,9 +131,12 @@ function forget(next: string) {
 /// One notice per issue or PR; after a long sleep only the newest few interrupt, the rest wait in
 /// the list and badge.
 async function arrived(thread: Thread, announce: boolean) {
-  if (announce) void deliverGitHub(threadHeadline(thread), subjectLine(thread.lead))
-    .then(notice => { if (notice) announced = { key: thread.key, notice }; })
-    .catch(error => ctx.say(fromBack(error), true));
+  if (announce) void deliverGitHub(threadHeadline(thread), subjectLine(thread.lead), notice => {
+    announced.delete(noticeKey(notice));
+    announced.set(noticeKey(notice), thread.key);
+    // Only the latest notice is on screen; a few older ones cover deliveries still in flight.
+    if (announced.size > 10) announced.delete(announced.keys().next().value!);
+  }).catch(error => ctx.say(fromBack(error), true));
   const item = thread.lead;
   const workspace = await workspaceOf(item);
   if (!workspace) return;
@@ -144,9 +148,10 @@ async function arrived(thread: Thread, announce: boolean) {
 /// Hovering the notch island reads the thread whose GitHub notice it shows; other notices, such as
 /// the settings preview, match nothing. The whole thread is read, including events from earlier polls.
 export function readAnnounced(shown: Notice) {
-  if (!announced || announced.notice.title !== shown.title || announced.notice.body !== shown.body) return;
-  const thread = threads(items, read).find(item => item.key === announced!.key);
-  announced = null;
+  const key = announced.get(noticeKey(shown));
+  if (key === undefined) return;
+  announced.delete(noticeKey(shown));
+  const thread = threads(items, read).find(item => item.key === key);
   if (!thread) return;
   read = markRead(read, ...thread.items.map(entry => entry.id));
   saveRead(account, read);
