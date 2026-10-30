@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.38.0] - 2026-10-30
+
+### New
+
+- **notifications:** Mark notch island activity as read on hover
+
+### Fixes
+
+- **sidebar:** Scroll a long sidebar instead of squeezing its rows
+- **notifications:** Read only what the notch island shows on hover
+- **notifications:** Read a github notice hovered while its sound plays
+
 ## [0.37.0] - 2026-10-29
 
 ### New
