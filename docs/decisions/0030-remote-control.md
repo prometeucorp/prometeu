@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0030 — remote control independent of sharing"
+description: "Remote control independent of sharing."
+status: stable
+---
+
 # ADR 0030 — remote control independent of sharing
 
 Date: 2026-09-08
-Status: Accepted
 
 Extends [ADR 0027](0027-companion-devices.md) and
 [ADR 0028](0028-mobile-web-app.md), without changing

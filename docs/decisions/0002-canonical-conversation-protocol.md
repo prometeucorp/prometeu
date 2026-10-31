@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0002 — Canonical conversation protocol"
+description: "Canonical conversation protocol."
+status: stable
+---
+
 # ADR 0002 — Canonical conversation protocol
 
 Date: 2026-09-03
-Status: Accepted
 
 ## Context
 

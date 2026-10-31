@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Reusable actions and agents"
+description: "Reusable commands, profiles, execution and waiting for external events."
+status: stable
+---
+
 # Reusable actions and agents
 
-Status: implemented; decision in [ADR 0009](../decisions/0009-reusable-actions.md).
+Implemented; decision in [ADR 0009](../decisions/0009-reusable-actions.md).
 
 ## Registry and entries
 

@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Desktop presentation"
+description: "Typed snapshots, callbacks, focus and resource view lifetime."
+status: stable
+---
+
 # Desktop presentation
 
-Status: Desktop catalog, isolated Resources view, shared compositions, chat and Git components implemented. Decision:
+Desktop catalog, isolated Resources view, shared compositions, chat and Git components implemented. Decision:
 [ADR 0060](../decisions/0060-isolated-desktop-presentation.md).
 
 ## Boundary

@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "GitHub issues and pull requests"
+description: "GitHub App device flow, assigned and available issues with claim, authored PRs, requested reviews, PR status and isolated workspaces."
+status: stable
+---
+
 # GitHub issues and pull requests
 
-Status: current desktop contract. Decision: [ADR 0088](../decisions/0088-github-app.md).
+Current desktop contract. Decision: [ADR 0088](../decisions/0088-github-app.md).
 
 A disconnected provider shows a compact connection card. Scope tabs, filters
 and column headings stay hidden until a connection exists; column headings

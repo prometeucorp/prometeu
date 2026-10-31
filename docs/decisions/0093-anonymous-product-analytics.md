@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0093 — Product analytics in PostHog"
+description: "Anonymous feature and click events sent to PostHog from Rust, identified only by i18n keys and static IDs."
+status: stable
+---
+
 # ADR 0093 — Product analytics in PostHog
 
 Date: 2026-10-23
-Status: Accepted
 
 ## Context
 

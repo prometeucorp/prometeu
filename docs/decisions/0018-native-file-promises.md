@@ -1,6 +1,12 @@
+---
+type: Decision
+title: "ADR 0018: receiving macOS file promises"
+description: "Receiving macOS file promises."
+status: stable
+---
+
 # ADR 0018: receiving macOS file promises
 
-Status: Accepted
 
 ## Context
 

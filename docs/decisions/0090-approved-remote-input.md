@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0090 — Remote input only from approved identities, with separate rights"
+description: "Remote input only from member and key pairs approved on the owner's Mac, with separate view, message and control rights."
+status: stable
+---
+
 # ADR 0090 — Remote input only from approved identities, with separate rights
 
 Date: 2026-10-08
-Status: Accepted
 
 Narrows the trust that [ADR 0022](0022-end-to-end-encryption.md) and
 [ADR 0042](0042-automatic-key-rotation.md) give a peer's key when that key sends

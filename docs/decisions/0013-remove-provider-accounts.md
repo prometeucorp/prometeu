@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0013 — Account removal and empty selection"
+description: "Account removal and empty selection."
+status: stable
+---
+
 # ADR 0013 — Account removal and empty selection
 
 Date: 2026-09-05
-Status: Accepted
 
 Complements the local profiles of [ADR 0012](0012-provider-accounts.md) with
 removal and an optional selection per provider.

@@ -1,3 +1,10 @@
+---
+type: Operations
+title: "Development and testing"
+description: "Development environments, validation commands and the scope of each test level."
+status: stable
+---
+
 # Development and testing
 
 ## Prerequisites
@@ -90,6 +97,11 @@ to `npm run check:windows` (see
 dependency-checker fixtures with Node's test runner, then checks the repository,
 including the Rust crate graph through `cargo tree` (see
 [Rust crates](../architecture/dependency-rules.md#rust-crates)).
+
+`npm run docs:check` runs the documentation checker's regression tests, then
+checks local links, folder index coverage, concept frontmatter, the `AGENTS.md`
+line limit and the `CLAUDE.md` import. Indexes and files outside `docs/` are
+exempt from concept metadata; see the [bundle map](../README.md).
 
 The phone app is a separate bundle: `npm run build:mobile` generates
 `dist-mobile/` from `src/mobile/`; in `prometeu-cloud`,

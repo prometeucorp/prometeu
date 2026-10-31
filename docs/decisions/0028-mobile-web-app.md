@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0028 — Prometeu on the phone as a web app served by the Cloud"
+description: "Prometeu on the phone as a web app served by the Cloud."
+status: stable
+---
+
 # ADR 0028 — Prometeu on the phone as a web app served by the Cloud
 
 Date: 2026-09-08
-Status: Accepted
 
 Uses the core from [ADR 0026](0026-portable-collaboration-core.md) and companion
 devices from [ADR 0027](0027-companion-devices.md).

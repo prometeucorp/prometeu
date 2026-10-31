@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0054 — Opt-in local notifications with independent sound"
+description: "Opt-in local notifications with independent sound."
+status: stable
+---
+
 # ADR 0054 — Opt-in local notifications with independent sound
 
 Date: 2026-09-21
-Status: Accepted
 
 ## Context
 

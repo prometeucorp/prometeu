@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0037 — browser with visual context for the conversation"
+description: "Browser with visual context for the conversation."
+status: stable
+---
+
 # ADR 0037 — browser with visual context for the conversation
 
 Date: 2026-09-10
-Status: Accepted
 
 ## Context
 

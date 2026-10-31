@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0036 — a second Mac as a companion device"
+description: "A second Mac as a companion device."
+status: stable
+---
+
 # ADR 0036 — a second Mac as a companion device
 
 Date: 2026-09-11
-Status: Accepted
 
 Extends [ADR 0027](0027-companion-devices.md) and makes the
 "one active identity per membership" rule of

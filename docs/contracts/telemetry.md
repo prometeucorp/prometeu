@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Local telemetry and insights"
+description: "Content-free local events, usage measurements, SQLite storage and insight queries."
+status: stable
+---
+
 # Local telemetry and insights
 
-Status: implemented local usage and context insights; decision in
+Implemented local usage and context insights; decision in
 [ADR 0059](../decisions/0059-local-telemetry-foundation.md).
 
 ## Scope and ownership

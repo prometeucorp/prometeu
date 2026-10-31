@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0051 — Git projects in portable catalogs"
+description: "Git projects in portable catalogs."
+status: stable
+---
+
 # ADR 0051 — Git projects in portable catalogs
 
 Date: 2026-09-19
-Status: Accepted
 
 ## Context
 

@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0038 — selected elements as tags in the conversation"
+description: "Selected elements as tags in the conversation."
+status: stable
+---
+
 # ADR 0038 — selected elements as tags in the conversation
 
 Date: 2026-09-10
-Status: Accepted
 
 ## Context
 

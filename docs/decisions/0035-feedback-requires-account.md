@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0035 — Authenticated private feedback through the Cloud"
+description: "Authenticated private feedback through the Cloud."
+status: stable
+---
+
 # ADR 0035 — Authenticated private feedback through the Cloud
 
 Date: 2026-09-10
-Status: Accepted
 
 ## Context
 

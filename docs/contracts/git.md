@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Workspace Git"
+description: "Index, worktree, review and Git operations on the owner's machine."
+status: stable
+---
+
 # Workspace Git
 
-Status: implemented. Desktop Git runs on the machine that owns the workspace.
+Implemented. Desktop Git runs on the machine that owns the workspace.
 The native Windows application runs the same `prometeu-git` implementation in
 WSL; its worktree creation and cleanup are described in the
 [WSL runtime](wsl-runtime.md#workspace-methods) and

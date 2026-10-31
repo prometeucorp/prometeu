@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0060 — Isolated Desktop presentation"
+description: "Isolated Desktop presentation with a shared production/gallery view."
+status: stable
+---
+
 # ADR 0060 — Isolated Desktop presentation
 
 Date: 2026-09-25
-Status: Accepted
 
 ## Context
 

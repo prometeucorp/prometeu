@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Optional Prometeu account"
+description: "SaaS, browser-based authentication, desktop connection and private persistence."
+status: stable
+---
+
 # Optional Prometeu account
 
-Status: implemented in the client and in the separate `prometeu-cloud` project;
+Implemented in the client and in the separate `prometeu-cloud` project;
 publishing the service is an independent operational step.
 
 ## Boundary

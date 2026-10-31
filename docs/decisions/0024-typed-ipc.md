@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0024 — Command-owned IPC argument and result types"
+description: "Command-owned IPC argument and result types."
+status: stable
+---
+
 # ADR 0024 — Command-owned IPC argument and result types
 
 Date: 2026-09-07
-Status: Accepted
 
 ## Context
 

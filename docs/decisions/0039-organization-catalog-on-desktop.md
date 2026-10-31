@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0039 — Organization catalogs available on the desktop"
+description: "Organization catalogs available on the desktop."
+status: stable
+---
+
 # ADR 0039 — Organization catalogs available on the desktop
 
 Date: 2026-09-11
-Status: Accepted
 
 Defines desktop discovery and installation for the organization catalogs in
 [ADR 0021](0021-cloud-organizations.md).

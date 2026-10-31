@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Cursor CLI"
+description: "ACP transport, external account, conversation lifecycle and capability limits."
+status: stable
+---
+
 # Cursor CLI
 
-Status: implemented on the macOS/Linux desktop; [ADR 0095](../decisions/0095-cursor-acp.md).
+Implemented on the macOS/Linux desktop; [ADR 0095](../decisions/0095-cursor-acp.md).
 
 ## Installation and accounts
 

@@ -1,7 +1,14 @@
+---
+type: Decision
+title: "ADR 0045 — Layered tool selection: global, project and workspace"
+description: "Layered selection of MCP, plugins and skills across global, project and workspace."
+status: stable
+---
+
 # ADR 0045 — Layered tool selection: global, project and workspace
 
 Date: 2026-09-14
-Status: Accepted — the "Authority" section is amended by
+The "Authority" section is amended by
 [ADR 0046](0046-cli-inherited-mcp-base.md); Trust is superseded by
 [ADR 0047](0047-tool-selection-boundaries.md).
 

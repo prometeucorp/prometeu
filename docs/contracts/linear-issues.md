@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Linear issue discovery and assignment"
+description: "Available team issues, OAuth write scope, claim flow and cache compatibility."
+status: stable
+---
+
 # Linear issue discovery and assignment
 
-Status: current contract.
+Current contract.
 
 A disconnected provider shows a compact connection card. Scope tabs, filters
 and column headings stay hidden until a connection exists; column headings

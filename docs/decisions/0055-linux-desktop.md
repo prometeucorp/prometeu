@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0055 — Linux desktop through system programs"
+description: "Linux desktop through system programs."
+status: stable
+---
+
 # ADR 0055 — Linux desktop through system programs
 
 Date: 2026-09-23
-Status: Accepted
 
 ## Context
 

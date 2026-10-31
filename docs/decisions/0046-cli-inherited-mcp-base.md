@@ -1,7 +1,14 @@
+---
+type: Decision
+title: "ADR 0046 — The CLI's MCP set is the visible inherited base"
+description: "CLI MCP set as visible inherited picker base."
+status: stable
+---
+
 # ADR 0046 — The CLI's MCP set is the visible inherited base
 
 Date: 2026-09-15
-Status: Accepted — Discovery is superseded by
+Discovery is superseded by
 [ADR 0047](0047-tool-selection-boundaries.md) and extended by
 [ADR 0063](0063-account-connectors-in-the-mcp-base.md).
 

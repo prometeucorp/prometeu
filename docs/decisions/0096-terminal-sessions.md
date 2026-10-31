@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0096 — Terminal sessions owned by the app"
+description: "Terminal sessions owned by the app, persisted as records on the board."
+status: stable
+---
+
 # ADR 0096 — Terminal sessions owned by the app
 
 Date: 2026-10-27
-Status: Accepted
 
 Builds on the dock shells of workspaces and projects described in the
 [IPC contract](../contracts/ipc.md) and on the portable board of

@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Browser and visual context"
+description: "Preview, inspection, captures and sending to the draft."
+status: stable
+---
+
 # Browser and visual context
 
-Status: implemented. Decision: [ADR 0037](../decisions/0037-browser-design-context.md).
+Implemented. Decision: [ADR 0037](../decisions/0037-browser-design-context.md).
 
 ## Presentation and lifecycle
 

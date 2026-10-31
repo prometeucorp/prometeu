@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Local diff review notes"
+description: "Annotations, placement, persistence and explicit batch submission."
+status: stable
+---
+
 # Local diff review notes
 
-Status: implemented. See [ADR 0062](../decisions/0062-local-diff-review.md).
+Implemented. See [ADR 0062](../decisions/0062-local-diff-review.md).
 
 ## Ownership and scope
 

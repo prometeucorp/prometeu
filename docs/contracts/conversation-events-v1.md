@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Conversation Events v1"
+description: "Canonical protocol owned by Prometeu."
+status: stable
+---
+
 # Conversation Events v1
 
-Status: contract in force since 2026-09-03.
+Contract in force since 2026-09-03.
 
 Claude, Codex, Antigravity and Cursor have different external protocols. The adapters translate them
 into events and commands owned by Prometeu before the buffer, IPC, new

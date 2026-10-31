@@ -1,3 +1,10 @@
+---
+type: Architecture
+title: "Compose a Desktop screen"
+description: "Agent recipe for isolated screens and executable examples."
+status: stable
+---
+
 # Compose a Desktop screen
 
 Start at [`src/components/README.md`](../../src/components/README.md) and

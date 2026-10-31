@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Local persistence"
+description: "Local board, transcript and account formats, migrations and recovery."
+status: stable
+---
+
 # Local persistence
 
-Status: current contract.
+Current contract.
 
 ## Principles
 

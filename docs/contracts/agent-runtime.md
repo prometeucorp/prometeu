@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Agent runtime contract"
+description: "Discovery, capabilities and the agent execution port."
+status: stable
+---
+
 # Agent runtime contract
 
-Status: contract in force; identity/capabilities implemented by ADR 0003 and
+Contract in force; identity/capabilities implemented by ADR 0003 and
 canonical events implemented by ADR 0002.
 
 ## Process-boundary verification

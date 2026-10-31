@@ -1,6 +1,13 @@
+---
+type: Architecture
+title: "Conversation flow"
+description: "The path of a conversation and state ownership."
+status: stable
+---
+
 # Conversation flow
 
-Status: current architecture.
+Current architecture.
 
 ## Core concept
 

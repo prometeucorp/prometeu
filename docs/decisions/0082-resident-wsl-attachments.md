@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0082 — Resident WSL execution with disposable attachments"
+description: "Resident WSL execution with disposable attachments."
+status: stable
+---
+
 # ADR 0082 — Resident WSL execution with disposable attachments
 
 Date: 2026-09-29
-Status: Accepted
 
 ## Context
 

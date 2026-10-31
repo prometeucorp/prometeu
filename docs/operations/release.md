@@ -1,3 +1,10 @@
+---
+type: Operations
+title: "CI and release"
+description: "CI, versioning and release."
+status: stable
+---
+
 # CI and release
 
 ## Commits

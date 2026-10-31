@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0089 — Notch island over the main window's state"
+description: "Persistent notch island that follows agents, answers requests and reopens conversations."
+status: stable
+---
+
 # ADR 0089 — Notch island over the main window's state
 
 Date: 2026-10-07
-Status: Accepted
 
 ## Context
 

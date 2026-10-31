@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0017 — Executable Design System components"
+description: "Executable Design System components."
+status: stable
+---
+
 # ADR 0017 — Executable Design System components
 
 Date: 2026-09-06
-Status: Accepted
 
 ## Context
 

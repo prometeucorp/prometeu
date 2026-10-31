@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0097 — Ask before ending the app while local work runs"
+description: "Quitting, closing the main window or restarting for an update asks first while local work would be cut off."
+status: stable
+---
+
 # ADR 0097 — Ask before ending the app while local work runs
 
 Date: 2026-10-27
-Status: Accepted
 
 Builds on the interrupted turns of
 [the conversation flow](../architecture/conversation-flow.md), the window policy

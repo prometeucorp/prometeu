@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Optional context evaluation"
+description: "Bring-your-own-key TypeSafe adapter, evaluation port and key test in Settings."
+status: stable
+---
+
 # Optional context evaluation
 
-Status: current contract. Decision in
+Current contract. Decision in
 [ADR 0058](../decisions/0058-optional-context-evaluation.md).
 
 ## Responsibilities

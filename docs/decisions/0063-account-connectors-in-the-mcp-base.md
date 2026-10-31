@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0063 — Account connectors belong to the inherited MCP base"
+description: "The account's claude.ai connectors join the inherited MCP base."
+status: stable
+---
+
 # ADR 0063 — Account connectors belong to the inherited MCP base
 
 Date: 2026-09-28
-Status: Accepted
 
 Extends the Discovery section of
 [ADR 0046](0046-cli-inherited-mcp-base.md); the rest of that decision stands.

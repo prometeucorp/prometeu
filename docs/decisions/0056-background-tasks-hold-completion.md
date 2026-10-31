@@ -1,8 +1,14 @@
+---
+type: Decision
+title: "ADR 0056 — A turn only completes when its background tasks drain"
+description: "A turn only completes when its background tasks drain."
+status: stable
+---
+
 # ADR 0056 — A turn only completes when its background tasks drain
 
 Date: 2026-09-23
 
-Status: Accepted
 
 ## Context
 

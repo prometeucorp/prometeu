@@ -1,3 +1,10 @@
+---
+type: Operations
+title: "Linux"
+description: "Building, installing and platform differences on Linux."
+status: stable
+---
+
 # Linux
 
 Prometeu's release workflow produces a Linux x86_64 AppImage alongside the macOS

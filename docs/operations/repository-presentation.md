@@ -1,3 +1,10 @@
+---
+type: Operations
+title: "Repository presentation"
+description: "Demo provenance, social preview and GitHub verification."
+status: stable
+---
+
 # Repository presentation
 
 The README puts the product, demo, latest downloads and star request before

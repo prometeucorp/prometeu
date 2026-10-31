@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0009 — reusable commands and agents responsible for tasks"
+description: "Reusable commands and agents responsible for tasks."
+status: stable
+---
+
 # ADR 0009 — reusable commands and agents responsible for tasks
 
 Date: 2026-09-05
-Status: Accepted
 
 ## Context
 

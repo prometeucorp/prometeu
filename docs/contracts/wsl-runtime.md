@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "WSL runtime protocol"
+description: "Framing, capabilities, resident attachment, storage and compatibility."
+status: stable
+---
+
 # WSL runtime protocol
 
-Status: implemented; experimental. Decisions:
+Implemented; experimental. Decisions:
 [ADR 0084](../decisions/0084-shared-windows-desktop.md) and
 [ADR 0082](../decisions/0082-resident-wsl-attachments.md).
 

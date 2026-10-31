@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0021 — Organizations and invitations in the Cloud"
+description: "Organizations and invitations in the Cloud."
+status: stable
+---
+
 # ADR 0021 — Organizations and invitations in the Cloud
 
 Date: 2026-09-07
-Status: Accepted
 
 Complements the optional account in [ADR 0015](0015-cloud-rails.md) and personal
 catalog in [ADR 0020](0020-personal-catalog-and-local-items.md).

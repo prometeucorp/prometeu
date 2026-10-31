@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0085 — Portable core with injected effects"
+description: "Portable core with injected effects."
+status: stable
+---
+
 # ADR 0085 — Portable core with injected effects
 
 Date: 2026-09-27
-Status: Accepted
 
 ## Context
 

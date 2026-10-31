@@ -1,3 +1,10 @@
+---
+type: Contract
+title: "Product analytics"
+description: "PostHog event vocabulary, payload, installation identity and rules for new events."
+status: stable
+---
+
 # Product analytics
 
 Prometeu optionally records two kinds of product evidence: identified control

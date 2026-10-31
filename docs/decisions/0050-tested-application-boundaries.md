@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0050 — Test application boundaries before extracting services"
+description: "Tested application boundaries before service extraction."
+status: stable
+---
+
 # ADR 0050 — Test application boundaries before extracting services
 
 Date: 2026-09-15
-Status: Accepted
 
 ## Context
 

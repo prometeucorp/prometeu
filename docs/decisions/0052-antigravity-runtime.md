@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0052 — Replace Gemini CLI with Antigravity"
+description: "Replace Gemini CLI with Antigravity."
+status: stable
+---
+
 # ADR 0052 — Replace Gemini CLI with Antigravity
 
 Date: 2026-09-19
-Status: Accepted
 
 ## Context
 

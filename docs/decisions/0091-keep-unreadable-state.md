@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0091 — Keep unreadable state before replacing it"
+description: "Unreadable board and team files are copied to a recovery folder before anything replaces them, and saves wait while copying fails."
+status: stable
+---
+
 # ADR 0091 — Keep unreadable state before replacing it
 
 Date: 2026-10-14
-Status: Accepted
 
 ## Context
 

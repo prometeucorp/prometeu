@@ -25,7 +25,9 @@ turn a divergence into a silent architectural decision.
 - `docs/quality/`: support matrices and verification strategy.
 - `docs/operations/`: development, CI and release.
 
-Start at `docs/README.md` for the complete index.
+`docs/` is the knowledge bundle; `AGENTS.md` remains the standing instructions.
+When the location is unknown, start at [the map](docs/README.md), then the area's
+index and the relevant concept. Follow its dependencies; open known paths directly.
 
 ## Product invariants
 
@@ -148,6 +150,11 @@ an artifact without an explicit request. See `docs/operations/release.md`.
 
 ## Documentation maintenance
 
+- New or substantially changed concepts in `docs/` have YAML `type`, `title`,
+  `description` and `status`, plus a line in their folder's `README.md`.
+  Folder indexes and files outside `docs/` do not need this envelope.
+- Keep draft proposals separate from current guidance. Completed implementation
+  plans become current contracts/ADRs or leave the tree; Git keeps the history.
 - Write code identifiers, test names, comments and doc comments in English,
   including tests, scripts, stylesheets and configuration files. Author test
   fixtures in English unless a contract or a Unicode regression needs another

@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0094 — Leaving a share, enforced by the relay"
+description: "A viewer leaves a share for all of their devices; the relay keeps them out until the owner readmits them."
+status: stable
+---
+
 # ADR 0094 — Leaving a share, enforced by the relay
 
 Date: 2026-10-23
-Status: Accepted
 
 Complements the audience rules of [ADR 0022](0022-end-to-end-encryption.md),
 companion devices in [ADRs 0027](0027-companion-devices.md) and

@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0015 — Optional account in a separate Rails service"
+description: "Optional account in a separate Rails service."
+status: stable
+---
+
 # ADR 0015 — Optional account in a separate Rails service
 
 Date: 2026-09-06
-Status: Accepted
 
 ## Context
 
