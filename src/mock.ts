@@ -1961,7 +1961,7 @@ const mockCommands: IpcHandlers = {
           accountNotice: t("account.cursor.notice"), models: [],
           capabilities: { initialPlanMode: true, resume: true, approvals: true, attachments: true,
             usageTokens: false, usageCost: false, contextWindow: false,
-            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: true },
+            workspaceMcpSelection: true, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: true },
         },
         {
           id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",

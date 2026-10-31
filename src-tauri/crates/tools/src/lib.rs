@@ -48,6 +48,11 @@ pub trait StartupTools: Send + Sync {
         session: &str,
         chosen: Option<&[String]>,
     ) -> Result<Option<mcp::CodexMcp>, String>;
+    fn cursor_mcp(
+        &self,
+        session: &str,
+        chosen: Option<&[String]>,
+    ) -> Result<Option<mcp::AcpMcp>, String>;
 }
 
 /// Both execution hosts compose the same startup implementation with their catalogs and files.
@@ -91,6 +96,17 @@ impl StartupTools for NativeTools {
             files: self.files.as_ref(),
         }
         .codex_config(session, chosen)
+    }
+    fn cursor_mcp(
+        &self,
+        session: &str,
+        chosen: Option<&[String]>,
+    ) -> Result<Option<mcp::AcpMcp>, String> {
+        mcp::McpMaterializer {
+            sources: self.sources.as_ref(),
+            files: self.files.as_ref(),
+        }
+        .cursor_config(session, chosen)
     }
 }
 

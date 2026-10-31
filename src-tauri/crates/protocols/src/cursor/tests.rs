@@ -28,6 +28,7 @@ fn start(resume: bool) -> Start {
         plan: false,
         bypass: false,
         instructions: "Follow project instructions.".into(),
+        mcp_servers: vec![],
     }
 }
 fn frame(link: &mut Link, value: Value) -> Vec<Value> {
@@ -62,6 +63,7 @@ fn ready(resume: bool) -> (Link, Output) {
         }
     );
     assert_eq!(command["params"]["cwd"], "/fixture/worktree");
+    assert_eq!(command["params"]["mcpServers"], json!([]));
     assert!(frame(&mut link, json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"fixture-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"replayed history"}}}})).is_empty());
     result(
         &mut link,
@@ -375,6 +377,38 @@ fn malformed_questions_and_empty_plans_never_leave_unanswerable_cards() {
     .is_empty());
     assert_eq!(output.take()[0]["result"]["outcome"]["outcome"], "rejected");
     assert!(link.asks.is_empty());
+}
+
+#[test]
+fn session_sends_the_complete_client_mcp_set_on_new_and_load() {
+    let servers = json!([
+        {"name":"notes","command":"npx","args":["notes"],"env":[]},
+        {"type":"http","name":"api","url":"https://example.test/mcp","headers":[]}
+    ]);
+    for resume in [false, true] {
+        let output = Output::default();
+        let mut settings = start(resume);
+        settings.mcp_servers = servers.as_array().unwrap().clone();
+        let mut link = Link::new(Box::new(output.clone()), settings);
+        assert_eq!(output.take()[0]["method"], "initialize");
+        result(
+            &mut link,
+            1,
+            json!({"protocolVersion":1,"agentCapabilities":{"loadSession":true}}),
+        );
+        assert_eq!(output.take()[0]["method"], "authenticate");
+        result(&mut link, 2, json!({}));
+        let command = output.take().remove(0);
+        assert_eq!(
+            command["method"],
+            if resume {
+                "session/load"
+            } else {
+                "session/new"
+            }
+        );
+        assert_eq!(command["params"]["mcpServers"], servers);
+    }
 }
 
 #[test]

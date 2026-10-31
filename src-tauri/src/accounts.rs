@@ -51,7 +51,9 @@ fn read(path: &Path) -> Result<Registry, String> {
     Ok(registry)
 }
 
-fn change(update: impl FnOnce(&mut Registry) -> Result<(), String>) -> Result<(), String> {
+pub(crate) fn change(
+    update: impl FnOnce(&mut Registry) -> Result<(), String>,
+) -> Result<(), String> {
     registry().update(update)
 }
 

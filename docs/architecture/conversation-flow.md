@@ -50,7 +50,8 @@ including tools, instructions and permissions.
 Materialization belongs to the edge. Claude receives MCP and plugins through
 its own files and flags; Codex receives the MCP table through an override and
 plugins through a derived marketplace inside a configuration `CODEX_HOME`
-isolated per workspace. The account comes from the provider's global selection,
+isolated per workspace; Cursor receives hub MCP through ACP `mcpServers` on
+`session/new` and `session/load`. The account comes from the provider's global selection,
 captured by the process; sessions and the plugin cache remain shared. The
 configuration layer distinguishes workspace and account without writing the
 selection into the global `config.toml`. If an explicit selection cannot be

@@ -455,6 +455,13 @@ pub fn codex_config(
 ) -> Result<Option<prometeu_tools::mcp::CodexMcp>, String> {
     materializer().codex_config(id, chosen)
 }
+#[cfg(test)]
+pub fn cursor_config(
+    id: &str,
+    chosen: Option<&[String]>,
+) -> Result<Option<prometeu_tools::mcp::AcpMcp>, String> {
+    materializer().cursor_config(id, chosen)
+}
 
 /* Server inspection */
 

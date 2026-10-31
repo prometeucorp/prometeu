@@ -1875,6 +1875,7 @@ export const PT = {
   "err.mcp.badConfig": "a configuração do servidor está malformada",
   "err.mcp.connectors": "não deu para ler os conectores da sua conta Claude — confira a conexão e tente de novo, ou limpe a seleção de MCP da conversa",
   "err.mcp.missing": "o MCP {id} saiu do cadastro — remova-o da seleção ou cadastre-o de novo",
+  "err.mcp.unsupported": "o MCP {id} não funciona com este agente",
   "err.tools.badPayload": "a seleção de ferramentas chegou malformada",
   "err.tools.badAxis": "cada item pertence ao seu próprio eixo: skills avulsas entram no seletor de skills",
   "err.plugin.save": "não deu para gravar o cadastro de plugins: {cause}",

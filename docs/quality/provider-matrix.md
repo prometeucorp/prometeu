@@ -287,11 +287,12 @@ reducers give fast diagnosis for every combination.
 
 ## Built-in delegation MCP
 
-Both Claude and Codex can opt into the bundled `prometeu` MCP and create either
-provider in an isolated workspace. Ownership, execution IDs, busy-send
+Claude, Codex and Cursor can opt into the bundled `prometeu` MCP and create either
+worker provider in an isolated workspace. Ownership, execution IDs, busy-send
 rejection, file access and canonical history share the backend implementation.
 Claude receives a private strict MCP file; Codex receives the stdio command
-and private environment wrapper. Workers start with empty MCP/plugin/skill
+and private environment wrapper; Cursor receives the same stdio command and
+environment through ACP `mcpServers`. Workers start with empty MCP/plugin/skill
 selections. Background reporting is limited to each adapter’s existing
 `background.changed` signals; unknown is distinct from an observed empty set. An
 execution holds `running` with its outcome recorded until those tasks drain, so
@@ -370,7 +371,8 @@ transcript, sharing and presentation paths after V1 normalization.
 | Resume and interruption | Native load with replay suppression; ACP cancellation; failed handshake disconnects so next input restarts | protocol tests, including failed-handshake pipe release; ignored desktop `live_cursor_round_trip` |
 | Permissions, questions, plan approvals | Existing request cards; option IDs independent of click order and explicit plan decisions | protocol tests include reversed multi-select and free text; live smoke covers permission round trip and initial plan mode |
 | Attachments | Existing local path mentions; no binary upload | shared presentation contract; Cursor image understanding not separately verified |
-| MCP, plugins and skills from Prometeu | Unavailable; absent workspace axes suppress inherited hub tools; explicit nonempty selections fail | `session::tests::tool_resolution_uses_the_tab_provider_and_configured_claude_home` covers global/project inheritance, fresh/resumed launches and rejection; native Cursor configuration still applies |
+| MCP from Prometeu | Hub selection encoded as ACP `mcpServers` on new and resumed sessions; Cursor's own configuration still applies | `tools` ACP encoding tests, `session::tests::tool_resolution_uses_the_tab_provider_and_configured_claude_home`, `agent_launch` Cursor tool injection; native Cursor configuration still applies |
+| Plugins and skills from Prometeu | Unavailable; absent workspace axes suppress inherited packages; explicit nonempty selections fail | same session test covers plugin/skill suppression and rejection |
 | Account quotas | Dashboard API using the CLI login; unified weekly or explicit legacy individual monthly limits | `cursor/quota/tests.rs`: mapping, failure and compatibility tests; ignored `live_cursor_quota` verifies the signed-in account |
 | Per-turn token/cost meters, context and compaction controls | Unavailable | descriptor capabilities; no invented readings |
 | Subagent lifecycle | No separately verified background signal | native prompt terminal settles turn |

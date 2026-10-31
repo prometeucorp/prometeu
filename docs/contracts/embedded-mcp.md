@@ -20,7 +20,8 @@ next process spawn/resume, not to an idle process that is still alive.
 Only selection materializes `Prometeu --prometeu-mcp`, using the running app's
 executable path. This entry point runs without a webview or login-shell startup.
 Claude gets a private MCP config; Codex uses the existing private environment
-file wrapper. Credentials are never stored in the hub or command-line arguments.
+file wrapper; Cursor receives the stdio command and environment through ACP
+`mcpServers`. Credentials are never stored in the hub or command-line arguments.
 
 The subprocess speaks newline-delimited JSON-RPC over stdio, negotiates MCP
 `2025-06-18`, and supports initialization, ping, tools/list and tools/call.

@@ -80,8 +80,8 @@ updating or uninstalling. See [Windows coverage](docs/contracts/windows-applicat
 Cursor CLI is supported on macOS and Linux since v0.35.0. Install a Cursor CLI
 with ACP support, make `cursor-agent` available in your shell, sign in with `agent login`, attach
 its account in Settings and select it in the launcher. Streaming, tools, resume,
-stop, questions and plan approvals are supported. Account quotas use the existing CLI login; hub tool
-selections and per-turn token/cost meters are unavailable. See the
+stop, questions, plan approvals and hub MCP are supported. Account quotas use the existing CLI login; hub
+plugins, skills and per-turn token/cost meters are unavailable. See the
 [Cursor contract](docs/contracts/cursor.md).
 
 ## Quick start

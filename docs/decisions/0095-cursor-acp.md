@@ -60,11 +60,12 @@ requests receive a JSON-RPC error rather than blocking indefinitely.
 ## Consequences
 
 Cursor is available on the macOS/Linux desktop. Windows/WSL still registers only
-Codex. Hub MCP/plugin/skill selections are unavailable and explicit nonempty
-workspace selections fail startup. Absent workspace axes resolve to empty hub
-selections rather than inheriting global or project tools that Cursor cannot
-accept; this applies on both startup and resume. Cursor's own configuration
-remains active. No isolated configuration, per-turn token/cost meter, context report or compaction control is
+Codex. Hub MCP is injected through ACP `mcpServers` on new and resumed sessions.
+Plugin and skill selections remain unavailable; explicit nonempty plugin or skill
+workspace selections fail startup, and absent axes resolve to empty hub
+selections rather than inheriting packages Cursor cannot accept. Cursor's own
+configuration remains active and unions with client-provided servers. No isolated
+configuration, per-turn token/cost meter, context report or compaction control is
 advertised. Cursor owns subagent execution; no independently verified background
 lifecycle signal is exposed.
 
@@ -77,7 +78,10 @@ to Claude, so opening Cursor boards in an older version is not supported.
 ## Evidence
 
 - `crates/protocols/src/cursor/tests.rs`: recorded native translation, replay
-  suppression, permissions, questions, plans, cancellation and failures.
+  suppression, permissions, questions, plans, cancellation, MCP `session/new`
+  and `session/load` payload, and failures.
+- `crates/tools/src/tests.rs`: ACP encoding of stdio, HTTP and SSE hub servers,
+  OAuth header replacement, and refusal of Claude-only connectors.
 - `crates/core/src/accounts/tests.rs`: explicit selection, removal and persisted
   Cursor identity round trips.
 - `src/conversation.test.ts` and `src/model-choice.test.ts`: V1 consumption and

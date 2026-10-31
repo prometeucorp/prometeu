@@ -51,6 +51,8 @@ pub trait McpFiles: Send + Sync {
 
 /// The table references credentials through environment variables or private files, never argv.
 pub type CodexMcp = (String, Vec<(String, String)>);
+/// ACP v1 `mcpServers` entries. Stdio omits `type`; HTTP and SSE keep their discriminators.
+pub type AcpMcp = Vec<Value>;
 
 pub struct McpMaterializer<'a> {
     pub sources: &'a dyn McpSources,
@@ -103,6 +105,135 @@ impl McpMaterializer<'_> {
         }
         Ok(Some((format!("{{{}}}", entries.join(",")), env)))
     }
+
+    pub fn cursor_config(
+        &self,
+        id: &str,
+        chosen: Option<&[String]>,
+    ) -> Result<Option<AcpMcp>, String> {
+        let Some(chosen) = chosen else {
+            return Ok(None);
+        };
+        let hub = self.sources.codex_servers(id, chosen)?;
+        chosen
+            .iter()
+            .map(|name| {
+                let Some(server) = hub.iter().find(|s| &s.id == name) else {
+                    return Err(prometeu_core::error::with_args(
+                        "err.mcp.missing",
+                        &[("id", name.clone())],
+                    ));
+                };
+                acp_server(server, self.sources.bearer(&server.id).as_deref())
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    }
+}
+
+struct AcpTransport {
+    matches: fn(&Value) -> bool,
+    encode: fn(&Server, Option<&str>) -> Result<Value, String>,
+}
+
+const ACP_TRANSPORTS: &[AcpTransport] = &[
+    AcpTransport {
+        matches: is_http,
+        encode: encode_http,
+    },
+    AcpTransport {
+        matches: is_sse,
+        encode: encode_sse,
+    },
+    AcpTransport {
+        matches: is_stdio,
+        encode: encode_stdio,
+    },
+];
+
+fn config_type(config: &Value) -> Option<&str> {
+    config.get("type").and_then(Value::as_str)
+}
+
+fn is_http(config: &Value) -> bool {
+    config_type(config) == Some("http")
+        || (config_type(config).is_none() && config.get("url").and_then(Value::as_str).is_some())
+}
+
+fn is_sse(config: &Value) -> bool {
+    config_type(config) == Some("sse")
+}
+
+fn is_stdio(config: &Value) -> bool {
+    config_type(config) == Some("stdio")
+        || (config_type(config).is_none()
+            && config.get("command").and_then(Value::as_str).is_some())
+}
+
+/// Encode one hub server through the matching ACP transport. Unknown types, including
+/// Claude-only connectors, fail instead of being dropped.
+pub fn acp_server(server: &Server, bearer: Option<&str>) -> Result<Value, String> {
+    let transport = ACP_TRANSPORTS
+        .iter()
+        .find(|transport| (transport.matches)(&server.config))
+        .ok_or_else(|| {
+            prometeu_core::error::with_args("err.mcp.unsupported", &[("id", server.id.clone())])
+        })?;
+    (transport.encode)(server, bearer)
+}
+
+fn encode_http(server: &Server, bearer: Option<&str>) -> Result<Value, String> {
+    encode_remote("http", server, bearer)
+}
+
+fn encode_sse(server: &Server, bearer: Option<&str>) -> Result<Value, String> {
+    encode_remote("sse", server, bearer)
+}
+
+fn encode_remote(kind: &str, server: &Server, bearer: Option<&str>) -> Result<Value, String> {
+    let url = server
+        .config
+        .get("url")
+        .and_then(Value::as_str)
+        .filter(|url| !url.is_empty())
+        .ok_or_else(|| prometeu_core::error::code("err.mcp.badConfig"))?;
+    Ok(json!({
+        "type": kind,
+        "name": server.id,
+        "url": url,
+        "headers": named_values(remote_headers(server, bearer)),
+    }))
+}
+
+fn encode_stdio(server: &Server, _: Option<&str>) -> Result<Value, String> {
+    let command = server
+        .config
+        .get("command")
+        .and_then(Value::as_str)
+        .filter(|command| !command.is_empty())
+        .ok_or_else(|| prometeu_core::error::code("err.mcp.badConfig"))?;
+    Ok(json!({
+        "name": server.id,
+        "command": command,
+        "args": server.args(),
+        "env": named_values(server.env_pairs()),
+    }))
+}
+
+fn remote_headers(server: &Server, bearer: Option<&str>) -> Vec<(String, String)> {
+    let mut headers = pairs(server.config.get("headers"));
+    if let Some(token) = bearer {
+        headers.retain(|(name, _)| !name.eq_ignore_ascii_case("authorization"));
+        headers.push(("Authorization".into(), format!("Bearer {token}")));
+    }
+    headers
+}
+
+fn named_values(pairs: Vec<(String, String)>) -> Vec<Value> {
+    pairs
+        .into_iter()
+        .map(|(name, value)| json!({"name": name, "value": value}))
+        .collect()
 }
 
 /// Materialize every chosen server. Resolution already filtered the chosen ids against the

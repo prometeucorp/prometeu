@@ -3183,9 +3183,9 @@ mod tests {
             }),
             ..Tools::default()
         };
-        for workspace_agent in [ProviderId::Claude, ProviderId::Codex] {
+        for workspace_agent in [ProviderId::Claude, ProviderId::Codex, ProviderId::Cursor] {
             ws.agent = workspace_agent;
-            for agent in [ProviderId::Claude, ProviderId::Codex] {
+            for agent in [ProviderId::Claude, ProviderId::Codex, ProviderId::Cursor] {
                 let tools = resolve_workspace_tools(&global, &[], &ws, agent);
                 let expected = if agent == ProviderId::Claude {
                     vec!["cli-only".to_string(), "hub".into()]
@@ -3214,16 +3214,17 @@ mod tests {
                         )
                         .unwrap();
                     }
-                    ProviderId::Codex
-                    | ProviderId::Antigravity
-                    | ProviderId::Cursor
-                    | ProviderId::RetiredGemini => {
+                    ProviderId::Codex => {
                         crate::mcp::codex_config("test", launch.mcp.as_deref()).unwrap();
                     }
+                    ProviderId::Cursor => {
+                        crate::mcp::cursor_config("test", launch.mcp.as_deref()).unwrap();
+                    }
+                    ProviderId::Antigravity | ProviderId::RetiredGemini => unreachable!(),
                 }
             }
         }
-        // Unsupported providers must not inherit global or trusted-project tools on any axis.
+        // Unsupported plugin axes must not inherit global or trusted-project tools.
         std::fs::write(
             crate::paths::root().join("plugins.json"),
             r#"[{"id":"reviewer","source":"/fixture"},{"id":"skill-review","source":"/fixture"}]"#,
@@ -3251,27 +3252,34 @@ mod tests {
             at: 0,
         }];
         for global in [&inherited, &Tools::default()] {
-            for agent in [ProviderId::Cursor, ProviderId::Antigravity] {
-                let tools = resolve_workspace_tools(global, &trust, &ws, agent);
-                assert_eq!(tools.mcp, Some(vec![]));
-                assert_eq!(tools.plugins, Some(vec![]));
-                assert_eq!(tools.skills, Some(vec![]));
+            let cursor = resolve_workspace_tools(global, &trust, &ws, ProviderId::Cursor);
+            assert_eq!(cursor.mcp, Some(vec!["hub".to_string()]));
+            assert_eq!(cursor.plugins, Some(vec![]));
+            assert_eq!(cursor.skills, Some(vec![]));
+            let antigravity = resolve_workspace_tools(global, &trust, &ws, ProviderId::Antigravity);
+            assert_eq!(antigravity.mcp, Some(vec![]));
+            assert_eq!(antigravity.plugins, Some(vec![]));
+            assert_eq!(antigravity.skills, Some(vec![]));
+            for (agent, tools) in [
+                (ProviderId::Cursor, &cursor),
+                (ProviderId::Antigravity, &antigravity),
+            ] {
                 let choice = Choice {
                     agent,
                     ..Choice::default()
                 };
                 ws.tabs = vec![tab("mixed", Some(choice.clone()))];
                 for launch in [
-                    workspace_launch_with(&ws, Some(choice), &tools),
-                    workspace_launch_of(&ws, "mixed", &tools),
+                    workspace_launch_with(&ws, Some(choice), tools),
+                    workspace_launch_of(&ws, "mixed", tools),
                 ] {
-                    assert_eq!(launch.mcp, Some(vec![]));
+                    assert_eq!(launch.mcp, tools.mcp);
                     assert_eq!(launch.plugins, Some(vec![]));
                     assert_eq!(launch.skills, Some(vec![]));
                 }
             }
         }
-        // Explicit workspace requests still reach Cursor's rejection guard.
+        // Explicit plugin requests still reach Cursor's rejection guard; hub MCP materializes.
         ws.mcp = inherited.mcp;
         ws.plugins = inherited.plugins;
         ws.skills = inherited.skills;
@@ -3293,11 +3301,15 @@ mod tests {
                 Path::new(&ws.worktree),
                 None,
                 &launch,
-                &crate::account_profiles::native()
+                &crate::account_profiles::native(),
+                &crate::tool_materialization::native()
             )
             .err(),
             Some(crate::i18n::t("err.cursor.unsupported"))
         );
+        crate::mcp::cursor_config("test", tools.mcp.as_deref())
+            .unwrap()
+            .unwrap();
     }
 
     /// The setters' payload gate: `null` means inherit, a well-formed `Selection` passes, a
