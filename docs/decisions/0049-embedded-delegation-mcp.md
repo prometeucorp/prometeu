@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0049 — Native MCP for client-owned delegation"
+description: "Native MCP for client-owned delegation."
+status: stable
+---
+
 # ADR 0049 — Native MCP for client-owned delegation
 
 Date: 2026-09-18
-Status: Accepted
 
 ## Context
 

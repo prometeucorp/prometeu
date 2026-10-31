@@ -1,6 +1,13 @@
+---
+type: Architecture
+title: "Dependency rules"
+description: "Rules between presentation, application, domain and adapters."
+status: stable
+---
+
 # Dependency rules
 
-Status: rules in force and direction of evolution.
+Rules in force and direction of evolution.
 
 ## Principle
 

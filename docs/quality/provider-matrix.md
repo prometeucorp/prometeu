@@ -1,6 +1,13 @@
+---
+type: Quality
+title: "Provider matrix"
+description: "Support per agent and expected evidence."
+status: stable
+---
+
 # Provider matrix
 
-Status: current behavior observed in the code. "To confirm" means the feature
+Current behavior observed in the code. "To confirm" means the feature
 may exist, but does not yet have enough conformance evidence to become a
 contractual capability.
 

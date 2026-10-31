@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0042 — A peer's new key is adopted automatically"
+description: "A peer's new key is adopted automatically."
+status: stable
+---
+
 # ADR 0042 — A peer's new key is adopted automatically
 
 Date: 2026-09-10
-Status: Accepted
 
 Defines peer key replacement within the cipher, scopes, authorization, replay
 and limits of [ADR 0022](0022-end-to-end-encryption.md). The members list in

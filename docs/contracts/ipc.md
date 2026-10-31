@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "TypeScript ↔ Rust IPC contract"
+description: "Typed desktop commands, events, browser mocks and serialization compatibility."
+status: stable
+---
+
 # TypeScript ↔ Rust IPC contract
 
-Status: current contract; TypeScript commands and browser handlers share typed
+Current contract; TypeScript commands and browser handlers share typed
 arguments and results. Rust bindings remain manually synchronized.
 
 ## Sources and guarantees

@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0010 — Code review included in the actions registry"
+description: "Code review included in the actions registry."
+status: stable
+---
+
 # ADR 0010 — Code review included in the actions registry
 
 Date: 2026-09-05
-Status: Accepted
 
 ## Context
 

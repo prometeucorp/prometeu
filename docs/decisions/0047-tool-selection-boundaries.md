@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0047 — Bind tool selection to the reviewed declaration and execution provider"
+description: "Reviewed tool declarations, effective provider and native IPC patches."
+status: stable
+---
+
 # ADR 0047 — Bind tool selection to the reviewed declaration and execution provider
 
 Date: 2026-09-15
-Status: Accepted
 
 Partially supersedes [ADR 0045](0045-layered-tool-selection.md) (Trust) and
 [ADR 0046](0046-cli-inherited-mcp-base.md) (Discovery). Their other decisions

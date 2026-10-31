@@ -1,6 +1,13 @@
+---
+type: Quality
+title: "Issue #148 energy profiling"
+description: "Measurement protocol and source baseline at b03e768, without verified battery-life claims."
+status: stable
+---
+
 # Issue #148 energy profiling
 
-Status: measurement protocol and source-level baseline for commit `b03e768`.
+Measurement protocol and source-level baseline for commit `b03e768`.
 The native release-build comparison belongs to the implementation review; the
 figures below do not establish a battery-life change.
 

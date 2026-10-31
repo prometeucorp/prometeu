@@ -1,3 +1,10 @@
+---
+type: Operations
+title: "Project scripts"
+description: "Repository-declared setup, run and archive scripts and their execution rules."
+status: stable
+---
+
 # Project scripts
 
 Projects can define workspace lifecycle commands in `.prometeu/settings.toml`.

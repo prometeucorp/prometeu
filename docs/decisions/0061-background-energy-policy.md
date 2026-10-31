@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0061 — Separate display sleep from agent work"
+description: "Explicit system-only inhibition while a macOS agent works."
+status: stable
+---
+
 # ADR 0061 — Separate display sleep from agent work
 
 Date: 2026-09-25
-Status: Accepted
 
 ## Context
 

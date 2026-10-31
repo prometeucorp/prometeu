@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0007 — Persistent comments alongside the session"
+description: "Persistent comments alongside the session."
+status: stable
+---
+
 # ADR 0007 — Persistent comments alongside the session
 
 Date: 2026-09-04
-Status: Accepted
 
 ## Context
 

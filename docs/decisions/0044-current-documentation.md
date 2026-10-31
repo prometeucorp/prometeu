@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0044 — Current documentation with history in Git"
+description: "Current documentation with history in Git."
+status: stable
+---
+
 # ADR 0044 — Current documentation with history in Git
 
 Date: 2026-09-15
-Status: Accepted
 
 ## Context
 
@@ -30,6 +36,13 @@ note. Keep numbers stable and never reuse retired numbers. Apply the same rule
 to retired contracts; document compatibility still implemented in the current
 contract. Proposals must be explicitly marked and kept separate from accepted
 guidance.
+
+Concepts use the lifecycle field defined by [ADR 0001](0001-repository-knowledge.md):
+`stable` for accepted guidance, `draft` for proposals and `deprecated` only for
+legacy guidance whose compatibility remains supported. Deprecation is not an
+archive for replaced decisions. Completed implementation plans leave `docs/`
+after their current guarantees and verified limits are recorded in contracts
+or ADRs; previous plans and audit snapshots remain in Git history.
 
 ## Consequences
 

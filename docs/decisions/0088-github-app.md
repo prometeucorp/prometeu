@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0088 — GitHub App for issues, PRs and notifications"
+description: "GitHub App for issues, PRs and notifications through the Cloud."
+status: stable
+---
+
 # ADR 0088 — GitHub App for issues, PRs and notifications
 
 Date: 2026-10-05
-Status: Accepted
 
 This decision replaced the GitHub inbox through the local `gh` credential and
 narrows the "no provider credentials" rule of [ADR 0015](0015-cloud-rails.md)

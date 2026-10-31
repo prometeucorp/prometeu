@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "GitHub notifications"
+description: "GitHub App webhooks turned into metadata-only notifications in the Cloud and the desktop Notifications destination."
+status: stable
+---
+
 # GitHub notifications
 
-Status: current contract, implemented in `prometeu-cloud` and the desktop.
+Current contract, implemented in `prometeu-cloud` and the desktop.
 Decision: [ADR 0088](../decisions/0088-github-app.md).
 
 ## Source

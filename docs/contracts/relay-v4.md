@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Relay protocol v4"
+description: "Encrypted collaboration and TOFU."
+status: stable
+---
+
 # Relay protocol v4
 
-Status: current contract; decision in
+Current contract; decision in
 [ADR 0022](../decisions/0022-end-to-end-encryption.md).
 Executable source: `relay/src/protocol.ts`, imported by the app and the Worker.
 The retired v3 specification is available in Git history. Compatibility with

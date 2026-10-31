@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0095 — Cursor CLI through ACP"
+description: "Cursor CLI through ACP and an explicit external account."
+status: stable
+---
+
 # ADR 0095 — Cursor CLI through ACP
 
 Date: 2026-10-25
-Status: Accepted
 
 ## Context
 

@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0020 — Catalog in the SaaS and explicit sharing on the desktop"
+description: "Catalog in the SaaS and explicit sharing on the desktop."
+status: stable
+---
+
 # ADR 0020 — Catalog in the SaaS and explicit sharing on the desktop
 
 Date: 2026-09-07
-Status: Accepted
 
 ## Context
 

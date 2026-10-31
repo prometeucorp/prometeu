@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0084 — Shared desktop interface over an injected WSL runtime"
+description: "Shared desktop interface over an injected WSL runtime."
+status: stable
+---
+
 # ADR 0084 — Shared desktop interface over an injected WSL runtime
 
 Date: 2026-09-30
-Status: Accepted
 
 ## Context
 

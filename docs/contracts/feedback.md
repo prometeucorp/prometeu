@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Public issues and private feedback"
+description: "Public GitHub issues or account-backed private reports with text and images."
+status: stable
+---
+
 # Public issues and private feedback
 
-Status: implemented on the desktop, in the Cloud and in the web bundle. Enabling
+Implemented on the desktop, in the Cloud and in the web bundle. Enabling
 it in production depends on configuring the GitHub credential in the Cloud.
 Decision: [ADR 0035](../decisions/0035-feedback-requires-account.md).
 

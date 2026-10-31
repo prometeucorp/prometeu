@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0008 — explicit Git index and per-repository operations"
+description: "Explicit Git index and per-repository operations."
+status: stable
+---
+
 # ADR 0008 — explicit Git index and per-repository operations
 
 Date: 2026-09-05
-Status: Accepted
 
 ## Context
 

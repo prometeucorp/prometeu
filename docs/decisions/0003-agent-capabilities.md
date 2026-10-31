@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0003 — Capability-driven features"
+description: "Capability-driven features."
+status: stable
+---
+
 # ADR 0003 — Capability-driven features
 
 Date: 2026-09-03
-Status: Accepted
 
 ## Context
 

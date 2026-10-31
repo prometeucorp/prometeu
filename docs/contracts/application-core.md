@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Portable application core"
+description: "Core ports, their desktop and WSL adapters and implementation obligations."
+status: stable
+---
+
 # Portable application core
 
-Status: implemented. Decision: [ADR 0085](../decisions/0085-portable-core.md).
+Implemented. Decision: [ADR 0085](../decisions/0085-portable-core.md).
 
 `src-tauri/crates/core` (`prometeu-core`) holds the persisted models, portable
 rules and sequencing shared by the desktop and the WSL runtime. It has no Tauri,

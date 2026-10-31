@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0027 — companion devices in the relay"
+description: "Companion devices in the relay."
+status: stable
+---
+
 # ADR 0027 — companion devices in the relay
 
 Date: 2026-09-08
-Status: Accepted
 
 Uses an additive field in [relay v4](../contracts/relay-v4.md). Complements
 [ADR 0021](0021-cloud-organizations.md) and

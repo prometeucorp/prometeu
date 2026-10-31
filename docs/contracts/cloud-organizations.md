@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Organizations in Prometeu Cloud"
+description: "CRUD, invitations, catalogs and relay access."
+status: stable
+---
+
 # Organizations in Prometeu Cloud
 
-Status: implemented; [ADR 0021](../decisions/0021-cloud-organizations.md).
+Implemented; [ADR 0021](../decisions/0021-cloud-organizations.md).
 
 ## Ownership and access
 

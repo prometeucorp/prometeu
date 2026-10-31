@@ -1,3 +1,10 @@
+---
+type: Operations
+title: "Contributor recipes"
+description: "Recipes for provider, IPC, collaboration and Cloud contract changes."
+status: stable
+---
+
 # Contributor recipes
 
 Start with [setup and validation](development.md) and the

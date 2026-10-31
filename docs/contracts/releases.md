@@ -1,3 +1,10 @@
+---
+type: Contract
+title: "Desktop release and update contract"
+description: "Desktop packages, updater manifest and installation ownership."
+status: stable
+---
+
 # Desktop release and update contract
 
 One version and tag (`v<version>`) identify the macOS, Linux and Windows desktop

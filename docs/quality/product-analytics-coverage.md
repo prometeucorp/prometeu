@@ -1,6 +1,13 @@
+---
+type: Quality
+title: "Product analytics coverage"
+description: "Feature inventory, named interactions, observation boundaries and verification."
+status: stable
+---
+
 # Product analytics coverage
 
-Status: implemented vocabulary and source inventory; live delivery requires a
+Implemented vocabulary and source inventory; live delivery requires a
 release with the key and explicit consent. Read the [tracking contract](../contracts/product-analytics.md)
 for exact meanings and the [generated catalog](../contracts/product-analytics-catalog.json)
 for control identities and closed event fields.

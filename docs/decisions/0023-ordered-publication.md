@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0023 — Serialize snapshot publication and conversation delivery"
+description: "Serialize snapshot publication and conversation delivery."
+status: stable
+---
+
 # ADR 0023 — Serialize snapshot publication and conversation delivery
 
 Date: 2026-09-07
-Status: Accepted
 
 ## Context
 

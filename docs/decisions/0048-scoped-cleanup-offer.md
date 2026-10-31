@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0048 — Offer scoped worktree cleanup after archiving"
+description: "Scoped worktree cleanup after archiving or finishing."
+status: stable
+---
+
 # ADR 0048 — Offer scoped worktree cleanup after archiving
 
 Date: 2026-09-17
-Status: Accepted
 
 ## Context
 

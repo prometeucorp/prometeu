@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Agent accounts"
+description: "Accounts, login, global selection and quota isolation between agents."
+status: stable
+---
+
 # Agent accounts
 
-Status: implemented; decisions in ADRs [0012](../decisions/0012-provider-accounts.md)
+Implemented; decisions in ADRs [0012](../decisions/0012-provider-accounts.md)
 and [0013](../decisions/0013-remove-provider-accounts.md).
 
 ## Selection and conversation

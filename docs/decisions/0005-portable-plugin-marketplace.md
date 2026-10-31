@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0005 — One portable marketplace for Claude and Codex"
+description: "One portable marketplace for Claude and Codex."
+status: stable
+---
+
 # ADR 0005 — One portable marketplace for Claude and Codex
 
 Date: 2026-09-04
-Status: Accepted
 
 ## Context
 

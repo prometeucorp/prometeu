@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0012 — Local accounts and global selection per provider"
+description: "Local accounts and global selection per provider."
+status: stable
+---
+
 # ADR 0012 — Local accounts and global selection per provider
 
 Date: 2026-09-05
-Status: Accepted
 
 Account removal and an empty selection follow
 [ADR 0013](0013-remove-provider-accounts.md). The plugin layer uses this account

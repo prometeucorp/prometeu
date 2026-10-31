@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0058 — Optional context evaluation behind an application-owned port"
+description: "Optional context evaluation behind an application-owned port."
+status: stable
+---
+
 # ADR 0058 — Optional context evaluation behind an application-owned port
 
 Date: 2026-09-24
-Status: Accepted
 
 ## Context
 

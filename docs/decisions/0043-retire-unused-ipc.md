@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0043 — Retire unused desktop IPC commands"
+description: "Retire unused desktop IPC commands."
+status: stable
+---
+
 # ADR 0043 — Retire unused desktop IPC commands
 
 Date: 2026-09-15
-Status: Accepted
 
 The Git index and per-repository decisions in
 [ADR 0008](0008-explicit-git-index.md) use the current IPC described here.

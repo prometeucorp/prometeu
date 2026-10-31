@@ -1,8 +1,14 @@
+---
+type: Decision
+title: "ADR 0057 — Start a conversation from a skill, with a project-declared artifact path"
+description: "Start a conversation from a skill, with a project-declared artifact path."
+status: stable
+---
+
 # ADR 0057 — Start a conversation from a skill, with a project-declared artifact path
 
 Date: 2026-09-24
 
-Status: Accepted
 
 ## Context
 

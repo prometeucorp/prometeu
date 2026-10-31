@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0026 — portable collaboration core and phone access through the relay"
+description: "Portable collaboration core and phone access through the relay."
+status: stable
+---
+
 # ADR 0026 — portable collaboration core and phone access through the relay
 
 Date: 2026-09-08
-Status: Accepted
 
 The desktop and [mobile web app](0028-mobile-web-app.md) consume this core.
 Companion identities use the additive v4 field from

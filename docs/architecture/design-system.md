@@ -1,6 +1,13 @@
+---
+type: Architecture
+title: "Prometeu Design System"
+description: "Tokens, components, gallery and incremental adoption."
+status: stable
+---
+
 # Prometeu Design System
 
-Status: shared executable components; decision in
+Shared executable components; decision in
 [ADR 0017](../decisions/0017-executable-design-system.md). The package contains
 rendering, behavior, styles and Rails adaptation.
 
@@ -180,8 +187,7 @@ scroll before a disclosure reopens, which pure matching tests cannot prove.
 Existing accounts, Cloud catalog, MCP, notifications, projects and organization
 scenarios continue to cover their production paths through the grouped UI.
 
-The [Desktop audit](../quality/desktop-design-system-audit.md) records the
-baseline and pilot outcome. The [composition recipe](desktop-composition.md)
+The [composition recipe](desktop-composition.md)
 shows how agents can use the same presentation with synthetic data; the
 [presentation contract](../contracts/desktop-presentation.md) defines its
 inputs and lifecycle. Other Settings pages retain their existing integration.

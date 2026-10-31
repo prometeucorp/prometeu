@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0004 — Prometeu's independent identity"
+description: "Prometeu's independent identity."
+status: stable
+---
+
 # ADR 0004 — Prometeu's independent identity
 
 Date: 2026-09-04
-Status: Accepted
 
 ## Context
 

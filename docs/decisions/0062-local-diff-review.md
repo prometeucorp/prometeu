@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0062 — local review notes and explicit batch submission"
+description: "Local review notes and explicit batch submission."
+status: stable
+---
+
 # ADR 0062 — local review notes and explicit batch submission
 
 Date: 2026-09-26
-Status: Accepted
 
 ## Context
 

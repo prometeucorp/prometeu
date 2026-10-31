@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0034 — Mobile pairing continuity"
+description: "Mobile pairing continuity."
+status: stable
+---
+
 # ADR 0034 — Mobile pairing continuity
 
 Date: 2026-09-10
-Status: Accepted
 
 Defines renewal for [ADR 0021](0021-cloud-organizations.md) and remote authorship for
 [ADR 0028](0028-mobile-web-app.md) for the personal devices of

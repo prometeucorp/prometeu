@@ -31,7 +31,7 @@
     "test:tools": "cd src-tauri && cargo test -p prometeu-tools --locked",
     "test:profiles": "cd src-tauri && cargo test -p prometeu-profiles --locked",
     "test:process": "cd src-tauri && cargo test -p prometeu-process --locked",
-    "docs:check": "node scripts/check-docs.mjs",
+    "docs:check": "node --test scripts/check-docs.test.mjs && node scripts/check-docs.mjs",
     "architecture:check": "node --test scripts/architecture-dependencies.test.mjs && node scripts/check-architecture.mjs",
     "format:check": "cd src-tauri && cargo fmt --all -- --check",
     "lint:rust": "cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings",

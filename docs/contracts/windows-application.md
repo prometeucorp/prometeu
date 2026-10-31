@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Native Windows application"
+description: "Shared interface over WSL, command coverage, deadlines and paths."
+status: stable
+---
+
 # Native Windows application
 
-Status: integration in progress under
+Integration in progress under
 [ADR 0084](../decisions/0084-shared-windows-desktop.md). The existing Prometeu
 interface runs in a native Windows window; project files, Git, providers and
 supporting terminals run in WSL through the [WSL runtime](wsl-runtime.md). Only
@@ -278,6 +285,38 @@ Explicit disconnect or shutdown suppresses recovery. Runtime replacement follows
 WebView profile and never touches WSL state or projects. Updates require the next
 installer.
 
+## Current limits
+
+The implemented command table above is the support boundary. The following
+limits remain; they are not claims of parity or a schedule for new features.
+
+- Execution has no managed provider login or switching between managed account
+  profiles, other providers, built-in delegation MCP, agent-generated plugins,
+  reusable actions, local telemetry/usage summaries, Cloud synchronization,
+  collaboration or remote control. External Codex account selection remains
+  available as described above.
+- Launcher restrictions remain as documented above. There is no explicit retry
+  operation for an interrupted launch. Initial path indexing, tree mutations,
+  plugin Git and provider startup still perform synchronous work on the runtime
+  request loop; deferred operations do not cover every slow effect.
+- WSL development-server preview routing, native notifications, power handling,
+  provider login links and capture import into private runtime storage are not
+  implemented. Clipboard images use the Windows attachment directory described
+  above, not private WSL copies. MCP browser consent is implemented separately.
+- Errors still include string failures; typed domain errors do not cover every
+  operation. Deferred polling is memory-only, not a durable receipt or a general
+  status lookup for uncertain mutations. Orphan recovery after an uncatchable
+  host kill is not implemented; see [runtime compatibility](wsl-runtime.md#compatibility).
+- Distribution has no Windows signing, automatic updater, ARM64 package or
+  native WSL2 CI journey. The release runtime builds on Ubuntu 22.04; native
+  acceptance targets x86_64 Ubuntu 24.04. A broader runtime support baseline is
+  not established; see [packaging](../operations/release.md#windows-installer).
+- WSLg-root adoption is not implemented. Any future adoption requires stopping
+  the old writer, inventorying every persisted file and documenting rollback;
+  the existing runtime lease does not coordinate with older desktop writers.
+  Native Windows provider execution and catalogs spanning several WSL
+  distributions are outside the current execution model.
+
 ## Verification
 
 - Bridge and transport: `crates/bridge/src/` tests (`bootstrap.rs`,
@@ -293,5 +332,6 @@ installer.
   `scripts/fixtures/windows-install.ps1` covers NSIS installation. See
   [development](../operations/development.md#native-windowswsl-integration).
 
-Not validated: missing-WebView2 installation, a clean Windows VM, public signing,
-automatic updates, managed login, other providers and model image interpretation.
+Not validated: missing-WebView2 installation, a clean Windows VM and model image
+interpretation. Unsupported features are listed under Current limits, rather
+than treated as implemented features awaiting validation.

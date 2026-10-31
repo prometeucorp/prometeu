@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0041 — The members list shows people, not devices"
+description: "The members list shows people, not devices."
+status: stable
+---
+
 # ADR 0041 — The members list shows people, not devices
 
 Date: 2026-09-10
-Status: Accepted
 
 Defines the Settings presentation of the device model in
 [ADR 0027](0027-companion-devices.md).

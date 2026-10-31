@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Embedded Prometeu MCP and delegation"
+description: "Local, opt-in orchestration infrastructure with client-owned agents and optional conversation context."
+status: stable
+---
+
 # Embedded Prometeu MCP and delegation
 
-Status: implemented. Decision: [ADR 0049](../decisions/0049-embedded-delegation-mcp.md).
+Implemented. Decision: [ADR 0049](../decisions/0049-embedded-delegation-mcp.md).
 
 ## Catalog and transport
 

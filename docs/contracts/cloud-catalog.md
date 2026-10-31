@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Personal catalog and local items"
+description: "Plugins, MCP and skills managed in the SaaS, with private items and explicit sharing on the desktop."
+status: stable
+---
+
 # Personal catalog and local items
 
-Status: implemented; decisions in
+Implemented; decisions in
 [ADR 0020](../decisions/0020-personal-catalog-and-local-items.md) and
 [ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
 

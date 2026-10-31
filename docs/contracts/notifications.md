@@ -1,3 +1,10 @@
+---
+type: Contract
+title: "Local notifications"
+description: "Event selection, native delivery and silent defaults."
+status: stable
+---
+
 # Local notifications
 
 Notifications run on the owner's Mac. The relay, mobile shell, transcripts,

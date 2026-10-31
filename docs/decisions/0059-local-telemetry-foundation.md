@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0059 — Local telemetry with canonical events in SQLite"
+description: "Local telemetry with common columns and typed JSON payloads in SQLite."
+status: stable
+---
+
 # ADR 0059 — Local telemetry with canonical events in SQLite
 
 Date: 2026-09-25
-Status: Accepted
 
 ## Context
 

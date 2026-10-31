@@ -1,6 +1,13 @@
+---
+type: Contract
+title: "Plugin hub contract"
+description: "Hub, portable package and per-provider adaptation."
+status: stable
+---
+
 # Plugin hub contract
 
-Status: contract in force; portable adaptation decided by ADR 0005.
+Contract in force; portable adaptation decided by ADR 0005.
 
 This contract defines how a single Prometeu catalog feeds Claude Code and Codex
 sessions. The hub is product state; each CLI's manifests, arguments and caches

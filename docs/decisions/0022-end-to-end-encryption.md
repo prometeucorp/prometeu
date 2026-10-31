@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0022 — end-to-end encryption in collaboration"
+description: "End-to-end encryption in collaboration."
+status: stable
+---
+
 # ADR 0022 — end-to-end encryption in collaboration
 
 Date: 2026-09-07
-Status: Accepted
 
 Defines the encrypted content boundary for
 [ADR 0021](0021-cloud-organizations.md). Publication is a separate operational

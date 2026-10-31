@@ -1,7 +1,13 @@
+---
+type: Decision
+title: "ADR 0053 — Live model catalogs and explicit selection identity"
+description: "Live model catalogs and explicit selection identity."
+status: stable
+---
+
 # ADR 0053 — Live model catalogs and explicit selection identity
 
 Date: 2026-09-19
-Status: Accepted
 
 ## Context
 
