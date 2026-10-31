@@ -35,6 +35,7 @@ Every concept in the bundle starts with four single-line YAML string fields.
 The type follows its area: `Architecture`, `Contract`, `Decision`, `Operations`
 or `Quality`. Use plain strings without YAML punctuation, single-quoted strings
 (double embedded apostrophes), or JSON-compatible double-quoted strings as below.
+Digit-leading text such as `2026 roadmap` is allowed; quote numeric-only titles.
 No timestamps for generation, verification or expiry are required on human-written
 pages. Keep ADR dates in the body and use only the YAML field for lifecycle status.
 Folder `README.md` indexes do not need frontmatter.
@@ -65,6 +66,7 @@ Date: YYYY-MM-DD
 Add a title and one-line description to this index. List drafts under a separate
 Proposals heading; move them to Current decisions only when implemented. Run
 `npm run docs:check` to validate metadata, local links and index coverage.
+Index entries must be rendered links; links inside code samples do not count.
 
 ## Current decisions
 

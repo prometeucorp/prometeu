@@ -38,6 +38,13 @@ test("documentation bundle validation", async (t) => {
       edit(page, 'title: "Sample"', "title: Workspace Git");
       edit(page, 'description: "Example concept."', "description: 'The owner''s Git operations.'");
     }, null],
+    ["accepts digit-leading plain text", ({ edit }) => {
+      edit(page, 'title: "Sample"', "title: 2026 roadmap");
+      edit(page, 'description: "Example concept."', "description: 3D rendering");
+    }, null],
+    ["rejects an unquoted numeric scalar", ({ edit }) => {
+      edit(page, 'title: "Sample"', "title: 2026");
+    }, /title must be a nonempty single-line YAML string/],
     ["accepts quoted punctuation and escaped quotes", ({ edit }) => {
       edit(page, 'title: "Sample"', `title: ${JSON.stringify('Git: the "owner" #1')}`);
     }, null],
@@ -63,6 +70,19 @@ test("documentation bundle validation", async (t) => {
     ["does not count image links as index entries", ({ edit }) => {
       edit("docs/contracts/README.md", "[Sample]", "![Sample]");
     }, /does not index docs\/contracts\/page.md/],
+    ...["```md\n[Sample](page.md)\n```", "~~~md\n[Sample](page.md)\n~~~",
+      "````md\n```\n[Sample](page.md)\n````", "> ```md\n> [Sample](page.md)\n> ```",
+      "```md\n[Sample](page.md)", "`[Sample](page.md)`"].map((sample, i) => [
+      `does not count code sample ${i + 1} as a concept index entry`,
+      ({ write }) => write("docs/contracts/README.md", `# Contracts\n\n${sample}\n`),
+      /does not index docs\/contracts\/page.md/,
+    ]),
+    ["does not count a fenced link as an area index entry", ({ edit }) => {
+      edit("docs/README.md", "- [contracts](contracts/README.md)", "```md\n[contracts](contracts/README.md)\n```");
+    }, /does not index docs\/contracts\/README.md/],
+    ["counts navigation after a closed fence", ({ write }) => {
+      write("docs/contracts/README.md", "# Contracts\n\n```md\n[Sample](page.md)\n```\n\n[Sample](page.md)\n");
+    }, null],
     ["rejects missing frontmatter", ({ write }) => write(page, "# Sample\n"), /missing YAML frontmatter/],
     ["rejects a missing field", ({ edit }) => {
       edit(page, 'description: "Example concept."\n', "");

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { marked } from "marked";
 
 const root = process.cwd();
 const errors = [];
@@ -32,7 +33,8 @@ function checkMetadata(file) {
     try {
       if (raw.startsWith('"')) value = JSON.parse(raw);
       else if (/^'(?:[^']|'')*'$/.test(raw)) value = raw.slice(1, -1).replaceAll("''", "'");
-      else if (/^\p{L}/u.test(raw) && !/:(?:\s|$)|\s#/.test(raw)
+      else if ((/^\p{L}/u.test(raw) || /^\d/.test(raw) && Number.isNaN(Number(raw)))
+        && !/:(?:\s|$)|\s#/.test(raw)
         && !/^(true|false|null|yes|no|on|off)$/i.test(raw)) value = raw;
     } catch {
       // Invalid quoted values are reported by the same string check below.
@@ -78,11 +80,16 @@ for (const file of files) {
   const text = readFileSync(file, "utf8");
   const targets = new Set();
   links.set(file, targets);
+  const navigation = new Set();
+  marked.walkTokens(marked.lexer(text), (token) => {
+    if (token.type === "link") navigation.add(token.href);
+  });
   for (const match of text.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)) {
     let target = match[1].trim();
     if (target.startsWith("<") && target.endsWith(">")) target = target.slice(1, -1);
     if (!target || target.startsWith("#") || /^[a-z][a-z+.-]*:/i.test(target)) continue;
 
+    const rendered = navigation.has(target);
     target = target.split("#", 1)[0];
     try {
       target = decodeURIComponent(target);
@@ -92,7 +99,7 @@ for (const file of files) {
     }
 
     const path = resolve(dirname(file), target);
-    if (!match[0].startsWith("!")) targets.add(path);
+    if (rendered && !match[0].startsWith("!")) targets.add(path);
     if (!existsSync(path)) {
       const line = text.slice(0, match.index).split("\n").length;
       errors.push(`${relative(root, file)}:${line}: target does not exist: ${match[1]}`);
