@@ -260,7 +260,7 @@
       "usageCost": false,
       "usageTokens": false,
       "userQuestions": true,
-      "workspaceMcpSelection": false,
+      "workspaceMcpSelection": true,
       "workspacePluginSelection": false
     },
     "gemini": {
