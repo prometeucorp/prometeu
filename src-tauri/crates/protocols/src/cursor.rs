@@ -21,6 +21,7 @@ pub struct Start {
     pub plan: bool,
     pub bypass: bool,
     pub instructions: String,
+    pub mcp_servers: Vec<Value>,
 }
 
 pub fn connect(
@@ -369,7 +370,7 @@ impl Link {
                 )?;
             }
             Sent::Auth => {
-                let mut params = json!({"cwd":self.start.cwd,"mcpServers":[]});
+                let mut params = json!({"cwd":self.start.cwd,"mcpServers":self.start.mcp_servers});
                 let method = if let Some(session) = &self.start.resume {
                     params["sessionId"] = json!(session);
                     "session/load"

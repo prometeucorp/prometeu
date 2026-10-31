@@ -90,7 +90,7 @@ fn codex(
 fn cursor(
     request: &LaunchRequest,
     profiles: &dyn prometeu_profiles::ProfileBackend,
-    _tools: &dyn prometeu_tools::StartupTools,
+    tools: &dyn prometeu_tools::StartupTools,
 ) -> Result<PreparedAgent, String> {
     crate::cursor::prepare(
         &request.session,
@@ -98,6 +98,7 @@ fn cursor(
         previous(&request.mode),
         &request.settings,
         profiles,
+        tools,
     )
 }
 fn antigravity(
@@ -228,7 +229,7 @@ mod tests {
     }
 
     fn injected_tools_preserve_startup_artifacts_and_failure_order(base: &LaunchRequest) {
-        use prometeu_tools::{mcp::CodexMcp, ClaudeTools, CodexPlugins, StartupTools};
+        use prometeu_tools::{mcp::AcpMcp, mcp::CodexMcp, ClaudeTools, CodexPlugins, StartupTools};
         use std::sync::Mutex;
         type Calls = Arc<Mutex<Vec<&'static str>>>;
         struct Profiles(Calls);
@@ -306,6 +307,18 @@ mod tests {
                     "{server={url=\"https://example.test\"}}".into(),
                     vec![("CLAUDE_EXPLICIT_SECRET".into(), "private-token".into())],
                 )))
+            }
+            fn cursor_mcp(
+                &self,
+                session: &str,
+                chosen: Option<&[String]>,
+            ) -> Result<Option<AcpMcp>, String> {
+                assert_eq!(session, "preparation-test");
+                assert_eq!(chosen.unwrap(), ["server"]);
+                self.record("cursor-mcp")?;
+                Ok(Some(vec![
+                    serde_json::json!({"name":"server","command":"npx","args":[],"env":[]}),
+                ]))
             }
         }
         for (provider, fail, expected) in [
@@ -401,6 +414,58 @@ mod tests {
                         _ => unreachable!(),
                     }
                 }
+            }
+        }
+        crate::accounts::change(|data| {
+            if !data
+                .accounts
+                .iter()
+                .any(|account| account.provider == ProviderId::Cursor)
+            {
+                data.accounts.push(crate::accounts::Account {
+                    id: "cursor".into(),
+                    provider: ProviderId::Cursor,
+                    revision: 0,
+                    auth_method: Some("external".into()),
+                    key_suffix: None,
+                    identity: crate::accounts::Identity::default(),
+                });
+            }
+            data.select("cursor")
+        })
+        .unwrap();
+        for (fail, plugins, expected) in [
+            (None, None, vec!["cursor-mcp", "resolve", "apply"]),
+            (Some("cursor-mcp"), None, vec!["cursor-mcp"]),
+            (None, Some(vec!["plugin".into()]), vec![]),
+        ] {
+            let calls = Calls::default();
+            let native = NativeProviders {
+                profiles: Arc::new(Profiles(calls.clone())),
+                tools: Arc::new(Tools {
+                    calls: calls.clone(),
+                    fail,
+                }),
+            };
+            let mut request = LaunchRequest {
+                session: base.session.clone(),
+                workspace: base.workspace.clone(),
+                worktree: base.worktree.clone(),
+                settings: base.settings.clone(),
+                mode: StartMode::Fresh,
+            };
+            request.settings.agent = ProviderId::Cursor;
+            request.settings.mcp = Some(vec!["server".into()]);
+            request.settings.plugins = plugins;
+            request.settings.skills = None;
+            let result = native.prepare(&request);
+            assert_eq!(*calls.lock().unwrap(), expected);
+            if fail.is_some() {
+                assert_eq!(result.err(), Some("refused:cursor-mcp".into()));
+            } else if expected.is_empty() {
+                assert_eq!(result.err(), Some(crate::i18n::t("err.cursor.unsupported")));
+            } else {
+                assert_eq!(result.unwrap().command.get_program(), "cursor-agent");
             }
         }
     }

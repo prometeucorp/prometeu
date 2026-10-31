@@ -392,8 +392,8 @@ the runtime. Windows coverage is in the
 
 The additive `cursor` provider is discovered through `cursor-agent acp --help`.
 Its descriptor exposes external account attachment, initial plan mode, resume,
-approvals, questions and path mentions. Model discovery uses exact ACP model IDs
-from an unprompted native session, with the existing query deadline and output
-limit. Per-turn usage/context controls and Prometeu-managed tool selections remain
-unavailable. Account quotas use a separate dashboard probe and the existing
-usage scheduler. See the [Cursor contract](cursor.md).
+approvals, questions, path mentions and hub MCP. Model discovery uses exact ACP
+model IDs from an unprompted native session, with the existing query deadline and
+output limit. Per-turn usage/context controls and Prometeu-managed plugins and
+skills remain unavailable. Account quotas use a separate dashboard probe and the
+existing usage scheduler. See the [Cursor contract](cursor.md).

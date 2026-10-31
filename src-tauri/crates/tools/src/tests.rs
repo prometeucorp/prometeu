@@ -91,6 +91,7 @@ fn defaults_have_no_effects_but_empty_selection_overrides_the_cli() {
         .unwrap()
         .is_none());
     assert!(tools.codex_config("tab", None).unwrap().is_none());
+    assert!(tools.cursor_config("tab", None).unwrap().is_none());
     assert!(host.calls.lock().unwrap().is_empty());
     assert_eq!(
         tools
@@ -102,9 +103,15 @@ fn defaults_have_no_effects_but_empty_selection_overrides_the_cli() {
         tools.codex_config("tab", Some(&[])).unwrap(),
         Some(("{}".into(), vec![]))
     );
+    assert_eq!(tools.cursor_config("tab", Some(&[])).unwrap(), Some(vec![]));
     assert_eq!(
         *host.calls.lock().unwrap(),
-        ["claude:tab:/work:[]", "file:tab", "codex:tab:[]"]
+        [
+            "claude:tab:/work:[]",
+            "file:tab",
+            "codex:tab:[]",
+            "codex:tab:[]"
+        ]
     );
     assert_eq!(
         serde_json::from_str::<Value>(&host.writes.lock().unwrap()[0]).unwrap(),
@@ -124,10 +131,14 @@ fn missing_selection_fails_before_writing_or_refreshing_credentials() {
     );
     assert_eq!(
         host.materializer().codex_config("tab", Some(&chosen)),
+        Err(expected.clone())
+    );
+    assert_eq!(
+        host.materializer().cursor_config("tab", Some(&chosen)),
         Err(expected)
     );
     assert!(host.writes.lock().unwrap().is_empty());
-    assert_eq!(host.calls.lock().unwrap().len(), 2);
+    assert_eq!(host.calls.lock().unwrap().len(), 3);
 }
 
 #[test]
@@ -256,4 +267,70 @@ fn private_write_errors_propagate_without_reencoding() {
         Err(error)
     );
     assert!(host.writes.lock().unwrap().is_empty());
+}
+
+#[test]
+fn cursor_encodes_hub_transports_through_acp_without_a_type_switch() {
+    let host = Host {
+        servers: vec![
+            server(
+                "notes",
+                json!({"command":"npx","args":["notes"],"env":{"TOKEN":"stdio-secret"}}),
+            ),
+            server(
+                "api.test",
+                json!({"url":"https://example.test/mcp","headers":{"authorization":"old-secret","X-Key":"header-secret"}}),
+            ),
+            server(
+                "events",
+                json!({"type":"sse","url":"https://example.test/sse"}),
+            ),
+            server(
+                "linear",
+                json!({"type":"claudeai-proxy","url":"https://mcp.linear.app/mcp","id":"mcpsrv_1"}),
+            ),
+        ],
+        token: Some("oauth-secret".into()),
+        ..Host::default()
+    };
+    let servers = host
+        .materializer()
+        .cursor_config(
+            "tab",
+            Some(&["notes".into(), "api.test".into(), "events".into()]),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        Value::Array(servers),
+        json!([
+            {
+                "name": "notes",
+                "command": "npx",
+                "args": ["notes"],
+                "env": [{"name": "TOKEN", "value": "stdio-secret"}]
+            },
+            {
+                "type": "http",
+                "name": "api.test",
+                "url": "https://example.test/mcp",
+                "headers": [
+                    {"name": "X-Key", "value": "header-secret"},
+                    {"name": "Authorization", "value": "Bearer oauth-secret"}
+                ]
+            },
+            {
+                "type": "sse",
+                "name": "events",
+                "url": "https://example.test/sse",
+                "headers": [{"name": "Authorization", "value": "Bearer oauth-secret"}]
+            }
+        ])
+    );
+    assert_eq!(
+        host.materializer()
+            .cursor_config("tab", Some(&["linear".into()]))
+            .unwrap_err(),
+        prometeu_core::error::with_args("err.mcp.unsupported", &[("id", "linear".into())])
+    );
 }

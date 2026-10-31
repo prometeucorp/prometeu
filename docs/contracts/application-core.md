@@ -155,12 +155,14 @@ a multi-file transaction.
 
 `tool_resolution` owns global → approved project → workspace resolution,
 provenance and exact-hash project trust. `StartupTools` supplies Claude
-configuration and plugin arguments and Codex plugin and MCP artifacts; Codex
-profile preparation precedes plugin materialization, and its environment precedes
-MCP. `None` selections invoke no source; explicit empty lists produce strict
-empty configuration; missing selected MCP IDs fail. Codex remote MCP secrets use
-child environment variables and stdio secrets private environment files, never
-command arguments. `NativePackages` keeps derived homes, revision 2 cache
+configuration and plugin arguments, Codex plugin and MCP artifacts, and Cursor
+ACP `mcpServers`; Codex profile preparation precedes plugin materialization, and
+its environment precedes MCP. Cursor materializes MCP before resolving the
+external profile. `None` selections invoke no source; explicit empty lists
+produce strict empty configuration; missing selected MCP IDs fail. Codex remote
+MCP secrets use child environment variables and stdio secrets private environment
+files, never command arguments. Cursor remote headers and stdio environment
+travel in the ACP session payload. `NativePackages` keeps derived homes, revision 2 cache
 versions, hashes, manifests and hook trust; installation failure attempts removal
 of that canonical ID and propagates the original error. `PluginLibrary` and
 `SkillLibrary` share local registration, Git import/update and removal.

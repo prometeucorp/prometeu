@@ -60,7 +60,6 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
         ProviderId::Codex => common,
         ProviderId::Cursor => AgentCapabilities {
             initial_plan_mode: true,
-            workspace_mcp_selection: false,
             workspace_plugin_selection: false,
             compact: false,
             context_report: false,
@@ -254,6 +253,9 @@ mod tests {
         assert!(codex.capabilities.workspace_plugin_selection);
         assert!(codex.capabilities.workspace_mcp_selection);
         assert!(codex.capabilities.resume);
+        let cursor = descriptor(ProviderId::Cursor, true, vec![]);
+        assert!(cursor.capabilities.workspace_mcp_selection);
+        assert!(!cursor.capabilities.workspace_plugin_selection);
 
         let json = serde_json::to_value(codex).unwrap();
         assert_eq!(json["id"], "codex");

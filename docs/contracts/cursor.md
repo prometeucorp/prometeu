@@ -23,7 +23,8 @@ The persisted provider and external account ID are both `cursor`.
 
 The child runs `cursor-agent acp` in the workspace directory. JSON-RPC 2.0 frames
 are newline-delimited. Startup sends `initialize` (protocol 1), `authenticate`
-(`cursor_login`), `session/new` or `session/load`, optional `session/set_model`,
+(`cursor_login`), `session/new` or `session/load` with the complete client
+`mcpServers` set, optional `session/set_model`,
 and `session/set_mode`. Resume preserves the mode reported by native history;
 the initial plan flag applies to new sessions. The first prompt waits until startup finishes. Each
 `session/prompt` contains text; attachments remain the common path-mention
@@ -71,15 +72,20 @@ controls. Unknown client methods receive `-32601` rather than remaining pending.
 
 ## Capability limits
 
-Streaming, tools, resume, stop, initial plan mode, approvals, questions and local
-path mentions are available. Hub MCP/plugins/skills, managed multiple accounts,
-per-turn token/cost reporting, context reports and explicit compaction are not.
-Absent workspace selections resolve to empty hub selections for unsupported axes,
-so global and trusted-project tools cannot block startup or resume. Explicit
-nonempty workspace selections still fail rather than being silently dropped.
-Cursor may load its own project/user rules, skills, hooks and MCP configuration; Prometeu
-makes no isolated-configuration claim. Team-level MCP support is limited by
-Cursor itself. Windows/WSL registration is outside this integration.
+Streaming, tools, resume, stop, initial plan mode, approvals, questions, local
+path mentions and hub MCP are available. Plugins, skills, managed multiple
+accounts, per-turn token/cost reporting, context reports and explicit compaction
+are not. Absent plugin/skill workspace selections resolve to empty hub
+selections, so global and trusted-project packages cannot block startup or
+resume. Explicit nonempty plugin or skill selections still fail rather than being
+silently dropped. Hub MCP follows the same layered resolution as Codex: `None`
+sends no client servers; a declared axis materializes the resolved set through
+ACP `mcpServers` on both `session/new` and `session/load`. Stdio, HTTP and SSE
+hub entries encode through the ACP transport table; Claude-only connectors fail
+startup. Cursor may still load its own project/user rules, skills, hooks and MCP
+configuration; Prometeu makes no isolated-configuration claim. Team-level MCP
+support is limited by Cursor itself. Windows/WSL registration is outside this
+integration.
 
 ## Account quotas
 
@@ -135,13 +141,14 @@ The person can send another prompt or resume the native session.
 
 ## Evidence
 
-`src-tauri/crates/protocols/src/cursor/tests.rs` covers translation and protocol
-failures using a [sanitized recording](../../src-tauri/crates/protocols/src/cursor/fixtures/README.md).
-The generated V1 fixture is consumed by `src/conversation.test.ts`. Account
-compatibility lives in `src-tauri/crates/core/src/accounts/tests.rs`; model
-selection persistence lives in `src/model-choice.test.ts`. Existing account and
-launcher browser journeys cover reused controls; no additional provider matrix
-of browser tests is introduced.
+`src-tauri/crates/protocols/src/cursor/tests.rs` covers translation, the MCP
+session payload and protocol failures using a [sanitized recording](../../src-tauri/crates/protocols/src/cursor/fixtures/README.md).
+Hub encoding lives in `crates/tools/src/tests.rs`. The generated V1 fixture is
+consumed by `src/conversation.test.ts`. Account compatibility lives in
+`src-tauri/crates/core/src/accounts/tests.rs`; model selection persistence lives
+in `src/model-choice.test.ts`. Existing account and launcher browser journeys
+cover reused controls; no additional provider matrix of browser tests is
+introduced.
 
 `src-tauri/src/cursor/quota/tests.rs` covers quota regimes, missing/malformed
 data, expiry, credential validation and unchanged window serialization. Run its

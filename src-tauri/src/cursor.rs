@@ -22,13 +22,17 @@ pub fn prepare(
     resume: Option<String>,
     launch: &Launch,
     profiles: &dyn prometeu_profiles::ProfileBackend,
+    tools: &dyn prometeu_tools::StartupTools,
 ) -> Result<crate::agent_launch::PreparedAgent, String> {
-    if [&launch.mcp, &launch.plugins, &launch.skills]
+    if [&launch.plugins, &launch.skills]
         .iter()
         .any(|selection| selection.as_ref().is_some_and(|ids| !ids.is_empty()))
     {
         return Err(i18n::t("err.cursor.unsupported"));
     }
+    let mcp_servers = tools
+        .cursor_mcp(id, launch.mcp.as_deref())?
+        .unwrap_or_default();
     let profile = profiles.resolve(&accounts::selected(crate::state::ProviderId::Cursor)?)?;
     let mut command = Command::new("cursor-agent");
     command.arg("acp").current_dir(cwd);
@@ -40,6 +44,7 @@ pub fn prepare(
         plan: launch.plan,
         bypass: launch.permission != Some(prometeu_core::actions::Permission::Ask),
         instructions: launch.instructions.clone(),
+        mcp_servers,
     };
     let resumed = start.resume.is_some();
     let log = paths::chat_log(id);
@@ -155,6 +160,7 @@ mod tests {
             plan,
             bypass: false,
             instructions: String::new(),
+            mcp_servers: vec![],
         };
         let plan = exercise(
             settings(None, true),
