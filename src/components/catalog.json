@@ -1,5 +1,13 @@
 [
   {
+    "id": "usage-history",
+    "name": "usageHistoryView",
+    "source": "src/components/usage-history.ts",
+    "exports": ["usageHistoryView"],
+    "consumers": ["src/telemetry-settings.ts"],
+    "states": ["ready", "empty", "partial"]
+  },
+  {
     "id": "context-gauge",
     "name": "contextGauge",
     "source": "src/components/chat/usage.ts",

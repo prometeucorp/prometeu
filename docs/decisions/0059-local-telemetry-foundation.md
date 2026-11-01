@@ -19,7 +19,8 @@ content-free history with canonical usage semantics.
 
 The first delivery needs capture, queries by period and workspace, simple
 aggregates, export and deletion. Cloud synchronization and a full Insights page
-are outside this delivery.
+were outside that first delivery. The local Usage screen now builds on those
+queries; Cloud synchronization remains outside the implemented decision.
 
 ## Options considered
 
@@ -125,6 +126,14 @@ not introduce a sync worker, cloud schema, organization access or a second
 taxonomy. A later Cloud design must address consent, deletion and recipients.
 
 ## Implementation and evidence
+
+The Usage screen extends `telemetry_insights` with per-conversation coverage
+instead of transferring event history to the webview. Computing the additional
+counts during the existing cohort query preserves final-or-latest semantics and
+avoids a second full-history read. Old stored events need no migration; older
+query responses remain usable with unknown coverage. Settings keeps ownership
+of filters, refresh, export and erasure, while the isolated presentation is also
+used by the component gallery. No new provider capture or pricing is implied.
 
 - [Store and types](../../src-tauri/src/telemetry.rs),
   [capture](../../src-tauri/src/telemetry/capture.rs) and

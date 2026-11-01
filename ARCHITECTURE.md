@@ -208,6 +208,12 @@ usage drives reply footers; a local hashed assistant association restores them
 for native transcript replay. App naming and plugin creation have separate
 source records. Context meters offer explicit conversation actions.
 
+Settings / Analytics composes the Usage screen from native
+insights. `telemetry-settings.ts` owns queries, live refresh and lifecycle;
+`usage-history.ts` maps data and `components/usage-history.ts` owns the isolated
+presentation. Conversation coverage is computed in the existing native query;
+the screen never reads or reconstructs transcript history.
+
 A per-process capture gate preserves input/output order while commits run outside
 board, transcript and chat locks. Missing ends and ambiguous streaming-input
 attribution remain incomplete; telemetry failure never rejects agent commands.

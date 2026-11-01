@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uso · Prometeu</title>
+  <!-- Local HTML proposal. Shared styles and controls are embedded from the repository below. -->
+  <style id="shared-styles">/* Shared Prometeu design tokens. */
+:root {
+  color-scheme: dark;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --control-height: 32px;
+  --button-height: 28px;
+  --label-size: 12px;
+  --hint-size: 11.5px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 18px;
+  --text-title: 32px;
+  --shadow: 0 16px 48px rgb(0 0 0 / .18);
+  --bg: #141110;
+  --bg-side: #1b1917;
+  --bg-raised: #201e1c;
+  --bg-raised-2: #2b2826;
+  --bg-raised-3: #373533;
+  --bg-btn: #52504e;
+  --line: #2b2826;
+  --line-side: #32302f;
+  --line-raised: #373533;
+  --line-ghost: #434140;
+  --fg: #eae8e6;
+  --fg-2: #a4a09d;
+  --fg-3: #756f6c;
+  --tab-line: #d8c2b3;
+  /* Warm brown distinguishes user messages from neutral surfaces. */
+  --bubble: #281e1d;
+  --pri: #eae8e6;
+  --pri-fg: #141110;
+  --accent: #ff6b3d;
+  --run: #4fb8b0;   --run-bg: #16302e;
+  --wait: #e0a030;  --wait-bg: #33270f;
+  --done: #5fbf73;  --done-bg: #16301d;
+  --err: #e06c6c;   --err-bg: #341a1a;
+  /* Subtle diff backgrounds preserve syntax-highlighting contrast. */
+  --add-bg: #18291d;
+  --del-bg: #2c1a1a;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+}
+
+@import url("./tokens.css");
+
+/* Opt-in components avoid global button, form or layout rules. */
+.ui-comfortable { --control-height: 44px; --button-height: 44px; --label-size: 13px; --hint-size: 12px; }
+.ui-comfortable .mrow { min-height: var(--control-height); }
+.ui-button {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2); min-height: var(--button-height); height: auto; padding: 0 var(--space-4);
+  border: 1px solid var(--line-ghost); border-radius: var(--r); background: none; color: var(--fg);
+  font: inherit; font-weight: 500; line-height: 1.4; text-decoration: none; cursor: pointer;
+}
+.ui-button:hover { background: var(--bg-raised); }
+.ui-button.pri { background: var(--pri); border-color: transparent; color: var(--pri-fg); }
+.ui-button.pri:hover { background: #fff; }
+.ui-button.ghost { border-color: transparent; color: var(--fg-2); }
+.ui-button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
+.ui-button.danger { border-color: var(--err); color: var(--err); }
+.ui-button.danger:hover { background: var(--err-bg); }
+.ui-button[aria-disabled="true"] { opacity: .45; cursor: wait; }
+.ui-button:focus-visible, .ui-input:focus-visible, .ui-select:focus-visible,
+.ui-check > input[type="checkbox"]:focus-visible, .ui-link:focus-visible, .ui-nav-link:focus-visible {
+  outline: 2px solid var(--tab-line); outline-offset: 3px;
+}
+.ui-link { color: var(--fg); text-underline-offset: 4px; }
+.ui-link:hover { color: var(--accent); }
+.ui-card { padding: var(--space-6); border: 1px solid var(--line-raised); border-radius: var(--r-xl); background: var(--bg-side); }
+.ui-stack { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+.ui-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.ui-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px var(--space-2); border: 1px solid var(--line-raised); border-radius: var(--r); color: var(--fg-2); font-size: var(--text-sm); line-height: 1.5; }
+.ui-badge.success { color: var(--done); background: var(--done-bg); border-color: transparent; }
+.ui-notice { margin: 0; padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); color: var(--fg-2); background: var(--bg-raised); line-height: 1.6; overflow-wrap: anywhere; }
+.ui-notice.success { color: var(--done); background: var(--done-bg); }
+.ui-notice.error { color: var(--err); background: var(--err-bg); }
+.ui-notice.warning { color: var(--wait); background: var(--wait-bg); }
+.ui-eyebrow { color: var(--accent); font: 500 var(--text-sm)/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.ui-nav-link { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); border-radius: var(--r); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); line-height: 20px; }
+.ui-nav-link:hover, .ui-nav-link[aria-current] { color: var(--fg); background: var(--bg-raised); }
+.ui-nav-link[aria-current] { font-weight: 500; box-shadow: inset 2px 0 var(--tab-line); }
+/* Avatar images fall back to person or organization glyphs. */
+.ui-avatar { --avatar: 24px; flex: none; display: inline-grid; place-items: center; width: var(--avatar); height: var(--avatar); border-radius: 50%; overflow: hidden; background: var(--bg-raised-2); color: var(--fg-2); vertical-align: middle; }
+.ui-avatar.md { --avatar: 32px; }
+.ui-avatar.lg { --avatar: 40px; }
+.ui-avatar.org { border-radius: var(--r); background: color-mix(in srgb, var(--accent) 18%, var(--bg-raised)); color: var(--accent); }
+.ui-avatar > img { width: 100%; height: 100%; object-fit: cover; }
+.ui-avatar > .ic { width: 58%; height: 58%; }
+.ui-button > .ui-avatar { margin-left: calc(var(--space-2) * -1); }
+/* Underlined tabs share the desktop selection marker. */
+.ui-tabs { display: flex; gap: var(--space-1); overflow-x: auto; border-bottom: 1px solid var(--line-raised); }
+.ui-tabs > a { flex: none; padding: var(--space-2) var(--space-3); color: var(--fg-2); text-decoration: none; font-size: var(--text-base); line-height: 20px; }
+.ui-tabs > a:hover { color: var(--fg); }
+.ui-tabs > a[aria-current] { color: var(--fg); font-weight: 500; box-shadow: inset 0 -2px var(--tab-line); }
+.ui-tabs > a:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+
+/* Fields, selectors and forms share control dimensions. */
+.ui-button:disabled, .ui-select:disabled { opacity: .45; cursor: not-allowed; }
+.ui-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ui-label { font-size: var(--label-size); color: var(--fg-2); }
+.ui-hint { margin: 0; font-size: var(--hint-size); color: var(--fg-2); line-height: 1.5; }
+.ui-error, .ui-hint.ui-error { color: var(--err); }
+.ui-error:empty { display: none; }
+.ui-input, .ui-select { min-height: var(--control-height); padding: 7px 10px; border: 1px solid var(--line-raised); border-radius: var(--r); background: var(--bg); color: var(--fg); font: inherit; }
+.ui-input { box-sizing: border-box; width: 100%; min-width: 0; user-select: text; }
+.ui-input::placeholder { color: var(--fg-3); }
+textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
+.ui-input:disabled { opacity: .45; cursor: not-allowed; }
+.ui-input[aria-invalid="true"], .ui-select[aria-invalid="true"] { border-color: var(--err); }
+.ui-select { box-sizing: border-box; display: inline-flex; align-items: center; width: 100%; height: auto; text-align: left; justify-content: space-between; gap: var(--space-2); cursor: pointer; }
+.ui-select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-select-field { position: relative; }
+.ui-native-select { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; padding: 0; border: 0; }
+.ui-select-menu { max-height: 40vh; max-width: calc(100vw - 16px); overflow-y: auto; }
+.ui-select-menu .mrow { flex: none; }
+.ui-check { display: flex; align-items: flex-start; gap: var(--space-2); font-size: var(--label-size); color: var(--fg-2); line-height: 20px; }
+.ui-check > input[type="checkbox"] { appearance: none; width: 16px; height: 16px; margin: 2px 0 0; padding: 0; flex: none; border: 1px solid var(--line-ghost); border-radius: 4px; background: var(--bg); display: grid; place-content: center; }
+.ui-check > input[type="checkbox"]:checked { background: var(--pri); border-color: var(--pri); }
+.ui-check > input[type="checkbox"]:checked::after { content: ""; width: 7px; height: 4px; border: solid var(--pri-fg); border-width: 0 0 2px 2px; transform: rotate(-45deg) translateY(-1px); }
+.ui-check > input[type="checkbox"]:disabled { opacity: .45; }
+.ui-check > span { min-width: 0; overflow-wrap: anywhere; }
+.ui-switch > input[type="checkbox"] { width: 34px; height: 20px; border-radius: 20px; display: block; position: relative; background: var(--bg-raised-3); cursor: pointer; }
+.ui-switch > input[type="checkbox"]::after { content: ""; display: block; position: absolute; width: 14px; height: 14px; top: 2px; left: 2px; border: 0; border-radius: 50%; background: var(--fg); transform: none; }
+.ui-switch > input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
+.ui-switch > input[type="checkbox"]:checked::after { width: 14px; height: 14px; border: 0; background: var(--fg); transform: translateX(14px); }
+.ui-switch > input[type="checkbox"]:disabled { cursor: default; }
+.ui-radio > input[type="radio"] { width: 14px; height: 14px; padding: 0; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.ui-radio > input:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 3px; }
+.ui-disclosure { border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--space-3); }
+.ui-disclosure summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+.ui-disclosure summary:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 4px; }
+.ui-disclosure summary::marker { color: var(--fg-3); }
+.ui-disclosure[open] > summary { margin-bottom: var(--space-4); }
+.ui-disclosure > .ui-field { margin-top: var(--space-3); }
+
+/* Dialogs and menus work independently of application CSS. */
+.sheet.ui-dialog { box-sizing: border-box; width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; margin: auto; color: var(--fg); background: var(--bg-raised); border: 1px solid var(--line-raised); border-radius: var(--r-xl); box-shadow: var(--shadow); font: inherit; }
+.sheet.ui-dialog[open] { display: flex; flex-direction: column; }
+.ui-dialog .sheettop { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); flex: none; height: auto; min-height: 44px; padding: var(--space-6); border-bottom: 1px solid var(--line-raised); }
+.ui-dialog::backdrop { background: rgb(0 0 0 / .5); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.ui-dialog > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.ui-dialog .sheettop b { font-size: 18px; font-weight: 600; }
+.ui-dialog .sheettop b:focus { outline: none; }
+.ui-form-body { display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-6); min-height: 0; overflow-y: auto; }
+.ui-form-body > .ui-button { align-self: flex-start; }
+.ui-dialog .ui-button { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; }
+.ui-dialog .ui-form-footer { display: flex; align-items: center; flex-wrap: wrap; flex: none; border-top: 1px solid var(--line-raised); padding: var(--space-4) var(--space-6); gap: var(--space-3); justify-content: flex-end; }
+.ui-dialog .ui-form-footer .ui-error { order: -1; flex-basis: 100%; min-width: 0; overflow-wrap: anywhere; }
+.menu, .upop {
+  position: fixed; z-index: 30; min-width: 200px; padding: 5px;
+  background: var(--bg-raised-2); border: 1px solid var(--line-ghost);
+  border-radius: var(--r-lg); box-shadow: 0 20px 48px -12px rgb(0 0 0 / 0.85);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.menu hr { border: none; border-top: 1px solid var(--line-raised); margin: 4px 6px; width: auto; }
+.mrow {
+  border: 1px solid transparent; font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; height: 30px; width: 100%;
+  padding: 0 8px; border-radius: var(--r); background: none; color: var(--fg);
+  font-weight: 400; justify-content: flex-start;
+}
+.mrow:hover, .mrow.sel { background: var(--bg-raised-3); }
+.mrow .mg { display: flex; color: var(--fg-2); width: 16px; flex: none; }
+.mrow .ml { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.mrow .mh { font-size: 12px; color: var(--fg-3); }
+.mrow .mbadge { flex: none; padding: 1px 5px; border-radius: 4px; font-size: 10px; line-height: 16px; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.mrow .mc { display: flex; color: var(--tab-line); width: 14px; flex: none; }
+.mrow .ic { flex: none; }
+/* Disabled items remain visible with an explanation in the shortcut position. */
+.mrow.off, .mrow.off:hover { color: var(--fg-3); background: none; cursor: default; }
+.mrow.off .mg { opacity: 0.5; }
+.mrow.danger { color: var(--err); }
+.mrow.danger:hover { background: var(--err-bg); }
+.mrow.danger .mg { color: var(--err); }
+.menu .ic, .ui-select .ic { flex: none; display: block; }
+.menu:focus { outline: none; }
+.mrow:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.ui-password { display: flex; align-items: stretch; gap: var(--space-2); }
+.ui-password > .ui-input { flex: 1; width: 0; }
+.ui-password > .ui-button { flex: none; }
+.ui-menu-fallback summary { cursor: pointer; }
+.ui-menu-fallback > div { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); }
+.ui-menu-fallback hr { width: 100%; margin: 0; border: none; border-top: 1px solid var(--line-raised); }
+.ui-menu-fallback form { display: contents; }
+.ui-menu-fallback form > .ui-button { justify-content: flex-start; padding: 0; min-height: 0; border: none; font-weight: 400; }
+
+/* Feedback stays in the browser top layer, including above application dialogs. */
+.ui-feedback { z-index: 2147483647; position: fixed; inset: auto max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) auto; margin: 0; padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; overflow: visible; max-width: calc(100vw - 32px); }
+.ui-feedback-panel { width: 360px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); overflow: auto; margin-bottom: var(--space-3); padding: var(--space-4); border: 1px solid var(--line-raised); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: 0 16px 48px rgb(0 0 0 / .4); box-sizing: border-box; }
+.ui-feedback-panel.ui-feedback-dropping { border-color: var(--accent); }
+.ui-feedback-panel[hidden], .ui-feedback [hidden] { display: none; }
+.ui-feedback-panel, .ui-feedback-panel form, .ui-feedback-notice, .ui-feedback-public, .ui-feedback-attachments { display: flex; flex-direction: column; gap: var(--space-3); }
+.ui-feedback-heading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.ui-feedback .ui-feedback-trigger { display: flex; margin-left: auto; border-radius: var(--r-lg); }
+.ui-feedback img { max-width: 100%; max-height: 160px; object-fit: contain; }
+.ui-feedback p { margin: 0; }
+.ui-feedback input[type=file] { width: 100%; min-width: 0; }
+
+.ui-feedback-capturing { visibility: hidden; }
+
+.ui-feedback-kinds { display: flex; gap: var(--space-2); }
+.ui-feedback-kinds > button { flex: 1; }
+.ui-feedback-kinds [aria-pressed=true] { border-color: var(--accent); color: var(--accent); }
+
+.ui-feedback button:disabled { opacity: .5; cursor: wait; }
+
+/* Search and footer stay fixed while the collection scrolls independently. */
+.ui-search-picker { box-sizing: border-box; width: 380px; min-width: 0; max-width: calc(100vw - 16px); max-height: min(480px, calc(100dvh - 16px)); gap: var(--space-2); padding: var(--space-2); }
+.ui-search-picker-search { flex: none; width: 100%; box-sizing: border-box; }
+.ui-search-picker-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: var(--space-3); scrollbar-width: thin; scrollbar-gutter: stable; }
+.ui-search-picker-row { display: flex; align-items: center; gap: var(--space-1); padding-right: var(--space-1); border-radius: var(--r); }
+.ui-search-picker-choice { display: flex; align-items: center; flex: 1; min-width: 0; min-height: 44px; height: auto; padding: var(--space-2); border: 0; border-radius: var(--r); background: transparent; color: var(--fg); font: inherit; line-height: 1.5; white-space: normal; text-align: left; cursor: pointer; }
+.ui-search-picker-choice:hover, .ui-search-picker-choice:focus-visible { background: var(--bg-raised-3); }
+.ui-search-picker-choice:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
+.ui-search-picker-choice:disabled { opacity: .5; cursor: default; }
+.ui-search-picker-text { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow-wrap: anywhere; gap: 2px; }
+.ui-search-picker-check { flex: none; width: 18px; color: var(--accent); }
+.ui-search-picker-secondary.ui-button { flex: none; width: var(--button-height); min-height: var(--button-height); height: var(--button-height); padding: 0; font-size: 18px; line-height: 1; }
+.ui-search-picker-secondary:focus-visible { outline-offset: -2px; }
+.ui-search-picker-secondary[aria-pressed=true] { color: var(--accent); }
+.ui-search-picker-group { padding: var(--space-3) var(--space-2) var(--space-2); color: var(--fg-2); font-size: 11px; }
+.ui-search-picker-status { white-space: pre-line; flex: none; padding: 0 var(--space-2); overflow-wrap: anywhere; }
+.ui-search-picker-status:empty, .ui-search-picker-footer:empty { display: none; }
+.ui-search-picker-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--line-raised); }
+</style>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font); }
+    [hidden] { display: none !important; }
+    .windowbar { height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--line); color: var(--fg-2); font-size: 12px; }
+    .wordmark { font-weight: 650; letter-spacing: -.5px; color: var(--fg); }
+    .wordmark i { color: var(--accent); font-style: normal; margin-right: 8px; }
+    .shell { display: grid; grid-template-columns: 180px minmax(0, 1fr); min-height: calc(100vh - 42px); }
+    aside { padding: 30px 16px; background: var(--bg-side); border-right: 1px solid var(--line); }
+    .eyebrow { color: var(--fg-2); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    aside .eyebrow { margin: 0 12px 18px; }
+    .nav-current { padding: 9px 12px; background: var(--bg-raised-2); border-radius: var(--r); font-weight: 550; box-shadow: inset 2px 0 var(--accent); }
+    .sidebar-note { margin: 28px 12px; color: var(--fg-2); font-size: 12px; }
+    main { width: 100%; max-width: 1320px; margin: auto; padding: 36px 44px 28px; }
+    .topline, .heading, .section-heading, .session-title { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .topline { margin-bottom: 24px; }
+    .breadcrumb { color: var(--fg-2); font-size: 12px; }
+    .demo { display: inline-flex; gap: 7px; align-items: center; color: var(--wait); font-size: 11px; }
+    .demo::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+    h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -1px; font-weight: 600; }
+    h2 { margin: 0; font-size: 15px; font-weight: 550; }
+    p { margin: 7px 0 0; }
+    .muted, .note { color: var(--fg-2); }
+    .note { font-size: 12px; line-height: 1.6; }
+    .heading { margin-bottom: 26px; }
+    .heading p { font-size: 13px; }
+    .filters { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .filters .ui-field { width: 148px; }
+    .filters .workspace-field { width: 220px; }
+    .filters .reset { margin-left: auto; margin-bottom: 2px; }
+    #filter-error { margin-top: 8px; color: var(--err); }
+    .metrics { display: grid; grid-template-columns: 1.25fr 1fr 1fr; margin: 26px 0; border: 1px solid var(--line); border-radius: var(--r-xl); overflow: hidden; }
+    .metric { padding: 21px 22px; background: var(--bg-side); border-right: 1px solid var(--line); }
+    .metric:last-child { border: 0; }
+    .metric-label { color: var(--fg-2); font-size: 12px; }
+    .metric-value { margin: 10px 0 5px; font: 450 29px/1.15 var(--font); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+    .metric:first-child .metric-value { color: var(--accent); }
+    .metric-note { font-size: 11px; color: var(--fg-2); }
+    .overview { display: grid; grid-template-columns: 1.45fr 1fr; gap: 20px; }
+    .panel { padding: 22px; border: 1px solid var(--line); border-radius: var(--r-xl); min-width: 0; }
+    .section-heading { margin-bottom: 20px; }
+    .tag { display: inline-block; padding: 2px 7px; font-size: 10px; border-radius: 4px; background: var(--bg-raised-2); color: var(--fg-2); white-space: nowrap; }
+    .tag.partial { color: var(--wait); background: var(--wait-bg); }
+    .tag.complete { color: var(--done); background: var(--done-bg); }
+    .token-bar { display: flex; height: 10px; gap: 3px; border-radius: 3px; overflow: hidden; margin: 8px 0 20px; background: var(--line); }
+    .token-bar .input { background: var(--accent); }
+    .token-bar .output { background: var(--run); }
+    .breakdown { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin: 0; }
+    dt { color: var(--fg-2); }
+    dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+    dt.subset { padding-left: 14px; font-size: 12px; }
+    .key { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 8px; }
+    .key.input { background: var(--accent); } .key.output { background: var(--run); }
+    .panel .note { margin-top: 18px; }
+    .source { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .source:last-of-type { border: 0; }
+    .source-label { display: flex; justify-content: space-between; font-size: 12px; gap: 12px; }
+    .source-track { background: var(--bg-raised); height: 4px; border-radius: 2px; margin-top: 10px; overflow: hidden; }
+    .source-track span { display: block; height: 100%; background: var(--tab-line); }
+    .sessions { margin-top: 30px; }
+    .sessions .section-heading { margin-bottom: 14px; }
+    .table-scroll { overflow-x: auto; }
+    .table-scroll:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 3px; }
+    #session-table { min-width: 740px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+    th { color: var(--fg-2); font-size: 10px; letter-spacing: .04em; font-weight: 500; padding: 10px 12px; background: var(--bg-side); }
+    td { padding: 15px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+    .session-button.ui-button { padding: 0; min-height: 24px; color: var(--fg); text-align: left; justify-content: start; }
+    .session-button.ui-button:hover { color: var(--accent); background: transparent; }
+    .session-meta { color: var(--fg-2); font-size: 11px; margin-top: 3px; }
+    .provider-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-2); margin-right: 7px; }
+    .provider-dot.claude { background: var(--accent); } .provider-dot.codex { background: var(--run); }
+    .empty { text-align: center; padding: 50px 20px; color: var(--fg-2); border: 1px dashed var(--line-raised); border-radius: var(--r); }
+    .bottom-grid { margin-top: 24px; }
+    .model-row { display: flex; justify-content: space-between; gap: 20px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+    .availability { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 18px; }
+    summary { cursor: pointer; color: var(--fg-2); font-size: 12px; }
+    summary:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 4px; }
+    .availability table { margin-top: 14px; }
+    footer { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); margin-top: 28px; padding-top: 16px; font-size: 11px; color: var(--fg-2); }
+    dialog { background: var(--bg-side); color: var(--fg); border: 1px solid var(--line-raised); border-radius: var(--r-xl); padding: 26px; width: min(620px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; }
+    dialog::backdrop { background: #0009; }
+    dialog h2 { font-size: 21px; }
+    dialog .breakdown { margin: 24px 0; }
+    dialog .dialog-actions { display: flex; justify-content: flex-end; margin-top: 24px; }
+    @media (max-width: 1100px) { .shell { grid-template-columns: 140px minmax(0,1fr); } main { padding: 28px 24px; } .metric { padding: 18px 14px; } .metric-value { font-size: 25px; } }
+    @media (max-width: 800px) { .shell { display: block; } aside { display: none; } .overview { grid-template-columns: 1fr; } .metrics { grid-template-columns: 1fr 1fr; } .metric:nth-child(2) { border-right: 0; } .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); } .metric:last-child { grid-column: 1 / -1; } .topline { flex-wrap: wrap; } }
+    @media (max-width: 480px) { main { padding: 22px 16px; } h1 { font-size: 28px; } .heading { align-items: start; } .filters { gap: 10px; } .filters .ui-field { width: calc(50% - 5px); } .filters .workspace-field { width: 100%; } .filters .reset { margin-left: 0; } .panel { padding: 17px; } footer { flex-direction: column; } .metric-value { font-size: 24px; } }
+  </style>
+</head>
+<body>
+  <div class="windowbar"><span class="wordmark"><i aria-hidden="true">✳</i>prometeu</span><span data-i18n="localHistory"></span></div>
+  <div class="shell">
+    <aside><div class="eyebrow" data-i18n="workspaceNav"></div><div class="nav-current" aria-current="page" data-i18n="title"></div><p class="sidebar-note" data-i18n="sidebarNote"></p></aside>
+    <main>
+      <div class="topline"><span class="breadcrumb" data-i18n="breadcrumb"></span><span class="demo" data-i18n="demo"></span></div>
+      <header class="heading"><div><h1 data-i18n="title"></h1><p class="muted" data-i18n="subtitle"></p></div><div id="language"></div></header>
+      <form id="filters" class="filters"></form><div id="filter-error" role="alert"></div>
+      <div id="results">
+        <section id="metrics" class="metrics" aria-label="Summary"></section>
+        <div class="overview">
+          <section class="panel"><div class="section-heading"><h2 data-i18n="breakdown"></h2></div><div id="token-bar" class="token-bar" aria-hidden="true"></div><dl id="breakdown" class="breakdown"></dl></section>
+          <section class="panel"><div class="section-heading"><h2 data-i18n="sources"></h2></div><div id="sources"></div></section>
+        </div>
+        <section class="sessions"><div class="section-heading"><h2 id="sessions-heading" data-i18n="sessions"></h2><span class="note" id="session-count" role="status"></span></div><div class="table-scroll" tabindex="0" role="region" aria-labelledby="sessions-heading"><table id="session-table"><thead><tr><th data-i18n="session"></th><th data-i18n="provider"></th><th class="numeric" data-i18n="turns"></th><th class="numeric" data-i18n="knownTokens"></th><th class="numeric" data-i18n="knownCost"></th><th data-i18n="coverage"></th></tr></thead><tbody id="sessions"></tbody></table></div><div id="empty" class="empty" hidden data-i18n="empty"></div><p class="note" data-i18n="sessionHint"></p></section>
+        <div class="bottom-grid">
+          <section class="panel"><div class="section-heading"><h2 data-i18n="models"></h2></div><div id="models"></div><p class="note" data-i18n="modelHint"></p></section>
+        </div>
+      </div>
+      <details class="availability"><summary data-i18n="availability"></summary><div class="table-scroll"><table><thead><tr><th data-i18n="provider"></th><th data-i18n="tokens"></th><th data-i18n="cost"></th><th data-i18n="models"></th></tr></thead><tbody id="providers"></tbody></table></div><p class="note" data-i18n="toolHint"></p></details>
+      <footer><span data-i18n="privacy"></span><span data-i18n="samplePeriod"></span></footer>
+    </main>
+  </div>
+  <dialog id="detail" aria-labelledby="detail-title"><h2 id="detail-title" tabindex="-1" autofocus></h2><p id="detail-meta" class="note"></p><dl id="detail-metrics" class="breakdown"></dl><p id="detail-coverage" class="note"></p><p class="note" data-i18n="costHint"></p><p class="note" data-i18n="scopeHint"></p><div class="dialog-actions" id="detail-actions"></div></dialog>
+  <script id="shared-controls">var PreviewUI=(()=>{var E=Object.defineProperty;var O=Object.getOwnPropertyDescriptor;var R=Object.getOwnPropertyNames;var U=Object.prototype.hasOwnProperty;var K=(e,t)=>{for(var a in t)E(e,a,{get:t[a],enumerable:!0})},W=(e,t,a,n)=>{if(t&&typeof t=="object"||typeof t=="function")for(let r of R(t))!U.call(e,r)&&r!==a&&E(e,r,{get:()=>t[r],enumerable:!(n=O(t,r))||n.enumerable});return e};var F=e=>W(E({},"__esModule",{value:!0}),e);var _={};K(_,{button:()=>T,field:()=>P,input:()=>q,select:()=>B});var j='<path fill-rule="evenodd" d="M276.35229556472456 463.8754480801253 236.11178830110987 463.6621742447235 234.3544118973989 462.7195038922475C230.74155312569212 460.79150842021505 228.64720406204628 457.17864964850827 228.65146953875433 452.9089074637639C228.65573501546237 449.4197475165902 228.71118621266683 449.2960486920571 236.3250621365117 435.2583648459097C243.67021302775024 421.72827272801845 246.54940980567477 416.40069231968107 253.391234445365 403.73222649681315C256.4922360121074 397.98236389438017 259.9387411922008 391.64813098294627 261.05203061299824 389.65615336029333C262.1610545570877 387.66417573764033 264.56678342042017 383.24940734482277 266.3924074514597 379.84555693180977C268.21803148249927 376.44170651879676 270.45314127751027 372.3639107859141 271.357422339614 370.7814189272326C272.2659688784257 369.1989270685511 273.7503547728224 366.60551723006506 274.65463583492607 365.02302537138354C275.5631823737378 363.4405335127021 278.18645054918017 358.7826329475264 280.4812770181037 354.67924435439545C282.78036896373527 350.5758557612645 285.8472467168134 345.19708963243073 287.29750879754573 342.7359095718938C288.74777087827806 340.27472951135684 291.8146486313562 334.99406934680786 294.11374057698777 331.0058486247939C297.9228112772642 324.39862520404563 301.22002477257627 318.78952333297786 313.53445602867714 297.9484041375124C330.25512472417955 269.64270070298335 337.3400815362279 251.28408895159504 340.44108310297025 228.20785996111852C341.5245141868115 220.15463993634594 346.28052071627195 216.77211690687315 351.99625950504065 219.9840208680245C354.0692811851463 221.14849600931842 364.19978836673255 236.9222288756367 372.1421059970962 251.3523365789236C373.40042162596694 253.63863209443105 375.3454790048315 257.1405884717289 376.463033902337 259.13256609438184C378.4976662920703 262.75822129621275 389.02059733079597 283.65479168888265 391.5500250186615 289.10180544504504C407.0592983290815 322.4834261621373 413.97790154951645 349.4412389569269 412.4337989812073 370.46150817412985C408.7015068616755 421.20361909292996 368.10269955458585 462.3995931391447 320.28670565749866 463.9692885677021C318.2563387444734 464.0332707183226 298.485854202725 463.9948814279503 276.35229556472456 463.8754480801253ZM161.75173284991266 457.69050685347264C158.3521479136077 456.1080149947912 156.30045361704222 454.0691171283498 143.06467939200553 439.11435578997447C140.68454338892124 436.42710546391163 136.78163220106802 432.0251335012181 134.38869976785963 429.3250867450311C126.44638213749602 420.3633201814468 119.1865407804182 411.66601317376075 116.5888654652241 407.9977032048495C96.1828248939783 379.167346135232 93.78989246076995 343.84919899269124 109.99017299789189 310.56568423988386C115.48410699784267 299.2749673937117 117.73627869968587 295.63225028504866 142.69358291840638 257.63964924656915C151.74492449285944 243.8578940029038 158.3052276698193 233.88520945951484 163.16787111698073 226.501669277904C165.7954047691311 222.51344855589002 170.34666841660584 215.6033762888712 173.2770509150268 211.14595312897322C176.20743341344775 206.6885299690753 183.74453075654793 195.265583344954 190.02757794748544 185.7663667161571C196.31489061513096 176.26715008736022 202.46570802811937 166.95561443371693 203.69843079674186 165.07880468218096C208.7402242656408 157.4052120844236 217.41193841307862 143.09880320566978 223.67365822047597 132.11520068247626C236.94355625917697 108.85129071684615 248.45181241745894 80.8612325587118 253.6130392341829 59.29498232288016C255.71591925124483 50.51663125774141 257.733489734146 47.97440713975176 262.58760222789135 47.99999999999998C267.80001476511165 48.02985833695624 268.70856130392343 49.305235872659104 279.0566077976195 71.17860043146936C310.32681754423385 137.25936559236806 317.1814386140482 170.49169462467904 306.90590522438873 206.2107965777752C304.1760001312455 215.69295129973995 300.2816198968083 224.25376305276885 291.75919743415176 239.51137323741477C290.6416425366462 241.5033508600677 286.2311396205366 249.85515425440286 281.95286648237624 258.0661969173728C277.6745933442158 266.27723958034267 271.9673855088632 277.21818733645586 269.2758697060923 282.3794141531798C266.58435390332136 287.5406409699038 259.964334052449 300.3029472803484 254.56850601678303 310.74483426162135C243.70007136470647 331.76936895553234 241.3071389314981 336.36755284679555 234.60607502317305 349.13412463394826C232.08091281201553 353.9413168839052 229.26143270800355 359.32008301273896 228.3443552157757 361.0774594164499C224.735761920777 367.9917971601768 206.49231804050564 401.7402488741602 201.36094956073794 410.9835369004749C199.08318499864654 415.08692549360586 194.94993806855936 422.5728371162096 192.16884725491968 427.6188960618166C183.27959379537197 443.763725401734 178.22926937305698 452.5250145600407 176.75767990878444 454.3506385910802C173.40501521626788 458.51800933483173 166.725278691483 460.0066607059364 161.75173284991266 457.69050685347264Z"/>',I={plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',ellipsis:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',"panel-left":'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>',"panel-right":'<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',folder:'<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',"folder-open":'<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',"file-plus":'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',"folder-plus":'<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',diff:'<path d="M12 3v14"/><path d="M5 10h14"/><path d="M5 21h14"/>',filter:'<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',"chevron-right":'<path d="m9 18 6-6-6-6"/>',"chevron-down":'<path d="m6 9 6 6 6-6"/>',"chevron-up":'<path d="m18 15-6-6-6 6"/>',square:'<rect width="14" height="14" x="5" y="5" rx="2"/>',mic:'<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>',terminal:'<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',"square-terminal":'<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/>',coffee:'<path d="M10 2v2"/><path d="M14 2v2"/><path d="M6 2v2"/><path d="M4 8h14a1 1 0 0 1 1 1v2a4 4 0 0 1-4 4h-1a5 5 0 0 1-10 0V9a1 1 0 0 1 1-1Z"/><path d="M19 9h1a3 3 0 0 1 0 6h-1"/><path d="M3 21h16"/>',memory:'<path d="M6 19v-3"/><path d="M10 19v-3"/><path d="M14 19v-3"/><path d="M18 19v-3"/><path d="M8 11V9"/><path d="M16 11V9"/><path d="M12 11V9"/><path d="M2 15h20"/><path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4Z"/>',plug:'<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',play:'<path d="M6 4.5v15l13-7.5Z"/>',puzzle:'<path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z"/>',"audio-lines":'<path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/>',rotate:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',building:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',"share-2":'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/>',"message-square":'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',"at-sign":'<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>',"wifi-off":'<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',inbox:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',settings:'<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',linear:'<g transform="scale(.24)" fill="currentColor" stroke="none"><path d="M1.22541 61.5228c-.2225-.9485.90748-1.5459 1.59638-.857L39.3342 97.1782c.6889.6889.0915 1.8189-.857 1.5964C20.0515 94.4522 5.54779 79.9485 1.22541 61.5228ZM.00189135 46.8891c-.01764375.2833.08887215.5599.28957165.7606L52.3503 99.7085c.2007.2007.4773.3079.7606.2896 2.3692-.1476 4.6938-.46 6.9624-.9259.7645-.157 1.0301-1.0963.4782-1.6481L2.57595 39.4485c-.55186-.5519-1.49117-.2863-1.648174.4782-.465915 2.2686-.77832 4.5932-.92588465 6.9624ZM4.21093 29.7054c-.16649.3738-.08169.8106.20765 1.1l64.77602 64.776c.2894.2894.7262.3742 1.1.2077 1.7861-.7956 3.5171-1.6927 5.1855-2.684.5521-.328.6373-1.0867.1832-1.5407L8.43566 24.3367c-.45409-.4541-1.21271-.3689-1.54074.1832-.99132 1.6684-1.88843 3.3994-2.68399 5.1855ZM12.6587 18.074c-.3701-.3701-.393-.9637-.0443-1.3541C21.7795 6.45931 35.1114 0 49.9519 0 77.5927 0 100 22.4073 100 50.0481c0 14.8405-6.4593 28.1724-16.7199 37.3375-.3903.3487-.984.3258-1.3542-.0443L12.6587 18.074Z"/></g>',github:'<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',"external-link":'<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',"arrow-up":'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',"arrow-left":'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',"arrow-right":'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',copy:'<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',"list-tree":'<path d="M21 12h-8"/><path d="M21 6H8"/><path d="M21 18h-8"/><path d="M3 6v4c0 1.1.9 2 2 2h3"/><path d="M3 10v6c0 1.1.9 2 2 2h3"/>',flame:`<g transform="scale(.046875)" fill="#F5683D" stroke="none">${j}</g>`,"git-branch":'<path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',"git-pull-request":'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/>',globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',sparkles:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',signal:'<path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/>',map:'<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',paperclip:'<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',pencil:'<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',archive:'<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',"archive-restore":'<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="m9 15 3-3 3 3"/><path d="M12 12v6"/>',check:'<path d="M20 6 9 17l-5-5"/>',"git-merge":'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>',trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',pin:'<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',"pin-off":'<path d="M12 17v5"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/><path d="M14 4.09V7a1 1 0 0 0 .3.71l3.99 3.99A2 2 0 0 1 19 13.24V16"/><path d="M8 2h8a2 2 0 0 1 0 4 1 1 0 0 0-1 1"/>',bell:'<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',mail:'<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',"mail-open":'<path d="M21.2 8.4c.5.38.8.97.8 1.6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 .8-1.6l8-6a2 2 0 0 1 2.4 0z"/><path d="m22 10-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 10"/>',eye:'<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',brain:'<path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/>'},te=Object.keys(I);function v(e,t=16,a=""){return`<svg class="ic${a?` ${a}`:""}" width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">`+I[e]+"</svg>"}function h(e,t,a){return e.dataset.track=t,a&&b(e,a),e}function b(e,t){return e.dataset.trackArea=t,e}function G(e){return e?.closest("[data-track-area]")?.dataset.trackArea}function w(e,t,a){let n=a??G(t);n?b(e,n):delete e.dataset.trackArea}var c=null,L,k,d=null,M=!1,x=null,A=new WeakMap,C=new WeakMap,H=()=>c!==null,J=new Set;function p(){let e=c!==null,t=M&&c?.contains(document.activeElement);c?.remove(),c=null,L=void 0;let a=k;k=void 0,a?.(),d=null,document.removeEventListener("mousedown",$,!0),document.removeEventListener("keydown",D,!0),window.removeEventListener("blur",p),t&&x?.isConnected&&x.focus(),x=null,e&&setTimeout(()=>c===null&&J.forEach(n=>n()),0)}function $(e){e.target.closest(".menu")||p()}function D(e){if(e.key==="Escape")e.preventDefault(),e.stopPropagation(),p();else if(L)L(e);else if(e.key==="ArrowDown"||e.key==="ArrowUp")e.preventDefault(),e.stopPropagation(),Q(e.key==="ArrowDown"?1:-1);else if(e.key==="Enter"&&d)e.preventDefault(),e.stopPropagation(),d.click();else if(M&&(e.key==="Home"||e.key==="End")&&c){e.preventDefault(),e.stopPropagation();let t=y(d?.parentElement??c);m(e.key==="Home"?t[0]:t[t.length-1])}else if(e.key==="ArrowRight"&&d&&A.has(d))e.preventDefault(),e.stopPropagation(),m(y(A.get(d)())[0]);else if(e.key==="ArrowLeft"&&d?.parentElement&&C.has(d.parentElement)){e.preventDefault(),e.stopPropagation();let t=d.parentElement,a=C.get(t);t.remove(),a.setAttribute("aria-expanded","false"),m(a)}else M&&e.key==="Tab"&&p()}function m(e){d?.classList.remove("sel"),d=e??null,d?.classList.add("sel"),M&&d?.focus()}function y(e){return[...e.children].filter(t=>t.matches(".mrow:not(.off)"))}function Q(e){if(!c)return;let t=y(d?.isConnected?d.parentElement:c);if(!t.length)return;let a=d?t.indexOf(d):-1,n=a<0?e>0?0:t.length-1:(a+e+t.length)%t.length;m(t[n]),t[n].scrollIntoView({block:"nearest"})}function S(e,t,a,n,r=!1){return p(),M=r,x=document.activeElement instanceof HTMLElement?document.activeElement:null,c=Z(t),w(c,e.anchor,e.area),a&&c.classList.add(a),k=n,(document.querySelector("dialog[open]")??document.body).append(c),N(c,e.x,e.y,e.above),document.addEventListener("mousedown",$,!0),document.addEventListener("keydown",D,!0),window.addEventListener("blur",p),r&&c.focus(),c}function N(e,t,a,n=!1){let{width:r,height:o}=e.getBoundingClientRect(),i=n?a-o:a;e.style.left=`${Math.max(8,Math.min(t,innerWidth-r-8))}px`,e.style.top=`${Math.max(8,Math.min(i,innerHeight-o-8))}px`}function Z(e){let t=document.createElement("div");t.className="menu",t.tabIndex=-1,t.setAttribute("role","menu");let a=null,n=null,r=()=>{a?.remove(),a=null,n?.setAttribute("aria-expanded","false")};for(let o of e){if(o==="sep"){t.append(document.createElement("hr"));continue}let i=document.createElement("button");if(i.type="button",o.track&&h(i,o.track),i.tabIndex=-1,i.className="mrow"+(o.danger?" danger":"")+(o.disabled?" off":""),i.disabled=o.disabled??!1,i.setAttribute("role",o.checked===void 0?"menuitem":"menuitemcheckbox"),o.checked!==void 0&&i.setAttribute("aria-checked",String(o.checked)),i.innerHTML=`<span class="mg">${o.glyph??""}</span><span class="ml"></span><span class="mh"></span>${o.sub?v("chevron-right",14):""}<span class="mc">${o.checked?v("check",14):""}</span>`,i.children[1].textContent=o.label,i.children[2].textContent=o.hint??"",o.badge){let l=document.createElement("span");l.className="mbadge",l.textContent=o.badge,i.children[1].after(l)}t.append(i);let u=()=>{r(),a=Z(o.sub),t.append(a),n=i,C.set(a,i),i.setAttribute("aria-expanded","true");let l=i.getBoundingClientRect(),s=a.getBoundingClientRect().width;return N(a,l.right-4+s>innerWidth-8?l.left-s+4:l.right-4,l.top-6),a};o.sub&&!o.disabled&&(i.setAttribute("aria-haspopup","menu"),i.setAttribute("aria-expanded","false"),A.set(i,u),i.addEventListener("click",()=>m(y(u())[0]))),i.addEventListener("mouseenter",()=>{o.disabled||m(i),o.sub&&!o.disabled?u():r()}),o.run&&i.addEventListener("click",()=>{p(),o.run()})}return t}function f(e,t,a=""){let n=document.createElement(e);return n.className=t,n.textContent=a,n}function T(e,t=()=>{},a="outline",n){let r=document.createElement("button");return r.className=`ui-button ${a} md`,r.type="button",r.textContent=e,n&&h(r,n),r.onclick=()=>{r.focus(),t()},r}function q(e="",t=!1,a){let n=document.createElement(t?"textarea":"input");return n.className="ui-input",n.value=e,a&&h(n,a),n instanceof HTMLTextAreaElement&&(n.rows=5),n}function P(e,t,a="",n){let r=f("div","ui-field"),o=t.matches("input, textarea, select, button")?t:t.querySelector("input, textarea, select, button");o.id||(o.id=`ui-field-${crypto.randomUUID()}`),o.setAttribute("aria-label",e),n&&h(o,n);let i=f("label","ui-label",e);if(i.setAttribute("for",o.id),r.append(i,t),a){let u=f("span","ui-hint",a);u.id=`ui-hint-${crypto.randomUUID()}`,o.setAttribute("aria-describedby",u.id),r.append(u)}return r}function Y(e,t,a,n){let r=e.querySelector("span"),o=()=>{r.textContent=t().flatMap(i=>i.items).find(([i])=>i===a())?.[1]??a()};return e.setAttribute("aria-haspopup","menu"),e.setAttribute("aria-expanded","false"),e.addEventListener("click",()=>{let i=e.getBoundingClientRect(),u=t(),l=[];u.forEach((s,g)=>{g&&l.push("sep"),s.head&&u.length>1&&l.push({label:s.head,disabled:!0});for(let[V,z]of s.items)l.push({label:z,track:e.dataset.track?`${e.dataset.track}.option`:void 0,checked:V===a(),run:()=>{n(V),o(),e.focus()}})}),S({x:i.left,y:i.bottom+4,anchor:e},l,"ui-select-menu",()=>e.setAttribute("aria-expanded","false"),!0),e.setAttribute("aria-expanded","true")}),e.addEventListener("keydown",i=>{(i.key==="ArrowDown"||i.key==="ArrowUp")&&!H()?(i.preventDefault(),e.click()):i.key==="Tab"&&H()&&p()}),o(),o}function B(e,t,a={}){let n=T("",()=>{});n.className="ui-select pick",a.track?h(n,a.track,a.area):a.area&&b(n,a.area),n.append(f("span","")),n.insertAdjacentHTML("beforeend",v("chevron-down",14));let r=document.createElement("select");r.className="ui-native-select",r.tabIndex=-1,r.setAttribute("aria-hidden","true"),r.name=a.name??"",r.required=a.required??!1,r.disabled=n.disabled=a.disabled??!1,n.setAttribute("aria-required",String(r.required));let o=()=>{r.replaceChildren(...t.map(([s,g])=>new Option(g,s))),r.value=e};o();let i=f("div","ui-select-field");i.append(n,r);let u={control:n,root:i,native:r,get value(){return r.value},set value(s){e=s,r.value=s,l()},onchange:()=>{},setOptions(s,g=e){t=s,e=g,o(),l()}},l=Y(n,()=>[{items:t}],()=>r.value,s=>{e=s,r.value=s,n.removeAttribute("aria-invalid"),r.dispatchEvent(new Event("change",{bubbles:!0}))});return r.addEventListener("change",()=>{e=r.value,l(),u.onchange()}),r.addEventListener("invalid",s=>{s.preventDefault(),n.setAttribute("aria-invalid","true"),n.focus()}),u}return F(_);})();
+</script>
+  <script id="telemetry-model">
+    // Synthetic measurements use the existing inclusive UsageCounts fields. No native data is read.
+    const emptyUsage = () => ({ inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null,
+      reasoningTokens: null, contextUsed: null, contextWindow: null, peakContext: null, modelCalls: null,
+      compactions: null, cacheRebuilds: null, costUsd: null });
+    const workspaces = { desktop: 'Desktop experience', relay: 'Team collaboration', tools: 'Developer tools' };
+    const conversations = { layout: 'Refine the workspace layout', reconnect: 'Fix relay reconnect', parser: 'Review the protocol parser',
+      docs: 'Update contributor documentation', tests: 'Investigate flaky tests', resume: 'Resume the release review' };
+    const sample = (date, workspaceId, conversationId, provider, complete, usage, source = 'conversation', usageByModel = null) => ({
+      date, workspaceId, conversationId, provider, source,
+      measurement: { usageScope: 'mainAgent', complete, selectedModel: null, observedModels: usageByModel?.map(row => row.model) ?? null,
+        usage: { ...emptyUsage(), ...usage }, usageByModel },
+    });
+    const records = [
+      sample('2026-10-27', 'desktop', 'layout', 'claude', true, { inputTokens: 420000, outputTokens: 18000, cacheReadTokens: 310000, cacheWriteTokens: 70000, costUsd: 1.42, peakContext: 64000, modelCalls: 9, compactions: 0, cacheRebuilds: 1 }, 'conversation', [{ model: 'claude-example-model', usage: { ...emptyUsage(), inputTokens: 420000, outputTokens: 18000 } }]),
+      sample('2026-10-29', 'desktop', 'layout', 'claude', true, { inputTokens: 680000, outputTokens: 26000, cacheReadTokens: 520000, cacheWriteTokens: 90000, costUsd: 2.18, peakContext: 96000, modelCalls: 12, compactions: 1, cacheRebuilds: 0 }, 'conversation', [{ model: 'claude-example-model', usage: { ...emptyUsage(), inputTokens: 680000, outputTokens: 26000 } }]),
+      sample('2026-10-30', 'desktop', 'layout', 'claude', true, { inputTokens: 205000, outputTokens: 8000, cacheReadTokens: 160000, cacheWriteTokens: 25000, costUsd: .65, peakContext: 76000, modelCalls: 4, compactions: 0, cacheRebuilds: 0 }),
+      sample('2026-10-28', 'relay', 'reconnect', 'codex', true, { inputTokens: 540000, outputTokens: 32000, cacheReadTokens: 410000, reasoningTokens: 21000, peakContext: 88000, compactions: 1 }),
+      sample('2026-10-31', 'relay', 'reconnect', 'codex', true, { inputTokens: 360000, outputTokens: 21000, cacheReadTokens: 280000, reasoningTokens: 12000, peakContext: 105000, compactions: 0 }),
+      sample('2026-10-30', 'tools', 'parser', 'claude', true, { inputTokens: 190000, outputTokens: 12000, cacheReadTokens: 140000, cacheWriteTokens: 30000, costUsd: .81, peakContext: 46000, modelCalls: 5, compactions: 0, cacheRebuilds: 0 }),
+      sample('2026-10-31', 'desktop', 'docs', 'antigravity', false, { inputTokens: 92000, outputTokens: 7000, peakContext: 32000, modelCalls: 3 }),
+      sample('2026-11-01', 'tools', 'tests', 'codex', true, { inputTokens: 260000, outputTokens: 16000, cacheReadTokens: 180000, reasoningTokens: 9000, peakContext: 78000, compactions: 0 }),
+      sample('2026-11-01', 'tools', 'tests', 'codex', false, { inputTokens: 48000, peakContext: 83000 }),
+      sample('2026-11-01', 'tools', 'resume', 'codex', false, {}),
+      sample('2026-10-30', 'desktop', null, 'claude', true, { inputTokens: 3000, outputTokens: 120, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: .012 }, 'naming'),
+      sample('2026-10-31', null, null, 'claude', true, { inputTokens: 18000, outputTokens: 2400, cacheReadTokens: 10000, cacheWriteTokens: 4000, costUsd: .11 }, 'plugin-maker'),
+      sample('2026-10-19', 'tools', 'parser', 'claude', true, { inputTokens: 120000, outputTokens: 9000, cacheReadTokens: 80000, cacheWriteTokens: 20000, costUsd: .47, peakContext: 39000, modelCalls: 3, compactions: 0, cacheRebuilds: 0 }),
+    ];
+    function filterRecords(rows, from, through, workspaceId = '') {
+      // ISO calendar days keep the fixed examples independent of the viewer's timezone.
+      return rows.filter(row => (!from || row.date >= from) && (!through || row.date <= through) && (!workspaceId || row.workspaceId === workspaceId));
+    }
+    function aggregate(rows) {
+      const usage = emptyUsage();
+      for (const { measurement } of rows) for (const [key, value] of Object.entries(measurement.usage)) {
+        if (value === null || key === 'contextUsed' || key === 'contextWindow') continue;
+        usage[key] = key === 'peakContext' ? Math.max(usage[key] ?? 0, value) : (usage[key] ?? 0) + value;
+      }
+      return usage;
+    }
+    const knownTokens = usage => usage.inputTokens === null && usage.outputTokens === null ? null : (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+    function coverage(rows) {
+      const turns = rows.filter(row => row.source === 'conversation');
+      const complete = turns.filter(row => row.measurement.complete && row.measurement.usage.inputTokens !== null && row.measurement.usage.outputTokens !== null).length;
+      const unknown = turns.filter(row => row.measurement.usage.inputTokens === null && row.measurement.usage.outputTokens === null).length;
+      return { total: turns.length, complete, partial: turns.length - complete - unknown, unknown };
+    }
+    function sessionGroups(rows) {
+      return [...new Set(rows.filter(row => row.conversationId).map(row => row.conversationId))].map(id => {
+        const items = rows.filter(row => row.conversationId === id);
+        return { id, items, usage: aggregate(items), coverage: coverage(items) };
+      }).sort((a, b) => (knownTokens(b.usage) ?? -1) - (knownTokens(a.usage) ?? -1));
+    }
+    globalThis.telemetryPreview = { records, aggregate, filterRecords, knownTokens, coverage, sessionGroups };
+  </script>
+  <script id="telemetry-view">
+    const labels = {
+      'pt-BR': {
+        title: 'Uso', localHistory: 'Histórico local', workspaceNav: 'Seu trabalho', sidebarNote: 'Consumo registrado neste computador.', breadcrumb: 'Trabalho e equipe / Histórico local',
+        demo: 'Demonstração · dados fictícios', subtitle: 'Entenda o consumo das suas conversas, com os dados disponíveis hoje.',
+        from: 'De', through: 'Até', workspace: 'Workspace', all: 'Todos os workspaces', reset: 'Restaurar período', invalid: 'A data final deve ser igual ou posterior à data inicial.',
+        knownTokens: 'Tokens conhecidos', tokens: 'Tokens', input: 'Entrada', output: 'Saída', read: 'Leitura de cache', write: 'Escrita de cache', reasoning: 'Raciocínio',
+        knownCost: 'Custo conhecido', cost: 'Custo', costHint: 'Estimativa do CLI; não é uma fatura',
+        sessions: 'Sessões', session: 'Sessão', provider: 'Integração', turns: 'Turnos', coverage: 'Cobertura',
+        sessionMetric: '{n} turnos no período',
+        breakdown: 'Composição dos tokens',
+        sources: 'Onde o consumo acontece', conversation: 'Conversas', naming: 'Nomes de workspaces', 'plugin-maker': 'Criação de plugins',
+        sessionCount: '{n} sessões · maior consumo primeiro', sessionHint: 'Abra uma sessão para ver os detalhes do período. Consumo parcial mostra somente tokens conhecidos; “—” significa indisponível.',
+        empty: 'Nenhuma sessão neste período. Ajuste as datas ou o workspace.', unavailable: 'Indisponível', partial: 'Parcial', complete: 'Completa',
+        models: 'Modelos observados', modelHint: 'Somente atribuições informadas pelo provedor. Modelo selecionado não prova uso. Estas linhas são parte do total.',
+        noModels: 'Sem atribuição de consumo por modelo neste recorte.',
+        availability: 'Disponibilidade por integração', supported: 'Disponível', conditional: 'Quando informado', limited: 'Pode ser parcial', no: 'Indisponível',
+        toolHint: 'Chamadas individuais de ferramentas ainda não são registradas na telemetria local. Ranking e custo por ferramenta não estão disponíveis.',
+        privacy: 'Protótipo local · não lê nem altera seu histórico real', samplePeriod: 'Exemplos: 19 out – 1 nov 2026',
+        close: 'Fechar', detailCoverage: '{complete} de {total} turnos com medição completa · {partial} parciais · {unknown} sem dados',
+        scopeHint: 'Escopo destes exemplos: agente principal. Subagentes só entram quando o provedor comprova cobertura da árvore completa.',
+        peak: 'Pico de contexto', calls: 'Chamadas ao modelo', compactions: 'Compactações', rebuilds: 'Reconstruções de cache',
+        totalHint: 'Soma conhecida; inclui medições parciais', inputModel: 'entrada', outputModel: 'saída', summaryLabel: 'Resumo do consumo',
+      },
+      en: {
+        title: 'Usage', localHistory: 'Local history', workspaceNav: 'Your work', sidebarNote: 'Usage recorded on this computer.', breadcrumb: 'Work and team / Local history',
+        demo: 'Preview · synthetic data', subtitle: 'Understand your conversation usage with the measurements available today.',
+        from: 'From', through: 'Through', workspace: 'Workspace', all: 'All workspaces', reset: 'Reset period', invalid: 'The end date must be on or after the start date.',
+        knownTokens: 'Known tokens', tokens: 'Tokens', input: 'Input', output: 'Output', read: 'Cache reads', write: 'Cache writes', reasoning: 'Reasoning',
+        knownCost: 'Known cost', cost: 'Cost', costHint: 'CLI estimate; not an invoice',
+        sessions: 'Sessions', session: 'Session', provider: 'Provider', turns: 'Turns', coverage: 'Coverage',
+        sessionMetric: '{n} turns in this period',
+        breakdown: 'Token breakdown',
+        sources: 'Where usage happens', conversation: 'Conversations', naming: 'Workspace naming', 'plugin-maker': 'Plugin creation',
+        sessionCount: '{n} sessions · highest usage first', sessionHint: 'Open a session for details in this period. Partial usage shows known tokens only; “—” means unavailable.',
+        empty: 'No sessions in this period. Adjust the dates or workspace.', unavailable: 'Unavailable', partial: 'Partial', complete: 'Complete',
+        models: 'Observed models', modelHint: 'Only provider-reported attribution. Selecting a model does not prove usage. These rows are part of the total.',
+        noModels: 'No model usage attribution in this selection.',
+        availability: 'Availability by provider', supported: 'Available', conditional: 'When reported', limited: 'May be partial', no: 'Unavailable',
+        toolHint: 'Individual tool calls are not yet recorded in local telemetry. Tool rankings and per-tool cost are unavailable.',
+        privacy: 'Local prototype · does not read or change your real history', samplePeriod: 'Examples: Oct 19 – Nov 1, 2026',
+        close: 'Close', detailCoverage: '{complete} of {total} turns fully measured · {partial} partial · {unknown} unknown',
+        scopeHint: 'These examples cover the main agent. Children are included only when the provider verifies whole-tree coverage.',
+        peak: 'Peak context', calls: 'Model calls', compactions: 'Compactions', rebuilds: 'Cache rebuilds',
+        totalHint: 'Known sum; includes partial measurements', inputModel: 'input', outputModel: 'output', summaryLabel: 'Usage summary',
+      },
+    };
+    const lang = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'pt-BR';
+    const t = (key, params = {}) => Object.entries(params).reduce((value, [name, replacement]) => value.replaceAll(`{${name}}`, String(replacement)), labels[lang][key]);
+    const $ = id => document.getElementById(id);
+    const node = (tag, className = '', text = '') => { const value = document.createElement(tag); value.className = className; value.textContent = text; return value; };
+    const number = value => value === null ? '—' : new Intl.NumberFormat(lang).format(value);
+    const compact = value => value === null ? '—' : new Intl.NumberFormat(lang, { notation: 'compact', maximumFractionDigits: 2 }).format(value);
+    const money = value => value === null ? '—' : `~${new Intl.NumberFormat(lang, { style: 'currency', currency: 'USD', maximumFractionDigits: value < .01 && value > 0 ? 4 : 2 }).format(value)}`;
+    const { button, input, field, select } = PreviewUI;
+    document.documentElement.lang = lang;
+    document.title = `${t('title')} · Prometeu`;
+    document.querySelectorAll('[data-i18n]').forEach(element => { element.textContent = t(element.dataset.i18n); });
+    $('metrics').setAttribute('aria-label', t('summaryLabel'));
+    $('language').append(button(lang === 'en' ? 'Português' : 'English', () => { const url = new URL(location.href); url.searchParams.set('lang', lang === 'en' ? 'pt-BR' : 'en'); location.href = url.href; }, 'ghost'));
+    const from = input('2026-10-26'); from.type = 'date'; from.id = 'from';
+    const through = input('2026-11-01'); through.type = 'date'; through.id = 'through';
+    const workspace = select('', [['', t('all')], ...Object.entries(workspaces)]);
+    const workspaceField = field(t('workspace'), workspace.control); workspaceField.classList.add('workspace-field');
+    const reset = button(t('reset'), () => { from.value = '2026-10-26'; through.value = '2026-11-01'; workspace.value = ''; render(); }, 'ghost'); reset.classList.add('reset');
+    $('filters').append(field(t('from'), from), field(t('through'), through), workspaceField, reset);
+    $('filters').onsubmit = event => { event.preventDefault(); render(); };
+    from.onchange = through.onchange = workspace.onchange = render;
+    const fields = [['inputTokens', 'input'], ['cacheReadTokens', 'read'], ['cacheWriteTokens', 'write'], ['outputTokens', 'output'], ['reasoningTokens', 'reasoning']];
+    function usageRows(target, usage, extra = false) {
+      target.replaceChildren();
+      const entries = extra ? [...fields, ['costUsd', 'knownCost'], ['peakContext', 'peak'], ['modelCalls', 'calls'], ['compactions', 'compactions'], ['cacheRebuilds', 'rebuilds']] : fields;
+      for (const [key, label] of entries) {
+        const subset = ['cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'].includes(key);
+        const term = node('dt', subset ? 'subset' : '', t(label));
+        if (key === 'inputTokens' || key === 'outputTokens') term.prepend(node('span', `key ${key === 'inputTokens' ? 'input' : 'output'}`));
+        const value = node('dd', '', key === 'costUsd' ? money(usage[key]) : number(usage[key]));
+        target.append(term, value);
+      }
+    }
+    function metric(label, value, note) { const box = node('div', 'metric'); box.append(node('div', 'metric-label', label), node('div', 'metric-value', value), node('div', 'metric-note', note)); return box; }
+    function showSession(group) {
+      $('detail-title').textContent = conversations[group.id];
+      $('detail-meta').textContent = `${workspaces[group.items[0].workspaceId]} · ${group.items[0].provider} · ${from.value || '…'} — ${through.value || '…'}`;
+      usageRows($('detail-metrics'), group.usage, true);
+      $('detail-coverage').textContent = t('detailCoverage', group.coverage);
+      $('detail').showModal();
+    }
+    const closeDetail = button(t('close'), () => $('detail').close());
+    $('detail-actions').append(closeDetail);
+    // This read-only dialog has one focusable control; keep both Tab directions inside it.
+    $('detail').addEventListener('keydown', event => {
+      if (event.key === 'Tab') { event.preventDefault(); closeDetail.focus(); }
+    });
+    // WebKit does not consistently scroll a focused overflow region with arrow keys.
+    $('session-table').parentElement.addEventListener('keydown', event => {
+      if (event.target !== event.currentTarget || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      event.preventDefault();
+      event.currentTarget.scrollLeft += event.key === 'ArrowRight' ? 120 : -120;
+    });
+    for (const [provider, tokens, cost, models] of [['Claude', 'supported', 'conditional', 'conditional'], ['Codex', 'supported', 'no', 'no'], ['Antigravity', 'limited', 'no', 'no'], ['Cursor', 'no', 'no', 'no']]) {
+      const row = node('tr'); [provider, t(tokens), t(cost), t(models)].forEach(value => row.append(node('td', '', value))); $('providers').append(row);
+    }
+    function render() {
+      const invalid = !from.validity.valid || !through.validity.valid || (from.value && through.value && from.value > through.value);
+      $('filter-error').textContent = invalid ? t('invalid') : '';
+      from.setAttribute('aria-invalid', String(Boolean(invalid))); through.setAttribute('aria-invalid', String(Boolean(invalid)));
+      from.setAttribute('aria-describedby', 'filter-error'); through.setAttribute('aria-describedby', 'filter-error');
+      $('results').hidden = Boolean(invalid); if (invalid) return;
+      const rows = filterRecords(records, from.value, through.value, workspace.value);
+      const usage = aggregate(rows), measured = coverage(rows), groups = sessionGroups(rows), total = knownTokens(usage);
+      $('metrics').replaceChildren(metric(t('knownTokens'), compact(total), t('totalHint')),
+        metric(t('knownCost'), money(usage.costUsd), t('costHint')),
+        metric(t('sessions'), number(groups.length), t('sessionMetric', { n: measured.total })));
+      $('token-bar').replaceChildren();
+      for (const [key, className] of [['inputTokens', 'input'], ['outputTokens', 'output']]) { const segment = node('span', className); segment.style.width = `${total ? (usage[key] ?? 0) / total * 100 : 0}%`; $('token-bar').append(segment); }
+      usageRows($('breakdown'), usage);
+      $('sources').replaceChildren();
+      for (const source of ['conversation', 'naming', 'plugin-maker']) {
+        const items = rows.filter(row => row.source === source); if (!items.length) continue;
+        const amount = knownTokens(aggregate(items));
+        const box = node('div', 'source'), line = node('div', 'source-label'), track = node('div', 'source-track'), fill = node('span');
+        line.append(node('span', '', t(source)), node('span', '', number(amount))); fill.style.width = `${total ? (amount ?? 0) / total * 100 : 0}%`;
+        track.append(fill); box.append(line, track); $('sources').append(box);
+      }
+      if (!rows.length) $('sources').append(node('p', 'note', t('unavailable')));
+      $('sessions').replaceChildren();
+      $('session-count').textContent = t('sessionCount', { n: groups.length });
+      $('session-table').hidden = !groups.length; $('empty').hidden = Boolean(groups.length);
+      for (const group of groups) {
+        const first = group.items[0], row = node('tr'), name = node('td'), provider = node('td');
+        const open = button(conversations[group.id], () => showSession(group), 'ghost'); open.classList.add('session-button'); open.setAttribute('aria-haspopup', 'dialog');
+        name.append(open, node('div', 'session-meta', workspaces[first.workspaceId]));
+        provider.append(node('span', `provider-dot ${first.provider}`), document.createTextNode(first.provider === 'claude' ? 'Claude' : first.provider === 'codex' ? 'Codex' : 'Antigravity'));
+        const status = group.coverage.unknown === group.coverage.total ? 'unavailable' : group.coverage.complete === group.coverage.total ? 'complete' : 'partial';
+        const coverageCell = node('td'); coverageCell.append(node('span', `tag ${status}`, t(status)));
+        row.append(name, provider, node('td', 'numeric', String(group.coverage.total)), node('td', 'numeric', number(knownTokens(group.usage))), node('td', 'numeric', money(group.usage.costUsd)), coverageCell);
+        $('sessions').append(row);
+      }
+      $('models').replaceChildren();
+      const models = new Map();
+      for (const row of rows) for (const model of row.measurement.usageByModel ?? []) {
+        const id = `${row.provider} · ${model.model}`;
+        if (!models.has(id)) models.set(id, []);
+        models.get(id).push({ measurement: { usage: model.usage } });
+      }
+      for (const [name, items] of models) {
+        const model = aggregate(items), line = node('div', 'model-row');
+        line.append(node('span', '', name), node('span', '', `${compact(model.inputTokens)} ${t('inputModel')} · ${compact(model.outputTokens)} ${t('outputModel')}`)); $('models').append(line);
+      }
+      if (!models.size) $('models').append(node('p', 'note', t('noModels')));
+    }
+    render();
+  </script>
+</body>
+</html>

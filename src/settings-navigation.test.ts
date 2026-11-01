@@ -11,7 +11,7 @@ describe("settings navigation compatibility", () => {
       time: { page: "trabalho", section: "team" }, integracoes: { page: "trabalho", section: "integrations" },
     };
     for (const [page, destination] of Object.entries(old)) expect(settingsDestination(page)).toEqual(destination);
-    for (const page of ["geral", "agentes", "recursos", "acoes", "trabalho"]) expect(settingsDestination(page)).toEqual({ page });
+    for (const page of ["geral", "agentes", "recursos", "acoes", "trabalho", "analytics"]) expect(settingsDestination(page)).toEqual({ page });
     expect(settingsDestination(null)).toEqual({ page: "geral" });
     expect(settingsDestination("unknown")).toEqual({ page: "geral" });
   });

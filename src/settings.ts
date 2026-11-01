@@ -21,7 +21,7 @@ import * as projects from "./projects";
 import * as news from "./news";
 import * as notifications from "./notification-settings";
 import * as team from "./team";
-import { telemetryRows } from "./telemetry-settings";
+import { disposeTelemetry, telemetryRows } from "./telemetry-settings";
 import { loadTypesafe, typesafeRows } from "./typesafe-settings";
 import type { GitHubStatus, LinearStatus } from "./types";
 import { settingsRow } from "./update";
@@ -116,8 +116,10 @@ const PAGES: Page[] = [
   { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
     { id: "team", title: "settings.team", rows: teamRows },
     { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
-    { id: "telemetry", title: "telemetry.title", rows: telemetryRows },
     { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), githubRow(), ...typesafeRows(ctx.say, draw)] },
+  ] },
+  { id: "analytics", title: "settings.analytics", description: "settings.analytics.intro", glyph: "signal", sections: [
+    { id: "telemetry", title: "telemetry.title", rows: telemetryRows, keywords: ["history.title"] },
   ] },
 ];
 
@@ -153,7 +155,7 @@ export function draw() {
     historyObserver?.disconnect(); historyObserver = undefined;
     historyViewed = false;
     observedPage = open;
-    const sections = { geral: "general", agentes: "agents", recursos: "resources", acoes: "actions", trabalho: "work" } as const;
+    const sections = { geral: "general", agentes: "agents", recursos: "resources", acoes: "actions", trabalho: "work", analytics: "analytics" } as const;
     track({ name: "settings_section_viewed", section: sections[open] });
   }
   // Close snapshot menus before recording their restored trigger focus.
@@ -186,6 +188,7 @@ export function draw() {
   body.append(header, content);
   function paintBody() {
     historyObserver?.disconnect(); historyObserver = undefined;
+    if (page.id !== "analytics" || searchQuery.trim()) disposeTelemetry();
     content.replaceChildren();
     heading.textContent = t(searchQuery.trim() ? "settings.searchResults" : page.title);
     breadcrumb.textContent = `${t("settings.title")} / ${heading.textContent}`;
@@ -208,7 +211,7 @@ export function draw() {
       const title = h("h2", "", t(section.title)); title.id = `${group.id}-title`;
       group.setAttribute("aria-labelledby", title.id);
       const panel = h("div", "settings-panel"); panel.append(...section.rows());
-      if (page.id === "recursos" || page.id === "acoes") { title.hidden = true; panel.classList.add("settings-unboxed"); }
+      if (page.id === "recursos" || page.id === "acoes" || section.id === "telemetry") { title.hidden = true; panel.classList.add("settings-unboxed"); }
       group.append(title, panel); content.append(group);
     }
     const history = content.querySelector<HTMLElement>(".telemetry-settings");

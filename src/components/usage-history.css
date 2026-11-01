@@ -1,0 +1,43 @@
+.usage-history { min-width: 0; }
+.history-metrics { display: grid; grid-template-columns: 1.25fr 1fr 1fr; border: 1px solid var(--line); border-radius: var(--r-xl); overflow: hidden; margin: var(--space-6) 0; }
+.history-metric { padding: 20px; border-right: 1px solid var(--line); background: var(--bg-side); }
+.history-metric:last-child { border: 0; }
+.history-metric-label { color: var(--fg-2); font-size: 12px; }
+.history-metric-value { font-size: 28px; line-height: 1.2; letter-spacing: -.7px; font-variant-numeric: tabular-nums; margin: 10px 0 6px; }
+.history-metric:first-child .history-metric-value { color: var(--accent); }
+.history-overview { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--space-4); }
+.history-panel { border: 1px solid var(--line); border-radius: var(--r-xl); padding: 20px; min-width: 0; }
+.history-panel .desktop-section-header, .history-sessions .desktop-section-header { margin-bottom: var(--space-4); }
+.history-token-bar { height: 10px; border-radius: 3px; overflow: hidden; display: flex; gap: 3px; background: var(--line); margin-bottom: 20px; }
+.history-input { background: var(--accent); } .history-output { background: var(--run); }
+.history-breakdown { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin: 0; font-size: 13px; }
+.history-breakdown dt { color: var(--fg-2); }
+.history-breakdown dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.history-token-subset { padding-left: 14px; font-size: 12px; }
+.history-token-input::before, .history-token-output::before { content: ''; display: inline-block; height: 6px; width: 6px; margin-right: 8px; border-radius: 2px; background: var(--accent); }
+.history-token-output::before { background: var(--run); }
+.history-source { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.history-source:last-child { border: 0; }
+.history-source-label, .history-model { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
+.history-source-track { height: 4px; border-radius: 2px; overflow: hidden; background: var(--bg-raised); margin-top: 10px; }
+.history-source-track > span { display: block; height: 100%; background: var(--tab-line); }
+.history-sessions, .history-models { margin-top: var(--space-6); }
+.history-table-scroll { overflow-x: auto; }
+.history-table-scroll:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 2px; }
+.history-table { width: 100%; min-width: 640px; border-collapse: collapse; text-align: left; font-size: 12px; }
+.history-table th { font-size: 11px; font-weight: 500; color: var(--fg-2); padding: 10px; background: var(--bg-side); }
+.history-table td { padding: 14px 10px; border-bottom: 1px solid var(--line); }
+.history-numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.history-session.ui-button { padding: 0; color: var(--fg); min-height: 24px; text-align: left; justify-content: start; }
+.history-session.ui-button:hover { color: var(--accent); background: none; }
+.history-session-meta { font-size: 11px; color: var(--fg-2); margin-top: 3px; }
+.history-status { color: var(--fg-2); font-size: 10px; border-radius: 4px; padding: 3px 6px; background: var(--bg-raised); white-space: nowrap; }
+.history-status.partial { color: var(--wait); background: var(--wait-bg); }
+.history-status.complete { color: var(--done); background: var(--done-bg); }
+.history-empty { border: 1px dashed var(--line); border-radius: var(--r); padding: 32px; text-align: center; color: var(--fg-2); }
+.history-model { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.history-sessions > .ui-hint, .history-models > .ui-hint { margin-top: 14px; }
+.history-dialog .history-breakdown { margin: 18px 0; }
+.history-dialog .ui-form-body { overflow-wrap: anywhere; }
+@container (max-width: 650px) { .history-overview { grid-template-columns: 1fr; } .history-metric { padding: 14px; } .history-metric-value { font-size: 23px; } }
+@container (max-width: 440px) { .history-metrics { grid-template-columns: 1fr; } .history-metric { border-right: 0; border-bottom: 1px solid var(--line); } }

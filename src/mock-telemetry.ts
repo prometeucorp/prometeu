@@ -84,10 +84,20 @@ export function insights(filter: TelemetryFilter): TelemetryInsights {
     const observations = all.filter(event => event.turnId === start.turnId);
     const end = observations.slice().reverse().find(event => event.type === "turn.completed")
       ?? observations.slice().reverse().find(event => event.type === "turn.usage.observed");
-    const measurement = end && (end.type === "turn.completed" || end.type === "turn.usage.observed") ? end.payload.measurement : null;
+    const measurement = end && (end.type === "turn.completed" || end.type === "turn.usage.observed") ? end.payload.measurement
+      : start.type === "turn.started" ? start.payload.measurement : null;
     const usage = measurement?.usage ?? emptyUsage();
     addUsage(result.usage, usage);
-    if (start.conversationId) group(result.conversations, start.conversationId, start.provider, usage);
+    if (start.conversationId) {
+      group(result.conversations, start.conversationId, start.provider, usage);
+      const row = result.conversations.find(row => row.id === start.conversationId)!;
+      const coverage = row.coverage ??= { measuredTurns: 0, partialTurns: 0, unknownTurns: 0, mainAgentTurns: 0, wholeTreeTurns: 0 };
+      if (measurement?.complete && usage.inputTokens !== null && usage.outputTokens !== null) coverage.measuredTurns++;
+      else if (usage.inputTokens !== null || usage.outputTokens !== null) coverage.partialTurns++;
+      else coverage.unknownTurns++;
+      if (measurement?.usageScope === "wholeTree") coverage.wholeTreeTurns++;
+      else coverage.mainAgentTurns++;
+    }
     group(result.sources, "conversation", start.provider, usage);
     if (start.type === "turn.started") {
       if (start.payload.origin?.actionId) group(result.origins, "action", start.provider, usage);

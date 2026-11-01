@@ -170,6 +170,7 @@ pub enum SettingsSection {
     Resources,
     Actions,
     Work,
+    Analytics,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -1071,6 +1072,21 @@ mod tests {
 
     #[test]
     fn feature_vocabulary_accepts_only_authored_properties() {
+        for section in [
+            "general",
+            "agents",
+            "resources",
+            "actions",
+            "work",
+            "analytics",
+        ] {
+            let event =
+                parse(json!({"name": "settings_section_viewed", "section": section})).unwrap();
+            assert_eq!(
+                payload(event, "id", Duration::ZERO)["properties"]["section"],
+                section
+            );
+        }
         let fixtures: Vec<Value> =
             serde_json::from_str(include_str!("../tests/fixtures/product-analytics.json")).unwrap();
         for value in fixtures {

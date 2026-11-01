@@ -76,6 +76,21 @@ test("mock live capture is idempotent and deletion suppresses pending capture", 
   expect(mock.page({}).events).toEqual([]);
 });
 
+test("conversation coverage uses final or latest measurements and retains unknown turns", () => {
+  const [start, end] = mock.page({}).events;
+  if (end.type !== "turn.completed") throw new Error("Expected a completed fixture turn");
+  const partial = { ...end.payload.measurement, complete: false, usage: { ...end.payload.measurement.usage, outputTokens: null } };
+  localStorage.setItem("mock:telemetry", JSON.stringify([
+    start, { ...end, type: "turn.usage.observed", payload: { measurement: partial } },
+    { ...end, payload: { ...end.payload, measurement: { ...end.payload.measurement, usageScope: "wholeTree" } } },
+    { ...start, turnId: "partial" }, { ...end, turnId: "partial", type: "turn.usage.observed", payload: { measurement: partial } },
+    { ...start, turnId: "unknown", payload: { measurement: { ...partial, usage: { ...partial.usage, inputTokens: null, outputTokens: null } } } },
+  ]));
+  expect(mock.insights({}).conversations[0]).toMatchObject({ turns: 3, coverage: {
+    measuredTurns: 1, partialTurns: 1, unknownTurns: 1, mainAgentTurns: 2, wholeTreeTurns: 1,
+  } });
+});
+
 test("mock insights preserve partial observations and separate app-call consumption", () => {
   const records = mock.page({}).events;
   const last = records[1];

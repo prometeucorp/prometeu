@@ -35,6 +35,7 @@ Run Claude Code, Codex, Cursor CLI and Antigravity agents in parallel — each i
 - **Terminal sessions:** shells of their own in the sidebar, started in your home or any folder without a project or workspace, kept across restarts (macOS and Linux).
 - **Tasks:** Filter Linear and GitHub issues and pull requests, then start a workspace. PR status and notifications keep follow-up visible.
 - **Persistent conversations:** resume stopped agents and inspect local token and cost history.
+- **Usage (macOS and Linux):** filter local consumption by period and workspace, inspect token composition and session details in Settings / Analytics. Provider-reported costs and missing measurements stay explicit.
 - **Optional collaboration:** share encrypted conversations and continue from companion devices while execution stays on the owner's Mac.
 - **English and Portuguese UI**, with dictation on macOS.
 

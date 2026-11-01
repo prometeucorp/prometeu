@@ -111,7 +111,7 @@ The generated catalog defines all property types. This table defines meaning:
 | `preview_opened`, `browser_context_attached`, `preview_capture_created` | Opening preview from another view, attaching inspected context or creating a capture; no URL, HTML or image is sent |
 | `dictation_started`, `dictation_text_inserted` | Recognition starts, then the first final transcript insertion per dictation session; interim text is not counted or transmitted |
 | `action_used` | Expanding a prompt action into the draft or successfully starting an agent action |
-| `settings_section_viewed`, `settings_search_used` | Entering a settings page or beginning a nonempty settings search; not every redraw or keystroke |
+| `settings_section_viewed`, `settings_search_used` | Entering General, Agents, Resources, Actions, Work and team or Analytics, or beginning a nonempty settings search; not every redraw or keystroke |
 | `preference_changed` | An explicit change to one of the allowed preference categories |
 | `resource_action_used` | Resource save/remove/install/update/copy/share or an explicit authentication/check/discovery/generation operation; a check may report a failed probe, and generation records job acceptance |
 | `resource_selection_changed` | Changing resource defaults, global selection or a workspace selection; enabling does not prove resource execution |
