@@ -10,6 +10,7 @@ import { requestCard } from "./chat/requests";
 import { pendingCard } from "./chat/pending";
 import { composer, attachmentChip } from "./chat/composer";
 import { contextGauge, openUsagePanel } from "./chat/usage";
+import { usageHistoryView } from "./usage-history";
 import * as menu from "./menu";
 import { renderUserMessage, browserContextChip, inputView, contextPanel } from "./chat/content";
 import { gitFileRow } from "./git/file-row";
@@ -41,6 +42,22 @@ const reviewSample = (): ReviewNote => ({ id: "example-note", revision: 1,
   body: "Use the configured value and preserve the current behavior.", state: "draft", sent: null, created: 1, updated: 1 });
 
 export const stories: Record<string, Factory> = {
+  "usage-history"(state) {
+    const view = usageHistoryView();
+    const empty = state === "empty", partial = state === "partial";
+    const tokens = empty ? "—" : "120,000";
+    view.update({
+      metrics: [{ label: t("history.tokens"), value: tokens }, { label: t("history.cost"), value: "—", note: t("usage.costHint") }, { label: t("history.sessions"), value: empty ? "0" : "1" }],
+      inputShare: empty ? null : 90,
+      tokens: [{ label: t("history.input"), value: empty ? "—" : "108,000", kind: "input" }, { label: t("usage.cacheRead"), value: empty ? "—" : "80,000", kind: "subset" }, { label: t("history.output"), value: empty ? "—" : "12,000", kind: "output" }],
+      sources: empty ? [] : [{ label: t("usage.source.conversation"), value: tokens, share: 100 }],
+      sessions: empty ? [] : [{ id: "example", title: "Review the protocol parser", workspace: "Desktop experience", provider: "Example provider", turns: "2", tokens, cost: "—",
+        status: partial ? "partial" : "complete", coverage: t(partial ? "history.partial" : "history.complete"),
+        details: [{ label: t("history.input"), value: "108,000" }, { label: t("history.output"), value: "12,000" }], notes: [t("usage.mainAgent")] }], models: [],
+    });
+    view.root.style.containerType = "inline-size";
+    return view;
+  },
   "context-gauge"(state, report) {
     const gauge = contextGauge();
     const used = state === "hot" ? "180k" : state === "warn" ? "140k" : "24k";

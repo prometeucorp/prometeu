@@ -16,8 +16,10 @@ The Rust backend captures product transitions and observed execution locally.
 The feature includes indexed event pages, period/workspace summaries, PR-related
 queries, exact reply lookup, workspace/model/source breakdowns, JSONL export and
 complete history deletion. Completed replies and workspace headers expose usage;
-Settings retains **Work and team / Local history**. Cloud sync, billing, pricing,
-organization analytics, transcript backfill and a full Insights page are absent.
+Settings / **Analytics** contains the Usage screen, with
+period/workspace filters, token composition, source totals, ranked sessions,
+session details and observed models. Cloud sync, billing, pricing, tool-call
+rankings, organization analytics and transcript backfill are absent.
 
 - Adapters normalize measurements. Native usage objects do not cross the store
   boundary. `usage.updated` remains account quota data; `Tab.tokens` remains a
@@ -63,7 +65,7 @@ workspace/repository/PR relation do not create another association.
 | `category` | `journey` or `work`, derived from the closed event discriminant |
 | `type` | Closed event discriminant |
 | `projectId`, `workspaceId`, `conversationId`, `turnId` | Opaque scope IDs; unknown is null |
-| `provider` | `claude`, `codex`, `antigravity`, or null |
+| `provider` | `claude`, `codex`, `antigravity`, `cursor`, or null |
 | `payload` | Event-specific typed JSON, never arbitrary native properties |
 
 Time, workspace/time, turn and execution/request indexes support lookups. Existing
@@ -294,6 +296,16 @@ Typed IPC and the browser mock expose:
   qualified PR rows. Counts are
   summed once; aggregate context occupancy/window are null and peak context is
   a maximum. A conversation changing provider remains one conversation.
+  Conversation groups additionally contain `coverage` with `measuredTurns`,
+  `partialTurns`, `unknownTurns`, `mainAgentTurns` and `wholeTreeTurns`. The first
+  three are disjoint: complete input/output totals, some known consumption, or
+  neither side known. The scope counts reflect each selected measurement's scope;
+  they do not allocate consumption between parent and child agents. Each start
+  contributes once through its final or latest measurement, including a terminal
+  outside the period. Other group types omit `coverage`; older backends may omit
+  it on conversations too. Consumers keep those rows usable without claiming
+  complete coverage or a known scope. This is an additive query result, without
+  a stored event or database migration.
 - `telemetry_turns({ conversation, messageIds })`: at most 500 requested assistant
   IDs, returning only exact completed matches with duration and usage. The store
   contains SHA-256 of conversation UUID, a NUL separator and assistant ID, not
@@ -327,10 +339,27 @@ anomalies. Settings resolves current workspace names from the board, with a
 localized fallback for missing entries. It reads one insights snapshot so its
 known consumption includes app calls, including global plugin-maker calls when
 no workspace filter is selected. It offers period/workspace filters,
-refresh, export and confirmed deletion without a large dashboard. `workspaceIds`
+refresh, export and confirmed deletion. The Usage screen uses known input plus
+known output, without adding cache or reasoning again, and keeps unavailable
+values distinct from measured zero. It does not show collection-count fractions,
+headline completion coverage, explanatory paragraphs below the token/source
+panels, or the former known-value/included-in-total badges. Session rows retain
+measurement status and a read-only detail dialog. Observed model rows remain a
+partial view of the total; origin groups are not added to the source partition.
+Session names are resolved from current board tabs, with opaque-ID fallbacks.
+`workspaceIds`
 contains every retained workspace matching the PR relation, independent of the
 period and workspace selection. Refresh reloads names and options while keeping
 the selected workspace, including a fallback when it has disappeared.
+
+`src/telemetry-settings.ts` owns live invalidation and native actions;
+`src/usage-history.ts` maps snapshots to presentation and
+`src/components/usage-history.ts` renders the same view in Settings and the
+component gallery. Live updates preserve date/workspace controls, table scroll,
+focused session actions and open detail dialogs. Filter changes, deletion and
+retiring the Settings section invalidate outstanding reads and close old details.
+Pending export dialogs cannot publish a selection after history is cleared.
+Capture failure and storage errors remain distinct from a genuinely empty period.
 
 ## Privacy, retention and deletion
 

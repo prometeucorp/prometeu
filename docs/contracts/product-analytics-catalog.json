@@ -3062,6 +3062,12 @@
       ]
     },
     {
+      "target": "usage_history.details",
+      "sources": [
+        "src/components/usage-history.ts"
+      ]
+    },
+    {
       "target": "usage_history.export",
       "sources": [
         "src/telemetry-settings.ts"
@@ -3077,6 +3083,18 @@
       "target": "usage_history.refresh",
       "sources": [
         "src/telemetry-settings.ts"
+      ]
+    },
+    {
+      "target": "usage_history.reset",
+      "sources": [
+        "src/telemetry-settings.ts"
+      ]
+    },
+    {
+      "target": "usage_history.session",
+      "sources": [
+        "src/components/usage-history.ts"
       ]
     },
     {
@@ -3826,7 +3844,7 @@
     {
       "name": "settings_section_viewed",
       "properties": {
-        "section": "\"general\" | \"agents\" | \"resources\" | \"actions\" | \"work\""
+        "section": "\"general\" | \"agents\" | \"resources\" | \"actions\" | \"work\" | \"analytics\""
       }
     },
     {

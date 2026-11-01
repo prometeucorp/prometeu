@@ -88,6 +88,33 @@ pub struct UsageGroup {
     pub provider: Option<String>,
     pub turns: u64,
     pub usage: Usage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<ConversationCoverage>,
+}
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationCoverage {
+    pub measured_turns: u64,
+    pub partial_turns: u64,
+    pub unknown_turns: u64,
+    pub main_agent_turns: u64,
+    pub whole_tree_turns: u64,
+}
+impl ConversationCoverage {
+    fn observe(&mut self, measurement: &Measurement) {
+        let usage = &measurement.usage;
+        if measurement.complete && usage.input_tokens.is_some() && usage.output_tokens.is_some() {
+            self.measured_turns += 1;
+        } else if usage.input_tokens.is_some() || usage.output_tokens.is_some() {
+            self.partial_turns += 1;
+        } else {
+            self.unknown_turns += 1;
+        }
+        match measurement.usage_scope {
+            UsageScope::MainAgent => self.main_agent_turns += 1,
+            UsageScope::WholeTree => self.whole_tree_turns += 1,
+        }
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +165,7 @@ fn group(
             provider: provider.clone(),
             turns: 0,
             usage: Usage::default(),
+            coverage: None,
         }),
         Entry::Occupied(entry) => {
             let group = entry.into_mut();
@@ -526,6 +554,12 @@ impl Store {
                     &provider,
                     &measurement.usage,
                 );
+                conversations
+                    .get_mut(&conversation)
+                    .expect("conversation was grouped")
+                    .coverage
+                    .get_or_insert_with(ConversationCoverage::default)
+                    .observe(measurement);
             }
             model_groups(&mut models, &provider, measurement);
             if let Fact::TurnStarted { origin, .. } = start {

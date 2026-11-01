@@ -161,8 +161,15 @@ assembled from these parts with local callbacks and selectable states.
 
 ## Settings composition
 
+Analytics composes `components/usage-history.ts` from shared headers,
+buttons and the read-only form-dialog pattern. Its gallery entry is
+`/design-system.html?component=usage-history&state=ready&embed=1`, with ready,
+empty and partial states. `telemetry-settings.ts` retains filters and the view
+across Settings redraws; query invalidation and erasure remain in that host.
+The component consumes formatted snapshots without IPC or provider imports.
+
 `src/settings.ts` groups preferences into General, Agents, Resources, Actions,
-and Work and team. Navigation keeps the compact, neutral sidebar; settings
+Work and team, and Analytics. Navigation keeps the compact, neutral sidebar; settings
 search sits in the content header. `src/settings.css` defines composition and
 overrides some control dimensions; base Settings styles also remain in
 `src/style.css`. Shared primitives coexist with legacy controls; Actions keeps

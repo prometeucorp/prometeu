@@ -2,7 +2,7 @@ import type { ProviderId } from "./types";
 
 /** Product actions, distinct from control activations. Keep the Rust vocabulary and tracking plan aligned. */
 export type FeatureEvent =
-  | { name: "settings_section_viewed"; section: "general" | "agents" | "resources" | "actions" | "work" }
+  | { name: "settings_section_viewed"; section: "general" | "agents" | "resources" | "actions" | "work" | "analytics" }
   | { name: "settings_search_used" }
   | { name: "preference_changed"; setting: "language" | "dictation_language" | "default_model" | "default_effort" | "notifications" }
   | { name: "resource_action_used"; kind: "mcp" | "plugin" | "skill"; action: "save" | "remove" | "install" | "update" | "copy" | "share" | "authenticate" | "disconnect" | "check" | "discover" | "generate" }

@@ -37,7 +37,10 @@ export type TelemetryEvent = TelemetryFact & {
   turnId: string | null; provider: string | null;
 };
 export type TelemetryPage = { events: TelemetryEvent[]; next: TelemetryCursor | null; health: TelemetryHealth };
-export type UsageGroup = { id: string; provider: string | null; turns: number; usage: TelemetryUsage };
+export type ConversationCoverage = { measuredTurns: number; partialTurns: number; unknownTurns: number; mainAgentTurns: number; wholeTreeTurns: number };
+export type UsageGroup = { id: string; provider: string | null; turns: number; usage: TelemetryUsage;
+  /** Additive query metadata; older backends and non-conversation groups omit it. */
+  coverage?: ConversationCoverage };
 export type PullRequestUsage = { repositoryId: string; branchId: string | null; pullRequest: number;
   turns: number | null; usage: TelemetryUsage; attribution: "tenure" | "related" };
 export type TelemetryInsights = { summary: TelemetrySummary; usage: TelemetryUsage; conversations: UsageGroup[];

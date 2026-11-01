@@ -270,6 +270,16 @@ fn insights_group_final_measurements_without_inventing_models_or_context_totals(
     assert_eq!(result.conversations[0].id, conversation);
     assert_eq!(result.conversations[0].provider, None);
     assert_eq!(result.conversations[0].turns, 2);
+    let coverage = result.conversations[0].coverage.as_ref().unwrap();
+    assert_eq!(coverage.measured_turns, 1);
+    assert_eq!(coverage.partial_turns, 1);
+    assert_eq!(coverage.unknown_turns, 0);
+    assert_eq!(coverage.main_agent_turns, 2);
+    assert_eq!(coverage.whole_tree_turns, 0);
+    // Query metadata is additive; existing group fields and stored events keep their shape.
+    let wire = serde_json::to_value(&result).unwrap();
+    assert_eq!(wire["conversations"][0]["coverage"]["measuredTurns"], 1);
+    assert!(wire["sources"][0].get("coverage").is_none());
     assert_eq!(result.models.len(), 1);
     assert_eq!(result.models[0].id, "observed");
     assert_eq!(result.models[0].usage.output_tokens, None);
@@ -298,6 +308,90 @@ fn insights_group_final_measurements_without_inventing_models_or_context_totals(
             .usage
             .input_tokens,
         None
+    );
+}
+
+#[test]
+fn conversation_coverage_counts_unknown_starts_and_latest_scopes_once() {
+    let dir = Temp::new();
+    let mut service = Service::new(dir.0.clone());
+    let store = service.store.as_mut().unwrap();
+    let mut scope = scope();
+    for index in 0..3 {
+        scope.turn_id = Some(id());
+        append(
+            store,
+            &scope,
+            10 + index,
+            Fact::TurnStarted {
+                origin: Origin::default(),
+                measurement: Measurement::default(),
+            },
+        );
+        if index == 0 {
+            continue;
+        }
+        append(
+            store,
+            &scope,
+            20 + index,
+            Fact::UsageObserved {
+                measurement: Measurement {
+                    usage: Usage {
+                        input_tokens: Some(10),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            },
+        );
+        if index == 2 {
+            append(
+                store,
+                &scope,
+                100,
+                Fact::TurnCompleted {
+                    outcome: Outcome::Ok,
+                    elapsed_ms: 88,
+                    provider_duration_ms: None,
+                    message_key: None,
+                    measurement: Measurement {
+                        complete: true,
+                        usage_scope: UsageScope::WholeTree,
+                        usage: Usage {
+                            input_tokens: Some(100),
+                            output_tokens: Some(20),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                },
+            );
+        }
+    }
+    let result = service
+        .queries()
+        .insights(&Filter {
+            from: Some(10),
+            to: Some(13),
+            ..Default::default()
+        })
+        .unwrap();
+    let row = &result.conversations[0];
+    assert_eq!(row.turns, 3);
+    assert_eq!(row.usage.input_tokens, Some(110));
+    let coverage = row.coverage.as_ref().unwrap();
+    assert_eq!(
+        (
+            coverage.measured_turns,
+            coverage.partial_turns,
+            coverage.unknown_turns
+        ),
+        (1, 1, 1)
+    );
+    assert_eq!(
+        (coverage.main_agent_turns, coverage.whole_tree_turns),
+        (2, 1)
     );
 }
 

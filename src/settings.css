@@ -76,7 +76,12 @@
 .typesafe-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .typesafe-key > .ui-password { flex: 1 1 220px; min-width: 0; }
 
-.telemetry-settings { padding: var(--space-4); }
+.telemetry-settings { padding: 0; container-type: inline-size; }
 .telemetry-controls { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
-.telemetry-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-4); }
-.telemetry-summary dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.telemetry-settings > .desktop-section-header { margin-bottom: var(--space-4); }
+.telemetry-settings > .telemetry-controls { padding: var(--space-4) 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.telemetry-controls > .ui-field { flex: 1 1 140px; }
+.telemetry-controls > .ui-field:nth-child(3) { flex-grow: 2; }
+.telemetry-status:empty { display: none; }
+.telemetry-status { margin-top: var(--space-3); }
+.telemetry-settings > .telemetry-actions { margin-top: var(--space-6); border-bottom: 0; }

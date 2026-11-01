@@ -32,6 +32,17 @@ Windows/WSL has no GitHub command implementation yet.
 
 ## Local telemetry foundation
 
+Settings / Analytics now uses the reviewed Usage screen.
+`src/usage-history.test.ts`, `src/telemetry-settings.test.ts`,
+`src/telemetry.test.ts` and native telemetry tests cover inclusive totals,
+session coverage, unknown values, query cohorts, stale reads and deletion.
+The additional Settings browser scenario in `e2e/usage-insights.spec.ts` protects
+live detail updates, keyboard focus and horizontal scrolling in Chromium/WebKit;
+DOM replacement and WebKit's overflow focus require browser evidence, which the
+pure mapping/controller tests cannot provide. Provider measurement capabilities
+remain unchanged. Remaining work is in the
+[improvement proposal](telemetry-improvements.md).
+
 [ADR 0059](../decisions/0059-local-telemetry-foundation.md) adds the same local
 capture/store/settings path for all providers. Main completion remains separate
 from the conversation settlement rule in ADR 0056.
@@ -47,6 +58,7 @@ from the conversation settlement rule in ADR 0056.
 | Context meter/actions | Observed main-call input and reported model window; explicit compact/report/new conversation | Last input and model window; explicit compact/report/new conversation | Hidden without a reported window |
 | Cache rebuild signal | Deduplicated calls with known preceding context and cache-write evidence | Unknown without reliable distinct-call evidence | Only if distinct-step cache-write evidence exists; otherwise unknown |
 | Reply footers/workspace summaries | Canonical usage; local hashed lookup restores native transcript footer | Canonical usage; no invented price | Canonical observed usage; no invented price |
+| Usage screen and session details | Known tokens, cache, conditional cost/model rows and coverage | Known tokens, cache/reasoning and coverage; cost/models remain unknown | Known step/turn usage and coverage; missing fields stay unknown |
 | App-call source | Naming and plugin maker, separately measured | Naming, separately measured | No app-initiated model call |
 
 `telemetry/tests.rs`, the adapters' `telemetry_*` tests and
