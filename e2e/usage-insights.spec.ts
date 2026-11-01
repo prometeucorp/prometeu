@@ -1,7 +1,8 @@
 import { expect, test } from "./fixtures";
 
 // Live query updates replace session rows while a read-only dialog remains open. Native dialog
-// focus restoration and WebKit overflow keyboard behavior need real browser verification.
+// focus restoration, accessible names after renaming and WebKit overflow keyboard behavior
+// need real browser verification.
 test("@webkit usage history preserves session details and focus across live updates", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("prometeu:idioma", "en"));
   await page.goto("/");
@@ -30,8 +31,16 @@ test("@webkit usage history preserves session details and focus across live upda
   await page.keyboard.press("Tab");
   const close = detail.getByRole("button", { name: "Close", exact: true });
   await expect(close).toBeFocused();
+  await page.evaluate(async () => {
+    const app = window as unknown as { __TAURI_INTERNALS__: { invoke(command: string, args?: unknown): Promise<unknown> } };
+    const board = await app.__TAURI_INTERNALS__.invoke("load_board") as import("../src/types").Board;
+    const workspace = board.workspaces.find(item => item.tabs.some(tab => tab.id === "t1"))!;
+    await app.__TAURI_INTERNALS__.invoke("rename_tab", { workspace: workspace.id, tab: "t1", title: "Renamed usage session" });
+  });
   await complete("history-second", 200);
   await expect(detail.locator("dd").first()).toHaveText("300");
+  await expect(detail.locator(".sheettop b")).toHaveText("Renamed usage session");
+  await expect(detail).toHaveAccessibleName("Renamed usage session");
   await expect(close).toBeFocused();
   await close.press("Escape");
   await expect(detail).toBeHidden();

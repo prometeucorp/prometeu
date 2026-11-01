@@ -21,7 +21,7 @@
     "test": "npm run test:release && npm run test:web && npm run test:rust && npm run test:e2e",
     "test:release": "node scripts/unix-only.mjs check:windows && python3 scripts/test_release.py",
     "test:web": "vitest run",
-    "test:scripts": "node --test scripts/app.test.mjs scripts/wsl-app.test.mjs",
+    "test:scripts": "node --test scripts/app.test.mjs scripts/wsl-app.test.mjs scripts/telemetry-preview.test.mjs",
     "test:contracts": "node scripts/check-contracts.mjs && vitest run src/backend-contract.test.ts src/conversation.test.ts",
     "contracts:update": "node scripts/update-contracts.mjs",
     "test:e2e": "playwright test",

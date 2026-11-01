@@ -30,6 +30,8 @@ export function usageHistoryView() {
 
   function detailBody(session: HistorySession) {
     if (!detail) return;
+    detail.dialog.root.querySelector(".sheettop b")!.textContent = session.title;
+    detail.dialog.root.setAttribute("aria-label", session.title);
     const list = h("dl", "history-breakdown");
     for (const metric of session.details) list.append(h("dt", "", metric.label), h("dd", "", metric.value));
     detail.dialog.body.replaceChildren(h("p", "ui-hint", [session.workspace, session.provider].filter(Boolean).join(" · ")),

@@ -37,7 +37,7 @@ Settings / Analytics now uses the reviewed Usage screen.
 `src/telemetry.test.ts` and native telemetry tests cover inclusive totals,
 session coverage, unknown values, query cohorts, stale reads and deletion.
 The additional Settings browser scenario in `e2e/usage-insights.spec.ts` protects
-live detail updates, keyboard focus and horizontal scrolling in Chromium/WebKit;
+live detail and accessible-name updates, keyboard focus and horizontal scrolling in Chromium/WebKit;
 DOM replacement and WebKit's overflow focus require browser evidence, which the
 pure mapping/controller tests cannot provide. Provider measurement capabilities
 remain unchanged. Remaining work is in the
