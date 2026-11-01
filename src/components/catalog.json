@@ -1,5 +1,13 @@
 [
   {
+    "id": "code-map",
+    "name": "codeMapView",
+    "source": "src/components/code-map.ts",
+    "exports": ["codeMapView"],
+    "consumers": ["src/workspace-code-map.ts"],
+    "states": ["ready", "search", "empty", "loading", "error", "bounded", "large"]
+  },
+  {
     "id": "context-gauge",
     "name": "contextGauge",
     "source": "src/components/chat/usage.ts",

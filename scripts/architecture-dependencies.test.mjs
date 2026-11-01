@@ -143,6 +143,11 @@ test("Desktop components reject transport and direct storage effects", () => {
   }
 });
 
+test("Cytoscape stays confined to the Code Map renderer", () => {
+  assert.deepEqual(check({ "src/components/code-map.ts": 'import cytoscape from "cytoscape";' }), []);
+  assert.match(check({ "src/components/code-map-model.ts": 'import cytoscape from "cytoscape";' }).join("\n"), /forbidden dependency cytoscape/);
+});
+
 test("dotted source basenames remain part of transitive dependency checks", () => {
   assert.match(check({
     "src/team-member.ts": 'import "./labels.en";',

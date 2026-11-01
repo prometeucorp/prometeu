@@ -1,5 +1,21 @@
 //! Project file access; each host supplies the root representation and native implementation.
 use serde::{Deserialize, Serialize};
+
+/// Map requests address only locally registered roots that are ready for file access.
+pub fn code_map_root<'a>(board: &'a crate::board::Board, id: &str) -> Result<&'a str, String> {
+    if let Some(workspace) = board.workspace(id) {
+        return (!workspace.cleaned && !workspace.preparing && workspace.failed.is_none())
+            .then_some(workspace.worktree.as_str())
+            .ok_or_else(|| crate::error::code("err.session.noWorkspace"));
+    }
+    board
+        .projects
+        .iter()
+        .find(|project| project.id == id)
+        .map(|project| project.path.as_str())
+        .ok_or_else(|| crate::error::code("err.session.noWorkspace"))
+}
+
 pub const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
 pub const FILE_BLOCK_BYTES: usize = 256 * 1024;
 
@@ -54,4 +70,39 @@ pub trait ProjectSearch: Send + Sync {
         recent: &[String],
         files: bool,
     ) -> Vec<Entry>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_map_admits_only_ready_local_workspaces_and_registered_projects() {
+        let mut board: crate::board::Board = serde_json::from_value(serde_json::json!({
+            "stages":["Working"],
+            "projects":[{"id":"project","name":"Project","path":"/local/project"}],
+            "workspaces":[{
+                "id":"workspace","title":"Task","repo":"/local/project","repo_name":"Project",
+                "branch":"task","worktree":"/local/worktree","stage":"Working"
+            }]
+        }))
+        .unwrap();
+        assert_eq!(
+            code_map_root(&board, "workspace").unwrap(),
+            "/local/worktree"
+        );
+        assert_eq!(code_map_root(&board, "project").unwrap(), "/local/project");
+        for id in ["remote-workspace", "/outside", "/local/worktree"] {
+            assert!(code_map_root(&board, id).is_err());
+        }
+        board.workspaces[0].cleaned = true;
+        assert!(code_map_root(&board, "workspace").is_err());
+        board.workspaces[0].cleaned = false;
+        board.workspaces[0].preparing = true;
+        assert!(code_map_root(&board, "workspace").is_err());
+        board.workspaces[0].preparing = false;
+        board.workspaces[0].failed = Some("preparation failed".into());
+        assert!(code_map_root(&board, "workspace").is_err());
+        assert_eq!(code_map_root(&board, "project").unwrap(), "/local/project");
+    }
 }

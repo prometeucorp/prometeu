@@ -14,6 +14,7 @@ import type { TeamConfig, Organization } from "./team";
 
 /** The frontend and browser mock share this contract. Rust remains the wire authority. */
 export type Commands = {
+  workspace_code_map: { args: import("./code-map-types").CodeMapRequest; result: import("./code-map-types").CodeMapSnapshot };
   analytics_track: { args: { event: import("./analytics").AnalyticsEvent }; result: void };
   analytics_enabled: { args: undefined; result: boolean };
   analytics_needs_consent: { args: undefined; result: boolean };

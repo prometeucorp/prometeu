@@ -47,6 +47,8 @@ import { $, debounce, h, template } from "./util";
 import * as viewer from "./viewer";
 import * as changesUi from "./workspace-changes";
 import { WorkspaceUsage, announceWorkspaceUsage } from "./workspace-usage";
+import { WorkspaceCodeMap } from "./workspace-code-map";
+import type { CodeMapRoot } from "./code-map-types";
 
 /// Coordinate workspace breadcrumbs, tabs, center views, and the side panel.
 
@@ -70,6 +72,7 @@ let navigation = 0;
 const gitRefresh = new GitRefreshPolicy();
 const turns = new TurnSettlePolicy();
 let usage: WorkspaceUsage;
+let codeMap: WorkspaceCodeMap;
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -80,6 +83,11 @@ const stillHere = (epoch: number, id: string) => navigation === epoch && openWs 
 export function init(context: Ctx) {
   ctx = context;
   usage = new WorkspaceUsage();
+  codeMap = new WorkspaceCodeMap({
+    expanded: value => $("side").classList.toggle("map-expanded", value),
+    openSource: (root, path, line) => void openMapSource(root, path, line),
+  });
+  $("code-map").append(codeMap.root);
   $("prsplit").before(usage.root);
   changesUi.init({
     workspace: current,
@@ -125,6 +133,8 @@ export function init(context: Ctx) {
   });
 
   $("tab-files").addEventListener("click", () => setSidePane("files"));
+  $("tab-map").addEventListener("click", () => setSidePane("map"));
+  $("sidetoggle").addEventListener("click", () => queueMicrotask(syncCodeMap));
   $("tab-diff").addEventListener("click", () => {
     // Clicking the already-selected Changes panel restores its center diff after the tab was closed.
     if (sidePane === "diff") changesUi.show();
@@ -179,6 +189,7 @@ export async function open(ws: Workspace, tab?: string) {
   // A terminal session left this way keeps running, but it is no longer on screen.
   shellSession = null;
   if (tab && openWs === ws.id) return selectTab(ws.id, tab);
+  codeMap.hide();
   const epoch = ++navigation;
   // Direct workspace switching bypasses leave; hide the previous native webview here.
   browser.hide();
@@ -262,6 +273,7 @@ export function leave() {
   session.detach();
   invoke("look_at", { id: null });
   sidebar.setOpen((openWs = null));
+  codeMap.hide();
   $("wsView").hidden = true;
   $("wsctl").hidden = true;
 }
@@ -405,12 +417,14 @@ function layout(parts: Parts) {
   $("side").hidden = !parts.side;
   $("sidetoggle").hidden = !parts.side;
   $("tab-files").hidden = !parts.files;
-  $("collapse").hidden = !parts.files;
+  $("collapse").hidden = !parts.files || sidePane !== "files";
   $("reveal").hidden = !parts.files;
   $("tab-diff").hidden = !parts.changes;
+  $("tab-map").hidden = !parts.files;
   // Diff state enables Review; mode changes only disable it when Changes is unavailable.
   if (!parts.changes) $("review").hidden = true;
   $("dock").hidden = !parts.dock;
+  syncCodeMap();
 }
 
 /// People who may act beyond viewing and commenting, local or announced by a remote owner (ADR 0090).
@@ -1120,12 +1134,13 @@ export async function openFile(path: string) {
   if (proj) return openProjectFile(path);
   const ws = current();
   if (!ws) return;
+  const epoch = navigation;
   const fs = files(ws.id);
   const opened = fs.active !== path || $("viewer").hidden;
   if (!fs.open.includes(path)) fs.open.push(path);
   fs.active = path;
   await showFile(opened);
-  drawTabs(ws);
+  if (stillHere(epoch, ws.id)) drawTabs(ws);
 }
 
 /// Command-P lists the open workspace's or project's files by name. Remote shares have no local
@@ -1187,6 +1202,7 @@ function restoreBrowserSide() {
   if (sideBeforeBrowser === null) return;
   document.body.classList.toggle("noside", sideBeforeBrowser);
   sideBeforeBrowser = null;
+  syncCodeMap();
 }
 
 /// Give the conversation and preview the center width while retaining the previous panel state.
@@ -1204,6 +1220,7 @@ export async function showWeb() {
   if (sideBeforeBrowser === null) {
     sideBeforeBrowser = document.body.classList.contains("noside");
     document.body.classList.add("noside");
+    codeMap.hide();
   }
   fs.active = null;
   fs.diff = false;
@@ -1388,6 +1405,7 @@ async function loadChanges(id: string) {
 }
 
 export function fileSaved(id: string) {
+  if (root() === id) codeMap.refresh();
   const ws = current();
   if (ws?.id === id && diffable(ws) && background.foreground(background.currentOrDocument())) {
     reloadChanges(id);
@@ -1428,11 +1446,11 @@ export function openProject(project: Project) {
   crumb.innerHTML = `${avatar(project.name)}<span class="who"></span>`;
   crumb.querySelector<HTMLElement>(".who")!.textContent = project.name;
   // Project-only mode keeps file controls and tabs while hiding conversation, changes, and comments.
+  setSidePane("files");
   layout({ tabs: true, side: true, files: true });
   $("tab-comments").hidden = true;
   dockbar.reset(false);
   document.body.classList.remove("noside");
-  setSidePane("files");
   drawProjectTabs();
   void showProjectFile();
 }
@@ -1537,8 +1555,9 @@ async function closeProjectFile(path: string) {
 
 /* Side panel. */
 
-type Pane = "files" | "diff" | "comments";
+type Pane = "files" | "diff" | "comments" | "map";
 let sidePane: Pane = "files";
+let mapSourceRequest = 0;
 
 function setSidePane(pane: Pane) {
   const changed = sidePane !== pane;
@@ -1546,13 +1565,38 @@ function setSidePane(pane: Pane) {
   $("tab-files").classList.toggle("on", pane === "files");
   $("tab-diff").classList.toggle("on", pane === "diff");
   $("tab-comments").classList.toggle("on", pane === "comments");
+  $("tab-map").classList.toggle("on", pane === "map");
   $("tree").hidden = pane !== "files";
   $("difflist").hidden = pane !== "diff";
   $("comments").hidden = pane !== "comments";
+  $("code-map").hidden = pane !== "map";
+  $("collapse").hidden = pane !== "files" || $("tab-files").hidden;
+  for (const name of ["files", "diff", "comments", "map"] as const) {
+    $("tab-" + name).setAttribute("aria-pressed", String(pane === name));
+  }
   $("side").classList.toggle("comments-open", pane === "comments");
   if (pane === "files") tree.redraw();
   if (changed && pane === "diff" && hasDiff()) reloadChanges(openWs!);
   if (pane === "comments") notes.draw();
+  syncCodeMap();
+}
+
+function syncCodeMap() {
+  const id = root();
+  const ws = current();
+  const available = !!proj || (!!ws && !ws.remote && !ws.cleaned && !pending(ws));
+  if (codeMap && id && available && sidePane === "map" && !$("side").hidden && !document.body.classList.contains("noside")) codeMap.show(id);
+  else codeMap?.hide();
+}
+
+async function openMapSource(selected: CodeMapRoot, path: string, line: number) {
+  const id = root();
+  const epoch = navigation;
+  const request = ++mapSourceRequest;
+  if (!id) return;
+  const relative = selected.relative ? `${selected.relative}/${path}` : path;
+  await openFile(relative);
+  if (request === mapSourceRequest && root() === id && navigation === epoch) viewer.goToLine(id, relative, line);
 }
 
 function openComments() {

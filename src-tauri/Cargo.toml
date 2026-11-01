@@ -11,6 +11,14 @@ default-run = "Prometeu"
 members = ["crates/oauth", "crates/git", "crates/files", "crates/core", "crates/process", "crates/profiles", "crates/tools", "crates/protocols", "crates/runtime", "crates/bridge", "crates/wsl-desktop"]
 resolver = "2"
 
+# Whole-worktree parsing and graph resolution must stay interactive in development too.
+# Keep the host unoptimized and retain debug symbols; optimize the engine and syntax parser.
+[profile.dev.package.prometeu-search]
+opt-level = 2
+
+[profile.dev.package.tree-sitter]
+opt-level = 2
+
 [[bin]]
 name = "Prometeu"
 path = "src/main.rs"

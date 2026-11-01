@@ -334,3 +334,40 @@ fn cursor_encodes_hub_transports_through_acp_without_a_type_switch() {
         prometeu_core::error::with_args("err.mcp.unsupported", &[("id", "linear".into())])
     );
 }
+
+#[test]
+fn bundled_search_overrides_preserve_native_codex_servers_and_quote_paths() {
+    let server = server(
+        "prometeu-search-0123",
+        json!({"command":"/Applications/Prometeu App", "args":["--prometeu-search-mcp", "/work/a\"b", "/cache/graph.db"]}),
+    );
+    let overrides = codex_search_overrides(std::slice::from_ref(&server)).unwrap();
+    assert_eq!(overrides.len(), 1);
+    let config: toml::Value = toml::from_str(&format!(
+        "mcp_servers.native.command = \"native-tool\"\n{}",
+        overrides[0]
+    ))
+    .unwrap();
+    assert_eq!(
+        config["mcp_servers"]["native"]["command"].as_str(),
+        Some("native-tool")
+    );
+    let search = &config["mcp_servers"]["prometeu-search-0123"];
+    assert_eq!(
+        search["command"].as_str(),
+        Some("/Applications/Prometeu App")
+    );
+    assert_eq!(search["args"][1].as_str(), Some("/work/a\"b"));
+    assert_eq!(search["startup_timeout_sec"].as_integer(), Some(120));
+    assert_eq!(search["tool_timeout_sec"].as_integer(), Some(120));
+    let acp = acp_server(&server, None).unwrap();
+    assert_eq!(acp["name"], "prometeu-search-0123");
+    assert_eq!(acp["args"], server.config["args"]);
+
+    let mut invalid = server.clone();
+    invalid.id = "prometeu-search.other".into();
+    assert!(codex_search_overrides(&[invalid]).is_err());
+    let mut invalid = server;
+    invalid.config["env"] = json!({"TOKEN":"secret"});
+    assert!(codex_search_overrides(&[invalid]).is_err());
+}

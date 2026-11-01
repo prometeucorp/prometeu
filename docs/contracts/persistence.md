@@ -52,6 +52,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
 | derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
+| derived code-search graphs | `<root>/search/v<engine-schema>/<canonical-root-hash>/index.sqlite` | `prometeu-tools::search` and the bundled engine; private source snapshots, retained after workspace removal; see [code search](code-search.md) |
 
 Catalog project installation reuses board Project records and stores local paths
 in `catalog.json` installation links. No credentials or paths enter the Cloud

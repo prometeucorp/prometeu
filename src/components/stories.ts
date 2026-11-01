@@ -23,6 +23,9 @@ import { t } from "../i18n";
 import { h } from "../util";
 import type { ToolBlock, Ask } from "../timeline";
 import type { RepoDiff } from "../types";
+import { codeMapView, type CodeMapViewState } from "./code-map";
+import { codeMapLabels } from "../code-map-labels";
+import type { CodeMapSnapshot } from "../code-map-types";
 
 export type Story = { root: HTMLElement; destroy?: () => void };
 type Factory = (state: string, report: (value: string) => void) => Story;
@@ -40,7 +43,58 @@ const reviewSample = (): ReviewNote => ({ id: "example-note", revision: 1,
   anchor: anchorSelection("example", "src/example.ts", "changes", "@@ -1 +1 @@\n-before\n+after", 2, 2),
   body: "Use the configured value and preserve the current behavior.", state: "draft", sent: null, created: 1, updated: 1 });
 
+function codeMapStory(mode: string, report: (value: string) => void): Story {
+  const count = mode === "large" ? 1000 : mode === "empty" ? 0 : 24;
+  const files = Array.from({ length: count }, (_, index) => ({ path: `src/${["session", "search", "providers", "protocols"][index % 4]}/module-${index}.ts`, language: "typescript", symbols: 3 }));
+  let data: CodeMapSnapshot = {
+    roots: [{ id: "example", label: "example-worktree", path: "/examples/worktree", relative: "" }], root_id: "example",
+    status: { generation: 4, last_indexed: 1_780_000_000, files: mode === "bounded" ? 2000 : count, symbols: count * 3, references: count * 2 },
+    overview: { generation: 4, files, edges: mode === "large"
+      ? files.flatMap((file, index) => Array.from({ length: 4 }, (_, offset) => ({ from: file.path, to: files[(index + offset + 1) % files.length].path, count: 2, uncertain: index % 5 === 0 })))
+      : files.slice(1).map((file, index) => ({ from: files[index].path, to: file.path, count: 2, uncertain: index % 5 === 0 })), truncated: mode === "bounded" },
+    result: null,
+  };
+  const context = (): NonNullable<CodeMapSnapshot["result"]> => ({
+    generation: 4, roots: [{ id: 1, name: "search", qualified_name: "search", path: files[1].path, start_line: 12 }],
+    files: [1, 2].map((index, position) => ({ path: files[index].path, symbols: [{ id: position + 1, name: position ? "prepare" : "search",
+      qualified_name: position ? "prepare" : "search", kind: "function", start_line: 12, end_line: 15, snippet_start_line: 12,
+      snippet: position ? "export function prepare() {\n  return tools();\n}" : "export function search(query: string) {\n  return prepare(query);\n}",
+      snippet_truncated: false, syntax_errors: false }] })),
+    edges: [{ from: 1, to: 2, target: "prepare", line: 13, kind: "call", resolution: "imported", confidence: "medium", ambiguous: false }],
+    path: [], impact: [], affected_tests: [], ambiguous: false, truncated: mode === "bounded",
+  });
+  if (mode === "search" || mode === "bounded") data.result = context();
+  let snapshot: CodeMapViewState = { data: mode === "loading" ? null : data, query: data.result ? "search" : "", loading: mode === "loading", error: mode === "error" ? t("ui.resourceFailure") : undefined };
+  const publish = () => view.update(snapshot);
+  let queryTimer = 0;
+  const view = codeMapView({ labels: codeMapLabels(), snapshot,
+    queryChanged: query => {
+      report(query); clearTimeout(queryTimer);
+      snapshot = { ...snapshot, query, loading: true, error: undefined }; publish();
+      queryTimer = window.setTimeout(() => {
+        data = { ...data, result: query && files.length ? context() : null };
+        snapshot = { ...snapshot, data, loading: false }; publish();
+      }, 250);
+    },
+    rootChanged: report,
+    inspect: path => {
+      report(path); data = { ...data, result: context() };
+      snapshot = { ...snapshot, data, query: path }; publish();
+    },
+    sync: () => {
+      report("sync"); data = { ...data, status: { ...data.status, last_indexed: (data.status.last_indexed ?? 0) + 60 } };
+      snapshot = { ...snapshot, data }; publish();
+    },
+    retry: () => { snapshot = { ...snapshot, data, loading: false, error: undefined }; publish(); },
+    openSource: (path, line) => report(`${path}:${line}`),
+    expandedChanged: expanded => { snapshot = { ...snapshot, expanded }; view.root.style.height = expanded ? "900px" : "720px"; publish(); },
+  });
+  view.root.style.height = "720px";
+  return { root: view.root, destroy: () => { clearTimeout(queryTimer); view.destroy(); } };
+}
+
 export const stories: Record<string, Factory> = {
+  "code-map": codeMapStory,
   "context-gauge"(state, report) {
     const gauge = contextGauge();
     const used = state === "hot" ? "180k" : state === "warn" ? "140k" : "24k";

@@ -120,6 +120,10 @@ fn recorded_tools_streaming_and_turns_survive_native_resume_without_replay_dupli
                 .as_str()
                 .unwrap()
                 .contains("/fixture/worktree\nCURSOR_OK")));
+        assert!(events
+            .iter()
+            .filter(|event| event["type"] == "assistant.block" && event["block"]["kind"] == "tool")
+            .all(|event| event["block"]["name"] == "Bash"));
         assert!(events.iter().any(|e| e["type"] == "assistant.block"
             && e["block"]["kind"] == "text"
             && e["block"]["text"].as_str().unwrap().contains("CURSOR_OK")));
@@ -136,6 +140,64 @@ fn recorded_tools_streaming_and_turns_survive_native_resume_without_replay_dupli
             .write(&json!({"v":1,"type":"message.send","text":"Busy"}))
             .is_err());
     }
+}
+
+#[test]
+fn mcp_tool_updates_replace_placeholder_identity_and_preserve_completed_arguments() {
+    let (mut link, _) = ready(false);
+    let update = |link: &mut Link, value: Value| {
+        frame(
+            link,
+            json!({"jsonrpc":"2.0", "method":"session/update", "params":{"sessionId":"fixture-session", "update":value}}),
+        )
+    };
+    let initial = update(
+        &mut link,
+        json!({
+            "sessionUpdate":"tool_call", "toolCallId":"search", "kind":"other",
+            "title":"MCP: tool", "status":"pending", "rawInput":{}
+        }),
+    );
+    assert_eq!(initial[0]["block"]["name"], "MCP: tool");
+    let args = json!({"query":"account login API relay organizations mobile", "mode":"explore", "limit":20, "max_bytes":20000});
+    let named = update(
+        &mut link,
+        json!({
+            "sessionUpdate":"tool_call_update", "toolCallId":"search",
+            "title":"prometeu-search: code_explore",
+            "rawInput":{"providerIdentifier":"prometeu-search", "toolName":"code_explore", "args":args}
+        }),
+    );
+    assert_eq!(named[0]["index"], initial[0]["index"]);
+    assert_eq!(
+        named[0]["block"]["name"],
+        "mcp__prometeu-search__code_explore"
+    );
+    assert_eq!(named[0]["block"]["input"], args);
+    let completed = update(
+        &mut link,
+        json!({
+            "sessionUpdate":"tool_call_update", "toolCallId":"search", "status":"completed",
+            "rawOutput":{"success":true}
+        }),
+    );
+    assert_eq!(completed[0]["block"], named[0]["block"]);
+    assert_eq!(completed[1]["type"], "tool.completed");
+
+    let read = update(
+        &mut link,
+        json!({
+            "sessionUpdate":"tool_call", "toolCallId":"read", "kind":"read",
+            "title":"Read", "rawInput":{"path":"src/cloud.rs"}
+        }),
+    );
+    let renamed = update(
+        &mut link,
+        json!({
+            "sessionUpdate":"tool_call_update", "toolCallId":"read", "title":"src/cloud.rs"
+        }),
+    );
+    assert_eq!(renamed[0]["block"], read[0]["block"]);
 }
 #[test]
 fn approval_denial_bypass_and_cancellation_preserve_wire_ids() {

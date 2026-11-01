@@ -4,6 +4,7 @@ import ts from "typescript";
 const componentRoot = "packages/design-system/src/";
 const desktopComponentRoot = "src/components/";
 const viewDependencies = new Set([
+  "src/code-map-types.ts",
   "src/resources/model.ts", "src/settings-navigation.ts", "src/ui.ts", "src/menu.ts", "src/icons.ts", "src/util.ts",
   "src/feedback-i18n.ts", "src/i18n.ts", "src/i18n.en.ts", "src/i18n.pt.ts", "src/platform.ts", "src/markdown.ts",
   "src/highlight.ts", "src/timeline.ts", "src/conversation.ts", "src/conversation-legacy.ts", "src/context.ts",
@@ -153,7 +154,8 @@ export function checkDependencies(sources) {
         const tauri = target.startsWith("@tauri-apps/");
         const permittedComponent = target.startsWith(desktopComponentRoot) && !/\/(?:stories|gallery)\.ts$/.test(target);
         const forbidden = (isolatedView && (!local || (!allowedViewDependencies.has(target) && !target.startsWith(componentRoot))))
-          || (desktopComponent && !(local && (permittedComponent || target.startsWith(componentRoot) || viewDependencies.has(target))) && target !== "marked")
+          || (desktopComponent && !(local && (permittedComponent || target.startsWith(componentRoot) || viewDependencies.has(target)))
+            && target !== "marked" && !(file === "src/components/code-map.ts" && target === "cytoscape"))
           || (components && (!local || !target.startsWith(componentRoot)))
           || (core && (tauri || desktop.test(target)))
           || (mobile && (tauri || mobileDesktop.test(target)))

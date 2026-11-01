@@ -30,9 +30,13 @@ pub fn prepare(
     {
         return Err(i18n::t("err.cursor.unsupported"));
     }
-    let mcp_servers = tools
+    let mut mcp_servers = tools
         .cursor_mcp(id, launch.mcp.as_deref())?
         .unwrap_or_default();
+    for server in tools.code_search(cwd)? {
+        mcp_servers.retain(|entry| entry["name"] != server.id);
+        mcp_servers.push(prometeu_tools::mcp::acp_server(&server, None)?);
+    }
     let profile = profiles.resolve(&accounts::selected(crate::state::ProviderId::Cursor)?)?;
     let mut command = Command::new("cursor-agent");
     command.arg("acp").current_dir(cwd);

@@ -18,6 +18,7 @@ export const snapshot: ReadonlyWire<IpcResult<"chat_snapshot">> = payload.snapsh
 export const models: ReadonlyWire<IpcResult<"agent_models">> = payload.models;
 export const providers: ReadonlyWire<ProviderId[]> = payload.providers;
 export const capabilities: ReadonlyWire<Record<ProviderId, AgentCapabilities>> = payload.capabilities;
+export const codeMap: ReadonlyWire<IpcResult<"workspace_code_map">> = payload.codeMap;
 export const events: ReadonlyWire<Record<string, AnyConversationEventV1[]>> = payload.events;
 `;
 const config = ts.readConfigFile("tsconfig.json", ts.sys.readFile);

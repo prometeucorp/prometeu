@@ -197,6 +197,10 @@ pub fn native(
         )),
         sources: Arc::new(Sources(resources.mcp.clone(), resources.auth.clone())),
         files: Arc::new(Files(root.join("mcp"))),
+        search: prometeu_tools::search::Search {
+            executable: std::env::current_exe().expect("running runtime executable"),
+            cache: root.join("search"),
+        },
     })
 }
 pub fn profile() -> prometeu_profiles::Profile {

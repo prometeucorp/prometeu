@@ -179,6 +179,7 @@
             <div class="sidetabs">
               <button id="tab-files" class="sidetab on" data-t="side.files"></button>
               <button id="tab-diff" data-track="git.changes.open" class="sidetab"><span data-t="side.changes"></span> <span id="diffcount"></span></button>
+              <button id="tab-map" data-track="code_map.open" class="sidetab" data-t="side.map"></button>
               <button id="tab-comments" data-track="collaboration.comments.open" class="sidetab" hidden><span data-t="side.comments"></span> <span id="commentcount"></span></button>
               <span class="spacer"></span>
               <!-- Show the complete stacked review diff only when changes exist. -->
@@ -189,6 +190,7 @@
             <div class="sidebody">
               <div class="tree" id="tree" data-track-area="files.tree"></div>
               <div class="difflist" id="difflist" data-track-area="git.files" hidden></div>
+              <div id="code-map" data-track-area="workspace.side" hidden></div>
               <div class="comments" id="comments" data-track-area="collaboration.comments" hidden></div>
             </div>
             <!-- Setup prepares the worktree and Run starts its project. Free terminals live in center

@@ -10,6 +10,7 @@ Formats and guarantees that cross process or layer boundaries.
 - [Optional Prometeu account](cloud-account.md) — SaaS, browser-based authentication, desktop connection and private persistence.
 - [Personal catalog and local items](cloud-catalog.md) — Plugins, MCP and skills managed in the SaaS, with private items and explicit sharing on the desktop.
 - [Organizations in Prometeu Cloud](cloud-organizations.md) — CRUD, invitations, catalogs and relay access.
+- [Bundled code search](code-search.md) — Automatic agent access, isolated worktree graphs, freshness and cache lifecycle.
 - [Optional context evaluation](context-evaluation.md) — Bring-your-own-key TypeSafe adapter, evaluation port and key test in Settings.
 - [Conversation Events v1](conversation-events-v1.md) — Canonical protocol owned by Prometeu.
 - [Cursor CLI](cursor.md) — ACP transport, external account, conversation lifecycle and capability limits.

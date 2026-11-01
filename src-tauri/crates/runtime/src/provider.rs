@@ -57,6 +57,13 @@ impl ProviderPreparation<Prepared> for CodexPreparation {
                 .args(["-c", &format!("mcp_servers={servers}")])
                 .envs(environment);
         }
+        for config in prometeu_tools::mcp::codex_search_overrides(
+            &self
+                .tools
+                .code_search(std::path::Path::new(&request.worktree))?,
+        )? {
+            command.args(["-c", &config]);
+        }
         let resume = match &request.mode {
             StartMode::Fresh => None,
             StartMode::Resume { provider_session } => provider_session.clone(),

@@ -195,6 +195,7 @@ not be counted as missing usage.
 | compaction | the CLI's command | `thread/compact/start` | Unavailable | `codex.rs` tests |
 | context report | stream/transcript | synthesized from token usage | Unavailable | `context.test.ts`, `codex.rs` tests |
 | MCP selection per workspace | the CLI's strict config | table and environment assembled by the app | Unavailable | `mcp.rs`, `codex.rs`; a preparation error prevents the spawn |
+| bundled code search | automatically added to fresh/resumed processes, including empty optional MCP selections | same behavior on desktop and WSL | unavailable; no supported MCP injection | `crates/tools/src/search.rs`, provider preparation tests and stdio subprocess tests; see [coverage](#bundled-code-search) |
 | MCP connection checks and local OAuth, including Cloud definitions | shared hub actions; token supplied at process launch | same hub actions and local token | MCP execution unavailable | `e2e/mcp.spec.ts` simulates checks, login retry, logout and independence from Cloud revisions; real browser consent requires manual validation |
 | plugin selection per workspace | session flags | marketplace + config isolated per workspace | Unavailable | `plugins.rs`, the CLI smoke test, `codex.rs`, `launcher.ts`, E2E |
 | local and account skills | a package with SKILL.md through the plugin selection | the same package with a native manifest | Unavailable | `crates/tools/src/skills.rs`, `catalog.rs`, `e2e/cloud.spec.ts`; installation does not activate automatically |
@@ -285,6 +286,39 @@ under the [release contract](../contracts/releases.md).
 E2E does not replace the contract: it covers a few expensive paths. Fixtures and
 reducers give fast diagnosis for every combination.
 
+## Bundled code search
+
+The local Map panel is provider-independent, including Antigravity and projects
+without a conversation. Desktop and WSL use the same index and query service;
+remote and unavailable worktrees expose no local Map. Core admission,
+`crates/tools/src/search/map.rs`, runtime lifecycle and boundary fixture tests
+cover native access. `src/components/code-map-model.test.ts` and
+`src/workspace-code-map.test.ts` cover bounded graph projection, retained
+snapshots and asynchronous view lifetime. `e2e/code-map.spec.ts` covers dense
+Canvas interaction, compact-panel scrolling and keyboard selection in Chromium and WebKit through the
+production gallery, plus source navigation that preserves an unsaved editor draft.
+This does not imply MCP support for Antigravity.
+
+Claude, Codex and Cursor receive the local search MCP on both fresh and resumed
+desktop processes. WSL provides it to Codex. Antigravity remains unsupported.
+An absent optional MCP selection preserves native provider configuration;
+an empty optional selection still includes search. Each canonical worktree has
+its own graph, shared by its tabs. Multi-repository workspaces get one server
+per worktree. Engine watchers and query reconciliation keep indexes current
+while clients run; an inactive workspace reconciles when queried again.
+
+Evidence: `crates/tools/src/search.rs` verifies worktree identity and server
+roots; provider preparation tests verify injection without losing optional
+selection behavior. `tests/search_mcp.rs` and
+`crates/runtime/tests/search_mcp.rs` exercise the desktop and WSL host modes
+through real stdio subprocesses without a live model. Upstream tests cover engine watcher handoff,
+incremental updates, exclusions and bounded responses. These tests do not
+measure token savings or assert that a model chooses search over its other
+tools. See the [contract](../contracts/code-search.md).
+`crates/protocols/src/cursor/tests.rs::mcp_tool_updates_replace_placeholder_identity_and_preserve_completed_arguments`
+verifies that delayed Cursor MCP metadata reveals the graph tool name and query
+while preserving completion data and ordinary file-tool identities.
+
 ## Built-in delegation MCP
 
 Claude, Codex and Cursor can opt into the bundled `prometeu` MCP and create either
@@ -292,8 +326,9 @@ worker provider in an isolated workspace. Ownership, execution IDs, busy-send
 rejection, file access and canonical history share the backend implementation.
 Claude receives a private strict MCP file; Codex receives the stdio command
 and private environment wrapper; Cursor receives the same stdio command and
-environment through ACP `mcpServers`. Workers start with empty MCP/plugin/skill
-selections. Background reporting is limited to each adapter’s existing
+environment through ACP `mcpServers`. Workers start with empty optional
+MCP/plugin/skill selections and still receive bundled code search. Background
+reporting is limited to each adapter’s existing
 `background.changed` signals; unknown is distinct from an observed empty set. An
 execution holds `running` with its outcome recorded until those tasks drain, so
 it never reports completion while sends are still rejected as busy.
@@ -372,6 +407,7 @@ transcript, sharing and presentation paths after V1 normalization.
 | Permissions, questions, plan approvals | Existing request cards; option IDs independent of click order and explicit plan decisions | protocol tests include reversed multi-select and free text; live smoke covers permission round trip and initial plan mode |
 | Attachments | Existing local path mentions; no binary upload | shared presentation contract; Cursor image understanding not separately verified |
 | MCP from Prometeu | Hub selection encoded as ACP `mcpServers` on new and resumed sessions; Cursor's own configuration still applies | `tools` ACP encoding tests, `session::tests::tool_resolution_uses_the_tab_provider_and_configured_claude_home`, `agent_launch` Cursor tool injection; native Cursor configuration still applies |
+| Bundled code search | Automatically added to ACP `mcpServers`, including empty optional selections; one graph per worktree | shared search and provider preparation tests; [coverage](#bundled-code-search) |
 | Plugins and skills from Prometeu | Unavailable; absent workspace axes suppress inherited packages; explicit nonempty selections fail | same session test covers plugin/skill suppression and rejection |
 | Account quotas | Dashboard API using the CLI login; unified weekly or explicit legacy individual monthly limits | `cursor/quota/tests.rs`: mapping, failure and compatibility tests; ignored `live_cursor_quota` verifies the signed-in account |
 | Per-turn token/cost meters, context and compaction controls | Unavailable | descriptor capabilities; no invented readings |

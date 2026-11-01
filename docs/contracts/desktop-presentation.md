@@ -150,7 +150,25 @@ package API or Cloud consumer changes.
 
 ## Compatibility and proof
 
-No IPC, persisted identifier, installation rule or wire format changes. Former
+The code Map component follows the same boundary: `components/code-map.ts`
+receives a typed snapshot, translated labels and callbacks. Cytoscape owns the
+Canvas renderer, layout, hit testing and pan/zoom; the component owns selection
+and the keyboard-accessible DOM inspector. `workspace-code-map.ts` owns IPC, refresh timing,
+request ordering and local-root selection. The file overview becomes directory
+groups or bounded file context through `components/code-map-model.ts`, without
+invented edges. Graph size and paged inspector rows have independent rendering
+limits; unchanged generations and pending input retain the existing graph and viewport.
+The graph and inspector keep usable minimum heights. When an open Setup/Run dock
+leaves less vertical space, Map scrolls as a whole; results, pagination, warnings
+and synchronization controls remain in normal flow. Plain wheel scrolling moves
+an overflowing panel, while Ctrl/Command-wheel and the zoom controls still zoom the graph.
+The gallery uses this production view with synthetic snapshots. Source excerpts
+render as text, and source-opening callbacks use live files through the existing
+viewer rather than copying indexed text into an editor.
+
+Map adds the [workspace-scoped search command](code-search.md#interactive-map).
+Existing component extractions preserve their IPC, persisted identifiers,
+installation rules and wire formats. Former
 Settings destinations retain their navigation mapping. Existing MCP connection,
 pending OAuth, catalog confirmation, revision and local-copy flows remain in
 their owners. Item order remains plugins, MCP, skills; built-in MCP stays

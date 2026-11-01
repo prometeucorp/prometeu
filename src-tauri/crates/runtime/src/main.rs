@@ -276,6 +276,7 @@ fn compose(
                 trash: Arc::new(prometeu_files::entries::SystemTrash),
             }),
             project_search: Arc::new(prometeu_files::search::NativeSearch::default()),
+            code_map: Arc::new(prometeu_tools::search::CodeMap::new(root.join("search"))),
             files: Arc::new(prometeu_files::NativeFiles),
             settings,
             preparation: Arc::new(prometeu_files::scripts::NativePreparation),
@@ -391,6 +392,13 @@ fn run() -> Result<(), String> {
     }
 }
 fn main() {
+    if let Some(result) = prometeu_tools::search::cli(std::env::args_os().skip(1)) {
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(error) = run() {
         eprintln!("{error}");
         std::process::exit(1);

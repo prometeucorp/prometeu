@@ -304,6 +304,14 @@ pub(crate) enum Request {
     WorkspaceGitStatus {
         id: String,
     },
+    WorkspaceCodeMap {
+        id: String,
+        root: Option<String>,
+        query: Option<String>,
+        path: Option<String>,
+        line: Option<usize>,
+        force: Option<bool>,
+    },
     WorkspaceGitDiff {
         id: String,
         repo: usize,
@@ -705,6 +713,7 @@ impl Host {
                 Ok(Value::Null)
             }
             request @ (Request::WorkspaceGitStatus { .. }
+            | Request::WorkspaceCodeMap { .. }
             | Request::WorkspaceGitDiff { .. }
             | Request::WorkspaceGitAction { .. }
             | Request::WorkspaceGitHistory { .. }

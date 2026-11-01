@@ -201,6 +201,11 @@ Semantics of the optional values:
 - `resume` is an opaque identity accepted by the provider. It may have been
   chosen by Prometeu, as in Claude, or returned by the provider, as in Codex.
 
+These lists govern optional hub tools. [Bundled code search](code-search.md)
+is added independently for Claude, Codex and Cursor, including when the MCP
+list is empty. An absent list preserves native MCP configuration while adding
+search. This changes no launch field or provider protocol payload format.
+
 The core validates `SessionLaunch` against the capabilities before starting the
 adapter. The adapter must not silently fix an invalid combination. A chosen MCP,
 plugin or skill configuration that cannot be materialized fails before the

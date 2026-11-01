@@ -156,9 +156,10 @@ permission policy is copied and retained on resume;
 ordinary conversations retain the existing default permission behavior.
 Existing workspace creation, worktree rollback and setup scripts
 apply; failed preparation remains visible. Initial workers explicitly select no
-MCP servers, plugins or standalone skills, so they do not inherit the
+optional MCP servers, plugins or standalone skills, so they do not inherit the
 coordinator's delegation ability or global/project tool defaults. The person
-can change their selections normally. Provider-native behavior beyond those
+can change their selections normally. Workers still receive the automatic
+[code-search server](code-search.md) for their own worktree. Provider-native behavior beyond those
 existing selection guarantees is unchanged.
 
 Creation retries with the same owner and request key return the original

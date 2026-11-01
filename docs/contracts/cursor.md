@@ -56,6 +56,11 @@ Cursor's native `rawOutput`. Only updates for the active session enter V1.
 Native terminal responses settle the turn once; cancellation settles it as
 interrupted. Unknown notifications do not alter conversation state.
 
+Cursor can initially announce an MCP call as `MCP: tool` before providing its
+identity. Later metadata replaces that placeholder with the canonical
+`mcp__<server>__<tool>` name and the actual tool arguments. Updates that omit
+metadata retain the last known values; provider wrappers stay in the adapter.
+
 Permission requests retain their JSON-RPC IDs for replies. Presentation IDs are
 scoped to the turn so restarting the CLI cannot hide a new card behind an old
 request with the same native counter. Ask mode uses the existing
@@ -79,8 +84,10 @@ are not. Absent plugin/skill workspace selections resolve to empty hub
 selections, so global and trusted-project packages cannot block startup or
 resume. Explicit nonempty plugin or skill selections still fail rather than being
 silently dropped. Hub MCP follows the same layered resolution as Codex: `None`
-sends no client servers; a declared axis materializes the resolved set through
-ACP `mcpServers` on both `session/new` and `session/load`. Stdio, HTTP and SSE
+sends no optional client servers; a declared axis materializes the resolved set
+through ACP `mcpServers` on both `session/new` and `session/load`. Both paths
+also include [bundled code search](code-search.md) for the launch directory.
+Stdio, HTTP and SSE
 hub entries encode through the ACP transport table; Claude-only connectors fail
 startup. Cursor may still load its own project/user rules, skills, hooks and MCP
 configuration; Prometeu makes no isolated-configuration claim. Team-level MCP

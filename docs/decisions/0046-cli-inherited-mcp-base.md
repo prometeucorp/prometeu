@@ -11,6 +11,9 @@ Date: 2026-09-15
 Discovery is superseded by
 [ADR 0047](0047-tool-selection-boundaries.md) and extended by
 [ADR 0063](0063-account-connectors-in-the-mcp-base.md).
+The automatic search infrastructure in
+[ADR 0098](0098-bundled-worktree-search.md) is added independently of this
+optional inherited base.
 
 Amends the "Authority" section of
 [ADR 0045](0045-layered-tool-selection.md); the rest of that decision stands.

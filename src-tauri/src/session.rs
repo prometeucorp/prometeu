@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager, State};
 
+pub(crate) mod code_map;
 pub(crate) mod diff;
 pub(crate) mod files;
 pub(crate) mod find;

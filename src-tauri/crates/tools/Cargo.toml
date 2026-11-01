@@ -6,6 +6,7 @@ rust-version = "1.88"
 publish = false
 
 [dependencies]
+prometeu-search = { git = "https://github.com/prometeucorp/prometeu-search-core", rev = "2b2686719aae6f1d259476b5bce9409316035c3f" }
 prometeu-oauth = { path = "../oauth" }
 prometeu-core = { path = "../core" }
 prometeu-profiles = { path = "../profiles" }

@@ -11,6 +11,7 @@ pub mod mcp_probe;
 pub mod package_installer;
 pub mod packages;
 pub mod plugins;
+pub mod search;
 pub mod skills;
 
 pub struct ClaudeTools {
@@ -27,9 +28,12 @@ pub struct CodexPlugins {
 }
 
 /// Provider startup receives materialized artifacts without accessing desktop catalogs.
-/// None preserves CLI defaults; Some(empty) is an explicit empty selection.
+/// None preserves CLI defaults; Some(empty) selects no optional tools. Bundled search is separate.
 /// Packages contain the resolved plugin and standalone-skill selections together.
 pub trait StartupTools: Send + Sync {
+    fn code_search(&self, _workdir: &Path) -> Result<Vec<mcp::Server>, String> {
+        Ok(Vec::new())
+    }
     fn claude(
         &self,
         session: &str,
@@ -60,8 +64,12 @@ pub struct NativeTools {
     pub packages: std::sync::Arc<dyn packages::PackageBackend>,
     pub sources: std::sync::Arc<dyn mcp::McpSources>,
     pub files: std::sync::Arc<dyn mcp::McpFiles>,
+    pub search: search::Search,
 }
 impl StartupTools for NativeTools {
+    fn code_search(&self, workdir: &Path) -> Result<Vec<mcp::Server>, String> {
+        self.search.servers(workdir)
+    }
     fn claude(
         &self,
         session: &str,

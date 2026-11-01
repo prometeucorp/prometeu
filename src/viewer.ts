@@ -250,6 +250,19 @@ export function moveDrafts(id: string, from: string, to: string | null) {
   relocateKeys(drafts, key(id, ""), from, to);
 }
 
+/** Indexed locations are snapshots; clamp to the live buffer without replacing an unsaved draft. */
+export function goToLine(id: string, path: string, line: number) {
+  if (shown?.id !== id || shown.path !== path || !Number.isInteger(line) || line < 1) return;
+  const editor = box();
+  const rows = editor.value.split("\n");
+  const index = Math.min(line - 1, rows.length - 1);
+  const offset = rows.slice(0, index).reduce((length, row) => length + row.length + 1, 0);
+  editor.focus({ preventScroll: true });
+  editor.setSelectionRange(offset, offset + rows[index].length);
+  const height = parseFloat(getComputedStyle(editor).lineHeight) || 20;
+  $("vcode").scrollTop = Math.max(0, index * height - $("vcode").clientHeight / 3);
+}
+
 /// Board events refresh open files; preserve scrolling when the content is unchanged.
 export async function show(id: string, path: string, opened = false) {
   const extension = path.split(".").pop()?.toLowerCase() ?? "";

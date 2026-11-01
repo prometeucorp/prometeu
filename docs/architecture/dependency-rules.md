@@ -140,6 +140,11 @@ All production modules under `src/components/` follow an allowlist of shared
 controls and portable presentation helpers. The checker rejects app controllers,
 IPC, Tauri, stories and direct network/storage effects. Domain components may
 use canonical model types and the i18n adapter; business effects stay outside.
+The Map component additionally consumes `code-map-types.ts`, a types-only
+contract; its IPC and refresh controller remain outside this boundary.
+Only `components/code-map.ts` may import Cytoscape for Canvas rendering and
+layout. Its pure projection model retains no renderer dependency; see
+[ADR 0098](../decisions/0098-bundled-worktree-search.md).
 `gallery.ts` and `stories.ts` are composition roots, not production components.
 The catalog's unit test verifies every declared production consumer can reach
 its component source through real imports, including compatibility facades.
@@ -220,7 +225,7 @@ it owns ([ADR 0085](../decisions/0085-portable-core.md),
 | `prometeu-protocols` | shared Codex, Cursor ACP and model-catalog protocols | core |
 | `prometeu-files`, `prometeu-git` | project files, search, scripts, account storage; native Git | core |
 | `prometeu-process`, `prometeu-profiles` (Unix) | processes, PTYs, pipes, bounded commands; account profiles | core |
-| `prometeu-tools` (Unix) | MCP, packages, skills, plugins, MCP credentials | core, profiles, oauth |
+| `prometeu-tools` (Unix) | MCP, packages, skills, plugins, MCP credentials, bundled code search | core, profiles, oauth; the pinned external search engine |
 | `prometeu-bridge` | typed runtime client and injected WSL ports | core, oauth |
 | `prometeu-runtime` (Unix) | WSL execution host | the crates above |
 | `prometeu-wsl-desktop` | Windows shell; Tauri behind the `desktop` feature | bridge, oauth |

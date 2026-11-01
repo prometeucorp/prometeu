@@ -224,8 +224,140 @@ mod tests {
             "canonical event\n"
         );
         injected_tools_preserve_startup_artifacts_and_failure_order(&request);
+        bundled_search_preserves_native_mcp_inheritance(&native, &worktree);
+        cursor_search_reaches_new_and_resumed_sessions(&native, &worktree);
         request.settings.agent = ProviderId::RetiredGemini;
         assert!(providers.prepare(&request).is_err());
+    }
+
+    fn bundled_search_preserves_native_mcp_inheritance(native: &NativeProviders, worktree: &Path) {
+        for provider in [ProviderId::Claude, ProviderId::Codex] {
+            for selection in [None, Some(vec![])] {
+                for mode in [
+                    StartMode::Fresh,
+                    StartMode::Resume {
+                        provider_session: None,
+                    },
+                ] {
+                    let mut request = LaunchRequest {
+                        session: "search-inheritance".into(),
+                        workspace: "workspace".into(),
+                        worktree: worktree.to_string_lossy().into_owned(),
+                        settings: Default::default(),
+                        mode,
+                    };
+                    request.settings.agent = provider;
+                    request.settings.mcp = selection.clone();
+                    let prepared = native.prepare(&request).unwrap();
+                    let args = prepared
+                        .command
+                        .get_args()
+                        .map(|arg| arg.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>();
+                    if provider == ProviderId::Claude {
+                        assert_eq!(args.iter().filter(|arg| *arg == "--mcp-config").count(), 1);
+                        assert_eq!(
+                            args.iter().any(|arg| arg == "--strict-mcp-config"),
+                            selection.is_some()
+                        );
+                        let search = args
+                            .iter()
+                            .find_map(|arg| serde_json::from_str::<serde_json::Value>(arg).ok())
+                            .unwrap();
+                        let servers = search["mcpServers"].as_object().unwrap();
+                        assert!(!servers.is_empty());
+                        assert!(servers
+                            .values()
+                            .all(|server| server["args"][0] == "--prometeu-search-mcp"));
+                    } else {
+                        assert_eq!(
+                            args.iter().any(|arg| arg == "mcp_servers={}"),
+                            selection.is_some()
+                        );
+                        assert!(args
+                            .iter()
+                            .any(|arg| arg.starts_with("mcp_servers.prometeu-search")
+                                && arg.contains("--prometeu-search-mcp")));
+                    }
+                }
+            }
+        }
+    }
+
+    fn cursor_search_reaches_new_and_resumed_sessions(native: &NativeProviders, worktree: &Path) {
+        #[derive(Clone, Default)]
+        struct Output(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl Write for Output {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        struct UnusedProcess;
+        impl ProcessControl for UnusedProcess {
+            fn system_id(&self) -> u32 {
+                unreachable!()
+            }
+            fn running(&self) -> bool {
+                unreachable!()
+            }
+            fn interrupt(&self) {
+                unreachable!()
+            }
+            fn terminate(&self) {
+                unreachable!()
+            }
+            fn kill(&self) {
+                unreachable!()
+            }
+            fn wait_exit(&self, _: std::time::Duration) -> bool {
+                unreachable!()
+            }
+        }
+        for selection in [None, Some(vec![])] {
+            for (mode, method) in [
+                (StartMode::Fresh, "session/new"),
+                (
+                    StartMode::Resume {
+                        provider_session: Some("cursor-session".into()),
+                    },
+                    "session/load",
+                ),
+            ] {
+                let mut request = LaunchRequest {
+                    session: "cursor-search".into(),
+                    workspace: "workspace".into(),
+                    worktree: worktree.to_string_lossy().into_owned(),
+                    settings: Default::default(),
+                    mode,
+                };
+                request.settings.agent = ProviderId::Cursor;
+                request.settings.mcp = selection.clone();
+                let prepared = native.prepare(&request).unwrap();
+                let output = Output::default();
+                let mut protocol =
+                    (prepared.connect)(Box::new(output.clone()), Arc::new(UnusedProcess));
+                (protocol.translate)(
+                    r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}"#,
+                );
+                (protocol.translate)(r#"{"jsonrpc":"2.0","id":2,"result":{}}"#);
+                let bytes = output.0.lock().unwrap();
+                let sent: serde_json::Value = serde_json::from_str(
+                    std::str::from_utf8(&bytes).unwrap().lines().last().unwrap(),
+                )
+                .unwrap();
+                assert_eq!(sent["method"], method);
+                assert_eq!(sent["params"]["cwd"], request.worktree);
+                let servers = sent["params"]["mcpServers"].as_array().unwrap();
+                assert!(!servers.is_empty());
+                assert!(servers
+                    .iter()
+                    .all(|server| server["args"][0] == "--prometeu-search-mcp"));
+            }
+        }
     }
 
     fn injected_tools_preserve_startup_artifacts_and_failure_order(base: &LaunchRequest) {

@@ -587,6 +587,114 @@
       ]
     },
     {
+      "target": "code_map.back",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.clear",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.expand",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.fit",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.inspect",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.next",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.node",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.open",
+      "sources": [
+        "index.html"
+      ]
+    },
+    {
+      "target": "code_map.open_source",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.previous",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.relationship",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.retry",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.root",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.search",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.select",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.sync",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.zoom_in",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
+      "target": "code_map.zoom_out",
+      "sources": [
+        "src/components/code-map.ts"
+      ]
+    },
+    {
       "target": "collaboration.comments.open",
       "sources": [
         "index.html"
@@ -2631,6 +2739,12 @@
     },
     {
       "target": "side.files",
+      "sources": [
+        "index.html"
+      ]
+    },
+    {
+      "target": "side.map",
       "sources": [
         "index.html"
       ]

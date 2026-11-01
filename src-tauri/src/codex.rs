@@ -59,6 +59,9 @@ pub fn prepare(
             cmd.env(key, value);
         }
     }
+    for config in prometeu_tools::mcp::codex_search_overrides(&tools.code_search(worktree)?)? {
+        cmd.args(["-c", &config]);
+    }
     let log = paths::chat_log(id);
     let resumed = resume.is_some();
     let start = Start {

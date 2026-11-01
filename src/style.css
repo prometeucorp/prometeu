@@ -460,7 +460,7 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 .sideresize:hover, .sideresize.dragging { background: var(--bg-raised-3); }
 body.noside .side { display: none; }
-.sidetabs { display: flex; align-items: center; gap: 4px; padding: 8px 8px; flex: none; }
+.sidetabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 8px 8px; flex: none; }
 .sidetab {
   height: 28px; padding: 0 10px; font-weight: 400; flex: none;
   background: none; border: none; color: var(--fg-2);
@@ -470,6 +470,10 @@ body.noside .side { display: none; }
 .sidetab span { font-size: 12px; color: var(--fg-3); }
 .sidebody { flex: 1 1 0; min-height: 0; display: flex; }
 .sidebody > * { flex: 1; min-height: 0; }
+.side.map-expanded { width: 75%; }
+.side.map-expanded .sideresize { display: none; }
+#code-map { display: flex; min-width: 0; overflow: hidden; }
+#code-map > * { flex: 1; min-width: 0; }
 
 /* Tree rows are 28px tall with 8px side margins and 20px indentation. Folders are gray, files use type colors, and chevrons appear on hover. Git marks color the name and tint changed files; deleted files keep a struck-through row. */
 .tree { overflow: auto; padding: 0 0 8px; }

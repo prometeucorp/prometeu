@@ -91,6 +91,7 @@ pub struct ApplicationServices {
     pub cleanup: Arc<dyn prometeu_core::workspace_lifecycle::WorktreeCleanup>,
     pub project_entries: Arc<dyn prometeu_core::files::ProjectEntries<std::path::Path>>,
     pub project_search: Arc<dyn prometeu_core::files::ProjectSearch>,
+    pub code_map: Arc<prometeu_tools::search::CodeMap>,
     pub resources: crate::resources::Resources,
     pub git: Arc<dyn prometeu_core::git::RepositoryGit>,
     pub discovery: Arc<crate::discovery::Discovery>,

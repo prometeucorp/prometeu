@@ -27,6 +27,7 @@ The same state identifiers are stable navigation keys and machine-readable data.
 | Icons, file icons, stages, provider marks, avatars | `icons.ts`, `icon-button.ts` | Existing `src/icons.ts` facade, chat composer, Git toolbar |
 | Headers, toolbars, rows, list states | `compositions.ts` | Resources and Actions |
 | Resource library | `resource-view.ts` | Settings Resources |
+| Worktree file map and symbol context | `code-map.ts` | Workspace Map |
 | Tool, reasoning, text, work and error blocks | `chat/blocks.ts` | `ChatView` in workspace and desk |
 | Questions, plans, permissions | `chat/requests.ts` | `ChatView`; callbacks send canonical responses in the host |
 | Teammate message waiting for the owner | `chat/pending.ts` | `ChatView`; the collaboration core holds, sends and drops the message |

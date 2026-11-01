@@ -32,6 +32,8 @@ Run Claude Code, Codex, Cursor CLI and Antigravity agents in parallel — each i
 - **Parallel workspaces:** isolated worktrees, multiple repositories and a desk for conversations side by side.
 - **Visual Git review:** unified or split diffs, review notes, staging, commits, history and conflict resolution.
 - **Built-in tools:** editor, terminal, browser preview, MCP servers, plugins, skills and reusable actions.
+- **Local code search:** Claude, Codex and Cursor get bounded source and graph queries automatically, with an isolated index per worktree and automatic updates. See [coverage and limits](docs/contracts/code-search.md).
+- **Code Map:** Search the same local index beside Files and Changes, highlight connected files, inspect source excerpts and open their live locations. The panel shows the last sync and can force a refresh, even without a running agent.
 - **Terminal sessions:** shells of their own in the sidebar, started in your home or any folder without a project or workspace, kept across restarts (macOS and Linux).
 - **Tasks:** Filter Linear and GitHub issues and pull requests, then start a workspace. PR status and notifications keep follow-up visible.
 - **Persistent conversations:** resume stopped agents and inspect local token and cost history.
@@ -106,6 +108,9 @@ Local usage history stays on your computer and can be exported or deleted.
 App state and app-managed transcripts live under `~/.prometeu`; Claude Code
 owns its transcripts. Your chosen model provider receives the content needed to
 run your tasks, under that provider's terms.
+
+Code search stores source snapshots in the local app cache. These survive
+workspace removal until manually deleted; see [cache lifecycle](docs/contracts/code-search.md#worktree-identity-and-storage).
 
 Cloud accounts and sharing are optional. Shared conversations use end-to-end
 encryption; the relay sees routing metadata. Keys use trust on first contact

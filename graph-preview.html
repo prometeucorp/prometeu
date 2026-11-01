@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa · Prometeu</title>
+<!-- Standalone concept. Embedded shared styles, source excerpts and curated relationships; no application or network access. -->
+<style id="shared-styles">/* Shared Prometeu design tokens. */
+:root {
+  color-scheme: dark;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --control-height: 32px;
+  --button-height: 28px;
+  --label-size: 12px;
+  --hint-size: 11.5px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 18px;
+  --text-title: 32px;
+  --shadow: 0 16px 48px rgb(0 0 0 / .18);
+  --bg: #141110;
+  --bg-side: #1b1917;
+  --bg-raised: #201e1c;
+  --bg-raised-2: #2b2826;
+  --bg-raised-3: #373533;
+  --bg-btn: #52504e;
+  --line: #2b2826;
+  --line-side: #32302f;
+  --line-raised: #373533;
+  --line-ghost: #434140;
+  --fg: #eae8e6;
+  --fg-2: #a4a09d;
+  --fg-3: #756f6c;
+  --tab-line: #d8c2b3;
+  /* Warm brown distinguishes user messages from neutral surfaces. */
+  --bubble: #281e1d;
+  --pri: #eae8e6;
+  --pri-fg: #141110;
+  --accent: #ff6b3d;
+  --run: #4fb8b0;   --run-bg: #16302e;
+  --wait: #e0a030;  --wait-bg: #33270f;
+  --done: #5fbf73;  --done-bg: #16301d;
+  --err: #e06c6c;   --err-bg: #341a1a;
+  /* Subtle diff backgrounds preserve syntax-highlighting contrast. */
+  --add-bg: #18291d;
+  --del-bg: #2c1a1a;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --r: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+}
+
+.ui-button {
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2); min-height: var(--button-height); height: auto; padding: 0 var(--space-4);
+  border: 1px solid var(--line-ghost); border-radius: var(--r); background: none; color: var(--fg);
+  font: inherit; font-weight: 500; line-height: 1.4; text-decoration: none; cursor: pointer;
+}
+.ui-button:hover { background: var(--bg-raised); }
+.ui-button.pri { background: var(--pri); border-color: transparent; color: var(--pri-fg); }
+.ui-button.pri:hover { background: #fff; }
+.ui-button.ghost { border-color: transparent; color: var(--fg-2); }
+.ui-button.ghost:hover { background: var(--bg-raised-2); color: var(--fg); }
+.ui-button.danger { border-color: var(--err); color: var(--err); }
+.ui-button.danger:hover { background: var(--err-bg); }
+.ui-button[aria-disabled="true"] { opacity: .45; cursor: wait; }
+.ui-button:focus-visible, .ui-input:focus-visible, .ui-select:focus-visible,
+.ui-check > input[type="checkbox"]:focus-visible, .ui-link:focus-visible, .ui-nav-link:focus-visible {
+  outline: 2px solid var(--tab-line); outline-offset: 3px;
+}
+
+.ui-button:disabled, .ui-select:disabled { opacity: .45; cursor: not-allowed; }
+.ui-field { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.ui-label { font-size: var(--label-size); color: var(--fg-2); }
+.ui-hint { margin: 0; font-size: var(--hint-size); color: var(--fg-2); line-height: 1.5; }
+.ui-error, .ui-hint.ui-error { color: var(--err); }
+.ui-error:empty { display: none; }
+.ui-input, .ui-select { min-height: var(--control-height); padding: 7px 10px; border: 1px solid var(--line-raised); border-radius: var(--r); background: var(--bg); color: var(--fg); font: inherit; }
+.ui-input { box-sizing: border-box; width: 100%; min-width: 0; user-select: text; }
+.ui-input::placeholder { color: var(--fg-3); }
+textarea.ui-input { resize: vertical; min-height: 112px; line-height: 1.5; }
+.ui-input:disabled { opacity: .45; cursor: not-allowed; }
+.ui-input[aria-invalid="true"], .ui-select[aria-invalid="true"] { border-color: var(--err); }
+.ui-select { box-sizing: border-box; display: inline-flex; align-items: center; width: 100%; height: auto; text-align: left; justify-content: space-between; gap: var(--space-2); cursor: pointer; }
+</style>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 var(--font); }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, [tabindex]:focus-visible, select:focus-visible { outline: 2px solid var(--tab-line); outline-offset: 3px; }
+button:disabled { cursor: wait; opacity: .55; }
+[hidden] { display: none !important; }
+.icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.muted { color: var(--fg-3); }
+.mono { font-family: var(--mono); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.window { display: flex; flex-direction: column; height: 100dvh; min-height: 620px; }
+.titlebar { height: 40px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--fg-2); font-size: 12px; background: var(--bg-side); }
+.traffic { display: flex; gap: 8px; margin-right: 18px; }
+.traffic i { width: 11px; height: 11px; border-radius: 50%; background: #554440; }
+.traffic i:nth-child(2) { background: #57503e; }.traffic i:nth-child(3) { background: #405044; }
+.titlebar .wordmark { color: var(--fg); font-weight: 600; letter-spacing: -.2px; }
+.prototype { margin-left: auto; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); }
+.workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 184px minmax(220px, 1fr) minmax(377px, 48vw); }
+.sidebar { background: var(--bg-side); border-right: 1px solid var(--line); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+.nav-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+.nav-row.selected { background: var(--bg-raised-2); color: var(--fg); }
+.nav-row .small-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--run); margin-left: 5px; }
+.nav-heading { margin: 26px 10px 6px; font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--fg-3); }
+.workspace-name { line-height: 1.6; overflow: hidden; text-overflow: ellipsis; }
+.workspace-name small { display: block; font-size: 10px; color: var(--fg-3); }
+.profile { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; }
+.avatar { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; background: #3a2c26; color: var(--tab-line); font-size: 10px; }
+.conversation { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.conversation-top { height: 45px; display: flex; gap: 9px; align-items: center; border-bottom: 1px solid var(--line); padding: 0 20px; color: var(--fg-2); font-size: 12px; }
+.conversation-top .small-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--done); }
+.conversation-body { padding: 34px 24px; flex: 1; overflow: auto; }
+.eyebrow { color: var(--fg-3); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+.conversation h1 { font-weight: 500; font-size: 22px; line-height: 1.4; letter-spacing: -.6px; margin: 10px 0 16px; }
+.conversation p { color: var(--fg-2); font-size: 12px; line-height: 1.8; }
+.user-message { margin-top: 32px; padding: 13px 15px; background: var(--bubble); border-radius: 10px; font-size: 12px; color: #c5b6b0; }
+.agent-message { margin-top: 25px; font-size: 12px; color: var(--fg-2); }
+.agent-message strong { font-size: 11px; display: block; color: var(--fg); margin-bottom: 12px; }
+.tool-chip { margin: 15px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 10px; color: var(--fg-3); }
+.composer { margin: 18px; border: 1px solid var(--line-raised); border-radius: 10px; padding: 14px; color: var(--fg-3); font-size: 12px; }
+.composer-bottom { display: flex; align-items: center; justify-content: space-between; margin-top: 30px; color: var(--fg-2); font-size: 10px; }
+.composer-bottom span:last-child { display: grid; place-items: center; border-radius: 5px; width: 23px; height: 23px; background: var(--bg-raised-2); }
+.map-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); container-type: inline-size; }
+.sidetabs { display: flex; flex: none; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); }
+.sidetab { border: 0; background: transparent; height: 28px; padding: 0 10px; border-radius: var(--r); color: var(--fg-2); font-size: 13px; }
+.sidetab[aria-selected="true"] { background: var(--bg-raised-2); color: var(--fg); }
+.tab-count { color: var(--fg-3); margin-left: 5px; font-variant-numeric: tabular-nums; }
+.icon-button { padding: 0; width: 28px; height: 28px; }
+#expand { margin-left: auto; }
+.map-content { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.map-head { padding: 18px 20px 14px; flex: none; }
+.scope { display: flex; gap: 8px; align-items: center; margin-bottom: 13px; color: var(--fg-2); font: 11px var(--mono); }
+.scope .project { color: var(--fg); }.scope .branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope .scope-dot { color: var(--fg-3); }
+.search-wrap { position: relative; display: flex; align-items: center; }
+.search-wrap > span[data-icon] { position: absolute; left: 11px; display: flex; color: var(--fg-3); pointer-events: none; }
+#search { height: 38px; padding-left: 35px; padding-right: 55px; font-size: 12px; background: var(--bg-side); }
+#search:focus { outline: none; border-color: #8a6351; box-shadow: 0 0 0 2px #ff6b3d0b; }
+#clear-search { position: absolute; right: 5px; }
+.shortcut { position: absolute; right: 12px; color: var(--fg-3); font: 10px var(--mono); pointer-events: none; }
+.search-examples { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 10px; font-size: 10px; color: var(--fg-3); }
+.search-examples button { border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--fg-2); padding: 1px 7px; font: 10px/1.7 var(--mono); }
+.search-examples button:hover { color: var(--fg); border-color: var(--line-ghost); }
+.map-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.graph-section { position: relative; flex: 1; min-height: 260px; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: radial-gradient(ellipse at 58% 47%, #21181566, transparent 68%), var(--bg); }
+.graph-heading { position: absolute; top: 14px; left: 20px; z-index: 2; pointer-events: none; }
+.graph-heading strong { display: block; font-size: 11px; font-weight: 500; color: var(--fg-2); }
+.graph-heading span { font-size: 10px; color: var(--fg-3); }
+.graph-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; padding-top: 36px; }
+#graph { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#graph.dragging { cursor: grabbing; }
+.edge { fill: none; stroke: #625449; stroke-width: 1.1; opacity: .37; transition: opacity .3s, stroke .3s; }
+.edge.candidate { stroke-dasharray: 3 5; }
+.edge.lit { stroke: var(--accent); opacity: .8; stroke-width: 1.65; }
+.edge.context { stroke: #6aaba5; opacity: .65; }
+.edge.dim { opacity: .08; }
+.signal { fill: #ffb18d; pointer-events: none; opacity: .9; }
+.node { cursor: pointer; outline: none; transition: opacity .25s; }
+.node .hit-area { fill: transparent; stroke: none; }
+.node .halo { fill: none; stroke: #ae7c61; stroke-width: 1; opacity: .15; }
+.node .core { fill: #8c7768; stroke: var(--bg); stroke-width: 2; transition: fill .25s; }
+.node text { fill: #a99b91; font: 12px var(--mono); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.node .secondary-label { fill: #655e57; font: 9px var(--font); letter-spacing: .3px; }
+.node.major .core { fill: #b3957d; }.node.major text { fill: #c8b9ad; font-size: 13px; }
+.node.dim { opacity: .13; }.node.context .core { fill: var(--run); }.node.context text { fill: #a1c4bf; }
+.node.match .core { fill: var(--accent); filter: url(#node-glow); }.node.match .halo { stroke: var(--accent); opacity: .55; }
+.node.match text { fill: #ffd1ba; }.node.selected .halo { stroke: #ffd9c5; stroke-width: 1.5; opacity: .9; }
+.node.selected text { fill: #fff0e7; }.node:focus-visible .halo, .node:hover .halo { stroke: var(--fg); opacity: 1; }
+.node:hover { opacity: 1; }
+.cluster-label { fill: #5f5550; font: 10px var(--font); letter-spacing: 2.3px; text-transform: uppercase; }
+.graph-footer { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 8px 16px 12px; flex: none; }
+.legend { display: flex; gap: 13px; font-size: 9px; color: var(--fg-3); flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { height: 5px; width: 5px; border-radius: 50%; background: #8c7768; }
+.legend .match-dot { background: var(--accent); }.legend .context-dot { background: var(--run); }
+.zoom { display: flex; gap: 2px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 2px; background: var(--bg); }
+.zoom .icon-button { width: 24px; height: 24px; min-height: 24px; }
+#zoom-level { font: 9px var(--mono); min-width: 33px; text-align: center; color: var(--fg-3); }
+.tooltip { position: absolute; z-index: 5; pointer-events: none; max-width: calc(100% - 24px); background: var(--bg-raised); border: 1px solid var(--line-ghost); border-radius: 6px; padding: 8px 10px; box-shadow: var(--shadow); font-size: 11px; }
+.tooltip small { display: block; color: var(--fg-2); font: 9px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.no-results-graph { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; width: 230px; pointer-events: none; }
+.no-results-graph strong { display: block; font-size: 13px; font-weight: 500; }.no-results-graph p { font-size: 11px; color: var(--fg-2); }
+.inspector { min-height: 0; height: 268px; flex: none; display: flex; flex-direction: column; border-top: 1px solid var(--line); background: var(--bg-side); }
+.results-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px 9px; color: var(--fg-2); font-size: 11px; flex: none; }
+.results-heading .count { color: var(--fg-3); font-size: 10px; }
+.inspector-content { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(170px, 43%) 1fr; }
+#results { padding: 0 8px 10px; overflow: auto; min-height: 0; }
+.result { width: 100%; display: block; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 8px 10px; color: var(--fg); margin-bottom: 3px; }
+.result:hover { background: var(--bg-raised); }.result[aria-pressed="true"] { border-color: #584033; background: #2a201a; }
+.result-name { display: flex; align-items: center; gap: 6px; font: 11px var(--mono); min-width: 0; }
+.result-name > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kind-dot { color: var(--run); font-size: 9px; flex: none; }.result.match .kind-dot { color: var(--accent); }
+.result-path { display: block; margin-top: 4px; font: 9px var(--mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty-list { padding: 10px; color: var(--fg-3); font-size: 11px; }
+#detail { border-left: 1px solid var(--line); padding: 0 16px 16px; overflow: auto; min-width: 0; }
+.detail-name { margin: 2px 0 5px; font: 12px var(--mono); overflow-wrap: anywhere; }
+.detail-path { color: var(--fg-3); font: 9px/1.7 var(--mono); overflow-wrap: anywhere; }
+.detail-meta { display: flex; gap: 8px; align-items: center; color: var(--fg-2); font-size: 9px; margin: 10px 0; }
+.kind-badge { border: 1px solid var(--line-raised); padding: 1px 5px; border-radius: 3px; font: 9px var(--mono); }
+.code { margin: 10px 0 4px; padding: 9px 0; border-top: 1px solid var(--line); font: 10px/1.8 var(--mono); color: #bdb4a9; overflow-x: auto; white-space: pre; }
+.code-line { display: block; }.line-number { display: inline-block; min-width: 27px; padding-right: 9px; color: #625a55; user-select: none; }
+.snippet-note { color: var(--fg-3); font-size: 9px; }
+.connections { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+.connections button { color: var(--fg-2); font: 9px var(--mono); border: 1px solid var(--line); background: transparent; padding: 3px 5px; border-radius: 4px; }
+.connections button:hover { color: var(--fg); border-color: var(--line-ghost); }
+.detail-empty { padding-top: 26px; color: var(--fg-3); font-size: 11px; line-height: 1.8; }
+.sync-bar { display: flex; align-items: center; gap: 10px; flex: none; min-height: 50px; padding: 9px 16px; border-top: 1px solid var(--line); }
+.sync-state { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+.status-dot { height: 5px; width: 5px; background: var(--done); border-radius: 50%; flex: none; }
+.sync-copy { line-height: 1.4; font-size: 10px; color: var(--fg-2); }.sync-copy small { display: block; color: var(--fg-3); font-size: 9px; }
+#sync { font-size: 10px; padding: 0 9px; gap: 6px; }
+.sync-bar.busy .status-dot { background: var(--run); }.sync-bar.busy #sync .icon { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.dock { flex: none; height: 34px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-top: 1px solid var(--line); color: var(--fg-3); font-size: 10px; }
+.dock span:last-child { margin-left: auto; font-size: 9px; }
+.sample-panel { flex: 1; padding: 20px; color: var(--fg-2); overflow: auto; }
+.sample-row { display: flex; gap: 9px; align-items: center; padding: 7px 0; font: 11px var(--mono); }.sample-row .file-status { margin-left: auto; color: var(--wait); }
+.sample-note { margin-top: 22px; font-size: 11px; color: var(--fg-3); line-height: 1.7; }
+.workspace.expanded { grid-template-columns: 184px minmax(0, 1fr); }.workspace.expanded .conversation { display: none; }
+@container (min-width: 880px) {
+  .map-body { flex-direction: row; }.graph-section { flex: 1; min-width: 0; }.inspector { width: 320px; height: auto; border-left: 1px solid var(--line); }.inspector-content { display: flex; flex-direction: column; }
+  #results { flex: 1; min-height: 150px; }#detail { border-left: 0; border-top: 1px solid var(--line); max-height: 46%; flex: none; padding-top: 16px; }
+}
+@container (max-width: 440px) {
+  .map-head { padding: 15px 14px 12px; }.inspector { height: 245px; }.inspector-content { grid-template-columns: 43% 57%; }
+  #detail { padding-left: 10px; padding-right: 10px; }.graph-footer { padding-left: 12px; padding-right: 12px; }.legend { gap: 7px; font-size: 8px; }.scope { font-size: 10px; }
+}
+@media (max-width: 1080px) { .workspace { grid-template-columns: 150px minmax(180px, 1fr) minmax(377px, 52vw); }.sidebar { padding-left: 7px; padding-right: 7px; }.conversation-body { padding: 28px 18px; }.workspace.expanded { grid-template-columns: 150px minmax(0, 1fr); } }
+@media (max-width: 780px) { .workspace, .workspace.expanded { display: flex; }.sidebar, .conversation { display: none !important; }.map-panel { flex: 1; border-left: 0; }#expand { visibility: hidden; }.window { min-height: 730px; }.titlebar { padding: 0 14px; }.traffic { display: none; }.dock span:last-child { font-size: 8px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; }.signal { display: none; } }
+</style>
+</head>
+<body>
+<div class="window">
+  <header class="titlebar"><div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div><span class="wordmark">prometeu</span><span class="muted">/</span><span>prometeu-search</span><span class="prototype" data-i18n="prototype"></span></header>
+  <main class="workspace" id="workspace">
+    <aside class="sidebar" aria-label="Prometeu">
+      <div class="nav-row"><span data-icon="grid"></span><span data-i18n="desk"></span></div>
+      <div class="nav-row"><span data-icon="check"></span><span data-i18n="tasks"></span></div>
+      <div class="nav-heading" data-i18n="workspaces"></div>
+      <div class="nav-row"><span data-icon="folder"></span><span>prometeu</span></div>
+      <div class="nav-row selected"><span class="small-dot"></span><span class="workspace-name">prometeu-search<small>casulo-fundo</small></span></div>
+      <div class="nav-row"><span class="small-dot" style="background:var(--fg-3)"></span><span class="workspace-name">design-system</span></div>
+      <div class="profile nav-row"><span class="avatar">GB</span><span>Gustavo</span></div>
+    </aside>
+    <section class="conversation" aria-label="Conversation context">
+      <div class="conversation-top"><span class="small-dot"></span><span data-i18n="conversation"></span><span class="muted">/</span><span>Codex</span></div>
+      <div class="conversation-body"><div class="eyebrow" data-i18n="workspaceContext"></div><h1 data-i18n="conversationTitle"></h1><p data-i18n="conversationIntro"></p><div class="user-message" data-i18n="userMessage"></div><div class="agent-message"><strong>Codex</strong><span data-i18n="agentMessage"></span><div class="tool-chip">prometeu-search · code_explore</div><p data-i18n="agentDetail"></p></div></div>
+      <div class="composer"><span data-i18n="composer"></span><div class="composer-bottom"><span>Codex · GPT-6</span><span data-icon="arrow-up"></span></div></div>
+    </section>
+    <section class="map-panel" aria-label="Code explorer">
+      <div class="sidetabs" role="tablist" data-i18n-aria="explorerTabs">
+        <button class="sidetab" id="tab-files" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-files" data-tab="files" data-i18n="files"></button>
+        <button class="sidetab" id="tab-changes" role="tab" aria-selected="false" tabindex="-1" aria-controls="panel-changes" data-tab="changes"><span data-i18n="changes"></span><span class="tab-count">36</span></button>
+        <button class="sidetab" id="tab-map" role="tab" aria-selected="true" aria-controls="panel-map" data-tab="map" data-i18n="map"></button>
+        <button id="expand" class="ui-button ghost icon-button" aria-pressed="false" data-i18n-aria="expand" data-icon="expand"></button>
+      </div>
+      <div class="map-content" id="panel-map" role="tabpanel" aria-labelledby="tab-map">
+        <div class="map-head">
+          <div class="scope"><span data-icon="git-branch"></span><span class="project">prometeu</span><span class="scope-dot">/</span><span class="branch">casulo-fundo</span><span style="margin-left:auto" class="muted" data-i18n="local"></span></div>
+          <label class="search-wrap"><span class="sr-only" data-i18n="searchLabel"></span><span data-icon="search"></span><input class="ui-input" id="search" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="searchPlaceholder"><kbd class="shortcut" id="shortcut">⌘ K</kbd><button type="button" id="clear-search" hidden class="ui-button ghost icon-button" data-i18n-aria="clearSearch" data-icon="close"></button></label>
+          <div class="search-examples"><span data-i18n="try"></span><button data-query="search">search</button><button data-query="session">session</button><button data-query="codex">codex</button><span style="margin-left:auto" data-i18n="sameIndex"></span></div>
+        </div>
+        <div class="map-body">
+          <section class="graph-section" data-i18n-aria="graphLabel">
+            <div class="graph-heading"><strong id="graph-title"></strong><span id="graph-subtitle"></span></div>
+            <div class="graph-stage" id="graph-stage">
+              <svg id="graph" viewBox="0 0 760 530" role="group" data-i18n-aria="graphLabel">
+                <defs><filter id="node-glow" x="-150%" y="-150%" width="400%" height="400%"><feGaussianBlur stdDeviation="4"/><feComposite in="SourceGraphic"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter><pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#756f6c" opacity=".13"/></pattern></defs>
+                <rect width="100%" height="100%" fill="url(#dots)"/>
+                <g id="scene"><g id="clusters"></g><g id="edges"></g><g id="signals"></g><g id="nodes"></g></g>
+              </svg>
+              <div id="tooltip" class="tooltip" hidden></div>
+              <div id="no-results" class="no-results-graph" hidden><strong data-i18n="noResults"></strong><p data-i18n="noResultsHint"></p></div>
+            </div>
+            <div class="graph-footer"><div class="legend"><span><i class="match-dot"></i><span data-i18n="matches"></span></span><span><i class="context-dot"></i><span data-i18n="connected"></span></span><span><i></i><span data-i18n="overview"></span></span></div><div class="zoom"><button id="zoom-out" class="ui-button ghost icon-button" data-i18n-aria="zoomOut" data-icon="minus"></button><span id="zoom-level">100%</span><button id="zoom-in" class="ui-button ghost icon-button" data-i18n-aria="zoomIn" data-icon="plus"></button><button id="fit" class="ui-button ghost icon-button" data-i18n-aria="fit" data-icon="frame"></button></div></div>
+          </section>
+          <section class="inspector" data-i18n-aria="resultsLabel"><div class="results-heading"><span id="results-title"></span><span class="count" id="result-count" aria-live="polite"></span></div><div class="inspector-content"><div id="results"></div><div id="detail"></div></div></section>
+        </div>
+        <div class="sync-bar" id="sync-bar"><div class="sync-state"><i class="status-dot"></i><div class="sync-copy"><span id="sync-label"></span> <time id="sync-time"></time><small id="sync-note" data-i18n="automatic"></small></div></div><button id="sync" class="ui-button" type="button"><span data-icon="rotate"></span><span id="sync-button-label" data-i18n="sync"></span></button></div>
+      </div>
+      <div class="sample-panel" id="panel-files" role="tabpanel" aria-labelledby="tab-files" hidden><div id="file-list"></div><p class="sample-note" data-i18n="filesNote"></p><button class="ui-button" data-return-map data-i18n="returnMap"></button></div>
+      <div class="sample-panel" id="panel-changes" role="tabpanel" aria-labelledby="tab-changes" hidden><div id="change-list"></div><p class="sample-note" data-i18n="changesNote"></p><button class="ui-button" data-return-map data-i18n="returnMap"></button></div>
+      <footer class="dock"><span data-icon="terminal"></span><span>Setup</span><span class="muted">/</span><span>Run</span><span data-i18n="fixtureNote"></span></footer>
+    </section>
+  </main>
+</div>
+<div class="sr-only" id="announcement" role="status" aria-live="polite"></div>
+<script id="fixture" type="application/json">[{"key": "launch_type", "id": 1934, "name": "Launch", "kind": "struct", "path": "src-tauri/crates/core/src/session/launch.rs", "start_line": 12, "end_line": 46, "snippet": "pub struct Launch {\n    #[serde(default)]\n    pub permission: Option<crate::actions::Permission>,\n    #[serde(default)]\n    pub instructions: String,\n    #[serde(default)]\n    pub config_scope: Option<String>,\n    /// The provider comes from the selected model's catalog entry.\n    #[serde(default)]", "snippet_start_line": 12, "snippet_truncated": true, "qualified_name": "Launch"}, {"key": "launch_request", "id": 1938, "name": "LaunchRequest", "kind": "struct", "path": "src-tauri/crates/core/src/session/launch.rs", "start_line": 90, "end_line": 96, "snippet": "pub struct LaunchRequest {\n    pub session: String,\n    pub workspace: String,\n    pub worktree: String,\n    pub settings: Launch,\n    pub mode: StartMode,\n}", "snippet_start_line": 90, "snippet_truncated": false, "qualified_name": "LaunchRequest"}, {"key": "launch_service", "id": 1952, "name": "LaunchService", "kind": "struct", "path": "src-tauri/crates/core/src/session/launch.rs", "start_line": 133, "end_line": 139, "snippet": "pub struct LaunchService<'a, C> {\n    pub board: &'a Mutex<Board>,\n    pub host: &'a SessionHost<C>,\n    pub preparation: &'a dyn ResumePreparation,\n    pub launcher: &'a dyn ConversationLauncher<C>,\n    pub effects: &'a dyn LaunchEffects<C>,\n}", "snippet_start_line": 133, "snippet_truncated": false, "qualified_name": "LaunchService"}, {"key": "launch_start", "id": 1953, "name": "start", "kind": "function", "path": "src-tauri/crates/core/src/session/launch.rs", "start_line": 143, "end_line": 150, "snippet": "pub fn start(&self, request: &LaunchRequest, warning: Option<&str>) -> Result<bool, String> {\n        let started = self.launcher.launch(request)?;\n        if let Some(warning) = warning {\n            self.effects.warning(&started.conversation, warning);\n        }\n        lock(&self.host.conversations).insert(request.session.clone(), started.conversation);\n        Ok(started.resumed)\n    }", "snippet_start_line": 143, "snippet_truncated": false, "qualified_name": "LaunchService::start"}, {"key": "launch_resume", "id": 1954, "name": "resume", "kind": "function", "path": "src-tauri/crates/core/src/session/launch.rs", "start_line": 153, "end_line": 189, "snippet": "pub fn resume(&self, session: &str) -> Result<bool, String> {\n        let snapshot = {\n            let board = lock(self.board);\n            ResumeSnapshot {\n                workspace: board\n                    .workspace_of(session)\n                    .cloned()\n                    .ok_or_else(|| code(\"err.session.noTab\"))?,\n                tools: board.tools.clone(),", "snippet_start_line": 153, "snippet_truncated": true, "qualified_name": "LaunchService::resume"}, {"key": "desktop_start", "id": 5837, "name": "start", "kind": "function", "path": "src-tauri/src/session/launch.rs", "start_line": 27, "end_line": 36, "snippet": "pub(super) fn start(\n    app: &AppHandle,\n    state: &AppState,\n    request: &LaunchRequest,\n) -> Result<(), String> {\n    Desktop { app, state }\n        .service()\n        .start(request, None)\n        .map(|_| ())", "snippet_start_line": 27, "snippet_truncated": true, "qualified_name": "start"}, {"key": "desktop_resume", "id": 5836, "name": "resume", "kind": "function", "path": "src-tauri/src/session/launch.rs", "start_line": 24, "end_line": 26, "snippet": "pub(super) fn resume(app: &AppHandle, state: &AppState, session: &str) -> Result<bool, String> {\n    Desktop { app, state }.service().resume(session)\n}", "snippet_start_line": 24, "snippet_truncated": false, "qualified_name": "resume"}, {"key": "desktop_launch", "id": 5844, "name": "launch", "kind": "function", "path": "src-tauri/src/session/launch.rs", "start_line": 96, "end_line": 103, "snippet": "fn launch(&self, request: &LaunchRequest) -> Result<Launched<chat::Chat>, String> {\n        let prepared = self.state.providers.prepare(request)?;\n        let resumed = prepared.resumed;\n        Ok(Launched {\n            conversation: chat::launch(self.app, &request.session, prepared)?,\n            resumed,\n        })\n    }", "snippet_start_line": 96, "snippet_truncated": false, "qualified_name": "Desktop::launch"}, {"key": "native_providers", "id": 5034, "name": "NativeProviders", "kind": "struct", "path": "src-tauri/src/agent_launch.rs", "start_line": 25, "end_line": 28, "snippet": "pub struct NativeProviders {\n    pub profiles: Arc<dyn prometeu_profiles::ProfileBackend>,\n    pub tools: Arc<dyn prometeu_tools::StartupTools>,\n}", "snippet_start_line": 25, "snippet_truncated": false, "qualified_name": "NativeProviders"}, {"key": "native_prepare", "id": 5037, "name": "prepare", "kind": "function", "path": "src-tauri/src/agent_launch.rs", "start_line": 41, "end_line": 50, "snippet": "fn prepare(&self, request: &LaunchRequest) -> Result<PreparedAgent, String> {\n        let prepare = PROVIDERS\n            .iter()\n            .find(|(id, _)| *id == request.settings.agent)\n            .map(|(_, prepare)| prepare)\n            .ok_or_else(|| i18n::t(\"err.provider.retired\"))?;\n        let mut prepared = prepare(request, self.profiles.as_ref(), self.tools.as_ref())?;\n        drop_claude_vars(&mut prepared.command);\n        Ok(prepared)", "snippet_start_line": 41, "snippet_truncated": true, "qualified_name": "NativeProviders::prepare"}, {"key": "provider_codex", "id": 5040, "name": "codex", "kind": "function", "path": "src-tauri/src/agent_launch.rs", "start_line": 75, "end_line": 89, "snippet": "fn codex(\n    request: &LaunchRequest,\n    profiles: &dyn prometeu_profiles::ProfileBackend,\n    tools: &dyn prometeu_tools::StartupTools,\n) -> Result<PreparedAgent, String> {\n    crate::codex::prepare(\n        &request.session,\n        &request.workspace,\n        Path::new(&request.worktree),", "snippet_start_line": 75, "snippet_truncated": true, "qualified_name": "codex"}, {"key": "codex_prepare", "id": 4282, "name": "prepare", "kind": "function", "path": "src-tauri/src/codex.rs", "start_line": 21, "end_line": 91, "snippet": "pub fn prepare(\n    id: &str,\n    workspace: &str,\n    worktree: &Path,\n    resume: Option<String>,\n    launch: &Launch,\n    profiles: &dyn prometeu_profiles::ProfileBackend,\n    tools: &dyn prometeu_tools::StartupTools,\n) -> Result<crate::agent_launch::PreparedAgent, String> {", "snippet_start_line": 21, "snippet_truncated": true, "qualified_name": "prepare"}, {"key": "chat_launch", "id": 5760, "name": "launch", "kind": "function", "path": "src-tauri/src/chat.rs", "start_line": 170, "end_line": 254, "snippet": "pub(crate) fn launch(\n    app: &AppHandle,\n    id: &str,\n    prepared: crate::agent_launch::PreparedAgent,\n) -> Result<Chat, String> {\n    let crate::agent_launch::PreparedAgent {\n        command,\n        store,\n        profile,", "snippet_start_line": 170, "snippet_truncated": true, "qualified_name": "launch"}, {"key": "protocol_connect", "id": 2979, "name": "connect", "kind": "function", "path": "src-tauri/crates/protocols/src/codex.rs", "start_line": 11, "end_line": 29, "snippet": "pub fn connect(\n    out: Box<dyn Write + Send>,\n    start: Start,\n    pick: fn(&str, &str) -> String,\n    version: &str,\n) -> prometeu_core::session::provider::AgentProtocol {\n    let link = Arc::new(Mutex::new(Link::new(out, start, pick, version)));\n    let reader = link.clone();\n    prometeu_core::session::provider::AgentProtocol {", "snippet_start_line": 11, "snippet_truncated": true, "qualified_name": "connect"}, {"key": "codex_link", "id": 2989, "name": "Link", "kind": "struct", "path": "src-tauri/crates/protocols/src/codex.rs", "start_line": 137, "end_line": 171, "snippet": "pub struct Link {\n    pick: fn(&str, &str) -> String,\n    out: Box<dyn Write + Send>,\n    start: Start,\n    next: u64,\n    sent: HashMap<u64, Sent>,\n    thread: Option<String>,\n    /// Retain a thread startup failure and reject subsequent messages with its reason.\n    failed: Option<String>,", "snippet_start_line": 137, "snippet_truncated": true, "qualified_name": "Link"}, {"key": "codex_new", "id": 2990, "name": "new", "kind": "function", "path": "src-tauri/crates/protocols/src/codex.rs", "start_line": 174, "end_line": 217, "snippet": "pub fn new(\n        out: Box<dyn Write + Send>,\n        start: Start,\n        pick: fn(&str, &str) -> String,\n        version: &str,\n    ) -> Link {\n        let mut link = Link {\n            pick,\n            out,", "snippet_start_line": 174, "snippet_truncated": true, "qualified_name": "Link::new"}, {"key": "runtime_prepare", "id": 2549, "name": "prepare", "kind": "function", "path": "src-tauri/crates/runtime/src/provider.rs", "start_line": 26, "end_line": 88, "snippet": "fn prepare(&self, request: &LaunchRequest) -> Result<Prepared, String> {\n        let account = self\n            .accounts\n            .active(prometeu_core::board::ProviderId::Codex)?;\n        if account.id != \"codex\" {\n            return Err(prometeu_core::error::code(\"err.account.external\"));\n        }\n        let selection = self.selection.resolve(&self.workspace)?;\n        let packages = selection.plugin_packages();", "snippet_start_line": 26, "snippet_truncated": true, "qualified_name": "CodexPreparation::prepare"}, {"key": "startup_tools", "id": 600, "name": "StartupTools", "kind": "trait", "path": "src-tauri/crates/tools/src/lib.rs", "start_line": 33, "end_line": 60, "snippet": "pub trait StartupTools: Send + Sync {\n    fn code_search(&self, _workdir: &Path) -> Result<Vec<mcp::Server>, String> {\n        Ok(Vec::new())\n    }\n    fn claude(\n        &self,\n        session: &str,\n        workdir: &Path,\n        mcp: Option<&[String]>,", "snippet_start_line": 33, "snippet_truncated": true, "qualified_name": "StartupTools"}, {"key": "native_tools", "id": 606, "name": "NativeTools", "kind": "struct", "path": "src-tauri/crates/tools/src/lib.rs", "start_line": 63, "end_line": 68, "snippet": "pub struct NativeTools {\n    pub packages: std::sync::Arc<dyn packages::PackageBackend>,\n    pub sources: std::sync::Arc<dyn mcp::McpSources>,\n    pub files: std::sync::Arc<dyn mcp::McpFiles>,\n    pub search: search::Search,\n}", "snippet_start_line": 63, "snippet_truncated": false, "qualified_name": "NativeTools"}, {"key": "code_search", "id": 607, "name": "code_search", "kind": "function", "path": "src-tauri/crates/tools/src/lib.rs", "start_line": 70, "end_line": 72, "snippet": "fn code_search(&self, workdir: &Path) -> Result<Vec<mcp::Server>, String> {\n        self.search.servers(workdir)\n    }", "snippet_start_line": 70, "snippet_truncated": false, "qualified_name": "NativeTools::code_search"}, {"key": "search_type", "id": 797, "name": "Search", "kind": "struct", "path": "src-tauri/crates/tools/src/search.rs", "start_line": 11, "end_line": 14, "snippet": "pub struct Search {\n    pub executable: PathBuf,\n    pub cache: PathBuf,\n}", "snippet_start_line": 11, "snippet_truncated": false, "qualified_name": "Search"}, {"key": "search_servers", "id": 798, "name": "servers", "kind": "function", "path": "src-tauri/crates/tools/src/search.rs", "start_line": 17, "end_line": 67, "snippet": "pub fn servers(&self, workdir: &Path) -> Result<Vec<Server>, String> {\n        let roots = roots(workdir).map_err(|error| {\n            prometeu_core::error::with_args(\"err.mcp.session\", &[(\"cause\", error.to_string())])\n        })?;\n        let cache = std::path::absolute(&self.cache).map_err(|error| {\n            prometeu_core::error::with_args(\"err.mcp.session\", &[(\"cause\", error.to_string())])\n        })?;\n        let multiple = roots.len() > 1;\n        roots", "snippet_start_line": 17, "snippet_truncated": true, "qualified_name": "Search::servers"}, {"key": "search_roots", "id": 799, "name": "roots", "kind": "function", "path": "src-tauri/crates/tools/src/search.rs", "start_line": 70, "end_line": 92, "snippet": "fn roots(workdir: &Path) -> std::io::Result<Vec<PathBuf>> {\n    let root = workdir.canonicalize()?;\n    if !root.is_dir() {\n        return Err(std::io::Error::other(\"search root must be a directory\"));\n    }\n    let mut roots = Vec::new();\n    // Multi-repository workspaces launch from a grouping directory. Each direct Git worktree\n    // gets its own graph; a repository's nested repositories do not change its identity.\n    if !root.join(\".git\").exists() {", "snippet_start_line": 70, "snippet_truncated": true, "qualified_name": "roots"}, {"key": "search_cli", "id": 800, "name": "cli", "kind": "function", "path": "src-tauri/crates/tools/src/search.rs", "start_line": 95, "end_line": 114, "snippet": "pub fn cli(args: impl IntoIterator<Item = OsString>) -> Option<Result<(), String>> {\n    let mut args = args.into_iter();\n    let mode = args.next()?;\n    if mode != MODE {\n        return None;\n    }\n    let result = {\n        let root = args.next().map(PathBuf::from);\n        let database = args.next().map(PathBuf::from);", "snippet_start_line": 95, "snippet_truncated": true, "qualified_name": "cli"}, {"key": "search_serve", "id": 801, "name": "serve", "kind": "function", "path": "src-tauri/crates/tools/src/search.rs", "start_line": 116, "end_line": 131, "snippet": "fn serve(root: &Path, database: &Path) -> Result<(), String> {\n    let mut engine = Engine::open(root, Some(database)).map_err(|error| format!(\"{error:#}\"))?;\n    let _watcher = match engine.watch() {\n        Ok(watcher) => Some(watcher),\n        Err(error) => {\n            eprintln!(\"Background watching unavailable: {error:#}. Queries still reconcile files.\");\n            None\n        }\n    };", "snippet_start_line": 116, "snippet_truncated": true, "qualified_name": "serve"}, {"key": "search_overrides", "id": 852, "name": "codex_search_overrides", "kind": "function", "path": "src-tauri/crates/tools/src/mcp.rs", "start_line": 396, "end_line": 417, "snippet": "pub fn codex_search_overrides(servers: &[Server]) -> Result<Vec<String>, String> {\n    servers\n        .iter()\n        .map(|server| {\n            let command = server.config[\"command\"]\n                .as_str()\n                .filter(|command| !command.is_empty())\n                .ok_or_else(|| prometeu_core::error::code(\"err.mcp.badConfig\"))?;\n            if !server.id.starts_with(\"prometeu-search\")", "snippet_start_line": 396, "snippet_truncated": true, "qualified_name": "codex_search_overrides"}, {"key": "desktop_main", "id": 5224, "name": "main", "kind": "function", "path": "src-tauri/src/main.rs", "start_line": 132, "end_line": 434, "snippet": "fn main() {\n    if let Some(result) = prometeu_tools::search::cli(std::env::args_os().skip(1)) {\n        if let Err(error) = result {\n            eprintln!(\"{error}\");\n            std::process::exit(1);\n        }\n        return;\n    }\n    if std::env::args().nth(1).as_deref() == Some(\"--prometeu-mcp\") {", "snippet_start_line": 132, "snippet_truncated": true, "qualified_name": "main"}, {"key": "runtime_main", "id": 2602, "name": "main", "kind": "function", "path": "src-tauri/crates/runtime/src/main.rs", "start_line": 393, "end_line": 405, "snippet": "fn main() {\n    if let Some(result) = prometeu_tools::search::cli(std::env::args_os().skip(1)) {\n        if let Err(error) = result {\n            eprintln!(\"{error}\");\n            std::process::exit(1);\n        }\n        return;\n    }\n    if let Err(error) = run() {", "snippet_start_line": 393, "snippet_truncated": true, "qualified_name": "main"}]</script>
+<script>
+'use strict';
+const messages = {
+  pt: {
+    prototype:'Protótipo interativo', desk:'Mesa', tasks:'Tarefas', workspaces:'Workspaces', conversation:'Conversa', workspaceContext:'Contexto do workspace', conversationTitle:'Encontre o código.\nEntenda as conexões.', conversationIntro:'Converse com o agente e explore o mesmo código, lado a lado.', userMessage:'Como a busca chega a cada sessão?', agentMessage:'A busca é preparada no lançamento do agente, usando o diretório do worktree.', agentDetail:'No mapa ao lado, busque “search” para acompanhar essas conexões.', composer:'Continuar conversa…', explorerTabs:'Explorador do workspace', files:'Files', changes:'Changes', map:'Mapa', expand:'Ampliar mapa', collapse:'Recolher mapa', local:'local', searchLabel:'Pesquisar código', searchPlaceholder:'Pesquisar símbolo, arquivo ou termo…', clearSearch:'Limpar busca', try:'Experimente', sameIndex:'Código e conexões', graphLabel:'Grafo interativo do código', wholeMap:'Todo o mapa', focusedMap:'Conexões da busca', symbols:'símbolos', relations:'relações', matches:'Encontrados', connected:'Conectados', overview:'Restante', noResults:'Nenhum símbolo encontrado', noResultsHint:'Tente outro termo. O mapa continua aqui para você explorar.', zoomIn:'Aproximar', zoomOut:'Afastar', fit:'Enquadrar mapa', resultsLabel:'Resultados e detalhes', exploreSymbols:'Explore os símbolos', resultsTitle:'Resultados', results:'resultados', detailHint:'Selecione um símbolo no mapa ou na lista para ver o trecho de código e suas conexões.', sourceExcerpt:'Trecho do código · snapshot de exemplo', connections:'conexões', candidate:'relação candidata', selected:'Selecionado', lastSync:'Última sync', automatic:'Atualização automática · simulada neste protótipo', sync:'Sincronizar', syncing:'Sincronizando…', syncDone:'Mapa atualizado', justNow:'agora', minutesAgo:'há {n} min', syncingNote:'Verificando alterações no worktree…', syncAnnouncement:'Sincronização simulada concluída. Busca e seleção preservadas.', filesNote:'Contexto visual da aba Files. O protótipo interativo está na aba Mapa.', changesNote:'Contexto visual da aba Changes. Nenhum arquivo será alterado.', returnMap:'Voltar ao mapa', fixtureNote:'Amostra de código · sync simulada', core:'SESSÃO', providers:'AGENTES', search:'BUSCA', runtime:'EXECUÇÃO', noList:'Nenhum resultado para esse termo.', nodeHint:'Selecionar símbolo', contains:'contém', call:'chama', type:'usa tipo', wiring:'conexão ilustrativa', connectedTo:'Conectado a'
+  },
+  en: {
+    prototype:'Interactive prototype', desk:'Desk', tasks:'Tasks', workspaces:'Workspaces', conversation:'Conversation', workspaceContext:'Workspace context', conversationTitle:'Find the code.\nSee the connections.', conversationIntro:'Talk with your agent and explore the same code, side by side.', userMessage:'How does search reach each session?', agentMessage:'Search is prepared when the agent starts, using the worktree directory.', agentDetail:'Search for “search” in the map to follow these connections.', composer:'Continue conversation…', explorerTabs:'Workspace explorer', files:'Files', changes:'Changes', map:'Map', expand:'Expand map', collapse:'Collapse map', local:'local', searchLabel:'Search code', searchPlaceholder:'Search symbols, files or keywords…', clearSearch:'Clear search', try:'Try', sameIndex:'Code and connections', graphLabel:'Interactive code graph', wholeMap:'Whole map', focusedMap:'Search connections', symbols:'symbols', relations:'relationships', matches:'Matches', connected:'Connected', overview:'Other', noResults:'No symbols found', noResultsHint:'Try another term. The map stays here to explore.', zoomIn:'Zoom in', zoomOut:'Zoom out', fit:'Fit map', resultsLabel:'Results and details', exploreSymbols:'Explore symbols', resultsTitle:'Results', results:'results', detailHint:'Select a symbol in the map or list to see its source excerpt and connections.', sourceExcerpt:'Source excerpt · example snapshot', connections:'connections', candidate:'candidate relationship', selected:'Selected', lastSync:'Last sync', automatic:'Automatic updates · simulated in this prototype', sync:'Sync now', syncing:'Syncing…', syncDone:'Map updated', justNow:'just now', minutesAgo:'{n} min ago', syncingNote:'Checking worktree changes…', syncAnnouncement:'Simulated sync complete. Search and selection preserved.', filesNote:'Visual context for Files. The interactive prototype is in Map.', changesNote:'Visual context for Changes. No files will be changed.', returnMap:'Back to map', fixtureNote:'Code sample · simulated sync', core:'SESSION', providers:'AGENTS', search:'SEARCH', runtime:'EXECUTION', noList:'No results for this term.', nodeHint:'Select symbol', contains:'contains', call:'calls', type:'uses type', wiring:'illustrative connection', connectedTo:'Connected to'
+  }
+};
+const language = new URLSearchParams(location.search).get('lang') === 'en' ? 'en' : 'pt';
+const t = key => messages[language][key] || key;
+document.documentElement.lang = language === 'pt' ? 'pt-BR' : 'en';
+document.title = `${t('map')} · Prometeu`;
+for (const element of document.querySelectorAll('[data-i18n]')) element.textContent = t(element.dataset.i18n);
+for (const element of document.querySelectorAll('[data-i18n-aria]')) { element.setAttribute('aria-label', t(element.dataset.i18nAria)); element.title = t(element.dataset.i18nAria); }
+for (const element of document.querySelectorAll('[data-i18n-placeholder]')) element.placeholder = t(element.dataset.i18nPlaceholder);
+const paths = {
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>', rotate:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>', 'git-branch':'<circle cx="6" cy="5" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10M18 8a10 10 0 0 1-10 10"/>', close:'<path d="m6 6 12 12M6 18 18 6"/>', plus:'<path d="M12 5v14M5 12h14"/>', minus:'<path d="M5 12h14"/>', expand:'<path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/>', frame:'<path d="M8 4H4v4M16 4h4v4M20 16v4h-4M8 20H4v-4"/>', folder:'<path d="M3 7V5h6l2 2h10v13H3Z"/>', file:'<path d="M14 3H5v18h14V8ZM14 3v5h5"/>', grid:'<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>', check:'<path d="m5 12 4 4L19 6"/>', terminal:'<path d="m4 7 5 5-5 5M12 17h8"/>', 'arrow-up':'<path d="M12 19V5m-6 6 6-6 6 6"/>'
+};
+const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.file}</svg>`;
+for (const element of document.querySelectorAll('[data-icon]')) element.innerHTML = icon(element.dataset.icon);
+const $ = selector => document.querySelector(selector);
+const escapeHTML = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const nodes = JSON.parse($('#fixture').textContent);
+// Fixed layout keeps positions stable while searching. This is a bounded, curated sample.
+const layout = {
+  launch_type:[94,112,'Launch'], launch_request:[225,88,'LaunchRequest'], launch_service:[196,188,'LaunchService',1], launch_start:[78,232,'start'], launch_resume:[115,327,'resume'], desktop_start:[61,155,'session::start'], desktop_resume:[45,400,'session::resume'], desktop_launch:[246,294,'Desktop::launch',1],
+  native_providers:[371,166,'NativeProviders',1], native_prepare:[399,241,'prepare'], provider_codex:[493,151,'codex'], codex_prepare:[518,263,'codex::prepare',1],
+  startup_tools:[657,143,'StartupTools'], native_tools:[665,224,'NativeTools'], code_search:[597,326,'code_search',1], search_type:[648,409,'Search'], search_servers:[514,424,'servers',1], search_roots:[668,477,'roots'], search_overrides:[431,350,'MCP overrides'],
+  chat_launch:[290,411,'chat::launch'], protocol_connect:[351,486,'connect'], codex_link:[195,468,'Link'], codex_new:[90,477,'Link::new'], runtime_prepare:[438,84,'WSL::prepare'], search_cli:[533,70,'search::cli'], search_serve:[685,77,'serve'], desktop_main:[340,69,'main'], runtime_main:[607,53,'WSL::main']
+};
+for (const node of nodes) { const [x,y,label,major] = layout[node.key]; Object.assign(node,{x,y,label,major:!!major}); }
+const byKey = new Map(nodes.map(node => [node.key,node]));
+// Edges combine source relationships and explicitly illustrative runtime wiring.
+const edgeData = [
+ ['launch_service','launch_start','contains'],['launch_service','launch_resume','contains'],['launch_request','launch_type','type'],['desktop_start','launch_start','call'],['desktop_resume','launch_resume','call'],['launch_start','desktop_launch','wiring'],['launch_resume','desktop_launch','wiring'],['desktop_launch','native_prepare','call'],['desktop_launch','chat_launch','call'],['native_providers','native_prepare','contains'],['native_prepare','provider_codex','wiring'],['provider_codex','codex_prepare','call'],['codex_prepare','code_search','wiring'],['runtime_prepare','code_search','wiring'],['codex_prepare','search_overrides','call'],['runtime_prepare','search_overrides','call'],['native_tools','startup_tools','type'],['native_tools','code_search','contains'],['native_tools','search_type','type'],['code_search','search_servers','call'],['search_type','search_servers','contains'],['search_servers','search_roots','call'],['search_servers','search_cli','wiring'],['desktop_main','search_cli','call'],['runtime_main','search_cli','call'],['search_cli','search_serve','call'],['chat_launch','protocol_connect','candidate'],['protocol_connect','codex_new','call'],['codex_link','codex_new','contains'],['launch_start','launch_request','type'],['desktop_main','native_providers','wiring'],['runtime_main','runtime_prepare','wiring'],['search_overrides','search_servers','wiring']
+];
+const edges = edgeData.map(([from,to,kind],index) => ({from,to,kind,index}));
+let query = '', selected = null, matched = new Set(), context = new Set(), litEdges = new Set();
+let zoom = 1, pan = {x:0,y:0}, drag = null, lastSync = Date.now()-120000, syncing = false;
+const edgePath = edge => { const a=byKey.get(edge.from), b=byKey.get(edge.to); const bend=(a.x+b.x)/2+(a.y-b.y)*.08; return `M${a.x},${a.y} Q${bend},${(a.y+b.y)/2-18} ${b.x},${b.y}`; };
+$('#clusters').innerHTML = [[57,63,'core'],[370,119,'providers'],[568,377,'search'],[222,517,'runtime']].map(([x,y,key])=>`<text class="cluster-label" x="${x}" y="${y}">${t(key)}</text>`).join('');
+$('#edges').innerHTML = edges.map(edge=>`<path id="edge-${edge.index}" class="edge ${['candidate','wiring'].includes(edge.kind)?'candidate':''}" d="${edgePath(edge)}"><title>${escapeHTML(byKey.get(edge.from).label)} — ${t(edge.kind)} — ${escapeHTML(byKey.get(edge.to).label)}</title></path>`).join('');
+$('#nodes').innerHTML = nodes.map(node=>`<g class="node ${node.major?'major':''}" data-key="${node.key}" transform="translate(${node.x},${node.y})" role="button" tabindex="0" aria-label="${t('nodeHint')}: ${escapeHTML(node.qualified_name)}" aria-pressed="false"><circle class="hit-area" r="20"/><circle class="halo" r="${node.major?13:10}"/><circle class="core" r="${node.major?6:4.5}"/><text x="0" y="${node.key==='runtime_main'?-15:24}" text-anchor="middle">${escapeHTML(node.label)}</text></g>`).join('');
+
+function connections(key) { return edges.filter(edge=>edge.from===key||edge.to===key); }
+function getMatches() {
+  const terms=query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  return nodes.map(node=>({node,score:terms.reduce((score,term)=>score+(node.qualified_name.toLowerCase().includes(term)?5:0)+(node.path.toLowerCase().includes(term)?1:0)+(node.snippet.toLowerCase().includes(term)?.25:0),0)})).filter(item=>item.score>0).sort((a,b)=>b.score-a.score).map(item=>item.node);
+}
+function calculateHighlight(results) {
+  matched = new Set(results.map(node=>node.key)); context=new Set(); litEdges=new Set();
+  const seeds=new Set(matched); if(selected) seeds.add(selected);
+  // Show immediate neighbors and the shortest undirected route between matching symbols.
+  // Direction remains available in the relationship labels; this view shows connectivity.
+  for(const edge of edges) if(seeds.has(edge.from)||seeds.has(edge.to)) {litEdges.add(edge.index);context.add(edge.from);context.add(edge.to);}
+  const seedList=[...matched];
+  for(let i=1;i<seedList.length;i++) {
+    const queue=[seedList[0]], seen=new Set(queue), previous=new Map();
+    for(let at=0;at<queue.length && !seen.has(seedList[i]);at++) for(const edge of connections(queue[at])) {
+      const next=edge.from===queue[at]?edge.to:edge.from;
+      if(!seen.has(next)){seen.add(next);previous.set(next,{key:queue[at],edge});queue.push(next);}
+    }
+    let current=seedList[i];
+    while(previous.has(current)){const step=previous.get(current);litEdges.add(step.edge.index);context.add(current);context.add(step.key);current=step.key;}
+  }
+  for(const key of matched) context.delete(key);
+}
+function renderGraph() {
+  const active=!!query.trim()||!!selected;
+  for(const element of document.querySelectorAll('.node')) {
+    const key=element.dataset.key;
+    element.classList.toggle('match',matched.has(key));element.classList.toggle('context',context.has(key));element.classList.toggle('dim',active&&!matched.has(key)&&!context.has(key)&&key!==selected);element.classList.toggle('selected',selected===key);element.setAttribute('aria-pressed',String(selected===key));
+  }
+  for(const edge of edges) {
+    const element=$(`#edge-${edge.index}`), lit=litEdges.has(edge.index);
+    element.classList.toggle('lit',active&&lit);element.classList.toggle('context',active&&lit&&!matched.has(edge.from)&&!matched.has(edge.to));element.classList.toggle('dim',active&&!lit);
+  }
+  const motion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  $('#signals').innerHTML=active&&!motion?edges.filter(edge=>litEdges.has(edge.index)).slice(0,20).map((edge,i)=>`<circle class="signal" r="1.8"><animateMotion dur="${2.5+(i%3)*.7}s" begin="-${i*.17}s" repeatCount="indefinite" path="${edgePath(edge)}"/></circle>`).join(''):'';
+  $('#graph-title').textContent=t(query.trim()?'focusedMap':'wholeMap');
+  $('#graph-subtitle').textContent=query.trim()?`${matched.size} ${t('results')} · ${litEdges.size} ${t('relations')}`:`${nodes.length} ${t('symbols')} · ${edges.length} ${t('relations')}`;
+  $('#no-results').hidden=!query.trim()||matched.size>0||!!selected;
+}
+function renderResults(results) {
+  const hasQuery=!!query.trim();
+  const visible=hasQuery?results:[...nodes].sort((a,b)=>Number(b.major)-Number(a.major));
+  $('#results-title').textContent=t(hasQuery?'resultsTitle':'exploreSymbols');
+  $('#result-count').textContent=`${visible.length} ${t(hasQuery?'results':'symbols')}`;
+  $('#results').innerHTML=visible.length?visible.map(node=>`<button class="result ${hasQuery?'match':''}" data-select="${node.key}" aria-pressed="${selected===node.key}" title="${escapeHTML(node.path)}:${node.start_line}"><span class="result-name"><span class="kind-dot">${node.kind==='function'?'ƒ':'◇'}</span><span>${escapeHTML(node.qualified_name)}</span></span><span class="result-path">${escapeHTML(node.path.split('/').slice(-2).join('/'))}:${node.start_line}</span></button>`).join(''):`<div class="empty-list">${t('noList')}</div>`;
+}
+function renderDetail() {
+  if(!selected) {$('#detail').innerHTML=`<div class="detail-empty">${icon('frame')}<p>${t('detailHint')}</p></div>`;return;}
+  const node=byKey.get(selected), connected=connections(selected);
+  const lines=node.snippet.split('\n').slice(0,7);
+  $('#detail').innerHTML=`<div class="detail-name">${escapeHTML(node.qualified_name)}</div><div class="detail-path">${escapeHTML(node.path)}:${node.start_line}–${node.end_line}</div><div class="detail-meta"><span class="kind-badge">${escapeHTML(node.kind)}</span><span>${connected.length} ${t('connections')}</span></div><pre class="code">${lines.map((line,i)=>`<span class="code-line"><span class="line-number">${node.snippet_start_line+i}</span>${escapeHTML(line)}</span>`).join('')}</pre><div class="snippet-note">${t('sourceExcerpt')}${node.snippet_truncated||node.snippet.split('\n').length>7?' · …':''}</div><div class="connections">${connected.map(edge=>{const other=byKey.get(edge.from===selected?edge.to:edge.from);return `<button data-select="${other.key}" title="${escapeHTML(byKey.get(edge.from).label)} ${t(edge.kind)} ${escapeHTML(byKey.get(edge.to).label)}">${escapeHTML(other.label)}${['candidate','wiring'].includes(edge.kind)?' · ?':''}</button>`;}).join('')}</div>`;
+}
+function updateSearch() {
+  query=$('#search').value;selected=null;const results=getMatches();calculateHighlight(results);renderGraph();renderResults(results);renderDetail();$('#clear-search').hidden=!query;$('#shortcut').hidden=!!query;$('#tooltip').hidden=true;
+}
+function selectNode(key) {
+  selected=key;const scroll=$('#results').scrollTop;const results=getMatches();calculateHighlight(results);renderGraph();renderResults(results);renderDetail();$('#results').scrollTop=scroll;$('#announcement').textContent=`${t('selected')}: ${byKey.get(key).qualified_name}`;
+}
+$('#search').addEventListener('input',updateSearch);
+$('#clear-search').addEventListener('click',event=>{event.preventDefault();$('#search').value='';updateSearch();$('#search').focus();});
+for(const button of document.querySelectorAll('[data-query]')) button.addEventListener('click',()=>{$('#search').value=button.dataset.query;updateSearch();$('#search').focus();});
+for(const host of [$('#results'),$('#detail')]) host.addEventListener('click',event=>{
+  const button=event.target.closest('[data-select]');if(!button)return;
+  const key=button.dataset.select;selectNode(key);
+  const focus=$(`#results [data-select="${key}"]`)||$('#detail');
+  if(focus.id==='detail')focus.tabIndex=-1;
+  focus.focus({preventScroll:true});
+});
+for(const element of document.querySelectorAll('.node')) {
+  element.addEventListener('click',()=>{if(!drag?.moved)selectNode(element.dataset.key);});
+  element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectNode(element.dataset.key);}});
+  element.addEventListener('pointerenter',()=>{const node=byKey.get(element.dataset.key);const rect=element.getBoundingClientRect(),stage=$('#graph-stage').getBoundingClientRect();$('#tooltip').innerHTML=`${escapeHTML(node.qualified_name)}<small>${escapeHTML(node.path)}:${node.start_line}</small>`;$('#tooltip').hidden=false;$('#tooltip').style.left=`${Math.max(12,Math.min(rect.left-stage.left,stage.width-260))}px`;$('#tooltip').style.top=`${Math.max(8,rect.top-stage.top-53)}px`;});
+  element.addEventListener('pointerleave',()=>$('#tooltip').hidden=true);
+}
+function applyTransform() {$('#scene').setAttribute('transform',`translate(${pan.x},${pan.y}) translate(380,265) scale(${zoom}) translate(-380,-265)`);$('#zoom-level').textContent=`${Math.round(zoom*100)}%`;$('#zoom-in').disabled=zoom>=2.8;$('#zoom-out').disabled=zoom<=.6;}
+function changeZoom(amount) {zoom=Math.max(.6,Math.min(2.8,Math.round((zoom+amount)*10)/10));applyTransform();}
+$('#zoom-in').addEventListener('click',()=>changeZoom(.2));$('#zoom-out').addEventListener('click',()=>changeZoom(-.2));$('#fit').addEventListener('click',()=>{zoom=1;pan={x:0,y:0};applyTransform();});
+$('#graph').addEventListener('wheel',event=>{if(event.ctrlKey||event.metaKey){event.preventDefault();changeZoom(event.deltaY<0?.1:-.1);}},{passive:false});
+function graphPoint(event){return new DOMPoint(event.clientX,event.clientY).matrixTransform($('#graph').getScreenCTM().inverse());}
+$('#graph').addEventListener('pointerdown',event=>{if(event.button!==0||event.target.closest('.node'))return;const point=graphPoint(event);drag={x:point.x,y:point.y,pan:{...pan},moved:false};$('#graph').setPointerCapture(event.pointerId);$('#graph').classList.add('dragging');});
+$('#graph').addEventListener('pointermove',event=>{if(!drag)return;const point=graphPoint(event),x=point.x-drag.x,y=point.y-drag.y;drag.moved ||= Math.abs(x)+Math.abs(y)>3;pan={x:drag.pan.x+x,y:drag.pan.y+y};applyTransform();});
+for(const name of ['pointerup','pointercancel'])$('#graph').addEventListener(name,()=>{$('#graph').classList.remove('dragging');setTimeout(()=>drag=null,0);});
+function showTab(tab) {for(const button of document.querySelectorAll('[data-tab]')){const active=button.dataset.tab===tab;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;$(`#panel-${button.dataset.tab}`).hidden=!active;}$('#expand').hidden=tab!=='map';}
+for(const button of document.querySelectorAll('[data-tab]')){
+  button.addEventListener('click',()=>showTab(button.dataset.tab));
+  button.addEventListener('keydown',event=>{const tabs=[...document.querySelectorAll('[data-tab]')];let index=tabs.indexOf(button);if(event.key==='ArrowRight')index=(index+1)%tabs.length;else if(event.key==='ArrowLeft')index=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')index=0;else if(event.key==='End')index=tabs.length-1;else return;event.preventDefault();showTab(tabs[index].dataset.tab);tabs[index].focus();});
+}
+for(const button of document.querySelectorAll('[data-return-map]'))button.addEventListener('click',()=>{showTab('map');$('#tab-map').focus();});
+$('#expand').addEventListener('click',()=>{const expanded=$('#workspace').classList.toggle('expanded');$('#expand').setAttribute('aria-pressed',String(expanded));$('#expand').setAttribute('aria-label',t(expanded?'collapse':'expand'));$('#expand').title=t(expanded?'collapse':'expand');});
+function renderSync() {const minutes=Math.floor((Date.now()-lastSync)/60000);$('#sync-label').textContent=t('lastSync');$('#sync-time').textContent=minutes?t('minutesAgo').replace('{n}',minutes):t('justNow');$('#sync-time').dateTime=new Date(lastSync).toISOString();$('#sync-time').title=new Date(lastSync).toLocaleString(document.documentElement.lang);}
+$('#sync').addEventListener('click',()=>{
+  if(syncing)return;syncing=true;$('#sync').disabled=true;$('#sync-bar').classList.add('busy');$('#sync-bar').setAttribute('aria-busy','true');$('#sync-button-label').textContent=t('syncing');$('#sync-note').textContent=t('syncingNote');
+  setTimeout(()=>{lastSync=Date.now();syncing=false;renderSync();$('#sync').disabled=false;$('#sync-bar').classList.remove('busy');$('#sync-bar').removeAttribute('aria-busy');$('#sync-button-label').textContent=t('sync');$('#sync-note').textContent=t('automatic');$('#announcement').textContent=t('syncAnnouncement');},1400);
+});
+document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();showTab('map');$('#search').focus();}else if(event.key==='Escape'&&document.activeElement===$('#search')){$('#search').value='';updateSearch();}});
+const sampleFiles=['src-tauri/','  crates/','    core/','    protocols/','    tools/','      search.rs','      mcp.rs','  src/','    agent_launch.rs','    codex.rs','    main.rs'];
+$('#file-list').innerHTML=sampleFiles.map(path=>`<div class="sample-row">${icon(path.endsWith('/')?'folder':'file')}<span style="white-space:pre">${escapeHTML(path)}</span></div>`).join('');
+$('#change-list').innerHTML=['crates/tools/src/search.rs','crates/tools/src/mcp.rs','src/agent_launch.rs','src/codex.rs'].map(path=>`<div class="sample-row">${icon('file')}<span>${escapeHTML(path)}</span><span class="file-status">M</span></div>`).join('');
+updateSearch();renderSync();setInterval(()=>{if(!syncing)renderSync();},30000);
+</script>
+</body>
+</html>

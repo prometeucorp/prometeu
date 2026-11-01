@@ -11,6 +11,8 @@ Date: 2026-09-14
 The "Authority" section is amended by
 [ADR 0046](0046-cli-inherited-mcp-base.md); Trust is superseded by
 [ADR 0047](0047-tool-selection-boundaries.md).
+The automatic search infrastructure in
+[ADR 0098](0098-bundled-worktree-search.md) is outside the optional tool axes.
 
 ## Context
 

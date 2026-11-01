@@ -37,6 +37,32 @@ fn board() -> state::Board {
     board
 }
 
+fn code_map() -> prometeu_tools::search::CodeMapSnapshot {
+    let temporary =
+        std::env::temp_dir().join(format!("prometeu-map-contract-{}", uuid::Uuid::new_v4()));
+    let root = temporary.join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("main.ts"),
+        "import { save } from './store';\nexport function launch() { save(); }\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("store.ts"), "export function save() {}\n").unwrap();
+    let service = prometeu_tools::search::CodeMap::new(temporary.join("cache"));
+    let mut map = service
+        .snapshot(&root, None, "launch", None, None, false)
+        .unwrap();
+    // Machine paths and wall time do not belong in the checked-in wire fixture.
+    map.roots[0].id = "contract-root".into();
+    map.roots[0].label = "Project".into();
+    map.roots[0].path = "/contract/worktree".into();
+    map.root_id = "contract-root".into();
+    map.status.last_indexed = Some(1_793_404_800);
+    drop(service);
+    std::fs::remove_dir_all(temporary).unwrap();
+    map
+}
+
 #[test]
 fn serialized_boundary_fixture_is_current() {
     let mut streams = serde_json::Map::new();
@@ -90,7 +116,7 @@ fn serialized_boundary_fixture_is_current() {
     };
     let fixture = json!({
         "board":board(), "providers":providers, "capabilities":capabilities, "models":models,
-        "snapshot":snapshot, "events":streams,
+        "snapshot":snapshot, "events":streams, "codeMap":code_map(),
     });
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/backend-contract.json");

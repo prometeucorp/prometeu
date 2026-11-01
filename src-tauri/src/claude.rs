@@ -189,12 +189,24 @@ fn launch_args(
     }
     let packages = launch.plugin_packages();
     let selected = tools.claude(id, worktree, launch.mcp.as_deref(), packages.as_deref())?;
+    let search = tools.code_search(worktree)?;
+    let mut configs = Vec::new();
     if let Some(path) = selected.mcp_config {
-        args.extend([
-            "--mcp-config".into(),
-            path.display().to_string(),
-            "--strict-mcp-config".into(),
-        ]);
+        configs.push(path.display().to_string());
+    }
+    if !search.is_empty() {
+        let chosen = search
+            .iter()
+            .map(|server| server.id.clone())
+            .collect::<Vec<_>>();
+        configs.push(prometeu_tools::mcp::config_body(&search, &chosen, |_| None)?.to_string());
+    }
+    if !configs.is_empty() {
+        args.push("--mcp-config".into());
+        args.extend(configs);
+        if launch.mcp.is_some() {
+            args.push("--strict-mcp-config".into());
+        }
     }
     args.extend(selected.plugin_args);
     Ok(args)
@@ -1667,31 +1679,24 @@ mod account_tests {
 
 #[cfg(test)]
 mod launch_tests {
-    fn launch_args(
-        id: &str,
-        resume: bool,
-        launch: &Launch,
-        worktree: &Path,
-    ) -> Result<Vec<String>, String> {
-        super::launch_args(
+    fn launch_args(id: &str, resume: bool, launch: &Launch) -> Result<Vec<String>, String> {
+        let worktree =
+            std::env::temp_dir().join(format!("prometeu-launch-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&worktree).unwrap();
+        let result = super::launch_args(
             id,
             resume,
             launch,
-            worktree,
+            &worktree,
             &crate::tool_materialization::native(),
-        )
+        );
+        std::fs::remove_dir_all(worktree).unwrap();
+        result
     }
     use crate::paths;
     use crate::session::Launch;
     use crate::state::ProviderId;
-    use std::path::Path;
     use std::process::Command;
-
-    /// A directory without `.mcp.json`; the strict-config test also redirects HOME in its child
-    /// process, so CLI-inherited discovery (ADR 0046) finds nothing in these tests.
-    fn work() -> &'static Path {
-        Path::new("/prometeu-launch-test")
-    }
 
     fn launch(model: &str, effort: &str, plan: bool) -> Launch {
         Launch {
@@ -1712,7 +1717,7 @@ mod launch_tests {
             instructions: "Review independently".into(),
             ..Default::default()
         };
-        let args = launch_args("id", true, &launch, work()).unwrap();
+        let args = launch_args("id", true, &launch).unwrap();
         assert!(!args.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(args
             .windows(2)
@@ -1721,7 +1726,7 @@ mod launch_tests {
             permission: Some(crate::actions::Permission::Auto),
             ..launch
         };
-        assert!(launch_args("id", true, &automatic, work())
+        assert!(launch_args("id", true, &automatic)
             .unwrap()
             .contains(&"--dangerously-skip-permissions".to_string()));
     }
@@ -1729,14 +1734,14 @@ mod launch_tests {
     /// Without an explicit MCP selection, preserve CLI defaults. A selection supplies both the
     /// generated file and strict configuration.
     #[test]
-    fn mcp_is_injected_only_when_explicitly_selected() {
+    fn bundled_search_preserves_native_mcp_and_explicit_hub_selection() {
         // Use the existing subprocess pattern instead of changing the shared test environment.
         if std::env::var("PROMETEU_CLAUDE_MCP_TEST_CHILD").as_deref() != Ok("1") {
             let root = std::env::temp_dir().join(format!("prometeu-mcp-{}", uuid::Uuid::new_v4()));
             let result = Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
-                    "claude::launch_tests::mcp_is_injected_only_when_explicitly_selected",
+                    "claude::launch_tests::bundled_search_preserves_native_mcp_and_explicit_hub_selection",
                     "--nocapture",
                 ])
                 .env("PROMETEU_CLAUDE_MCP_TEST_CHILD", "1")
@@ -1753,8 +1758,11 @@ mod launch_tests {
             );
             return;
         }
-        let unselected = launch_args("id", false, &launch("", "", false), work()).unwrap();
-        assert!(!unselected.contains(&"--mcp-config".to_string()));
+        let unselected = launch_args("id", false, &launch("", "", false)).unwrap();
+        assert!(unselected.contains(&"--mcp-config".to_string()));
+        assert!(unselected
+            .iter()
+            .any(|arg| arg.contains("--prometeu-search-mcp")));
         assert!(!unselected.contains(&"--strict-mcp-config".to_string()));
 
         // A chosen id must exist in the universe: materialization fails instead of silently
@@ -1769,7 +1777,7 @@ mod launch_tests {
             mcp: Some(vec!["notion".into()]),
             ..launch("", "", false)
         };
-        let args = launch_args("id", false, &selected, work()).unwrap();
+        let args = launch_args("id", false, &selected).unwrap();
         let at = args
             .iter()
             .position(|a| a == "--mcp-config")
@@ -1783,7 +1791,7 @@ mod launch_tests {
     /// plugins.rs.
     #[test]
     fn omits_plugin_flags_without_a_selection() {
-        let args = launch_args("id", false, &launch("", "", false), work()).unwrap();
+        let args = launch_args("id", false, &launch("", "", false)).unwrap();
         assert!(!args.contains(&"--plugin-dir".to_string()));
         assert!(!args.contains(&"--plugin-url".to_string()));
     }
@@ -1792,11 +1800,11 @@ mod launch_tests {
     /// immediately.
     #[test]
     fn plan_mode_does_not_enable_permission_bypass() {
-        let unrestricted = launch_args("id", false, &launch("", "", false), work()).unwrap();
+        let unrestricted = launch_args("id", false, &launch("", "", false)).unwrap();
         assert!(unrestricted.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(!unrestricted.contains(&"--permission-mode".to_string()));
 
-        let plan = launch_args("id", false, &launch("", "", true), work()).unwrap();
+        let plan = launch_args("id", false, &launch("", "", true)).unwrap();
         assert!(!plan.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(plan.contains(&"--allow-dangerously-skip-permissions".to_string()));
         let at = plan.iter().position(|a| a == "--permission-mode").unwrap();
@@ -1806,17 +1814,16 @@ mod launch_tests {
     /// Omit empty model and effort flags so Claude can choose its defaults.
     #[test]
     fn passes_model_and_effort_only_when_selected() {
-        let defaults = launch_args("id", true, &launch("", " ", false), work()).unwrap();
+        let defaults = launch_args("id", true, &launch("", " ", false)).unwrap();
         assert!(!defaults.contains(&"--model".to_string()));
         assert!(!defaults.contains(&"--effort".to_string()));
         let at = defaults.iter().position(|a| a == "--resume").unwrap();
         assert_eq!(defaults[at + 1], "id");
 
-        let selected = launch_args("id", false, &launch("opus[1m]", "max", false), work()).unwrap();
-        assert_eq!(
-            selected[selected.len() - 4..],
-            ["--model", "opus[1m]", "--effort", "max"]
-        );
+        let selected = launch_args("id", false, &launch("opus[1m]", "max", false)).unwrap();
+        assert!(selected
+            .windows(4)
+            .any(|args| args == ["--model", "opus[1m]", "--effort", "max"]));
         let at = selected.iter().position(|a| a == "--session-id").unwrap();
         assert_eq!(selected[at + 1], "id");
     }
@@ -1824,7 +1831,7 @@ mod launch_tests {
     /// Keep conversation input, output, and permission requests on the same stream-json transport.
     #[test]
     fn conversation_uses_stream_json_with_stdio_permissions() {
-        let args = launch_args("id", false, &launch("", "", false), work()).unwrap();
+        let args = launch_args("id", false, &launch("", "", false)).unwrap();
         let has = |pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
         assert_eq!(args[0], "-p");
         assert!(has(["--input-format", "stream-json"]));

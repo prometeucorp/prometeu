@@ -109,9 +109,10 @@ preferences keep following the user; only the entries of the reserved `prometeu`
 and `prometeu-dev` marketplaces are controlled by the workspace. For MCP in
 Claude, when any layer declares the axis the spawn passes
 `--strict-mcp-config` with a private file that materializes the **whole
-effective set**, including the kept CLI-inherited servers, so the resolved list
-is exactly what the CLI loads; when no layer declares it, no strict flag is
-passed and the CLI loads its own defaults — the same set the picker shows
+effective optional set**, including the kept CLI-inherited servers. Bundled code
+search is added to this configuration. When no layer declares the axis, no
+strict flag is passed and the CLI loads its own defaults plus code search.
+The picker shows the optional set
 (ADR 0046 amends the Authority section of ADR 0045). A kept account connector
 is materialized as `{ "type": "claudeai-proxy", "url": …, "id": … }`, the entry
 the CLI creates for itself: the strict flag stops the CLI from fetching the
@@ -303,6 +304,12 @@ The virtual `prometeu` server is present in the selectable universe, never in
 the implicit CLI base or automatically selected by installation. Its definition
 is app-owned and cannot be edited/removed/shared. Only selected sessions receive
 a private process credential. See [embedded MCP](embedded-mcp.md).
+
+The separate [bundled code search](code-search.md) is automatic infrastructure,
+not a selectable hub entry. Supported provider adapters add it even to an
+explicitly empty optional MCP selection. Inherited native MCP configuration
+remains intact when no selection is declared. No search entry or cache path is
+persisted in the hub, project files or provider global configuration.
 
 ## Shared local resource libraries
 

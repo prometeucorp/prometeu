@@ -158,8 +158,12 @@ provenance and exact-hash project trust. `StartupTools` supplies Claude
 configuration and plugin arguments, Codex plugin and MCP artifacts, and Cursor
 ACP `mcpServers`; Codex profile preparation precedes plugin materialization, and
 its environment precedes MCP. Cursor materializes MCP before resolving the
-external profile. `None` selections invoke no source; explicit empty lists
-produce strict empty configuration; missing selected MCP IDs fail. Codex remote
+external profile. For optional hub tools, `None` selections invoke no source;
+explicit empty lists produce empty selected configuration; missing selected MCP
+IDs fail. The native adapter additionally supplies [bundled code search](code-search.md)
+from the explicit launch directory, independently of those selections. An empty
+MCP selection therefore retains search; an absent selection adds search while
+preserving the provider's native configuration. Codex remote
 MCP secrets use child environment variables and stdio secrets private environment
 files, never command arguments. Cursor remote headers and stdio environment
 travel in the ACP session payload. `NativePackages` keeps derived homes, revision 2 cache

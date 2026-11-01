@@ -17,6 +17,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
+import { codeMapFiles, mockCodeMap } from "./mock-code-map";
 import { hasWorktree, isTerm, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type ShareRights, type Tab, type Tools, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
@@ -255,7 +256,7 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
   })),
   "app/adapters": ["transcriber.rb", "waha.rb"].map((name) => ({ name, path: `app/adapters/${name}`, dir: false })),
   // Mirrors the mock's changed files, so a file opened from Changes has a row in the tree.
-  src: ["icons.ts", "style.css"].map((name) => ({ name, path: `src/${name}`, dir: false })),
+  src: ["icons.ts", "style.css", "search.ts", "session.ts", "main.ts"].map((name) => ({ name, path: `src/${name}`, dir: false })),
   bin: ["brakeman", "ci", "dev", "rails", "rake", "rubocop", "setup"].map((name) => ({ name, path: `bin/${name}`, dir: false })),
   docs: [
     { name: "customers.csv", path: "docs/customers.csv", dir: false },
@@ -266,6 +267,7 @@ const tree: Record<string, { name: string; path: string; dir: boolean }[]> = {
 
 const samplePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHlcAAAAASUVORK5CYII=";
 const files: Record<string, string> = {
+  ...codeMapFiles,
   "public/logo.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>',
   "docs/rules.pdf":
     "%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>",
@@ -1802,6 +1804,18 @@ const mockCommands: IpcHandlers = {
           a.path.localeCompare(b.path),
       )
       .slice(0, 40);
+  },
+  async workspace_code_map(args) {
+    const workspace = board.workspaces.find(workspace => workspace.id === args.id);
+    const project = board.projects.find(project => project.id === args.id);
+    if (workspace?.remote || workspace?.cleaned || workspace?.preparing || workspace?.failed || (!workspace && !project)) throw 'i18n:{"code":"err.session.noWorkspace"}';
+    const roots = workspace
+      ? (workspace.repos.length ? workspace.repos.map(repo => ({ id: `${args.id}:${repo.name}`, label: repo.worktree.split("/").pop()!, path: repo.worktree,
+        relative: repo.worktree.startsWith(`${workspace.worktree}/`) ? repo.worktree.slice(workspace.worktree.length + 1) : "" }))
+        : [{ id: args.id, label: workspace.repo_name, path: workspace.worktree, relative: "" }])
+      : [{ id: project!.id, label: project!.name, path: project!.path, relative: "" }];
+    if (args.force) await new Promise(resolve => setTimeout(resolve, 250));
+    return mockCodeMap(roots, args, files);
   },
   file_base(args) {
     // A file created after startup is new to Git, like an untracked file in the backend.

@@ -9,6 +9,7 @@ impl ApplicationClient for Deferred<'_> {
         let deferred = matches!(
             command.as_str(),
             "workspace_git_status"
+                | "workspace_code_map"
                 | "workspace_git_diff"
                 | "workspace_git_action"
                 | "workspace_git_history"
@@ -114,6 +115,49 @@ mod tests {
                 .unwrap();
             assert_eq!(client.calls.last().unwrap(), "load_board");
         }
+    }
+
+    #[test]
+    fn code_map_uses_deferred_transport_without_changing_scope_or_snapshot() {
+        struct MapClient;
+        impl ApplicationClient for MapClient {
+            fn operations_supported(&self) -> bool {
+                true
+            }
+            fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
+                match command.as_str() {
+                    "application_operation_start" => {
+                        assert_eq!(
+                            args,
+                            json!({"command":"workspace_code_map","args":{
+                                "id":"workspace","root":"issued-root","query":"launch",
+                                "path":"src/main.rs","line":7,"force":true
+                            }})
+                        );
+                        Ok(json!({"job":"map"}))
+                    }
+                    "application_operation_poll" => {
+                        assert_eq!(args, json!({"job":"map"}));
+                        Ok(
+                            json!({"done":true,"result":{"root_id":"issued-root","overview":{"files":[]}}}),
+                        )
+                    }
+                    _ => panic!("map request must run as a deferred operation"),
+                }
+            }
+        }
+        assert_eq!(
+            Deferred(&mut MapClient)
+                .application(
+                    "workspace_code_map".into(),
+                    json!({
+                        "id":"workspace","root":"issued-root","query":"launch",
+                        "path":"src/main.rs","line":7,"force":true
+                    })
+                )
+                .unwrap(),
+            json!({"root_id":"issued-root","overview":{"files":[]}})
+        );
     }
     #[test]
     fn initialization_negotiates_separately_and_leaves_shell_commands_unchanged() {

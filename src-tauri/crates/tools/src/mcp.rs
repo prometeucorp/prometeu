@@ -391,6 +391,31 @@ pub fn local_entry(id: &str, server: &Server, files: &dyn McpFiles) -> Result<St
     Ok(format!("{{command={},args=[{args}]}}", toml_str(&command)))
 }
 
+/// App-owned search entries override only their namespace, preserving native MCP configuration.
+/// Search carries paths in arguments and never credentials or environment overrides.
+pub fn codex_search_overrides(servers: &[Server]) -> Result<Vec<String>, String> {
+    servers
+        .iter()
+        .map(|server| {
+            let command = server.config["command"]
+                .as_str()
+                .filter(|command| !command.is_empty())
+                .ok_or_else(|| prometeu_core::error::code("err.mcp.badConfig"))?;
+            if !server.id.starts_with("prometeu-search")
+                || !server.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                || !server.env_pairs().is_empty()
+            {
+                return Err(prometeu_core::error::code("err.mcp.badConfig"));
+            }
+            let args = server.args().iter().map(|arg| toml_str(arg)).collect::<Vec<_>>().join(",");
+            Ok(format!(
+                "mcp_servers.{}={{command={},args=[{args}],startup_timeout_sec=120,tool_timeout_sec=120}}",
+                server.id, toml_str(command)
+            ))
+        })
+        .collect()
+}
+
 /// Quote TOML strings for configuration values without introducing another dependency.
 fn toml_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);

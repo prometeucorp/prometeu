@@ -135,8 +135,7 @@ struct Ask {
 }
 struct Tool {
     index: usize,
-    name: String,
-    input: Value,
+    metadata: Value,
     done: bool,
 }
 struct Open {
@@ -511,22 +510,28 @@ impl Link {
         if !self.tools.contains_key(id) {
             let index = self.index;
             self.index += 1;
-            let (name, input) = tool_input(value);
             self.tools.insert(
                 id.into(),
                 Tool {
                     index,
-                    name,
-                    input,
+                    metadata: json!({}),
                     done: false,
                 },
             );
         }
         let tool = self.tools.get_mut(id).unwrap();
-        if value["rawInput"].is_object() {
-            tool.input = tool_input(value).1;
+        // ACP updates omit unchanged fields. Cursor often supplies MCP identity after its
+        // initial placeholder, so derive presentation from the accumulated metadata.
+        for field in ["title", "kind", "locations"] {
+            if let Some(value) = value.get(field).filter(|value| !value.is_null()) {
+                tool.metadata[field] = value.clone();
+            }
         }
-        events.push(event("assistant.block", json!({"messageId":self.message,"index":tool.index,"block":{"kind":"tool","id":id,"name":tool.name,"input":tool.input}})));
+        if value["rawInput"].is_object() {
+            tool.metadata["rawInput"] = value["rawInput"].clone();
+        }
+        let (name, input) = tool_input(&tool.metadata);
+        events.push(event("assistant.block", json!({"messageId":self.message,"index":tool.index,"block":{"kind":"tool","id":id,"name":name,"input":input}})));
         if matches!(value["status"].as_str(), Some("completed" | "failed")) {
             tool.done = true;
             let mut output = value["content"]
@@ -781,6 +786,19 @@ fn question_answer(params: &Value, response: &Value) -> Result<Value, String> {
     }
 }
 fn tool_input(value: &Value) -> (String, Value) {
+    let raw = &value["rawInput"];
+    if let (Some(server), Some(tool)) = (
+        raw["providerIdentifier"].as_str().filter(|s| !s.is_empty()),
+        raw["toolName"].as_str().filter(|s| !s.is_empty()),
+    ) {
+        return (
+            format!("mcp__{server}__{tool}"),
+            raw.get("args")
+                .filter(|args| args.is_object())
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
+    }
     let name = match value["kind"].as_str() {
         Some("execute") => "Bash",
         Some("read") => "Read",

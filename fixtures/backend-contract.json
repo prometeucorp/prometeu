@@ -278,6 +278,113 @@
       "workspacePluginSelection": false
     }
   },
+  "codeMap": {
+    "overview": {
+      "edges": [
+        {
+          "count": 1,
+          "from": "main.ts",
+          "to": "store.ts",
+          "uncertain": false
+        }
+      ],
+      "files": [
+        {
+          "language": "typescript",
+          "path": "main.ts",
+          "symbols": 2
+        },
+        {
+          "language": "typescript",
+          "path": "store.ts",
+          "symbols": 2
+        }
+      ],
+      "generation": 1,
+      "truncated": false
+    },
+    "result": {
+      "affected_tests": [],
+      "ambiguous": false,
+      "edges": [
+        {
+          "ambiguous": false,
+          "confidence": "medium",
+          "from": 1,
+          "kind": "calls",
+          "line": 2,
+          "resolution": "import_match",
+          "target": "save",
+          "to": 3
+        }
+      ],
+      "files": [
+        {
+          "path": "main.ts",
+          "symbols": [
+            {
+              "end_line": 2,
+              "id": 1,
+              "kind": "function",
+              "name": "launch",
+              "qualified_name": "launch",
+              "snippet": "function launch() { save(); }",
+              "snippet_start_line": 2,
+              "snippet_truncated": false,
+              "start_line": 2,
+              "syntax_errors": false
+            }
+          ]
+        },
+        {
+          "path": "store.ts",
+          "symbols": [
+            {
+              "end_line": 1,
+              "id": 3,
+              "kind": "function",
+              "name": "save",
+              "qualified_name": "save",
+              "snippet": "function save() {}",
+              "snippet_start_line": 1,
+              "snippet_truncated": false,
+              "start_line": 1,
+              "syntax_errors": false
+            }
+          ]
+        }
+      ],
+      "generation": 1,
+      "impact": [],
+      "path": [],
+      "roots": [
+        {
+          "id": 1,
+          "name": "launch",
+          "path": "main.ts",
+          "qualified_name": "launch",
+          "start_line": 2
+        }
+      ],
+      "truncated": false
+    },
+    "root_id": "contract-root",
+    "roots": [
+      {
+        "id": "contract-root",
+        "label": "Project",
+        "path": "/contract/worktree",
+        "relative": ""
+      }
+    ],
+    "status": {
+      "files": 2,
+      "generation": 1,
+      "last_indexed": 1793404800,
+      "references": 1,
+      "symbols": 4
+    }
+  },
   "events": {
     "claude": [
       {

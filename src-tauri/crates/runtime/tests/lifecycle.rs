@@ -329,6 +329,87 @@ impl Client {
 }
 
 #[test]
+fn code_map_scopes_grouped_worktrees_and_refreshes_through_application_jobs() {
+    let fixture = Fixture::new();
+    let first = fixture.workdir.join("first");
+    let second = fixture.workdir.join("second");
+    for (root, name) in [(&first, "first_only"), (&second, "second_only")] {
+        std::fs::create_dir(root).unwrap();
+        fixture_git(root, &["init", "--quiet"]);
+        std::fs::write(root.join("main.rs"), format!("pub fn {name}() {{}}\n")).unwrap();
+    }
+    let mut client = Client::open(&fixture.root, &fixture.workdir, &fixture.executable);
+    let initial = client.app("workspace_code_map", json!({"id":"primary"}));
+    let roots = initial["roots"].as_array().unwrap();
+    assert_eq!(roots.len(), 2);
+    assert_eq!(roots[0]["relative"], "first");
+    assert_eq!(roots[1]["relative"], "second");
+    let first_id = roots[0]["id"].as_str().unwrap().to_string();
+    let second_id = roots[1]["id"].as_str().unwrap().to_string();
+    assert_ne!(first_id, second_id);
+    assert_eq!(initial["root_id"], first_id);
+    assert_eq!(initial["overview"]["files"][0]["path"], "main.rs");
+    assert_eq!(initial["status"]["files"], 1);
+
+    let selected = client.app(
+        "workspace_code_map",
+        json!({
+            "id":"primary","root":second_id,"query":"second_only"
+        }),
+    );
+    assert_eq!(selected["root_id"], second_id);
+    assert!(selected["result"].to_string().contains("second_only"));
+    assert!(!selected["result"].to_string().contains("first_only"));
+    for args in [
+        json!({"id":"not-local"}),
+        json!({"id":first}),
+        json!({"id":"primary","root":"/arbitrary/root"}),
+        json!({"id":"primary","root":second_id,"query":"second_only","path":"../first/main.rs"}),
+    ] {
+        assert!(client.app_result("workspace_code_map", args)["error"].is_string());
+    }
+
+    std::fs::write(second.join("main.rs"), "pub fn replacement() {}\n").unwrap();
+    let job = client.app(
+        "application_operation_start",
+        json!({
+            "command":"workspace_code_map", "args":{
+                "id":"primary","root":second_id,"query":"replacement","force":true
+            }
+        }),
+    );
+    assert!(client.app("load_board", Value::Null)["workspaces"].is_array());
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let refreshed = loop {
+        let result = client.app("application_operation_poll", job.clone());
+        if result["done"] == true {
+            break result["result"].clone();
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "map refresh timed out"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(refreshed["result"].to_string().contains("replacement"));
+    assert!(!refreshed["result"].to_string().contains("second_only"));
+
+    let project = client.app("add_project", json!({"path":first}));
+    let direct = client.app("workspace_code_map", json!({"id":project["id"]}));
+    assert_eq!(direct["root_id"], first_id);
+    assert_eq!(direct["roots"].as_array().unwrap().len(), 1);
+    assert_eq!(direct["roots"][0]["relative"], "");
+    assert!(client.app_result(
+        "workspace_code_map",
+        json!({
+            "id":project["id"],"root":second_id
+        })
+    )["error"]
+        .is_string());
+    client.shutdown();
+}
+
+#[test]
 fn application_lifecycle_preserves_transcripts_and_stops_only_owned_execution() {
     let fixture = Fixture::new();
     let script = include_str!("fake_codex.py").replace("import json", "import pathlib\nimport json")

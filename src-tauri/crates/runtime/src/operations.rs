@@ -67,6 +67,9 @@ impl Host {
                 writes.push(workspace.worktree.clone());
             }
             Request::AgentModels { .. } | Request::Accounts => {}
+            Request::WorkspaceCodeMap { id, .. } => {
+                prometeu_core::files::code_map_root(&board, id)?;
+            }
             Request::WorkspaceGitStatus { .. }
             | Request::WorkspaceGitDiff { .. }
             | Request::WorkspaceGitHistory { .. }
@@ -160,6 +163,7 @@ impl Host {
             _ => None,
         };
         let discovery = self.services.discovery.clone();
+        let code_map = self.services.code_map.clone();
         let git = self.services.git.clone();
         let references = self.services.references.clone();
         Ok(Operation {
@@ -176,6 +180,25 @@ impl Host {
                         serde_json::to_value(catalog).map_err(|e| e.to_string())
                     }
                     Request::Accounts => discovery.refresh(),
+                    Request::WorkspaceCodeMap {
+                        id,
+                        root,
+                        query,
+                        path,
+                        line,
+                        force,
+                    } => {
+                        let workdir = prometeu_core::files::code_map_root(&board, &id)?;
+                        serde_json::to_value(code_map.snapshot(
+                            Path::new(workdir),
+                            root.as_deref(),
+                            query.as_deref().unwrap_or_default(),
+                            path.as_deref(),
+                            line,
+                            force.unwrap_or(false),
+                        )?)
+                        .map_err(|error| error.to_string())
+                    }
                     Request::WorkspaceGitStatus { id } => {
                         let repos = prometeu_core::git::workspace_repos(&board, &id)?;
                         serde_json::to_value(git.status(repos)).map_err(|e| e.to_string())

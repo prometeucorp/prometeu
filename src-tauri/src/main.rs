@@ -77,6 +77,7 @@ use std::sync::{Arc, Mutex};
 pub struct AppState {
     pub project_entries: Arc<dyn prometeu_core::files::ProjectEntries<std::path::Path>>,
     pub project_search: Arc<dyn prometeu_core::files::ProjectSearch>,
+    pub code_map: Arc<prometeu_tools::search::CodeMap>,
     pub worktree_cleanup: Arc<dyn prometeu_core::workspace_lifecycle::WorktreeCleanup>,
     pub repository_git: Arc<dyn prometeu_core::git::RepositoryGit>,
     pub authentication: Arc<dyn prometeu_core::accounts::login::AccountAuthentication>,
@@ -130,6 +131,13 @@ fn install_crypto() {
 }
 
 fn main() {
+    if let Some(result) = prometeu_tools::search::cli(std::env::args_os().skip(1)) {
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("--prometeu-mcp") {
         if let Err(error) = embedded_mcp::stdio() {
             eprintln!("{error}");
@@ -166,6 +174,9 @@ fn main() {
                 trash: Arc::new(prometeu_files::entries::SystemTrash),
             }),
             project_search: Arc::new(prometeu_files::search::NativeSearch::default()),
+            code_map: Arc::new(prometeu_tools::search::CodeMap::new(
+                paths::root().join("search"),
+            )),
             worktree_cleanup: Arc::new(prometeu_git::cleanup::NativeCleanup),
             repository_git: Arc::new(prometeu_git::NativeGit),
             providers: Arc::new(agent_launch::NativeProviders {
@@ -259,6 +270,7 @@ fn main() {
             session::remove_workspace,
             session::diff::workspace_branch,
             session::git::workspace_git_status,
+            session::code_map::workspace_code_map,
             session::git::tree_git_status,
             session::git::tree_restore,
             session::git::file_base,
