@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.39.0] - 2026-11-01
+
+### New
+
+- **cursor:** Use hub MCP servers in conversations
+- **analytics:** Explore token usage and session details
+
+### Fixes
+
+- **docs:** Validate titles and rendered index links
+- **analytics:** Refresh session names in open details
+
 ## [0.38.0] - 2026-10-30
 
 ### New
