@@ -251,9 +251,13 @@ fn page(args: &Value, key: &str, default: usize, max: usize) -> Result<usize, St
 fn summary(board: &Board, d: &Delegation) -> Value {
     let ws = board.workspaces.iter().find(|w| w.id == d.workspace);
     let tab = ws.and_then(|w| w.tabs.iter().find(|t| t.id == d.id));
+    let choice = tab.and_then(|t| t.choice.as_ref());
     json!({
         "agent_id": d.id, "conversation_id": d.id, "workspace_id": d.workspace,
         "task": d.task, "execution": d.executions.last(),
+        // Empty model/effort mean the provider CLI's default.
+        "provider": choice.map(|c| c.agent), "model": choice.map(|c| &c.model),
+        "effort": choice.map(|c| &c.effort),
         "workspace": ws.map(|w| json!({"title": w.title, "stage": w.stage,
             "preparing": w.preparing, "failed": w.failed, "archived": w.archived,
             "cleaned": w.cleaned, "branch": w.branch})),
@@ -324,15 +328,23 @@ struct PreviewRequest<'a> {
     conversation_id: &'a str,
 }
 
+/// Providers a delegated worker can run on, in `list_agents` order. Cursor stays a coordinator only.
+const WORKER_PROVIDERS: [crate::state::ProviderId; 3] = [
+    crate::state::ProviderId::Claude,
+    crate::state::ProviderId::Codex,
+    crate::state::ProviderId::Antigravity,
+];
+
 fn worker_choice(
     choice: session::Launch,
     args: &Value,
 ) -> Result<(crate::state::ProviderId, String, String), String> {
     let provider = match args.get("provider").and_then(Value::as_str) {
         None => choice.agent,
-        Some("claude") => crate::state::ProviderId::Claude,
-        Some("codex") => crate::state::ProviderId::Codex,
-        _ => return Err("invalid_argument: provider".into()),
+        Some(name) => WORKER_PROVIDERS
+            .into_iter()
+            .find(|p| prometeu_core::accounts::key(*p) == name)
+            .ok_or("invalid_argument: provider")?,
     };
     let inherit = provider == choice.agent;
     let model = args
@@ -352,6 +364,107 @@ fn worker_choice(
             }
         });
     Ok((provider, model, effort))
+}
+
+/// Explicit worker choices are checked against the provider's live catalog before any workspace
+/// exists. A model never selects its provider: a mismatch is rejected with the closest IDs of the
+/// chosen provider instead of reaching a CLI that cannot run it.
+fn check_choice(
+    provider: crate::state::ProviderId,
+    model: Option<&str>,
+    effort: Option<&str>,
+    catalog: Result<crate::agents::ModelCatalog, crate::agents::CatalogError>,
+) -> Result<(), String> {
+    let name = prometeu_core::accounts::key(provider);
+    let catalog = catalog.map_err(|error| {
+        format!(
+            "provider_unavailable: {name} could not list its models ({}). Check that its CLI is installed and has an account in Prometeu, or call list_agents.",
+            error.code
+        )
+    })?;
+    let Some(model) = model else {
+        return Ok(());
+    };
+    let Some(found) = catalog.models.iter().find(|m| m.id == model) else {
+        let wanted = model.to_ascii_lowercase();
+        let close: Vec<&str> = catalog
+            .models
+            .iter()
+            .filter(|m| {
+                let id = m.id.to_ascii_lowercase();
+                id.contains(&wanted) || wanted.contains(&id)
+            })
+            .map(|m| m.id.as_str())
+            .collect();
+        let offered = if close.is_empty() {
+            catalog
+                .models
+                .iter()
+                .map(|m| m.id.as_str())
+                .take(30)
+                .collect()
+        } else {
+            close
+        };
+        let offered = if offered.is_empty() {
+            "no models".to_string()
+        } else {
+            offered.join(", ")
+        };
+        return Err(format!(
+            "model_not_available: '{model}' is not a model ID offered by provider {name}. A model never changes the provider: pass the provider that offers it. {name} offers: {offered}. Call list_agents for every provider's exact IDs."
+        ));
+    };
+    match effort {
+        Some(_) if found.efforts.is_empty() => Err(format!(
+            "effort_not_available: '{model}' has no separate effort levels; omit effort"
+        )),
+        Some(effort) if !found.efforts.iter().any(|e| e == effort) => Err(format!(
+            "effort_not_available: '{model}' supports {}",
+            found.efforts.join(", ")
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Live worker catalog for coordinators. Providers are queried in parallel so the response stays
+/// within one catalog timeout; no board lock is held meanwhile.
+fn list_agents(app: &AppHandle, client: &Client) -> Result<Value, String> {
+    let state = app.state::<AppState>();
+    let default_provider = {
+        let board = lock(&state.board);
+        source(&board, client, &json!({}))
+            .map(|(_, choice)| choice.agent)
+            .unwrap_or_default()
+    };
+    let launcher = state.query_launcher.clone();
+    let catalogs: Vec<_> = std::thread::scope(|scope| {
+        let queries: Vec<_> = WORKER_PROVIDERS
+            .into_iter()
+            .map(|provider| {
+                let launcher = launcher.as_ref();
+                scope.spawn(move || (provider, crate::agents::models(launcher, provider)))
+            })
+            .collect();
+        queries
+            .into_iter()
+            .filter_map(|query| query.join().ok())
+            .collect()
+    });
+    Ok(json!({
+        "default_provider": default_provider,
+        "providers": catalogs.into_iter().map(|(provider, catalog)| match catalog {
+            Ok(catalog) => json!({
+                "provider": provider, "available": true,
+                "models": catalog.models.iter()
+                    .map(|m| json!({"id": m.id, "label": m.label, "efforts": m.efforts}))
+                    .collect::<Vec<_>>(),
+            }),
+            Err(error) => json!({
+                "provider": provider, "available": false, "models": [], "error": error.code,
+            }),
+        }).collect::<Vec<_>>(),
+    }))
 }
 
 fn previous_creation<'a>(
@@ -417,6 +530,15 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
     };
     let permission = choice.permission;
     let (provider, model, effort) = worker_choice(choice, args)?;
+    // Only explicit choices pay for a live catalog query; fully inherited delegation is unchanged.
+    if args.get("provider").is_some() || args.get("model").is_some() {
+        check_choice(
+            provider,
+            args.get("model").and_then(Value::as_str),
+            args.get("effort").and_then(Value::as_str),
+            crate::agents::models(state.query_launcher.as_ref(), provider),
+        )?;
+    }
     let id = uuid::Uuid::new_v4().to_string();
     let mut repository_heads = BTreeMap::new();
     for repo in &repos {
@@ -507,6 +629,9 @@ fn call_inner(app: &AppHandle, client: &Client, name: &str, args: &Value) -> Res
     client.validate(&lock(&state.board))?;
     if name == "delegate" {
         return create(app, client, args);
+    }
+    if name == "list_agents" {
+        return list_agents(app, client);
     }
     if name == "list_projects" {
         let offset = page(args, "offset", 0, usize::MAX)?;
@@ -1176,6 +1301,82 @@ mod tests {
             &json!({"provider":"unknown"})
         )
         .is_err());
+    }
+
+    #[test]
+    fn workers_can_run_on_antigravity_but_not_cursor() {
+        let launch = session::Launch::default();
+        let (provider, model, effort) =
+            worker_choice(launch.clone(), &json!({"provider":"antigravity"})).unwrap();
+        assert_eq!(provider, crate::state::ProviderId::Antigravity);
+        assert!(model.is_empty() && effort.is_empty());
+        assert!(worker_choice(launch, &json!({"provider":"cursor"})).is_err());
+    }
+
+    fn catalog(models: &[(&str, &[&str])]) -> crate::agents::ModelCatalog {
+        crate::agents::ModelCatalog {
+            models: models
+                .iter()
+                .map(|(id, efforts)| crate::agents::Model {
+                    id: (*id).into(),
+                    label: (*id).into(),
+                    efforts: efforts.iter().map(|e| (*e).into()).collect(),
+                    additional: false,
+                })
+                .collect(),
+            fetched_at: 0,
+        }
+    }
+
+    #[test]
+    fn explicit_models_must_belong_to_the_chosen_provider() {
+        use crate::state::ProviderId::{Antigravity, Claude, Codex};
+        let claude = || Ok(catalog(&[("opus", &["low", "high"]), ("haiku", &[])]));
+        let antigravity = || {
+            Ok(catalog(&[
+                ("gemini-3.8-flash-high", &[]),
+                ("gemini-3.8-flash-low", &[]),
+                ("gpt-oss-120b-medium", &[]),
+            ]))
+        };
+        assert!(check_choice(Claude, Some("opus"), Some("high"), claude()).is_ok());
+        assert!(check_choice(Claude, None, None, claude()).is_ok());
+        // The reported failure: a Gemini model sent to the coordinator's own provider.
+        let error = check_choice(Claude, Some("gemini-3.8-flash"), None, claude()).unwrap_err();
+        assert!(error.starts_with("model_not_available:"), "{error}");
+        assert!(
+            error.contains("list_agents") && error.contains("opus, haiku"),
+            "{error}"
+        );
+        // Close IDs of the chosen provider guide the retry.
+        let error =
+            check_choice(Antigravity, Some("gemini-3.8-flash"), None, antigravity()).unwrap_err();
+        assert!(
+            error.contains("gemini-3.8-flash-high, gemini-3.8-flash-low")
+                && !error.contains("gpt-oss"),
+            "{error}"
+        );
+        assert!(check_choice(
+            Antigravity,
+            Some("gemini-3.8-flash-high"),
+            None,
+            antigravity()
+        )
+        .is_ok());
+        assert!(check_choice(Claude, Some("opus"), Some("max"), claude())
+            .unwrap_err()
+            .starts_with("effort_not_available:"));
+        assert!(check_choice(Claude, Some("haiku"), Some("low"), claude())
+            .unwrap_err()
+            .starts_with("effort_not_available:"));
+        let error = check_choice(
+            Codex,
+            None,
+            None,
+            Err(crate::agents::CatalogError::new("noAccount")),
+        )
+        .unwrap_err();
+        assert!(error.starts_with("provider_unavailable: codex"), "{error}");
     }
 
     #[test]

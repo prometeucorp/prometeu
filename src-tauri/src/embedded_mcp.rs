@@ -238,14 +238,30 @@ fn tool(
         "annotations": {"readOnlyHint": read_only}})
 }
 
+/// Server-level routing guidance. Coordinators also own native subagents; this text states when a
+/// Prometeu worker is the right choice and that a model never selects its provider.
+const INSTRUCTIONS: &str = "Prometeu runs coding agents from several providers as delegated workers, each in its own isolated git worktree, visible to the person in the open Prometeu app. Use delegate when work must run on a different provider or model family than yours (for example a cross-model review, a second opinion or a parallel implementation): your native subagent tool cannot switch provider. Providers: claude (Anthropic Claude models), codex (OpenAI GPT models), antigravity (Google Gemini models, plus the other models it lists). Call list_agents first for the exact model IDs of each provider, then pass provider explicitly with a model from that provider's list, or omit model for the provider's default. Poll get_delegation for progress and read the worker's answer with read_conversation. You control only agents created by this client.";
+
 pub fn tools() -> Vec<Value> {
     let text = json!({"type":"string", "minLength":1});
+    let described =
+        |description: &str| json!({"type":"string", "minLength":1, "description":description});
     let index = json!({"type":"integer", "minimum":0});
     vec![
         tool("list_projects", "List registered projects this client can use. Pass a returned project_id to delegate when no conversation context is attached.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
-        tool("delegate", "Create a task-bound agent in its own isolated workspace using an allowed project_id or the attached conversation's repositories. Returns immediately while preparation runs. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
-            json!({"request_key":text, "title":text, "task":text, "project_id":text, "provider":{"type":"string","enum":["claude","codex"]},"model":text,"effort":text}), &["request_key","title","task"], false),
+        tool("list_agents", "List the providers Prometeu can run as delegated workers (claude: Anthropic Claude models; codex: OpenAI GPT models; antigravity: Google Gemini models and the others it lists), whether each is available on this Mac, and their exact model IDs and effort levels, queried live from each CLI for its selected account. Call before delegate to pick provider and model. default_provider is used when delegate omits provider. May take several seconds.",
+            json!({}), &[], true),
+        tool("delegate", "Run a task on another coding agent CLI managed by Prometeu, in its own isolated git worktree created from the committed HEAD of an allowed project_id or of the attached conversation's repositories. Use this instead of your native subagent tool when the work must run on a different provider or model family (Codex for OpenAI GPT, Antigravity for Google Gemini, Claude), for example a cross-model review, a second opinion or a parallel implementation, or must not touch your checkout. Choose provider first: model must be an exact ID offered by that provider (see list_agents); omit model for the provider's default. A model never changes the provider; mismatches are rejected before any workspace is created. Returns immediately while preparation runs; poll get_delegation and read the answer with read_conversation. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
+            json!({
+                "request_key": described("Idempotency key chosen by you (1-128 bytes). Retrying with the same key and arguments returns the original agent."),
+                "title": described("Short human-readable title shown to the person in Prometeu."),
+                "task": described("Complete, self-contained instructions. The worker does not see your conversation; include goals, constraints, relevant paths and the expected answer."),
+                "project_id": described("Project from list_projects. Required without an attached conversation; otherwise defaults to the conversation's repositories."),
+                "provider": {"type":"string","enum":["claude","codex","antigravity"],"description":"Agent CLI that runs the worker: claude (Anthropic Claude), codex (OpenAI GPT), antigravity (Google Gemini and the others it lists). Omitted means default_provider from list_agents: the attached conversation's provider, or claude. Always set it when you want a different provider or model family."},
+                "model": described("Exact model ID offered by the chosen provider, from list_agents. Omit to use the provider's default (or the conversation's model when the provider is unchanged)."),
+                "effort": described("Reasoning effort listed for the chosen model in list_agents. Omit when the model lists none."),
+            }), &["request_key","title","task"], false),
         tool("list_delegations", "List only agents created by this client, including preparation, execution and background status.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
         tool("get_delegation", "Inspect an owned agent, including setup/run state, exit codes, configured run names, port and preview URL. Running does not prove HTTP readiness. Workspace stage, conversation status, executions and provider background tasks are separate. Null background means unknown. Pending questions require the person in Prometeu.",
@@ -256,7 +272,7 @@ pub fn tools() -> Vec<Value> {
             json!({"agent_id":text,"request_key":text,"text":text}), &["agent_id","request_key","text"], false),
         tool("interrupt", "Request interruption of an owned agent's current turn. This does not delete its environment or promise to stop every background task.",
             json!({"agent_id":text}), &["agent_id"], false),
-        tool("read_conversation", "Read a bounded tail of the owned conversation as canonical Prometeu events. Does not include unrelated tabs or child-provider transcripts. seq is process-local, not a durable cursor.",
+        tool("read_conversation", "Read a bounded tail of the owned conversation as canonical Prometeu events, including the worker's answer once its execution completes. Does not include unrelated tabs or child-provider transcripts. seq is process-local, not a durable cursor.",
             json!({"agent_id":text,"limit":{"type":"integer","minimum":1,"maximum":200}}), &["agent_id"], true),
         tool("list_files", "List entries within the owned workspace. Paths are relative to its root.",
             json!({"agent_id":text,"path":{"type":"string"},"offset":index,"limit":{"type":"integer","minimum":1,"maximum":500}}), &["agent_id"], true),
@@ -309,7 +325,7 @@ impl Protocol {
                 self.initialized = true;
                 json!({"protocolVersion": VERSION,"capabilities":{"tools":{}},
                     "serverInfo":{"name":"prometeu","version":env!("CARGO_PKG_VERSION")},
-                    "instructions":"Delegate tasks to isolated workspaces. Control is limited to agents created by your conversation. Work continues in the open Prometeu app; poll get_delegation for progress."})
+                    "instructions":INSTRUCTIONS})
             }
             "ping" => json!({}),
             _ if !self.ready => {
@@ -424,7 +440,7 @@ mod tests {
         let reply = protocol
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
-        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 13);
+        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 14);
         let reply = protocol
             .reply(
                 request(
@@ -571,6 +587,47 @@ mod tests {
                 .unwrap();
             assert_eq!(reply["error"]["code"], -32602);
         }
+    }
+
+    #[test]
+    fn delegate_schema_routes_providers_explicitly() {
+        let tools = tools();
+        let delegate = tools.iter().find(|t| t["name"] == "delegate").unwrap();
+        let properties = &delegate["inputSchema"]["properties"];
+        assert_eq!(
+            properties["provider"]["enum"],
+            json!(["claude", "codex", "antigravity"])
+        );
+        for key in [
+            "request_key",
+            "title",
+            "task",
+            "project_id",
+            "provider",
+            "model",
+            "effort",
+        ] {
+            assert!(
+                properties[key]["description"].is_string(),
+                "{key} needs a description"
+            );
+        }
+        let agents = tools.iter().find(|t| t["name"] == "list_agents").unwrap();
+        assert_eq!(agents["annotations"]["readOnlyHint"], true);
+        assert!(valid_args(&agents["inputSchema"], &json!({})));
+        assert!(!valid_args(
+            &agents["inputSchema"],
+            &json!({"provider":"codex"})
+        ));
+        assert!(valid_args(
+            &delegate["inputSchema"],
+            &json!({"request_key":"k","title":"t","task":"x","provider":"antigravity","model":"m"})
+        ));
+        assert!(!valid_args(
+            &delegate["inputSchema"],
+            &json!({"request_key":"k","title":"t","task":"x","provider":"cursor"})
+        ));
+        assert!(INSTRUCTIONS.contains("list_agents"));
     }
 
     #[test]

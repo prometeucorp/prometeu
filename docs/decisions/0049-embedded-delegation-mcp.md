@@ -55,6 +55,17 @@ rule that all board reactions happened after unlocking: ordered execution
 observation needs to precede a fast subsequent response. Lock order remains
 chats → buffer → board, with no process/file operations while holding the board.
 
+Workers run on Claude, Codex or Antigravity. A model never selects its provider:
+coordinators also own native subagents that cannot switch provider, so tool and
+server descriptions state when a Prometeu worker applies, a read-only
+`list_agents` tool exposes each provider's live account catalog, and explicit
+provider/model/effort choices are validated against that catalog before any
+workspace exists. Rejections carry the closest IDs of the chosen provider instead
+of guessing another provider. Inferring the provider from the model was rejected
+as an implicit routing rule; a cached catalog was rejected because it can lag the
+account. The cost is a bounded live CLI query on explicit choices and on
+`list_agents`, which queries providers in parallel.
+
 Creation and messages have request keys to make ordinary retries idempotent.
 New MCP messages reject busy targets. Native pending-message recovery remains;
 there is no exactly-once promise across provider/persistence crashes. Main turn
