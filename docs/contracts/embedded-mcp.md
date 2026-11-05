@@ -207,6 +207,9 @@ whether passed or inherited:
 - an inherited effort that the effective model does not list falls back to the
   CLI default, because `effort` cannot be passed empty.
 
+Codex efforts are compared as launched: the `ultracode` spelling saved by older
+Codex choices counts as Codex's native `ultra`.
+
 Nothing is persisted on rejection, so the same `request_key` can be retried with
 corrected arguments. Fully inherited calls skip the query and keep their previous
 behavior. Compatibility: model strings outside the catalog (for example full

@@ -395,6 +395,12 @@ fn check_choice(
             error.code
         )
     })?;
+    // Older Codex choices saved the app's `ultracode` spelling, which the launch sends as `ultra`;
+    // compare and keep the value the CLI receives.
+    let effort = match provider {
+        crate::state::ProviderId::Codex => crate::agents::effort(effort),
+        _ => effort,
+    };
     let found = catalog.models.iter().find(|m| m.id == model);
     if found.is_none() && args.get("model").is_some() {
         let wanted = model.to_ascii_lowercase();
@@ -1510,6 +1516,39 @@ mod tests {
         )
         .unwrap_err()
         .starts_with("effort_not_available:"));
+        // Codex efforts are checked as launched: the old `ultracode` spelling is `ultra`.
+        let codex = || {
+            Ok(catalog(&[
+                ("gpt-model", &["high", "ultra"]),
+                ("gpt-mini", &["high"]),
+            ]))
+        };
+        let old = session::Launch {
+            agent: crate::state::ProviderId::Codex,
+            ..coordinator("gpt-model", "ultracode")
+        };
+        assert_eq!(
+            choose(&old, json!({"provider":"codex"}), codex).unwrap(),
+            (
+                crate::state::ProviderId::Codex,
+                "gpt-model".into(),
+                "ultra".into()
+            )
+        );
+        assert_eq!(
+            choose(&old, json!({"model":"gpt-mini"}), codex).unwrap().2,
+            ""
+        );
+        assert_eq!(
+            choose(
+                &coordinator("", ""),
+                json!({"provider":"codex","model":"gpt-model","effort":"ultracode"}),
+                codex
+            )
+            .unwrap()
+            .2,
+            "ultra"
+        );
         // Fully inherited delegation never queries the catalog.
         assert_eq!(
             choose(&coordinator("haiku", "high"), json!({}), || unreachable!()).unwrap(),
