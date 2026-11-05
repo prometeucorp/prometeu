@@ -301,8 +301,9 @@ reducers give fast diagnosis for every combination.
 
 Claude, Codex and Cursor can opt into the bundled `prometeu` MCP and create a
 Claude, Codex or Antigravity worker in an isolated workspace; Cursor is not a
-worker provider. `list_agents` reports each worker provider's live catalog, and
-explicit `provider`/`model`/`effort` choices are checked against it before the
+worker provider. Every coordinator must name the worker's `provider`; none
+inherits its own. `list_agents` reports each worker provider's live catalog, and
+`provider`/`model`/`effort` choices are checked against it before the
 workspace exists, so a model from another provider is rejected with a hint
 instead of reaching the wrong CLI. Antigravity workers have no approval or
 question prompts and run with automatic execution unless the copied action
@@ -332,10 +333,11 @@ Browser tests use the catalog mock and do not run models.
 Live model delegation requires installed/authenticated CLIs; automated tests
 do not spend model credits. See the [contract](../contracts/embedded-mcp.md).
 
-External local MCP hosts use the same stdio protocol and tools with either worker
+External local MCP hosts use the same stdio protocol and tools with any worker
 provider, without a coordinator conversation in Prometeu. Registered clients have
 explicit project scope and revocable credentials that survive desktop restart.
-Explicit project delegation defaults to Claude; `provider` can select Codex or Antigravity.
+They also name the `provider` (Claude, Codex or Antigravity), which starts from
+its CLI defaults unless `model`/`effort` are passed.
 Evidence: `mcp_access.rs` and `delegation.rs` authorization/compatibility tests,
 and `tests/mcp_client.rs` for real stdio subprocess registration and socket
 rediscovery against a fixture. No live provider or native webview is exercised

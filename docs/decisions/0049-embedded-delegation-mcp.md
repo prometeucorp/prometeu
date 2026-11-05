@@ -55,18 +55,23 @@ rule that all board reactions happened after unlocking: ordered execution
 observation needs to precede a fast subsequent response. Lock order remains
 chats → buffer → board, with no process/file operations while holding the board.
 
-Workers run on Claude, Codex or Antigravity. A model never selects its provider:
-coordinators also own native subagents that cannot switch provider, so tool and
-server descriptions state when a Prometeu worker applies, a read-only
-`list_agents` tool exposes each provider's live account catalog, and explicit
-provider/model/effort choices are validated against that catalog before any
-workspace exists. Rejections carry the closest IDs of the chosen provider instead
-of guessing another provider. An inherited effort the chosen model does not list
-falls back to the CLI default instead of being rejected, because `effort` cannot
-be passed empty to clear it. Inferring the provider from the model was rejected
-as an implicit routing rule; a cached catalog was rejected because it can lag the
-account. The cost is a bounded live CLI query on explicit choices and on
-`list_agents`, which queries providers in parallel.
+Workers run on Claude, Codex or Antigravity, and `delegate` requires `provider`:
+neither a model nor the coordinator's own provider selects it. Coordinators also
+own native subagents that cannot switch provider, so tool and server
+descriptions state when a Prometeu worker applies, a read-only `list_agents`
+tool exposes each provider's live account catalog, and provider/model/effort
+choices other than the conversation's own are validated against that catalog
+before any workspace exists. Rejections carry the closest IDs of the chosen
+provider instead of guessing another provider. An inherited effort the chosen
+model does not list falls back to the CLI default instead of being rejected,
+because `effort` cannot be passed empty to clear it. Inheriting the
+coordinator's provider was rejected: it sent other providers' models to the
+coordinator's CLI and let Cursor coordinators start Cursor workers. Inferring
+the provider from the model was rejected as an implicit routing rule; a cached
+catalog was rejected because it can lag the account. The cost is that callers
+which omitted `provider` must now pass it, plus a bounded live CLI query on
+choices other than the conversation's own and on `list_agents`, which queries
+providers in parallel.
 
 Creation and messages have request keys to make ordinary retries idempotent.
 New MCP messages reject busy targets. Native pending-message recovery remains;

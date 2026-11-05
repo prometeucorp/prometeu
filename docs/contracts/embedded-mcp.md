@@ -128,8 +128,8 @@ identity, arbitrary workspace ID, or arbitrary repository path.
 | Tool | Inputs | Behavior |
 | --- | --- | --- |
 | `list_projects` | optional `offset`, `limit` (1–100) | Lists registered projects within the authenticated client scope, with `project_id` and name. |
-| `list_agents` | none | Lists worker providers (`claude`, `codex`, `antigravity`) with availability and exact model IDs/efforts, queried live from each CLI for its selected account, plus `default_provider` (the attached conversation's, null without one) and `project_default_provider` (`claude`). |
-| `delegate` | `request_key`, `title`, `task`, optional `project_id`, `provider`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
+| `list_agents` | none | Lists worker providers (`claude`, `codex`, `antigravity`) with availability and exact model IDs/efforts, queried live from each CLI for its selected account. |
+| `delegate` | `request_key`, `title`, `task`, `provider`, optional `project_id`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
 | `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this client's delegations within its scope. |
 | `get_delegation` | `agent_id` | Returns workspace preparation/failure/manual stage, conversation status, latest execution, background, pending requests and setup/run runtime. |
 | `get_execution` | `agent_id`, `execution_id` | Reads a specific recorded execution. |
@@ -149,11 +149,11 @@ HEAD and must be within the client's scope; nonexistent and forbidden IDs both
 return `project_not_found`. Project paths cannot be supplied as tool arguments.
 Uncommitted changes are not copied. Non-Git directories and repositories
 without a commit cannot be delegated in this version. Branch names are generated
-by the backend. Context-based delegation inherits provider/model/effort from the
-conversation. Explicit project delegation defaults to Claude with CLI defaults.
-`provider` accepts `claude`, `codex` or `antigravity`; Cursor can coordinate but
-is not a worker provider. Switching provider without specifying a model uses
-that provider’s default. For context-based delegation, an action-profile
+by the backend. `provider` is required and accepts `claude`, `codex` or
+`antigravity`; Cursor can coordinate but is not a worker provider. When it is
+the attached conversation's provider, context-based delegation inherits the
+conversation's model and effort unless they are passed; another provider, or an
+explicit project, starts from that provider's CLI defaults. For context-based delegation, an action-profile
 permission policy is copied and retained on resume;
 ordinary conversations retain the existing default permission behavior.
 Existing workspace creation, worktree rollback and setup scripts
@@ -186,14 +186,13 @@ or remote-control tools.
 
 Coordinators own native subagents that cannot change provider, so the tool and
 server descriptions state when a Prometeu worker applies and which model family
-each provider runs. A model never selects its provider: without `provider`, the
-default provider is used even if the model belongs to another one. That default
-is the attached conversation's provider (`default_provider` in `list_agents`),
-or Claude (`project_default_provider`) when the call passes `project_id`, even
-from a conversation of another provider. When a call passes `provider`, `model`
-or `effort`, the backend queries that provider's live, account-scoped catalog
-before creating anything and checks the worker's effective model and effort,
-whether passed or inherited:
+each provider runs. `delegate` requires `provider`: neither a model nor the
+coordinator's own provider selects it, so every coordinator, Cursor included,
+routes explicitly. A call that names the attached conversation's provider
+without `model` or `effort` keeps the inherited choice without a catalog query.
+Any other call queries that provider's live, account-scoped catalog before
+creating anything and checks the worker's effective model and effort, whether
+passed or inherited:
 
 - a failed catalog query returns `provider_unavailable` with the catalog error;
 - a passed model that is not an exact catalog ID returns `model_not_available`,
@@ -211,10 +210,12 @@ Codex efforts are compared as launched: the `ultracode` spelling saved by older
 Codex choices counts as Codex's native `ultra`.
 
 Nothing is persisted on rejection, so the same `request_key` can be retried with
-corrected arguments. Fully inherited calls skip the query and keep their previous
-behavior. Compatibility: model strings outside the catalog (for example full
-Claude model names instead of the catalog aliases) are rejected with the hint
-instead of reaching the worker's CLI. Catalog
+corrected arguments. Compatibility: calls without `provider`, which used to
+inherit the conversation's provider or default to Claude for an explicit
+project, are rejected as invalid arguments before dispatch; MCP hosts read the
+requirement from the tool schema. Model strings outside the catalog (for example
+full Claude model names instead of the catalog aliases) are rejected with the
+hint instead of reaching the worker's CLI. Catalog
 queries are bounded by the existing 20-second timeout; `list_agents` runs the
 providers in parallel so its reply stays within the stdio host's 60-second
 read deadline.
@@ -320,10 +321,10 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
 
 ## Evidence
 
-- `delegation.rs` tests worker provider choice, live-catalog model/effort
-  rejection with hints, the inherited-effort fallback, summary settings and the
-  default provider of each delegation source; `embedded_mcp.rs` tests the
-  routing schema and descriptions.
+- `delegation.rs` tests the required worker provider, inheritance only from the
+  conversation's own provider, live-catalog model/effort rejection with hints,
+  the inherited-effort fallback and summary settings; `embedded_mcp.rs` tests
+  the routing schema, the required provider and descriptions.
 - `delegation.rs` tests ownership, old/new board compatibility, separate
   execution/background state, overlapping ordinary input, restart behavior and
   input limits, workspace availability, preview payloads and bounded script logs.
