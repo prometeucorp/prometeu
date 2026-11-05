@@ -188,11 +188,12 @@ Coordinators own native subagents that cannot change provider, so the tool and
 server descriptions state when a Prometeu worker applies and which model family
 each provider runs. `delegate` requires `provider`: neither a model nor the
 coordinator's own provider selects it, so every coordinator, Cursor included,
-routes explicitly. A call that names the attached conversation's provider
-without `model` or `effort` keeps the inherited choice without a catalog query.
-Any other call queries that provider's live, account-scoped catalog before
-creating anything and checks the worker's effective model and effort, whether
-passed or inherited:
+routes explicitly. A call without `project_id` that names the attached
+conversation's provider without `model` or `effort` keeps the conversation's
+running choice without a catalog query. Any other call, including every explicit
+project, queries that provider's live, account-scoped catalog before creating
+anything and checks the worker's effective model and effort, whether passed or
+inherited:
 
 - a failed catalog query returns `provider_unavailable` with the catalog error;
 - a passed model that is not an exact catalog ID returns `model_not_available`,

@@ -376,19 +376,21 @@ fn worker_choice(
 /// Worker choices are checked against the provider's live catalog before any workspace exists. A
 /// model never selects its provider: a mismatch is rejected with the closest IDs of the chosen
 /// provider instead of reaching a CLI that cannot run it. `model` and `effort` are the worker's
-/// effective values, `inherited` is the provider whose launch settings it inherits, and `args`
-/// tells what the caller passed. Returns the effort to launch with.
+/// effective values, `conversation` is the attached conversation's provider when the worker
+/// inherits its settings (none for an explicit project), and `args` tells what the caller passed.
+/// Returns the effort to launch with.
 fn check_choice(
     provider: crate::state::ProviderId,
-    inherited: crate::state::ProviderId,
+    conversation: Option<crate::state::ProviderId>,
     model: &str,
     effort: &str,
     args: &Value,
     catalog: impl FnOnce() -> Result<crate::agents::ModelCatalog, crate::agents::CatalogError>,
 ) -> Result<String, String> {
-    // Naming the inherited provider without a model or effort keeps the inherited choice as is;
-    // only other choices pay for a live catalog query.
-    if provider == inherited && args.get("model").is_none() && args.get("effort").is_none() {
+    // Keeping a running conversation's provider, model and effort needs no check. Every other
+    // choice, including an explicit project's, pays for a live catalog query.
+    if conversation == Some(provider) && args.get("model").is_none() && args.get("effort").is_none()
+    {
         return Ok(effort.into());
     }
     let name = prometeu_core::accounts::key(provider);
@@ -562,9 +564,10 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
         )
     };
     let permission = choice.permission;
-    let inherited = choice.agent;
+    // An explicit project inherits only CLI defaults, not a running conversation's choice.
+    let conversation = args.get("project_id").is_none().then_some(choice.agent);
     let (provider, model, effort) = worker_choice(choice, args)?;
-    let effort = check_choice(provider, inherited, &model, &effort, args, || {
+    let effort = check_choice(provider, conversation, &model, &effort, args, || {
         crate::agents::models(state.query_launcher.as_ref(), provider)
     })?;
     let id = uuid::Uuid::new_v4().to_string();
@@ -1386,8 +1389,12 @@ mod tests {
         args: Value,
         catalog: impl FnOnce() -> Result<crate::agents::ModelCatalog, crate::agents::CatalogError>,
     ) -> Result<(crate::state::ProviderId, String, String), String> {
+        let conversation = args
+            .get("project_id")
+            .is_none()
+            .then_some(coordinator.agent);
         let (provider, model, effort) = worker_choice(coordinator.clone(), &args)?;
-        let effort = check_choice(provider, coordinator.agent, &model, &effort, &args, catalog)?;
+        let effort = check_choice(provider, conversation, &model, &effort, &args, catalog)?;
         Ok((provider, model, effort))
     }
 
@@ -1570,7 +1577,7 @@ mod tests {
             .2,
             "ultra"
         );
-        // Naming the inherited provider alone keeps the inherited choice without a catalog query.
+        // Naming the conversation's own provider alone keeps its choice without a catalog query.
         for owner in [
             coordinator("haiku", "high"),
             coordinator("claude-opus-outside-catalog", "max"),
@@ -1580,6 +1587,14 @@ mod tests {
                 (Claude, owner.model.clone(), owner.effort.clone())
             );
         }
+        // An explicit project has no running choice to keep, so even its Claude default is checked.
+        let error = choose(
+            &session::Launch::default(),
+            json!({"project_id":"project","provider":"claude"}),
+            || Err(crate::agents::CatalogError::new("noAccount")),
+        )
+        .unwrap_err();
+        assert!(error.starts_with("provider_unavailable: claude"), "{error}");
     }
 
     #[test]
