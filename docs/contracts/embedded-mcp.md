@@ -128,7 +128,7 @@ identity, arbitrary workspace ID, or arbitrary repository path.
 | Tool | Inputs | Behavior |
 | --- | --- | --- |
 | `list_projects` | optional `offset`, `limit` (1–100) | Lists registered projects within the authenticated client scope, with `project_id` and name. |
-| `list_agents` | none | Lists worker providers (`claude`, `codex`, `antigravity`) with availability and exact model IDs/efforts, queried live from each CLI for its selected account, plus `default_provider`. |
+| `list_agents` | none | Lists worker providers (`claude`, `codex`, `antigravity`) with availability and exact model IDs/efforts, queried live from each CLI for its selected account, plus `default_provider` (the attached conversation's, null without one) and `project_default_provider` (`claude`). |
 | `delegate` | `request_key`, `title`, `task`, optional `project_id`, `provider`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
 | `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this client's delegations within its scope. |
 | `get_delegation` | `agent_id` | Returns workspace preparation/failure/manual stage, conversation status, latest execution, background, pending requests and setup/run runtime. |
@@ -187,15 +187,25 @@ or remote-control tools.
 Coordinators own native subagents that cannot change provider, so the tool and
 server descriptions state when a Prometeu worker applies and which model family
 each provider runs. A model never selects its provider: without `provider`, the
-default provider is used even if the model belongs to another one. When a call
-passes `provider` or `model`, the backend queries that provider's live,
-account-scoped catalog before creating anything:
+default provider is used even if the model belongs to another one. That default
+is the attached conversation's provider (`default_provider` in `list_agents`),
+or Claude (`project_default_provider`) when the call passes `project_id`, even
+from a conversation of another provider. When a call passes `provider`, `model`
+or `effort`, the backend queries that provider's live, account-scoped catalog
+before creating anything and checks the worker's effective model and effort,
+whether passed or inherited:
 
 - a failed catalog query returns `provider_unavailable` with the catalog error;
-- a model that is not an exact catalog ID returns `model_not_available`, listing
-  that provider's IDs that contain (or are contained in) the requested value, or
-  its first IDs, and pointing to `list_agents`;
-- an effort the model does not list returns `effort_not_available`.
+- a passed model that is not an exact catalog ID returns `model_not_available`,
+  listing that provider's IDs that contain (or are contained in) the requested
+  value, or its first IDs, and pointing to `list_agents`; an inherited model
+  outside the catalog is kept;
+- a passed effort that the effective model does not list returns
+  `effort_not_available`; without a catalogued model (the CLI default, or an
+  inherited model outside the catalog) it must be listed by one of the
+  provider's models;
+- an inherited effort that the effective model does not list falls back to the
+  CLI default, because `effort` cannot be passed empty.
 
 Nothing is persisted on rejection, so the same `request_key` can be retried with
 corrected arguments. Fully inherited calls skip the query and keep their previous
@@ -206,10 +216,12 @@ queries are bounded by the existing 20-second timeout; `list_agents` runs the
 providers in parallel so its reply stays within the stdio host's 60-second
 read deadline.
 
-Delegation summaries include the worker's `provider`, `model` and `effort`;
-empty model/effort mean the CLI default. Antigravity workers have no approval
-or question prompts: like ordinary Antigravity conversations, they run with
-automatic execution unless the copied action profile is Ask.
+Delegation summaries include the worker's `provider`, `model` and `effort`,
+resolved like its launch: the tab's override, otherwise the workspace's
+settings, also during preparation. Empty model/effort mean the CLI default.
+Antigravity workers have no approval or question prompts: like ordinary
+Antigravity conversations, they run with automatic execution unless the copied
+action profile is Ask.
 
 ## Workspace scripts and preview
 
@@ -305,8 +317,10 @@ error. Directory pages reflect the filesystem at call time, not a snapshot.
 
 ## Evidence
 
-- `delegation.rs` tests worker provider choice and live-catalog model/effort
-  rejection with hints; `embedded_mcp.rs` tests the routing schema and descriptions.
+- `delegation.rs` tests worker provider choice, live-catalog model/effort
+  rejection with hints, the inherited-effort fallback, summary settings and the
+  default provider of each delegation source; `embedded_mcp.rs` tests the
+  routing schema and descriptions.
 - `delegation.rs` tests ownership, old/new board compatibility, separate
   execution/background state, overlapping ordinary input, restart behavior and
   input limits, workspace availability, preview payloads and bounded script logs.

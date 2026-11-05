@@ -61,7 +61,9 @@ server descriptions state when a Prometeu worker applies, a read-only
 `list_agents` tool exposes each provider's live account catalog, and explicit
 provider/model/effort choices are validated against that catalog before any
 workspace exists. Rejections carry the closest IDs of the chosen provider instead
-of guessing another provider. Inferring the provider from the model was rejected
+of guessing another provider. An inherited effort the chosen model does not list
+falls back to the CLI default instead of being rejected, because `effort` cannot
+be passed empty to clear it. Inferring the provider from the model was rejected
 as an implicit routing rule; a cached catalog was rejected because it can lag the
 account. The cost is a bounded live CLI query on explicit choices and on
 `list_agents`, which queries providers in parallel.

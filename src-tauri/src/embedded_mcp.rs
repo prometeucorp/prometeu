@@ -250,7 +250,7 @@ pub fn tools() -> Vec<Value> {
     vec![
         tool("list_projects", "List registered projects this client can use. Pass a returned project_id to delegate when no conversation context is attached.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
-        tool("list_agents", "List the providers Prometeu can run as delegated workers (claude: Anthropic Claude models; codex: OpenAI GPT models; antigravity: Google Gemini models and the others it lists), whether each is available on this Mac, and their exact model IDs and effort levels, queried live from each CLI for its selected account. Call before delegate to pick provider and model. default_provider is used when delegate omits provider. May take several seconds.",
+        tool("list_agents", "List the providers Prometeu can run as delegated workers (claude: Anthropic Claude models; codex: OpenAI GPT models; antigravity: Google Gemini models and the others it lists), whether each is available on this Mac, and their exact model IDs and effort levels, queried live from each CLI for its selected account. Call before delegate to pick provider and model. When delegate omits provider, it uses default_provider (the attached conversation's provider; null without one) unless it passes project_id, which uses project_default_provider. May take several seconds.",
             json!({}), &[], true),
         tool("delegate", "Run a task on another coding agent CLI managed by Prometeu, in its own isolated git worktree created from the committed HEAD of an allowed project_id or of the attached conversation's repositories. Use this instead of your native subagent tool when the work must run on a different provider or model family (Codex for OpenAI GPT, Antigravity for Google Gemini, Claude), for example a cross-model review, a second opinion or a parallel implementation, or must not touch your checkout. Choose provider first: model must be an exact ID offered by that provider (see list_agents); omit model for the provider's default. A model never changes the provider; mismatches are rejected before any workspace is created. Returns immediately while preparation runs; poll get_delegation and read the answer with read_conversation. Reuse request_key when retrying. Workers receive no MCP, plugins or skills by default.",
             json!({
@@ -258,9 +258,9 @@ pub fn tools() -> Vec<Value> {
                 "title": described("Short human-readable title shown to the person in Prometeu."),
                 "task": described("Complete, self-contained instructions. The worker does not see your conversation; include goals, constraints, relevant paths and the expected answer."),
                 "project_id": described("Project from list_projects. Required without an attached conversation; otherwise defaults to the conversation's repositories."),
-                "provider": {"type":"string","enum":["claude","codex","antigravity"],"description":"Agent CLI that runs the worker: claude (Anthropic Claude), codex (OpenAI GPT), antigravity (Google Gemini and the others it lists). Omitted means default_provider from list_agents: the attached conversation's provider, or claude. Always set it when you want a different provider or model family."},
+                "provider": {"type":"string","enum":["claude","codex","antigravity"],"description":"Agent CLI that runs the worker: claude (Anthropic Claude), codex (OpenAI GPT), antigravity (Google Gemini and the others it lists). Omitted means the attached conversation's provider (default_provider in list_agents), or claude (project_default_provider) when project_id is passed. Always set it when you want a different provider or model family."},
                 "model": described("Exact model ID offered by the chosen provider, from list_agents. Omit to use the provider's default (or the conversation's model when the provider is unchanged)."),
-                "effort": described("Reasoning effort listed for the chosen model in list_agents. Omit when the model lists none."),
+                "effort": described("Reasoning effort listed for the chosen model in list_agents; omit it when the model lists none. Omitted keeps the conversation's effort when the provider is unchanged and the model lists it; otherwise the CLI default applies."),
             }), &["request_key","title","task"], false),
         tool("list_delegations", "List only agents created by this client, including preparation, execution and background status.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
@@ -614,6 +614,15 @@ mod tests {
         }
         let agents = tools.iter().find(|t| t["name"] == "list_agents").unwrap();
         assert_eq!(agents["annotations"]["readOnlyHint"], true);
+        // An explicit project_id changes the provider an omitted provider resolves to.
+        assert!(properties["provider"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("project_id"));
+        assert!(agents["description"]
+            .as_str()
+            .unwrap()
+            .contains("project_default_provider"));
         assert!(valid_args(&agents["inputSchema"], &json!({})));
         assert!(!valid_args(
             &agents["inputSchema"],
