@@ -171,6 +171,15 @@ pub async fn agent_models(
         .map_err(|_| CatalogError::new("failed"))?
 }
 
+/// The same live, account-scoped catalog for synchronous callers such as delegation. Bounded by
+/// the catalog timeout; callers must not hold board or conversation locks while it runs.
+pub(crate) fn models(
+    launcher: &dyn prometeu_core::command::QueryLauncher<std::process::Command>,
+    agent: ProviderId,
+) -> Result<ModelCatalog, CatalogError> {
+    catalog::fetch(launcher, agent)
+}
+
 /// Use the model with the largest priority value for cheap workspace naming; the catalog orders
 /// flagship models before smaller ones. Without a catalog, fall back to the workspace model.
 pub fn codex_namer_model() -> String {
