@@ -202,7 +202,11 @@ export async function refreshOrganizations(value: CloudStatus) {
     if (!cfg && organizations.length === 1 && organizations[0].id !== leftOrganization())
       await selectOrganization(organizations[0].id);
   } catch (error) {
-    if (request === organizationRequest) member.report(fromBack(error));
+    // Keep the last roster on transient Cloud blips; account refresh already exposes offline.
+    if (request !== organizationRequest) return;
+    const text = typeof error === "string" ? error : String(error);
+    if (text.includes('"code":"err.cloud.network"')) return;
+    member.report(fromBack(error));
   }
 }
 
