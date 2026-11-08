@@ -231,7 +231,25 @@ impl PluginLibrary {
         // Rebuild synthesized packages from the updated clone; ordinary packages refresh from the
         // saved source. Hub IDs stay local (catalog install may rename them).
         if is_synthesized_package(&root, &dir) {
-            let _ = plugins_in(&root, &plugin.from);
+            let discovered = plugins_in(&root, &plugin.from);
+            let package_key = dir.canonicalize().ok();
+            let Some(mut fresh) = discovered.into_iter().find(|entry| {
+                let source = PathBuf::from(&entry.source);
+                package_key
+                    .as_ref()
+                    .is_some_and(|key| source.canonicalize().ok().as_ref() == Some(key))
+                    || source == dir
+            }) else {
+                // Upstream dropped or renamed this package; do not keep the stale synthesized tree.
+                if self.owned(&dir) {
+                    std::fs::remove_dir_all(&dir).ok();
+                }
+                return Err(code("err.plugin.gone"));
+            };
+            fresh.id = plugin.id;
+            fresh.source = plugin.source;
+            fresh.made = plugin.made;
+            return self.save_local(fresh);
         }
         if !manifest_path(&dir).exists() {
             return Err(code("err.plugin.gone"));
@@ -735,39 +753,66 @@ fn synthesize_skill_package_result(
 }
 
 fn copy_tree(from: &Path, to: &Path, bound: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(to).map_err(|error| error.to_string())?;
     let bound = bound
         .canonicalize()
         .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
-    for entry in std::fs::read_dir(from).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let dest = to.join(entry.file_name());
-        let file_type = entry.file_type().map_err(|error| error.to_string())?;
-        if file_type.is_symlink() {
-            let target = entry.path().canonicalize().map_err(|error| {
-                with_args(
-                    "err.plugin.clone",
-                    &[("cause", format!("unsupported skill link: {error}"))],
-                )
-            })?;
-            if !target.starts_with(&bound) {
-                return Err(with_args(
-                    "err.plugin.clone",
-                    &[("cause", "skill link escapes the clone".into())],
-                ));
-            }
-            if target.is_dir() {
-                copy_tree(&target, &dest, &bound)?;
-            } else {
-                std::fs::copy(&target, &dest).map_err(|error| error.to_string())?;
-            }
-        } else if file_type.is_dir() {
-            copy_tree(&entry.path(), &dest, &bound)?;
-        } else if file_type.is_file() {
-            std::fs::copy(entry.path(), dest).map_err(|error| error.to_string())?;
-        }
+    copy_tree_inner(from, to, &bound, &mut std::collections::HashSet::new())
+}
+
+fn copy_tree_inner(
+    from: &Path,
+    to: &Path,
+    bound: &Path,
+    visiting: &mut std::collections::HashSet<PathBuf>,
+) -> Result<(), String> {
+    let from_key = from.canonicalize().unwrap_or_else(|_| from.to_path_buf());
+    // Never copy from generated package output (including staging) back into a package.
+    if from_key.starts_with(bound.join(".prometeu")) {
+        return Err(with_args(
+            "err.plugin.clone",
+            &[("cause", "skill link points at generated packages".into())],
+        ));
     }
-    Ok(())
+    if !visiting.insert(from_key.clone()) {
+        return Err(with_args(
+            "err.plugin.clone",
+            &[("cause", "skill link cycle".into())],
+        ));
+    }
+    let result = (|| {
+        std::fs::create_dir_all(to).map_err(|error| error.to_string())?;
+        for entry in std::fs::read_dir(from).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let dest = to.join(entry.file_name());
+            let file_type = entry.file_type().map_err(|error| error.to_string())?;
+            if file_type.is_symlink() {
+                let target = entry.path().canonicalize().map_err(|error| {
+                    with_args(
+                        "err.plugin.clone",
+                        &[("cause", format!("unsupported skill link: {error}"))],
+                    )
+                })?;
+                if !target.starts_with(bound) {
+                    return Err(with_args(
+                        "err.plugin.clone",
+                        &[("cause", "skill link escapes the clone".into())],
+                    ));
+                }
+                if target.is_dir() {
+                    copy_tree_inner(&target, &dest, bound, visiting)?;
+                } else {
+                    std::fs::copy(&target, &dest).map_err(|error| error.to_string())?;
+                }
+            } else if file_type.is_dir() {
+                copy_tree_inner(&entry.path(), &dest, bound, visiting)?;
+            } else if file_type.is_file() {
+                std::fs::copy(entry.path(), dest).map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    })();
+    visiting.remove(&from_key);
+    result
 }
 
 pub fn scan(dir: &Path, from: &str) -> Vec<Plugin> {
@@ -1030,5 +1075,66 @@ mod tests {
         assert!(outside.read_dir().unwrap().next().is_none());
         std::fs::remove_dir_all(root).ok();
         std::fs::remove_dir_all(outside).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_link_cycles_are_rejected() {
+        let root = std::env::temp_dir().join(format!("skill-cycle-{}", uuid::Uuid::new_v4()));
+        let skill = root.join("skills/loop");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: loop\ndescription: Loop\n---\n\nLoop\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(".", skill.join("self")).unwrap();
+        let error = match synthesize_skill_package_result(
+            &root,
+            "loop",
+            "Loop",
+            &[("loop".into(), skill)],
+            "https://example.com/skills.git",
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("directory link cycle must fail"),
+        };
+        assert!(error.contains("skill link cycle"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn removed_skills_leave_stale_packages_out_of_discovery() {
+        let root = std::env::temp_dir().join(format!("skill-removed-{}", uuid::Uuid::new_v4()));
+        let skill = root.join("skills/gone");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: gone\ndescription: Gone\n---\n\nGone\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/marketplace.json"),
+            r#"{"plugins":[{"name":"gone","description":"Gone","source":"./","strict":false,"skills":["./skills/gone"]}]}"#,
+        )
+        .unwrap();
+        let found = plugins_in(&root, "https://example.com/skills.git");
+        assert_eq!(found.len(), 1);
+        let package = PathBuf::from(&found[0].source);
+        assert!(package.exists());
+        std::fs::remove_dir_all(&skill).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/marketplace.json"),
+            r#"{"plugins":[]}"#,
+        )
+        .unwrap();
+        let found = plugins_in(&root, "https://example.com/skills.git");
+        assert!(found.is_empty());
+        assert!(
+            package.exists(),
+            "stale package remains until update removes it"
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 }
