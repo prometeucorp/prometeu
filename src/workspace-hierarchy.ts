@@ -34,5 +34,6 @@ export function workspaceHierarchy(board: Board) {
     siblings.push(workspace);
     children.set(parent.workspace.id, siblings);
   }
-  return { parents, children };
+  const familyOf = (workspaces: Workspace[]) => workspaces.flatMap(workspace => [workspace, ...(children.get(workspace.id) ?? [])]);
+  return { parents, children, familyOf };
 }

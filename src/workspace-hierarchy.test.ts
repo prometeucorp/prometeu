@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isDelegatedWorkspace, workspaceHierarchy } from "./workspace-hierarchy";
-import type { Board, Delegation, Workspace } from "./types";
+import { projectMatches, statusOf, type Board, type Delegation, type Workspace } from "./types";
 
 const workspace = (id: string, tabs = [id + "-tab"]) => ({
   id, title: id, tabs: tabs.map(id => ({ id })),
@@ -62,6 +62,18 @@ describe("workspace hierarchy", () => {
       delegation("a", "b-tab"), delegation("b", "a-tab"), delegation("worker", "remote-tab"),
     ]);
     expect(workspaceHierarchy(state).parents.size).toBe(0);
+  });
+
+  it("includes pinned and cross-project children in family search and attention", () => {
+    const main = { ...workspace("main"), branch: "main", project: "first", pinned: true };
+    main.tabs[0].status = "pronta";
+    const worker = { ...workspace("worker"), title: "Review invoices", branch: "review", project: "second", pinned: false };
+    worker.tabs[0].status = "querendo";
+    const state = board([main, worker], [delegation("worker", "main-tab")]);
+    const family = workspaceHierarchy(state).familyOf([main]);
+    expect(projectMatches({ id: "first", name: "App", path: "/app" }, family, "invoices")).toBe(true);
+    expect(family.map(statusOf)).toContain("querendo");
+    expect(workspaceHierarchy(state).familyOf([])).toEqual([]);
   });
 
   it("omits archived children while keeping the workspace stage independent", () => {

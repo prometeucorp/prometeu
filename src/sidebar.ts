@@ -282,6 +282,9 @@ function renderRail(board: Board, hooks: Hooks) {
   const typing = finder !== null && document.activeElement === finder.control;
   rail.replaceChildren();
   const hierarchy = workspaceHierarchy(board);
+  const { familyOf } = hierarchy;
+  if (board.projects.length < FILTER_FROM && finder) finder.control.value = "";
+  const query = finder?.control.value.trim() ?? "";
   const live = board.workspaces.filter((w) => !w.archived && !w.remote && !hierarchy.parents.has(w.id));
 
   rail.append(accountButton());
@@ -332,8 +335,12 @@ function renderRail(board: Board, hooks: Hooks) {
 
   // Pinned workspaces move to the top instead of appearing twice.
   const pinned = live.filter((w) => w.pinned || hierarchy.children.get(w.id)?.some(child => child.pinned));
-  if (pinned.length) {
-    renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados", { avatars: true });
+  const shownPinned = pinned.filter(w => projectMatches(
+    board.projects.find(p => p.id === w.project) ?? { id: "", name: repoLabel(w), path: "" },
+    familyOf([w]), query,
+  ));
+  if (shownPinned.length) {
+    renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), shownPinned, "@fixados", { avatars: true, searching: !!query });
   }
 
   // Remote shares precede local projects because they belong to other owners.
@@ -374,22 +381,19 @@ function renderRail(board: Board, hooks: Hooks) {
     rail.append(h("div", "railhint", t("rail.noProjects")));
   }
 
-  let query = "";
   if (board.projects.length >= FILTER_FROM) {
     const f = filterField();
     f.control.placeholder = t("rail.filter");
     f.control.setAttribute("aria-label", t("rail.filter"));
     rail.append(f.root);
     if (typing) f.control.focus();
-    query = f.control.value.trim();
-  } else if (finder) finder.control.value = "";
+  }
 
   // Project headings disambiguate repositories with matching initials.
   const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
   // Workspaces spanning repositories belong to collection groups.
   const single = live.filter((w) => !pinned.includes(w) && w.repos.length < 2);
   const mineOf = (id: string) => single.filter((w) => w.project === id);
-  const familyOf = (workspaces: Workspace[]) => workspaces.flatMap(w => [w, ...(hierarchy.children.get(w.id) ?? [])]);
   const shown = board.projects.filter((p) => projectMatches(p, familyOf(mineOf(p.id)), query));
   // Group multi-repository workspaces by repository set. These transient collections have split avatars but no project creation/menu controls.
   const sets = new Map<string, Workspace[]>();
@@ -398,7 +402,7 @@ function renderRail(board: Board, hooks: Hooks) {
     if (!projectMatches({ id: "", name: repoLabel(w), path: "" }, familyOf([w]), query)) continue;
     sets.set(repoLabel(w), [...(sets.get(repoLabel(w)) ?? []), w]);
   }
-  if (query && !shown.length && !sets.size) rail.append(h("div", "railhint", t("rail.filter.none")));
+  if (query && !shown.length && !sets.size && !shownPinned.length) rail.append(h("div", "railhint", t("rail.filter.none")));
   const order = board.projects.map((p) => p.id);
   const folders = [...new Set(board.projects.flatMap((p) => (p.group ? [p.group] : [])))].sort((a, b) => a.localeCompare(b));
 
@@ -487,7 +491,7 @@ function renderRail(board: Board, hooks: Hooks) {
     head.children[2].textContent = String(members.length);
     // A collapsed folder still reports agents that need attention or are working.
     if (shut) {
-      const statuses = single.filter((w) => ids.includes(w.project)).map(statusOf);
+      const statuses = familyOf(single.filter((w) => ids.includes(w.project))).map(statusOf);
       const urgent = (["querendo", "rodando"] as const).find((s) => statuses.includes(s));
       if (urgent) head.children[2].before(statusDot(urgent));
     }

@@ -142,7 +142,9 @@ External owners and missing/archived coordinator conversations produce standalon
 entries. Archived children stay in the archive; restoring the coordinator restores
 its grouping. Cross-project children follow the main workspace's project, search
 includes their titles, and pinning any member pins the family without changing
-other members' pin flags. Worktree cleanup and archive operations do not cascade.
+other members' pin flags. Search also reveals matching pinned families without
+changing their saved collapse state. Collapsed project folders include child
+attention and running states, even for children from another project. Worktree cleanup and archive operations do not cascade.
 Remote shares keep their existing independent presentation.
 
 ## Tools
