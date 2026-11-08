@@ -165,7 +165,7 @@ local MCP hosts use the same tools. Conversation context is optional; registered
 external clients remain usable across desktop restarts. Each delegation starts with its own workspace and conversation;
 execution IDs are separate. The sidebar projects internal delegations into one
 level of sub-workspaces; each delegation reserves its original conversation
-([ADR 0098](docs/decisions/0098-sub-workspaces.md)). See the [contract](docs/contracts/embedded-mcp.md)
+([ADR 0099](docs/decisions/0099-sub-workspaces.md)). See the [contract](docs/contracts/embedded-mcp.md)
 and [ADR 0049](docs/decisions/0049-embedded-delegation-mcp.md).
 
 ## Reusable actions

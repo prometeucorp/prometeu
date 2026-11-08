@@ -234,6 +234,25 @@ it("discards a pending relay ticket after logout and drops revoked membership", 
   expect(team.status().phase).toBe("off");
 });
 
+it("keeps the last roster and stays quiet on a transient Cloud network blip", async () => {
+  const fail = vi.fn();
+  team.onError(fail);
+  await team.selectOrganization("organization1");
+  const previous = fake.invoke.getMockImplementation()!;
+  fake.invoke.mockImplementation((command, args) => command === "cloud_organizations"
+    ? Promise.reject('i18n:{"code":"err.cloud.network"}')
+    : previous(command, args));
+  await team.refreshOrganizations(account);
+  expect(team.status().organizations).toEqual(fake.organizations);
+  expect(fail).not.toHaveBeenCalled();
+  fake.invoke.mockImplementation((command, args) => command === "cloud_organizations"
+    ? Promise.reject('i18n:{"code":"err.cloud.response"}')
+    : previous(command, args));
+  await team.refreshOrganizations(account);
+  expect(fail).toHaveBeenCalledWith(t("err.cloud.response"));
+  fake.invoke.mockImplementation(previous);
+});
+
 it("adopts the only accepted organization and stops after an explicit leave", async () => {
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", {

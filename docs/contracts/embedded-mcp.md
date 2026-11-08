@@ -123,7 +123,7 @@ coordinator tab makes its delegations inaccessible through MCP; their workspaces
 ## Sub-workspace navigation
 
 The desktop derives one navigation level from existing delegation records
-([ADR 0098](../decisions/0098-sub-workspaces.md)). The main workspace contains
+([ADR 0099](../decisions/0099-sub-workspaces.md)). The main workspace contains
 the owner conversation. Further delegations appear as siblings under the same
 main workspace; their original `owner` values and exact-target authorization do
 not change. No parent field is added to the board, IPC or relay.

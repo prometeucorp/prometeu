@@ -38,19 +38,32 @@ folder, a local `.zip` or the URL of a `.zip`; each adapter decides which of
 those sources it can materialize. `made` only says whether the folder was
 created or cloned by Prometeu and therefore whether the app may delete it.
 
+Git clones of GitHub URLs land in `<root>/plugins/<owner>-<repo>` so two
+repositories that share a basename (for example `caldoai/skills` and
+`typesafe-ai/skills`) do not collide. Other Git hosts still use the repository
+basename.
+
 When installing a marketplace repository, the importer looks, in this order,
 for:
 
 - a compatible plugin at the root;
-- `.agents/plugins/marketplace.json`;
-- `.claude-plugin/marketplace.json`;
-- compatible plugins one level below the root or inside `plugins/`.
+- `.agents/plugins/marketplace.json` and `.claude-plugin/marketplace.json`
+  entries whose local `source` has `.claude-plugin/plugin.json`;
+- the same marketplace entries when they list a `skills` array of directories that
+  contain `SKILL.md` but have no plugin manifest (Anthropic skill-bundle /
+  `strict: false` shape) — Prometeu synthesizes a portable package under
+  `<clone>/.prometeu/packages/<id>/` with both Claude and Codex manifests and a
+  copy of each skill tree ([ADR 0098](../decisions/0098-skill-bundle-install.md));
+- compatible plugins one level below the root or inside `plugins/`;
+- as a last resort, each `skills/*/SKILL.md` under the clone, also synthesized
+  into `.prometeu/packages/<id>/`.
 
 A local entry of the Codex marketplace uses
 `{"source":{"source":"local","path":"./plugins/x"}}`; the Claude form uses
 `{"source":"./plugins/x"}`. Only paths internal to the clone are followed.
 Remote entries are another installation and do not make the importer cross the
-repository boundary.
+repository boundary. Plugin update re-runs this discovery on the clone root so
+synthesized packages refresh after `git pull`.
 
 ## Layered selection
 

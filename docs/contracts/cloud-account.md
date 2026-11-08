@@ -88,8 +88,11 @@ forwarded to another server after a configuration change.
 
 `user` is `null` or `{ id, name, email }`. `refresh=false` reads only the local
 cache. A transient failure preserves the identity and marks `offline`; a revoked
-or expired session removes the credential. The UI refreshes when the window
-regains focus and every 60 seconds while visible. Logout revokes on the service
+or expired session removes the credential. Catalog sync during that refresh is
+best-effort: a Cloud blip does not fail `cloud_status` or toast. Non-JSON error
+pages (for example HTML from a 502) count as network failures, not invalid
+responses. The UI refreshes when the window regains focus and every 60 seconds
+while visible. Logout revokes on the service
 first: a network failure leaves the account connected and shows an error,
 without pretending the revocation happened. Cancelling invalidates the attempt.
 A late response does not replace the current attempt. A login completed before

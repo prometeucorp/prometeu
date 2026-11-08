@@ -43,6 +43,13 @@ The chosen width is a maximum, limited by the available space. There is no
 device emulation, user-agent emulation or viewport larger than the native
 surface.
 
+`browser_url` keeps its `string | null` response. On macOS it reads the native
+URL on the AppKit thread and returns `null` when the URL or its absolute string
+is absent, invalid, or unavailable within 3 seconds. This avoids Wry 0.55.1's
+nullable-URL unwrap during polling. A missing result leaves the address bar
+unchanged and cannot confirm an inspection's URL. Other platforms retain the
+Tauri URL query.
+
 ## Additive IPC
 
 The old navigation and bounds commands remain compatible. New commands exist in
@@ -168,7 +175,9 @@ then ignoring its event because it did not come from `main`.
   blocks without hiding ordinary content.
 - `e2e/mobile.spec.ts`: tags and details in the shared history on a narrow
   screen.
-- `src-tauri/src/browser.rs`: DTO validation, crops and limits.
+- `src-tauri/src/browser.rs`: DTO validation, crops, limits and macOS nullable-URL
+  conversion, preserving blank pages and HTTP(S) navigation. The URL unit test
+  does not reproduce native navigation timing or a WebKit process failure.
 - `e2e/file-drop.spec.ts`: attachment and promise contract in the frontend.
 
 `src/mock-browser.ts` uses an iframe only in web development, with a controlled

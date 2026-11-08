@@ -1,11 +1,11 @@
 ---
 type: Decision
-title: "ADR 0098 — One level of sub-workspaces"
+title: "ADR 0099 — One level of sub-workspaces"
 description: "Group delegated workspaces under their coordinator and reserve one conversation per delegation."
 status: stable
 ---
 
-# ADR 0098 — One level of sub-workspaces
+# ADR 0099 — One level of sub-workspaces
 
 Date: 2026-11-08
 

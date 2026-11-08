@@ -228,12 +228,36 @@ impl PluginLibrary {
                 &[("cause", last_line(&String::from_utf8_lossy(&out.stderr)))],
             ));
         }
-        let mut fresh = read_plugin(&dir, &plugin.from);
-        fresh.made = plugin.made;
-        if fresh.id == plugin.id {
+        // Rebuild synthesized packages from the updated clone; ordinary packages refresh from the
+        // saved source. Hub IDs stay local (catalog install may rename them).
+        if is_synthesized_package(&root, &dir) {
+            let discovered = plugins_in(&root, &plugin.from);
+            let package_key = dir.canonicalize().ok();
+            let Some(mut fresh) = discovered.into_iter().find(|entry| {
+                let source = PathBuf::from(&entry.source);
+                package_key
+                    .as_ref()
+                    .is_some_and(|key| source.canonicalize().ok().as_ref() == Some(key))
+                    || source == dir
+            }) else {
+                // Upstream dropped or renamed this package. Only delete when this entry owns the
+                // directory alone — catalog copies may share the path with made=false.
+                self.delete_owned_source(&self.load(), &plugin.id, &dir, plugin.made);
+                return Err(code("err.plugin.gone"));
+            };
+            fresh.id = plugin.id;
+            fresh.source = plugin.source;
+            fresh.made = plugin.made;
             return self.save_local(fresh);
         }
-        Ok(self.load())
+        if !manifest_path(&dir).exists() {
+            return Err(code("err.plugin.gone"));
+        }
+        let mut fresh = read_plugin(&dir, &plugin.from);
+        fresh.id = plugin.id;
+        fresh.source = plugin.source;
+        fresh.made = plugin.made;
+        self.save_local(fresh)
     }
     pub fn lives_in(&self, dir: &Path) -> bool {
         self.load().iter().any(|p| {
@@ -258,17 +282,30 @@ impl PluginLibrary {
     pub fn remove_local(&self, mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
         if let Some(gone) = plugins.iter().find(|p| p.id == id) {
             let dir = PathBuf::from(self.expand(&gone.source));
-            let shared = plugins.iter().filter(|p| p.id != id).any(|p| {
-                PathBuf::from(self.expand(&p.source))
-                    .canonicalize()
-                    .is_ok_and(|p| dir.canonicalize().is_ok_and(|d| p.starts_with(d)))
-            });
-            if gone.made && self.owned(&dir) && !shared {
-                std::fs::remove_dir_all(&dir).ok();
-            }
+            // Delete only this package's source. Sibling plugins left unregistered in the same
+            // clone stay on disk until scrap; removing the whole clone here would erase them.
+            self.delete_owned_source(&plugins, id, &dir, gone.made);
         }
         plugins.retain(|p| p.id != id);
         plugins
+    }
+
+    /// Delete a package directory only when Prometeu created it and no other hub entry shares it.
+    fn delete_owned_source(&self, plugins: &[Plugin], id: &str, dir: &Path, made: bool) {
+        let shared = plugins
+            .iter()
+            .filter(|plugin| plugin.id != id)
+            .any(|plugin| {
+                PathBuf::from(self.expand(&plugin.source))
+                    .canonicalize()
+                    .is_ok_and(|path| {
+                        dir.canonicalize()
+                            .is_ok_and(|gone| path.starts_with(&gone) || gone.starts_with(&path))
+                    })
+            });
+        if made && self.owned(dir) && !shared {
+            std::fs::remove_dir_all(dir).ok();
+        }
     }
 }
 impl Plugins for PluginLibrary {
@@ -328,6 +365,9 @@ pub fn git_url(source: &str) -> String {
     }
 }
 pub fn repo_name(url: &str) -> String {
+    if let Some((owner, repo)) = github_owner_repo(url) {
+        return slug(&format!("{owner}-{repo}"));
+    }
     let name = url
         .trim_end_matches('/')
         .rsplit(['/', ':'])
@@ -335,6 +375,35 @@ pub fn repo_name(url: &str) -> String {
         .unwrap_or_default()
         .trim_end_matches(".git");
     slug(name)
+}
+
+/// Prefer `owner-repo` clone folders for GitHub URLs so two `*/skills` repositories do not collide.
+pub fn github_owner_repo(url: &str) -> Option<(String, String)> {
+    let text = url.trim().trim_end_matches('/').trim_end_matches(".git");
+    let path = if let Some(rest) = text.strip_prefix("git@github.com:") {
+        rest
+    } else if let Some(rest) = text
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("www.")
+        .strip_prefix("github.com/")
+    {
+        rest
+    } else if let Some(rest) = text
+        .strip_prefix("ssh://git@github.com/")
+        .or_else(|| text.strip_prefix("ssh://git@github.com:"))
+    {
+        rest
+    } else {
+        return None;
+    };
+    let mut parts = path.split('/').filter(|p| !p.is_empty());
+    let owner = parts.next()?;
+    let repo = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
 }
 pub fn last_line(text: &str) -> String {
     text.trim()
@@ -366,18 +435,27 @@ pub fn plugins_in(dir: &Path, from: &str) -> Vec<Plugin> {
             let Some(rel) = marketplace_local_source(entry) else {
                 continue;
             };
-            if let Some(at) = within(dir, rel) {
-                if manifest_path(&at).exists() {
-                    found.push(read_plugin(&at, from));
-                }
+            let Some(at) = within(dir, rel) else {
+                continue;
+            };
+            if manifest_path(&at).exists() {
+                found.push(read_plugin(&at, from));
+                continue;
+            }
+            // Anthropic skill-bundle entries declare skills without a plugin.json (strict: false).
+            if let Some(plugin) = synthesize_marketplace_skills(dir, entry, &at, from) {
+                found.push(plugin);
             }
         }
     }
     if found.is_empty() {
         found = scan(dir, from);
     }
+    if found.is_empty() {
+        found = bare_skill_packages(dir, from);
+    }
     found.sort_by_key(|p| p.id.to_lowercase());
-    found.dedup_by(|a, b| a.source == b.source);
+    found.dedup_by(|a, b| a.id == b.id || a.source == b.source);
     found
 }
 pub fn marketplace_local_source(entry: &Value) -> Option<&str> {
@@ -389,6 +467,360 @@ pub fn marketplace_local_source(entry: &Value) -> Option<&str> {
         _ => None,
     }
 }
+
+/// Build a portable package from a marketplace entry that lists skill directories instead of a manifest.
+fn synthesize_marketplace_skills(
+    clone: &Path,
+    entry: &Value,
+    source_root: &Path,
+    from: &str,
+) -> Option<Plugin> {
+    let skills = marketplace_skill_dirs(entry, source_root);
+    if skills.is_empty() {
+        return None;
+    }
+    let name = entry
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .or_else(|| skills.first().map(|(name, _)| name.clone()))?;
+    let description = entry
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let description = if description.is_empty() {
+        skills
+            .first()
+            .and_then(|(_, path)| skill_meta(path).1)
+            .unwrap_or_default()
+    } else {
+        description
+    };
+    synthesize_skill_package(clone, &name, &description, &skills, from)
+}
+
+fn marketplace_skill_dirs(entry: &Value, source_root: &Path) -> Vec<(String, PathBuf)> {
+    entry
+        .get("skills")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            let rel = value.as_str()?;
+            let at = within(source_root, rel)?;
+            skill_dir_entry(&at)
+        })
+        .collect()
+}
+
+fn bare_skill_packages(dir: &Path, from: &str) -> Vec<Plugin> {
+    let Ok(entries) = std::fs::read_dir(dir.join("skills")) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for entry in entries.flatten() {
+        let at = entry.path();
+        let Some((name, path)) = skill_dir_entry(&at) else {
+            continue;
+        };
+        let (front_name, description) = skill_meta(&path);
+        let id = front_name.unwrap_or_else(|| name.clone());
+        if let Some(plugin) = synthesize_skill_package(
+            dir,
+            &id,
+            &description.unwrap_or_default(),
+            &[(name, path)],
+            from,
+        ) {
+            found.push(plugin);
+        }
+    }
+    found
+}
+
+fn skill_dir_entry(at: &Path) -> Option<(String, PathBuf)> {
+    if !at.is_dir() || !at.join("SKILL.md").is_file() {
+        return None;
+    }
+    let name = at.file_name()?.to_str()?.to_string();
+    if name.is_empty() || name.starts_with('.') {
+        return None;
+    }
+    Some((name, at.to_path_buf()))
+}
+
+fn skill_meta(skill_dir: &Path) -> (Option<String>, Option<String>) {
+    let text = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap_or_default();
+    skill_frontmatter(&text)
+}
+
+/// Extract `name` and `description` from YAML frontmatter without a YAML dependency.
+/// Matches the scalar forms used by kickoff so quoted and hashed descriptions stay intact.
+pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
+    let mut lines = text.trim_start_matches('\u{feff}').lines();
+    if lines.next().map(str::trim_end) != Some("---") {
+        return (None, None);
+    }
+    let body: Vec<&str> = lines.take_while(|line| line.trim_end() != "---").collect();
+    let value = |key: &str| -> Option<String> {
+        let at = body.iter().position(|line| {
+            line.strip_prefix(key)
+                .is_some_and(|rest| rest.trim_start().starts_with(':'))
+        })?;
+        let raw = body[at][key.len()..].trim_start()[1..].trim();
+        let folded = if raw.starts_with('"') {
+            let quoted = &raw[..quoted_end(raw, '"')];
+            serde_json::from_str::<String>(quoted)
+                .unwrap_or_else(|_| quoted.trim_matches('"').to_string())
+        } else if raw.starts_with('\'') {
+            let quoted = &raw[..quoted_end(raw, '\'')];
+            let inner = quoted.strip_prefix('\'').unwrap_or(quoted);
+            inner.strip_suffix('\'').unwrap_or(inner).replace("''", "'")
+        } else {
+            let raw = without_comment(raw);
+            if raw.is_empty() || raw.starts_with('>') || raw.starts_with('|') {
+                body[at + 1..]
+                    .iter()
+                    .take_while(|line| line.trim().is_empty() || line.starts_with([' ', '\t']))
+                    .map(|line| line.trim())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                raw.to_string()
+            }
+        };
+        let line = folded.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!line.is_empty()).then_some(line)
+    };
+    (value("name"), value("description"))
+}
+
+fn without_comment(raw: &str) -> &str {
+    let cut = raw
+        .char_indices()
+        .find(|&(i, c)| c == '#' && (i == 0 || raw[..i].ends_with([' ', '\t'])))
+        .map_or(raw.len(), |(i, _)| i);
+    raw[..cut].trim_end()
+}
+
+fn quoted_end(raw: &str, quote: char) -> usize {
+    let mut chars = raw.char_indices().skip(1).peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' if quote == '"' => {
+                chars.next();
+            }
+            c if c == quote => {
+                if quote == '\'' && chars.peek().is_some_and(|&(_, next)| next == '\'') {
+                    chars.next();
+                } else {
+                    return i + c.len_utf8();
+                }
+            }
+            _ => {}
+        }
+    }
+    raw.len()
+}
+
+fn is_synthesized_package(clone: &Path, dir: &Path) -> bool {
+    let packages = clone.join(".prometeu").join("packages");
+    dir.starts_with(&packages)
+        || dir
+            .canonicalize()
+            .ok()
+            .zip(packages.canonicalize().ok())
+            .is_some_and(|(dir, packages)| dir.starts_with(packages))
+}
+
+/// Ensure `path` resolves inside `clone` when it already exists (including as a symlink).
+fn path_inside_clone(clone: &Path, path: &Path) -> Result<(), String> {
+    let clone = clone
+        .canonicalize()
+        .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
+    if !path.exists() && path.symlink_metadata().is_err() {
+        return Ok(());
+    }
+    let resolved = path.canonicalize().map_err(|error| {
+        with_args(
+            "err.plugin.clone",
+            &[("cause", format!("unsafe package path: {error}"))],
+        )
+    })?;
+    if !resolved.starts_with(&clone) {
+        return Err(with_args(
+            "err.plugin.clone",
+            &[("cause", "package path escapes the clone".into())],
+        ));
+    }
+    Ok(())
+}
+
+/// Write Claude and Codex manifests plus copied skill trees under `.prometeu/packages/<id>/`.
+fn synthesize_skill_package(
+    clone: &Path,
+    id: &str,
+    description: &str,
+    skills: &[(String, PathBuf)],
+    from: &str,
+) -> Option<Plugin> {
+    synthesize_skill_package_result(clone, id, description, skills, from).ok()
+}
+
+fn synthesize_skill_package_result(
+    clone: &Path,
+    id: &str,
+    description: &str,
+    skills: &[(String, PathBuf)],
+    from: &str,
+) -> Result<Plugin, String> {
+    let id = slug(id);
+    if id.is_empty() || skills.is_empty() {
+        return Err(code("err.plugin.noName"));
+    }
+    let prometeu = clone.join(".prometeu");
+    let packages = prometeu.join("packages");
+    path_inside_clone(clone, &prometeu)?;
+    path_inside_clone(clone, &packages)?;
+    std::fs::create_dir_all(&packages)
+        .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
+    path_inside_clone(clone, &packages)?;
+
+    let package = packages.join(&id);
+    path_inside_clone(clone, &package)?;
+    let staging = packages.join(format!(".tmp-{id}-{}", uuid::Uuid::new_v4()));
+    path_inside_clone(clone, &staging)?;
+
+    let built = (|| -> Result<Plugin, String> {
+        std::fs::create_dir_all(staging.join(".claude-plugin"))
+            .map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(staging.join(".codex-plugin"))
+            .map_err(|error| error.to_string())?;
+        let manifest = serde_json::json!({
+            "name": id,
+            "description": description,
+            "version": "0.0.0",
+        });
+        let body = serde_json::to_string_pretty(&manifest).map_err(|error| error.to_string())?;
+        std::fs::write(staging.join(".claude-plugin").join("plugin.json"), &body)
+            .map_err(|error| error.to_string())?;
+        let mut native = manifest;
+        native["skills"] = serde_json::json!("./skills/");
+        std::fs::write(
+            staging.join(".codex-plugin").join("plugin.json"),
+            serde_json::to_string_pretty(&native).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let mut used = std::collections::HashSet::new();
+        for (name, src) in skills {
+            // Keep the source directory name so `foo_bar` and `foo-bar` stay distinct.
+            if name.is_empty()
+                || name.starts_with('.')
+                || name.contains(['/', '\\'])
+                || !used.insert(name.clone())
+            {
+                return Err(with_args(
+                    "err.plugin.clone",
+                    &[("cause", format!("duplicate skill folder {name}"))],
+                ));
+            }
+            let dest = staging.join("skills").join(name);
+            copy_tree(src, &dest, clone)?;
+        }
+        Ok(Plugin {
+            id: id.clone(),
+            source: package.display().to_string(),
+            note: description.to_string(),
+            made: true,
+            from: from.to_string(),
+        })
+    })();
+
+    match built {
+        Ok(plugin) => {
+            path_inside_clone(clone, &staging)?;
+            if package.exists() || package.symlink_metadata().is_ok() {
+                path_inside_clone(clone, &package)?;
+                std::fs::remove_dir_all(&package).map_err(|error| error.to_string())?;
+            }
+            std::fs::rename(&staging, &package).map_err(|error| error.to_string())?;
+            path_inside_clone(clone, &package)?;
+            Ok(plugin)
+        }
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            Err(error)
+        }
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path, bound: &Path) -> Result<(), String> {
+    let bound = bound
+        .canonicalize()
+        .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
+    copy_tree_inner(from, to, &bound, &mut std::collections::HashSet::new())
+}
+
+fn copy_tree_inner(
+    from: &Path,
+    to: &Path,
+    bound: &Path,
+    visiting: &mut std::collections::HashSet<PathBuf>,
+) -> Result<(), String> {
+    let from_key = from.canonicalize().unwrap_or_else(|_| from.to_path_buf());
+    // Never copy from generated package output (including staging) back into a package.
+    if from_key.starts_with(bound.join(".prometeu")) {
+        return Err(with_args(
+            "err.plugin.clone",
+            &[("cause", "skill link points at generated packages".into())],
+        ));
+    }
+    if !visiting.insert(from_key.clone()) {
+        return Err(with_args(
+            "err.plugin.clone",
+            &[("cause", "skill link cycle".into())],
+        ));
+    }
+    let result = (|| {
+        std::fs::create_dir_all(to).map_err(|error| error.to_string())?;
+        for entry in std::fs::read_dir(from).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let dest = to.join(entry.file_name());
+            let file_type = entry.file_type().map_err(|error| error.to_string())?;
+            if file_type.is_symlink() {
+                let target = entry.path().canonicalize().map_err(|error| {
+                    with_args(
+                        "err.plugin.clone",
+                        &[("cause", format!("unsupported skill link: {error}"))],
+                    )
+                })?;
+                if !target.starts_with(bound) {
+                    return Err(with_args(
+                        "err.plugin.clone",
+                        &[("cause", "skill link escapes the clone".into())],
+                    ));
+                }
+                if target.is_dir() {
+                    copy_tree_inner(&target, &dest, bound, visiting)?;
+                } else {
+                    std::fs::copy(&target, &dest).map_err(|error| error.to_string())?;
+                }
+            } else if file_type.is_dir() {
+                copy_tree_inner(&entry.path(), &dest, bound, visiting)?;
+            } else if file_type.is_file() {
+                std::fs::copy(entry.path(), dest).map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    })();
+    visiting.remove(&from_key);
+    result
+}
+
 pub fn scan(dir: &Path, from: &str) -> Vec<Plugin> {
     let mut found = Vec::new();
     for root in [dir.to_path_buf(), dir.join("plugins")] {
@@ -523,5 +955,243 @@ mod tests {
         library.scrap(escape.display().to_string());
         assert!(source.exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn github_clone_directories_include_the_owner() {
+        assert_eq!(
+            repo_name("https://github.com/JuliusBrussee/caveman"),
+            "juliusbrussee-caveman"
+        );
+        assert_eq!(
+            repo_name("git@github.com:dietrichgebert/ponytail.git"),
+            "dietrichgebert-ponytail"
+        );
+        assert_eq!(
+            repo_name("https://github.com/caldoai/skills"),
+            "caldoai-skills"
+        );
+        assert_eq!(
+            repo_name("https://github.com/typesafe-ai/skills"),
+            "typesafe-ai-skills"
+        );
+        assert_eq!(repo_name("https://gitlab.com/time/x.git"), "x");
+    }
+
+    #[test]
+    fn skill_bundle_marketplace_becomes_a_portable_package() {
+        let root = std::env::temp_dir().join(format!("skill-bundle-{}", uuid::Uuid::new_v4()));
+        let skill = root.join("skills/untangle-codebase");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: untangle-codebase\ndescription: Untangle a codebase.\n---\n\nDo the work.\n",
+        )
+        .unwrap();
+        std::fs::write(skill.join("notes.md"), "supporting asset\n").unwrap();
+        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/marketplace.json"),
+            r#"{
+              "name": "caldo-skills",
+              "plugins": [{
+                "name": "untangle-codebase",
+                "description": "Untangle a whole codebase.",
+                "source": "./",
+                "strict": false,
+                "skills": ["./skills/untangle-codebase"]
+              }]
+            }"#,
+        )
+        .unwrap();
+
+        let found = plugins_in(&root, "https://github.com/caldoai/skills");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "untangle-codebase");
+        assert_eq!(found[0].note, "Untangle a whole codebase.");
+        assert!(found[0].made);
+        let package = PathBuf::from(&found[0].source);
+        assert!(package.ends_with(".prometeu/packages/untangle-codebase"));
+        assert!(manifest_path(&package).exists());
+        let native: Value = serde_json::from_str(
+            &std::fs::read_to_string(package.join(".codex-plugin/plugin.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(native["skills"], "./skills/");
+        assert_eq!(
+            std::fs::read_to_string(package.join("skills/untangle-codebase/notes.md")).unwrap(),
+            "supporting asset\n"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bare_skill_directories_become_portable_packages() {
+        let root = std::env::temp_dir().join(format!("bare-skills-{}", uuid::Uuid::new_v4()));
+        let skill = root.join("skills/review");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: review\ndescription: Review the diff.\n---\n\nRead carefully.\n",
+        )
+        .unwrap();
+
+        let found = plugins_in(&root, "https://example.com/skills.git");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "review");
+        assert_eq!(found[0].note, "Review the diff.");
+        assert!(PathBuf::from(&found[0].source)
+            .join("skills/review/SKILL.md")
+            .exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn skill_frontmatter_keeps_quotes_and_hashes() {
+        let (name, description) =
+            skill_frontmatter("---\nname: tip\ndescription: 'It''s useful'\n---\n\nBody\n");
+        assert_eq!(name.as_deref(), Some("tip"));
+        assert_eq!(description.as_deref(), Some("It's useful"));
+        let (_, description) = skill_frontmatter("---\nname: x\ndescription: C# tips\n---\n");
+        assert_eq!(description.as_deref(), Some("C# tips"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packages_symlink_escape_is_rejected() {
+        let root = std::env::temp_dir().join(format!("skill-escape-{}", uuid::Uuid::new_v4()));
+        let outside = std::env::temp_dir().join(format!("skill-outside-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("skills/a")).unwrap();
+        std::fs::write(
+            root.join("skills/a/SKILL.md"),
+            "---\nname: a\ndescription: A\n---\n\nA\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(root.join(".prometeu")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join(".prometeu/packages")).unwrap();
+        assert!(synthesize_skill_package_result(
+            &root,
+            "a",
+            "A",
+            &[("a".into(), root.join("skills/a"))],
+            "https://example.com/skills.git",
+        )
+        .is_err());
+        assert!(outside.read_dir().unwrap().next().is_none());
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(outside).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_link_cycles_are_rejected() {
+        let root = std::env::temp_dir().join(format!("skill-cycle-{}", uuid::Uuid::new_v4()));
+        let skill = root.join("skills/loop");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: loop\ndescription: Loop\n---\n\nLoop\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(".", skill.join("self")).unwrap();
+        let error = match synthesize_skill_package_result(
+            &root,
+            "loop",
+            "Loop",
+            &[("loop".into(), skill)],
+            "https://example.com/skills.git",
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("directory link cycle must fail"),
+        };
+        assert!(error.contains("skill link cycle"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn shared_or_unowned_sources_are_not_deleted() {
+        let root = std::env::temp_dir().join(format!("plugin-shared-{}", uuid::Uuid::new_v4()));
+        let package = root.join("plugins/shared-package");
+        std::fs::create_dir_all(package.join(".claude-plugin")).unwrap();
+        std::fs::write(manifest_path(&package), r#"{"name":"shared"}"#).unwrap();
+        let library = PluginLibrary {
+            root: root.clone(),
+            home: root.clone(),
+            catalog: Arc::new(packages::FilePackageCatalog {
+                path: root.join("plugins.json"),
+            }),
+            files: Arc::new(Files),
+            runner: Arc::new(Timeout),
+        };
+        let hub = vec![
+            Plugin {
+                id: "local-a".into(),
+                source: package.display().to_string(),
+                note: String::new(),
+                made: false,
+                from: String::new(),
+            },
+            Plugin {
+                id: "local-b".into(),
+                source: package.display().to_string(),
+                note: String::new(),
+                made: true,
+                from: String::new(),
+            },
+        ];
+        library.delete_owned_source(&hub, "local-a", &package, false);
+        assert!(package.exists());
+        library.delete_owned_source(&hub, "local-b", &package, true);
+        assert!(package.exists());
+        library.delete_owned_source(
+            &[Plugin {
+                id: "solo".into(),
+                source: package.display().to_string(),
+                note: String::new(),
+                made: true,
+                from: String::new(),
+            }],
+            "solo",
+            &package,
+            true,
+        );
+        assert!(!package.exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn removed_skills_leave_stale_packages_out_of_discovery() {
+        let root = std::env::temp_dir().join(format!("skill-removed-{}", uuid::Uuid::new_v4()));
+        let skill = root.join("skills/gone");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(
+            skill.join("SKILL.md"),
+            "---\nname: gone\ndescription: Gone\n---\n\nGone\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/marketplace.json"),
+            r#"{"plugins":[{"name":"gone","description":"Gone","source":"./","strict":false,"skills":["./skills/gone"]}]}"#,
+        )
+        .unwrap();
+        let found = plugins_in(&root, "https://example.com/skills.git");
+        assert_eq!(found.len(), 1);
+        let package = PathBuf::from(&found[0].source);
+        assert!(package.exists());
+        std::fs::remove_dir_all(&skill).unwrap();
+        std::fs::write(
+            root.join(".claude-plugin/marketplace.json"),
+            r#"{"plugins":[]}"#,
+        )
+        .unwrap();
+        let found = plugins_in(&root, "https://example.com/skills.git");
+        assert!(found.is_empty());
+        assert!(
+            package.exists(),
+            "stale package remains until update removes it"
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 }
