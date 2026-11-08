@@ -1,3 +1,4 @@
+import { isDelegatedWorkspace } from "./workspace-hierarchy";
 import { t } from "./i18n";
 import * as telemetry from "./mock-telemetry";
 import type { Notice } from "./notifications";
@@ -1247,6 +1248,7 @@ const mockCommands: IpcHandlers = {
     return;
   },
   action_start(args) {
+    if (isDelegatedWorkspace(board, args.workspace)) throw 'i18n:{"code":"err.session.delegated"}';
     const workspace = board.workspaces.find(w => w.id === args.workspace);
     const catalog = board.actions ?? emptyCatalog();
     const action = catalog.commands.find(c => c.name === args.name && c.kind === "agent");
@@ -2521,6 +2523,7 @@ const mockCommands: IpcHandlers = {
     return;
   },
   new_tab(args) {
+    if (isDelegatedWorkspace(board, args.workspace)) throw 'i18n:{"code":"err.session.delegated"}';
     const workspace = board.workspaces.find(workspace => workspace.id === args.workspace);
     if (!workspace) throw 'i18n:{"code":"err.session.noWorkspace"}';
     if (workspace.cleaned) throw 'i18n:{"code":"err.session.cleaned"}';

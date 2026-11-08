@@ -1,3 +1,5 @@
+import { isDelegatedWorkspace, workspaceHierarchy } from "./workspace-hierarchy";
+import { button } from "./ui";
 import { track } from "./analytics";
 import { attachReview } from "./chat";
 import type { ReviewDraft } from "./review-comments";
@@ -105,7 +107,15 @@ export function init(context: Ctx) {
     say: ctx.say,
     // The scripts file is relative to the primary repository.
     openFile: (path) => openRepoFile(undefined, path),
-    newTab,
+    newTab: async prompt => {
+      const ws = current();
+      if (!ws || !isDelegatedWorkspace(ctx.board(), ws.id)) return newTab(prompt);
+      const tab = ws.tabs.find(tab => tab.id === session.currentSession()) ?? ws.tabs[0];
+      if (!tab) throw new Error(t("err.session.delegated"));
+      const epoch = navigation;
+      await invoke("chat_send", { session: tab.id, text: prompt });
+      if (stillHere(epoch, ws.id)) await selectTab(ws.id, tab.id);
+    },
     openBrowser: showWeb,
     enter: showShell,
     exit: showTerm,
@@ -325,6 +335,7 @@ export function draw() {
   // Render the persisted branch immediately, then refresh it from Git.
   paintBranchName(branchOf.get(ws.id) ?? ws.branch);
 
+  drawFamily(ws);
   drawTabs(ws);
   const tab = ws.tabs.find((t) => t.id === session.currentSession());
   drawShare(ws, tab);
@@ -400,7 +411,7 @@ type Parts = {
 };
 
 function layout(parts: Parts) {
-  $("tabbar").hidden = !parts.tabs;
+  $("tabbar").hidden = !parts.tabs || (!!current() && isDelegatedWorkspace(ctx.board(), current()!.id) && $("tabbar").children.length <= 1);
   $("prsplit").hidden = !parts.pr;
   $("side").hidden = !parts.side;
   $("sidetoggle").hidden = !parts.side;
@@ -486,6 +497,9 @@ function drawMore(ws: Workspace) {
       })),
     },
   ];
+  if (isDelegatedWorkspace(ctx.board(), ws.id)) {
+    items.push({ label: t("dock.new"), track: "dock.new", glyph: icon("terminal", 14), run: dockbar.newTerm });
+  }
   if (team.status().config && !team.sharedWithTeam(ws)) {
     items.unshift({ label: t("share.on"), track: "share.on", glyph: icon("share-2", 14), sub: shareItems(ws) });
   }
@@ -585,7 +599,7 @@ async function openPr() {
   const ws = current();
   if (!ws) return;
   const configured = actions.catalog().commands.find(a => a.name === actions.catalog().pr_action && a.kind === "agent");
-  if (configured) {
+  if (configured && !isDelegatedWorkspace(ctx.board(), ws.id)) {
     try { await actions.start(ws.id, configured); } catch (error) { ctx.say(fromBack(error), true); }
     return;
   }
@@ -740,6 +754,25 @@ export function finish(id: string) {
     .catch((e) => ctx.say(fromBack(e), true));
 }
 
+/** Show the main workspace and its coordinating conversation. */
+function drawFamily(ws: Workspace) {
+  const host = $("workspace-family");
+  const hierarchy = workspaceHierarchy(ctx.board());
+  const parent = hierarchy.parents.get(ws.id);
+  const children = hierarchy.children.get(ws.id);
+  host.replaceChildren();
+  host.hidden = !parent && !children?.length;
+  if (host.hidden) return;
+  host.append(template("span", "", icon("git-branch", 13)));
+  if (parent) {
+    host.append(h("span", "", t("workspace.main")), button(parent.workspace.title,
+      () => ctx.openGitWorkspace(parent.workspace.id), "ghost", "workspace.main"));
+    host.append(h("span", "spacer"), h("span", "", t("workspace.responsible", { name: tabLabel(parent.workspace, parent.tab) })));
+  } else if (children) {
+    host.append(h("span", "", tn(children.length, "rail.subworkspaces")));
+  }
+}
+
 /* Tabs. */
 
 let tabsFrame = 0;
@@ -863,7 +896,8 @@ function drawTabs(ws: Workspace) {
   appendFileTabs(bar, fs);
 
   // New conversations require the owner's local worktree.
-  if (remote) return;
+  bar.hidden = ws.cleaned || (isDelegatedWorkspace(ctx.board(), ws.id) && bar.children.length <= 1);
+  if (remote || isDelegatedWorkspace(ctx.board(), ws.id)) return;
   // The primary plus action inherits workspace defaults; its menu offers alternative models.
   appendTabAdd(bar, {
     title: t("tab.new"),
@@ -1033,6 +1067,7 @@ function sendReview(at: HTMLElement, draft: ReviewDraft, close: () => void) {
 export async function newTab(prompt = "", choice: Choice | null = null) {
   const ws = current();
   if (!ws || ws.remote) return;
+  if (isDelegatedWorkspace(ctx.board(), ws.id)) { ctx.say(t("err.session.delegated"), true); return; }
   const epoch = navigation;
   try {
     const tab = await invoke("new_tab", { workspace: ws.id, prompt, choice });
@@ -1424,6 +1459,7 @@ export function openProject(project: Project) {
   tree.reset();
   $("wsView").hidden = false;
   const crumb = $("crumb");
+  $("workspace-family").hidden = true;
   crumb.dataset.workspace = "";
   crumb.innerHTML = `${avatar(project.name)}<span class="who"></span>`;
   crumb.querySelector<HTMLElement>(".who")!.textContent = project.name;
@@ -1473,6 +1509,7 @@ export function openTerminal(session: TerminalSession) {
   dockbar.reset(false);
   $("wsView").hidden = false;
   const crumb = $("crumb");
+  $("workspace-family").hidden = true;
   crumb.dataset.workspace = "";
   crumb.innerHTML = `${icon("square-terminal", 14)}<span class="who"></span>`;
   crumb.querySelector<HTMLElement>(".who")!.textContent = terminals.title(session);

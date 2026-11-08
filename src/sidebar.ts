@@ -2,7 +2,8 @@ import { avatar, avatars, brand, icon, stageIcon, wave } from "./icons";
 import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import { keys } from "./platform";
-import { confirmDialog } from "./ui";
+import { isDelegatedWorkspace, workspaceHierarchy } from "./workspace-hierarchy";
+import { button, confirmDialog } from "./ui";
 import * as team from "./team";
 import * as terminals from "./terminals";
 import { accountButton } from "./cloud";
@@ -280,7 +281,8 @@ function renderRail(board: Board, hooks: Hooks) {
   last = [board, hooks];
   const typing = finder !== null && document.activeElement === finder.control;
   rail.replaceChildren();
-  const live = board.workspaces.filter((w) => !w.archived && !w.remote);
+  const hierarchy = workspaceHierarchy(board);
+  const live = board.workspaces.filter((w) => !w.archived && !w.remote && !hierarchy.parents.has(w.id));
 
   rail.append(accountButton());
 
@@ -329,7 +331,7 @@ function renderRail(board: Board, hooks: Hooks) {
   rail.append(document.createElement("hr"));
 
   // Pinned workspaces move to the top instead of appearing twice.
-  const pinned = live.filter((w) => w.pinned);
+  const pinned = live.filter((w) => w.pinned || hierarchy.children.get(w.id)?.some(child => child.pinned));
   if (pinned.length) {
     renderGroup(rail, board, hooks, t("rail.pinned"), icon("pin", 14), pinned, "@fixados", { avatars: true });
   }
@@ -385,14 +387,15 @@ function renderRail(board: Board, hooks: Hooks) {
   // Project headings disambiguate repositories with matching initials.
   const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
   // Workspaces spanning repositories belong to collection groups.
-  const single = live.filter((w) => !w.pinned && w.repos.length < 2);
+  const single = live.filter((w) => !pinned.includes(w) && w.repos.length < 2);
   const mineOf = (id: string) => single.filter((w) => w.project === id);
-  const shown = board.projects.filter((p) => projectMatches(p, mineOf(p.id), query));
+  const familyOf = (workspaces: Workspace[]) => workspaces.flatMap(w => [w, ...(hierarchy.children.get(w.id) ?? [])]);
+  const shown = board.projects.filter((p) => projectMatches(p, familyOf(mineOf(p.id)), query));
   // Group multi-repository workspaces by repository set. These transient collections have split avatars but no project creation/menu controls.
   const sets = new Map<string, Workspace[]>();
   for (const w of live) {
-    if (w.pinned || w.repos.length < 2) continue;
-    if (!projectMatches({ id: "", name: repoLabel(w), path: "" }, [w], query)) continue;
+    if (pinned.includes(w) || w.repos.length < 2) continue;
+    if (!projectMatches({ id: "", name: repoLabel(w), path: "" }, familyOf([w]), query)) continue;
     sets.set(repoLabel(w), [...(sets.get(repoLabel(w)) ?? []), w]);
   }
   if (query && !shown.length && !sets.size) rail.append(h("div", "railhint", t("rail.filter.none")));
@@ -582,6 +585,8 @@ function renderGroup(
     searching?: boolean;
   } = {},
 ): HTMLElement {
+  const hierarchy = workspaceHierarchy(board);
+  const count = list.reduce((n, ws) => n + 1 + (hierarchy.children.get(ws.id)?.length ?? 0), 0);
   const shut = !opts.searching && folded(key);
   // Use a focusable div because project controls cannot be nested inside another button.
   const head = template(
@@ -595,7 +600,7 @@ function renderGroup(
   if (opts.on) head.classList.add("on");
   head.setAttribute("aria-expanded", String(!shut));
   head.children[1].textContent = name;
-  head.children[2].textContent = list.length ? String(list.length) : "";
+  head.children[2].textContent = count ? String(count) : "";
   // Empty groups do not collapse; their heading only offers creation.
   head.children[3].innerHTML = list.length ? icon(shut ? "chevron-right" : "chevron-down", 14) : "";
   const fold = () => {
@@ -623,9 +628,12 @@ function renderGroup(
   rail.append(head);
   if (shut) return head;
 
-  for (const ws of list) {
+  const renderWorkspace = (ws: Workspace) => {
+    const compact = !ws.remote && isDelegatedWorkspace(board, ws.id) && ws.tabs.length <= 1;
+    const provider = ws.tabs[0]?.choice?.agent ?? ws.agent;
     const card = h("div", "railworkspace" + (ws.id === openId ? " on" : ""));
     card.dataset.workspace = ws.id;
+    card.classList.toggle("subworkspace", compact);
     const owner = ws.remote ? team.nameOf(ws.remote.owner) : null;
     const status = ws.remote && !ws.remote.online ? "desligada" : statusOf(ws);
     const b = template(
@@ -638,16 +646,24 @@ function renderGroup(
     const title = b.querySelector<HTMLElement>(".lbl")!;
     title.textContent = ws.title;
     b.querySelector(".wsbranch")!.textContent = ws.branch;
-    b.title = [owner, repoLabel(ws), ws.branch].filter(Boolean).join(" · ");
+    if (compact) {
+      b.querySelector(".wsbranch")!.remove();
+      b.children[0].after(template("span", "provider", brand(provider, 15)));
+    }
+    b.title = [ws.title, owner, repoLabel(ws), ws.branch, ...(compact && ws.tabs[0] ? [t(`model.${provider}`), tabLabel(ws, ws.tabs[0]), label(status)] : [])].filter(Boolean).join(" · ");
+    if (compact) {
+      b.setAttribute("aria-label", [ws.title, t(`model.${provider}`), label(status)].join(" · "));
+      if (ws.id === openId) b.setAttribute("aria-current", "page");
+    }
     b.dataset.track = "rail.workspace";
-    b.addEventListener("click", () => hooks.open(ws));
-    if (owner || opts.avatars) b.children[0].after(template("span", "av", owner ? avatar(owner) : avatars(ws.repos.map((r) => r.name))));
+    b.addEventListener("click", () => hooks.open(ws, compact ? ws.tabs[0]?.id : undefined));
+    if (!compact && (owner || opts.avatars)) b.children[0].after(template("span", "av", owner ? avatar(owner) : avatars(ws.repos.map((r) => r.name))));
     if (ws.remote && !ws.remote.online) card.classList.add("off");
     if (!ws.remote) attachMenu(b, ws, board, hooks, title, "sub");
     else attachLeave(b, ws, owner!);
     card.append(b);
 
-    if (ws.tabs.length) {
+    if (ws.tabs.length && !compact) {
       const key = `@ws:${ws.id}`;
       // Display a single agent directly without a redundant collapsible group row.
       const shut = ws.tabs.length > 1 && folded(key);
@@ -691,7 +707,31 @@ function renderGroup(
       if (ws.tabs.length > 1) card.append(toggle);
       card.append(agents);
     }
-    rail.append(card);
+    return card;
+  };
+  for (const ws of list) {
+    rail.append(renderWorkspace(ws));
+    const children = hierarchy.children.get(ws.id);
+    if (!children?.length) continue;
+    const key = `@subworkspaces:${ws.id}`;
+    const body = h("div", "rail-subworkspaces");
+    body.id = `subworkspaces-${ws.id}`;
+    body.hidden = !opts.searching && folded(key);
+    const toggle = button("", () => {
+      body.hidden = !body.hidden;
+      localStorage.setItem(FOLD + key, body.hidden ? "1" : "0");
+      paint();
+    }, "ghost", "rail.subworkspaces");
+    toggle.classList.add("rail-subworkspaces-toggle");
+    toggle.setAttribute("aria-controls", body.id);
+    const paint = () => {
+      toggle.setAttribute("aria-expanded", String(!body.hidden));
+      toggle.innerHTML = `${icon(body.hidden ? "chevron-right" : "chevron-down", 12)}<span></span>`;
+      toggle.lastElementChild!.textContent = tn(children.length, "rail.subworkspaces");
+    };
+    paint();
+    for (const child of children) body.append(renderWorkspace(child));
+    rail.append(toggle, body);
   }
   return head;
 }

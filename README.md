@@ -29,7 +29,7 @@ Run Claude Code, Codex, Cursor CLI and Antigravity agents in parallel — each i
 ## Features
 
 - **Cursor CLI:** external CLI login, interactive approvals and account quotas. See [Cursor setup](#cursor-cli).
-- **Parallel workspaces:** isolated worktrees, multiple repositories and a desk for conversations side by side.
+- **Parallel workspaces:** isolated worktrees, multiple repositories and a desk for conversations side by side. Delegated work groups into one level of sub-workspaces, each with one conversation and its provider icon.
 - **Visual Git review:** unified or split diffs, review notes, staging, commits, history and conflict resolution.
 - **Built-in tools:** editor, terminal, browser preview, MCP servers, plugins, skills and reusable actions.
 - **Terminal sessions:** shells of their own in the sidebar, started in your home or any folder without a project or workspace, kept across restarts (macOS and Linux).

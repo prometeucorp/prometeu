@@ -594,3 +594,11 @@ explicitly; removal survives restart. Account readers without Cursor support
 preserve its account and active selection opaquely. Older board readers may map
 an unknown provider to Claude, so downgrading a Cursor board is unsupported.
 See the [Cursor contract](cursor.md).
+
+## Delegation navigation compatibility
+
+Sub-workspace grouping derives from `Board.delegations` and the owning tab IDs;
+no parent field or migration is added. Missing delegation lists keep legacy flat
+navigation. Existing multi-tab delegated workspaces preserve all tabs on load,
+but new conversations are rejected. See [ADR 0098](../decisions/0098-sub-workspaces.md)
+and the [embedded MCP contract](embedded-mcp.md#sub-workspace-navigation).

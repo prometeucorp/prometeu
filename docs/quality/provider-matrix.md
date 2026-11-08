@@ -297,6 +297,20 @@ under the [release contract](../contracts/releases.md).
 E2E does not replace the contract: it covers a few expensive paths. Fixtures and
 reducers give fast diagnosis for every combination.
 
+## Sub-workspace navigation
+
+Claude, Codex and Antigravity workers share one-level grouping, a provider mark
+and one conversation per delegated workspace. Cursor can coordinate these
+workers; Cursor worker creation remains unsupported. External MCP clients have
+no local parent workspace. Remote shares keep flat navigation. Windows has no
+embedded delegation entry point; its portable workspace service nevertheless
+applies the same conversation admission rule to delegation records.
+
+Evidence: `src/workspace-hierarchy.test.ts`, delegated-conversation tests in
+`crates/core/src/board.rs` and `crates/core/src/workspaces.rs`. Legacy multi-tab
+workspaces retain their tabs. [ADR 0098](../decisions/0098-sub-workspaces.md)
+describes flattening without changing provider or MCP ownership.
+
 ## Built-in delegation MCP
 
 Claude, Codex and Cursor can opt into the bundled `prometeu` MCP and create a

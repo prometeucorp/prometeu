@@ -1559,6 +1559,7 @@ pub fn new_tab(
     let (launch, choice) = {
         let (global, trust, ws) = {
             let board = lock(&state.board);
+            board.allow_new_conversation(&workspace)?;
             let Some(ws) = board.workspaces.iter().find(|w| w.id == workspace).cloned() else {
                 return Err(i18n::t("err.session.noWorkspace"));
             };

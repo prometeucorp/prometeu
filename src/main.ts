@@ -1,3 +1,4 @@
+import { isDelegatedWorkspace } from "./workspace-hierarchy";
 import * as actions from "./actions";
 import * as background from "./background";
 import * as cloud from "./cloud";
@@ -834,13 +835,13 @@ const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
   telemetryConversation: w && tab && !w.remote ? state.telemetry_ids?.[`conversation:${tab.id}`] ?? tab.id : null,
   context: tab?.context_tokens !== null && tab?.context_tokens !== undefined
     ? { used: tab.context_tokens, window: tab.context_window ?? null } : null,
-  canCreateConversation: !!w && !w.remote && !w.cleaned && !w.archived && !w.preparing && !w.failed,
+  canCreateConversation: !!w && !isDelegatedWorkspace(state, w.id) && !w.remote && !w.cleaned && !w.archived && !w.preparing && !w.failed,
 });
 
 /** Both desk and workspace controls capture the workspace owning the clicked conversation. */
 async function newConversation(workspace: string) {
   const target = state.workspaces.find(item => item.id === workspace);
-  if (!target || target.remote || target.cleaned || target.archived || target.preparing || target.failed) return;
+  if (!target || isDelegatedWorkspace(state, workspace) || target.remote || target.cleaned || target.archived || target.preparing || target.failed) return;
   const navigation = navigationVersion;
   try {
     const tab = await invoke("new_tab", { workspace, prompt: "" });

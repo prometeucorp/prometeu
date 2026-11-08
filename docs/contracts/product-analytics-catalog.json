@@ -2299,6 +2299,12 @@
       ]
     },
     {
+      "target": "rail.subworkspaces",
+      "sources": [
+        "src/sidebar.ts"
+      ]
+    },
+    {
       "target": "rail.terminal",
       "sources": [
         "src/sidebar.ts"
@@ -3285,6 +3291,12 @@
     },
     {
       "target": "workspace.finish",
+      "sources": [
+        "src/workspace.ts"
+      ]
+    },
+    {
+      "target": "workspace.main",
       "sources": [
         "src/workspace.ts"
       ]

@@ -118,8 +118,10 @@ The socket credential authorizes the MCP API but is not a sandbox against local
 processes with the user's filesystem permissions.
 
 Persisted delegation records and explicit execution IDs add compatibility and
-storage responsibilities. No new scheduler, automatic manager agent, hierarchy
-UI, deletion tool, approval proxy or distributed execution is introduced.
+storage responsibilities. No new scheduler, automatic manager agent, deletion tool, approval proxy or
+distributed execution is introduced. [ADR 0098](0098-sub-workspaces.md) adds
+a one-level navigation projection and reserves one conversation per delegated
+workspace; legacy extra conversations remain accessible.
 Later support for several delegated agents sharing an environment can reuse the
 separate identities without reinterpreting every existing workspace as an agent.
 

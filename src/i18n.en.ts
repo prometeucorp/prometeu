@@ -768,6 +768,11 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "rail.cleanup.title": "Take finished work\u2019s worktrees off the disk",
   "rail.team": "Shared",
   "rail.terminals": "Terminals",
+  "rail.subworkspaces.one": "{n} sub-workspace",
+  "rail.subworkspaces.other": "{n} sub-workspaces",
+  "workspace.main": "Main workspace",
+  "workspace.responsible": "Responsible agent · {name}",
+  "err.session.delegated": "a delegated workspace has one conversation; continue in its existing conversation",
   "rail.agents.one": "{n} agent",
   "rail.agents.other": "{n} agents",
 

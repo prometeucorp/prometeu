@@ -772,6 +772,11 @@ export const PT = {
   "rail.cleanup.title": "Tirar do disco os worktrees de trabalho que já acabou",
   "rail.team": "Compartilhados",
   "rail.terminals": "Terminais",
+  "rail.subworkspaces.one": "{n} sub-workspace",
+  "rail.subworkspaces.other": "{n} sub-workspaces",
+  "workspace.main": "Workspace principal",
+  "workspace.responsible": "Agente responsável · {name}",
+  "err.session.delegated": "um workspace delegado tem uma única conversa; continue na conversa existente",
   "rail.agents.one": "{n} agente",
   "rail.agents.other": "{n} agentes",
 

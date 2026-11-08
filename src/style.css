@@ -1632,3 +1632,13 @@ body.noside .side { display: none; }
 .accounts-view { display: grid; gap: 20px; }
 .setpage .accounts-view { width: min(100%, 560px); }
 .account-state { color: var(--accent); }
+
+/* Delegated conversations keep one workspace row and one navigation level. */
+.rail-subworkspaces { margin-left: 14px; padding-left: 5px; border-left: 1px solid var(--line-ghost); }
+.rail-subworkspaces-toggle.ui-button { display: flex; justify-content: flex-start; gap: 6px; height: 24px; margin-left: 5px; padding: 0 5px; font-size: 11px; color: var(--fg-3); }
+.rail-subworkspaces-toggle.ui-button:hover { color: var(--fg-2); }
+.subworkspace .navitem.sub { min-height: 28px; align-items: center; }
+.subworkspace .navitem.sub > .rail-status { margin-top: 0; }
+.subworkspace .navitem > .provider { display: flex; flex: none; }
+.workspace-family { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 16px; border-bottom: 1px solid var(--line); color: var(--fg-3); font-size: 11px; flex-wrap: wrap; }
+.workspace-family .ui-button { height: 24px; padding: 0 4px; font-size: 11px; color: var(--fg-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; }

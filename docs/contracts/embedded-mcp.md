@@ -114,11 +114,36 @@ observed background tasks and pending requests. The field defaults to an empty
 list on old boards. Legacy owner strings remain conversation client IDs; external
 owners use the `client:` namespace. No transcript is rewritten. Ownership survives
 a process restart and is never inferred from tab order, the active tab, or workspace
-membership. Opening another tab in the delegated workspace grants no authority
-over that tab. Unowned and nonexistent targets both return
+membership. Legacy extra tabs in a delegated workspace grant no authority over those tabs.
+New additional conversations are rejected; existing transcripts remain accessible. Unowned and nonexistent targets both return
 `delegation_not_found`. Project scope is checked for every owned target, including
 all repositories in a multi-repository delegation. Deleting an internal
 coordinator tab makes its delegations inaccessible through MCP; their workspaces remain available to the person.
+
+## Sub-workspace navigation
+
+The desktop derives one navigation level from existing delegation records
+([ADR 0098](../decisions/0098-sub-workspaces.md)). The main workspace contains
+the owner conversation. Further delegations appear as siblings under the same
+main workspace; their original `owner` values and exact-target authorization do
+not change. No parent field is added to the board, IPC or relay.
+
+Sub-workspaces use one sidebar row with status, provider and title. Their branch
+and model remain in the tooltip, and their conversation view links to the main
+workspace. Each delegated workspace admits only its original conversation:
+`new_tab` and agent `action_start` return `err.session.delegated`, including during
+preparation and when the owner is external or has disappeared. Prompt actions
+and ordinary input keep using the existing conversation. Requests to configure
+workspace scripts also reuse that conversation. Old extra tabs remain
+visible and usable, but cannot be expanded further. File, Changes, browser and
+terminal tabs remain available; they are not agent conversations.
+
+External owners and missing/archived coordinator conversations produce standalone
+entries. Archived children stay in the archive; restoring the coordinator restores
+its grouping. Cross-project children follow the main workspace's project, search
+includes their titles, and pinning any member pins the family without changing
+other members' pin flags. Worktree cleanup and archive operations do not cascade.
+Remote shares keep their existing independent presentation.
 
 ## Tools
 

@@ -719,3 +719,11 @@ optional `pty_buffer` snapshot) and limits are in the
 - `wsl_connect`, `wsl_disconnect` and `wsl_shutdown` exist only for
   `scripts/test-windows-application.mjs`, which swaps the startup connection for
   a fixture target. They are not part of the product interface.
+
+## Delegated conversation admission
+
+`new_tab` and agent `action_start` reject delegated workspaces with
+`err.session.delegated` before creating a conversation. Signatures and return
+formats are unchanged. Existing delegated conversations and legacy extra tabs
+remain usable; see [sub-workspaces](embedded-mcp.md#sub-workspace-navigation).
+The browser mock and native entry points apply the same restriction.

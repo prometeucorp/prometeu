@@ -1,0 +1,19 @@
+/* Proposed hierarchy only. All existing geometry, rows, typography and chat use src/style.css. */
+.preview-children { margin-left: 14px; padding-left: 5px; border-left: 1px solid var(--line-ghost); }
+.preview-family-toggle.ui-button { display: flex; justify-content: flex-start; gap: 6px; height: 24px; margin-left: 5px; padding: 0 5px; font-size: 11px; color: var(--fg-3); }
+.preview-family-toggle.ui-button:hover { color: var(--fg-2); }
+#family-context { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 3px 16px; border-bottom: 1px solid var(--line); color: var(--fg-3); font-size: 11px; flex-wrap: wrap; }
+.preview-family-icon { display: flex; }
+.preview-parent-link.ui-button { height: 24px; padding: 0 4px; font-size: 11px; color: var(--fg-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.preview-owner { font-size: 11px; }
+.preview-delegations { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 18px; }
+.preview-delegation.ui-button { gap: 8px; font-size: 13px; font-weight: 400; }
+@media (max-width: 800px) { .preview-owner, #prototype-label { display: none; } }
+
+#prototype-label { color: var(--fg-3); font-size: 11px; }
+
+/* A sub-workspace opens its only conversation, so it needs one navigation row. */
+.preview-children .navitem.sub { min-height: 28px; align-items: center; }
+.preview-children .navitem.sub > .rail-status { margin-top: 0; }
+
+.preview-children .navitem > .preview-provider { display: flex; flex: none; }
