@@ -57,16 +57,16 @@ body.norail .top .nav { margin-left: 0; }
 
 /* Keep the sidebar footer outside the scrolling rail body. */
 .railfoot {
-  flex: none; display: flex; align-items: center; gap: 2px;
-  height: 36px; padding: 0 10px;
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+  min-height: 36px; padding: 8px 10px;
   border-top: 1px solid var(--line-side);
 }
 .railfoot .ver { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 #feedback { min-height: 20px; padding: 0 6px; font-size: 11px; flex: none; }
 /* Open feedback above its sidebar footer control. */
 .ui-feedback-desktop { inset: auto auto 64px 12px; }
-/* Show the updater only when a download is available; it disappears after restart. */
-#update { height: 20px; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
+/* Give update actions their own row so long labels cannot push Feedback outside the rail. */
+#update { order: 1; flex: 0 0 100%; min-height: 20px; height: auto; white-space: normal; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
 #update:hover { background: var(--bg-raised-2); }
 #update.ready { color: var(--pri-fg); background: var(--pri); }
 #update:disabled { color: var(--fg-3); background: none; pointer-events: none; }
