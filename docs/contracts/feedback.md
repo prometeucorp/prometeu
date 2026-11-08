@@ -155,8 +155,9 @@ transport: `fetch` in the browser, with a same-origin cookie, and
 `feedback_send` on the desktop.
 The manual popover uses the top layer; inside a modal, it moves to that modal to
 stay interactive. Escape closes the widget first. On the desktop, the "Feedback"
-button sits on the right of the sidebar footer; the panel opens above that
-footer only after the click. The native Run preview uses its whole area and is
+button sits on the right of the sidebar footer, before any update action on
+the next row; keyboard focus follows that same order. The panel opens above
+that footer only after the click. The native Run preview uses its whole area and is
 hidden while the panel is open.
 
 `npm run build:feedback` produces `dist-feedback/feedback.js` and

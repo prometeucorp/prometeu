@@ -66,7 +66,7 @@ body.norail .top .nav { margin-left: 0; }
 /* Open feedback above its sidebar footer control. */
 .ui-feedback-desktop { inset: auto auto 64px 12px; }
 /* Give update actions their own row so long labels cannot push Feedback outside the rail. */
-#update { order: 1; flex: 0 0 100%; min-height: 20px; height: auto; white-space: normal; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
+#update { flex: 0 0 100%; min-height: 20px; height: auto; white-space: normal; padding: 0 8px; font-size: 11px; font-weight: 500; color: var(--accent); }
 #update:hover { background: var(--bg-raised-2); }
 #update.ready { color: var(--pri-fg); background: var(--pri); }
 #update:disabled { color: var(--fg-3); background: none; pointer-events: none; }
