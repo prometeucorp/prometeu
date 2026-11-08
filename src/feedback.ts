@@ -39,7 +39,7 @@ export function init() {
   widget.trigger.title = t("feedback.trigger");
   widget.trigger.setAttribute("aria-label", t("feedback.trigger"));
   widget.trigger.textContent = t("feedback.trigger");
-  $("update").after(widget.trigger);
+  $("update").before(widget.trigger);
   widget.root.classList.add("ui-feedback-desktop");
 }
 

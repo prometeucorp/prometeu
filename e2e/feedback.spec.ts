@@ -14,7 +14,20 @@ test("feedback preserves draft and attachment on failure and retries the same su
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "Feedback", exact: true });
   await expect(page.locator(".railfoot").getByRole("button", { name: "Feedback", exact: true })).toBeVisible();
-  await expect(page.locator(".railfoot > :last-child")).toHaveText("Feedback");
+  // Native Tab navigation must follow the visible rows when the updater appears.
+  const update = page.locator("#update");
+  await update.evaluate(button => {
+    button.hidden = false;
+    button.textContent = "Restart to update";
+  });
+  await page.locator("#settings").focus();
+  await page.keyboard.press("Tab");
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(update).toBeFocused();
+  const feedbackBounds = (await trigger.boundingBox())!;
+  expect((await update.boundingBox())!.y).toBeGreaterThanOrEqual(feedbackBounds.y + feedbackBounds.height);
+  await update.evaluate(button => { button.hidden = true; });
   await expect(trigger).toHaveText("Feedback");
   await expect(page.locator(".ui-feedback .ui-feedback-trigger")).toHaveCount(0);
   await trigger.click();
