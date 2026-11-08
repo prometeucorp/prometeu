@@ -265,28 +265,19 @@ impl PluginLibrary {
     pub fn remove_local(&self, mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
         if let Some(gone) = plugins.iter().find(|p| p.id == id) {
             let dir = PathBuf::from(self.expand(&gone.source));
-            if gone.made && self.owned(&dir) {
-                let root = self.git_root(&dir).unwrap_or_else(|| dir.clone());
-                let gone_path = dir.canonicalize().unwrap_or_else(|_| dir.clone());
-                let root_path = root.canonicalize().unwrap_or_else(|_| root.clone());
-                let others_in_root = plugins.iter().filter(|p| p.id != id).any(|p| {
-                    PathBuf::from(self.expand(&p.source))
-                        .canonicalize()
-                        .is_ok_and(|path| path.starts_with(&root_path))
-                });
-                // Catalog install may register the same package directory under another local ID.
-                let shared = plugins.iter().filter(|p| p.id != id).any(|p| {
-                    PathBuf::from(self.expand(&p.source))
-                        .canonicalize()
-                        .is_ok_and(|path| {
-                            path.starts_with(&gone_path) || gone_path.starts_with(&path)
-                        })
-                });
-                if !others_in_root {
-                    std::fs::remove_dir_all(&root).ok();
-                } else if !shared && gone_path != root_path {
-                    std::fs::remove_dir_all(&dir).ok();
-                }
+            // Catalog install may register the same package directory under another local ID.
+            let shared = plugins.iter().filter(|p| p.id != id).any(|p| {
+                PathBuf::from(self.expand(&p.source))
+                    .canonicalize()
+                    .is_ok_and(|path| {
+                        dir.canonicalize()
+                            .is_ok_and(|gone| path.starts_with(&gone) || gone.starts_with(&path))
+                    })
+            });
+            // Delete only this package's source. Sibling plugins left unregistered in the same
+            // clone stay on disk until scrap; removing the whole clone here would erase them.
+            if gone.made && self.owned(&dir) && !shared {
+                std::fs::remove_dir_all(&dir).ok();
             }
         }
         plugins.retain(|p| p.id != id);
