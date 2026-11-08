@@ -4,6 +4,24 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.40.0] - 2026-11-08
+
+### New
+
+- **mcp:** Delegate to codex or antigravity workers from any agent
+- **Breaking:** **mcp:** Require choosing the worker provider when delegating
+- **plugins:** Install skill-bundle repositories as portable packages
+
+### Fixes
+
+- **mcp:** Show worker settings and check efforts against the worker's model
+- **mcp:** Keep the ultra effort of older codex conversations in delegation
+- **mcp:** Reject unavailable providers when delegating to an explicit project
+- **plugins:** Harden skill-bundle install against clone escapes
+- **plugins:** Keep unregistered sibling packages after removal
+- **plugins:** Reject skill link cycles and stale package updates
+- **plugins:** Keep shared package sources when update drops a skill
+
 ## [0.39.0] - 2026-11-01
 
 ### New
