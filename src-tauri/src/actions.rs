@@ -142,6 +142,7 @@ pub fn action_start(
         // reads) run on clones so the board mutex stays free for transcript events.
         let (actions, global, trust, a, ws) = {
             let board = lock(&state.board);
+            board.allow_new_conversation(&workspace)?;
             let a = board
                 .actions
                 .commands
@@ -232,6 +233,7 @@ pub fn action_start(
         // Mutation phase: re-validate against the live board, since another action may have
         // started or finished a tab while this one resolved off the lock.
         let mut board = lock(&state.board);
+        board.allow_new_conversation(&workspace)?;
         let ws = board
             .workspace_mut(&workspace)
             .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;

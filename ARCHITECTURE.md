@@ -163,7 +163,9 @@ socket; `mcp_access.rs` authenticates clients and scopes projects; `delegation.r
 authorizes only agents created by that client. Internal conversations and external
 local MCP hosts use the same tools. Conversation context is optional; registered
 external clients remain usable across desktop restarts. Each delegation starts with its own workspace and conversation;
-execution IDs are separate. See the [contract](docs/contracts/embedded-mcp.md)
+execution IDs are separate. The sidebar projects internal delegations into one
+level of sub-workspaces; each delegation reserves its original conversation
+([ADR 0099](docs/decisions/0099-sub-workspaces.md)). See the [contract](docs/contracts/embedded-mcp.md)
 and [ADR 0049](docs/decisions/0049-embedded-delegation-mcp.md).
 
 ## Reusable actions

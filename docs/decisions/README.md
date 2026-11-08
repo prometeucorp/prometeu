@@ -136,3 +136,4 @@ Index entries must be rendered links; links inside code samples do not count.
 - [ADR 0096](0096-terminal-sessions.md) — Terminal sessions owned by the app, persisted as records on the board.
 - [ADR 0097](0097-ask-before-ending-the-app.md) — Quitting, closing the main window or restarting for an update asks first while local work would be cut off.
 - [ADR 0098](0098-skill-bundle-install.md) — Install skill-bundle repositories as portable packages.
+- [ADR 0099 — One level of sub-workspaces](0099-sub-workspaces.md): flat delegation grouping and one conversation per delegated workspace.

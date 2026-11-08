@@ -528,6 +528,18 @@ impl Default for Board {
 }
 
 impl Board {
+    /// Delegation owns an exact transcript; new conversations must use another workspace.
+    pub fn allow_new_conversation(&self, workspace: &str) -> Result<(), String> {
+        if self
+            .delegations
+            .iter()
+            .any(|delegation| delegation.workspace == workspace)
+        {
+            return Err(crate::error::code("err.session.delegated"));
+        }
+        Ok(())
+    }
+
     /// Reconcile runtime state, migrate older fields and expose interrupted preparation. Separated
     /// from filesystem loading because parallel tests must not share environment overrides.
     pub fn revive(&mut self) {
@@ -761,6 +773,34 @@ mod tests {
                    "branch":"b","worktree":"/wt","stage":"Fazendo"{extra}}}]}}"#
         );
         serde_json::from_str(&json).expect("board did not deserialize")
+    }
+
+    #[test]
+    fn delegated_conversations_stay_single_without_rewriting_legacy_tabs() {
+        let mut board = board_json(
+            r#","tabs":[{"id":"worker","title":"","status":"pronta"},{"id":"legacy","title":"Personal conversation","status":"pronta"}]"#,
+        );
+        assert!(board.allow_new_conversation("w").is_ok());
+        board.delegations.push(
+            serde_json::from_value(serde_json::json!({
+                "id": "worker", "owner": "client:external", "workspace": "w",
+                "task": "Review changes", "request_key": "request", "request_hash": "hash",
+                "repository_heads": {}, "executions": [], "background": null, "requests": []
+            }))
+            .unwrap(),
+        );
+        let serialized = serde_json::to_string(&board).unwrap();
+        let mut restored: Board = serde_json::from_str(&serialized).unwrap();
+        restored.revive();
+        assert_eq!(
+            restored.allow_new_conversation("w"),
+            Err(crate::error::code("err.session.delegated"))
+        );
+        assert!(restored.allow_new_conversation("ordinary").is_ok());
+        assert_eq!(restored.workspaces[0].tabs.len(), 2);
+        assert_eq!(restored.workspaces[0].tabs[1].id, "legacy");
+        restored.workspaces[0].tabs.clear();
+        assert!(restored.allow_new_conversation("w").is_err());
     }
 
     #[test]

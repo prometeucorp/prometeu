@@ -481,6 +481,7 @@ impl Workspaces {
     }
     pub fn add_tab(&mut self, workspace: &str, choice: Option<Choice>) -> Result<Tab, String> {
         let current = self.get(workspace)?;
+        self.catalog.board.allow_new_conversation(workspace)?;
         if current.tabs.len() >= 32 {
             return Err("workspace_tab_limit".into());
         }
@@ -965,6 +966,35 @@ mod tests {
             .is_err());
         assert_eq!(service.snapshot().board.workspaces.len(), 2);
     }
+    #[test]
+    fn delegated_workspace_rejects_additional_tabs_before_persistence() {
+        let store = Arc::new(Memory::default());
+        let mut service = Workspaces::open(
+            store.clone(),
+            Arc::new(Folders),
+            "/project",
+            ProviderId::Codex,
+        )
+        .unwrap();
+        service.catalog.board.delegations.push(
+            serde_json::from_value(serde_json::json!({
+                "id": PRIMARY, "owner": "coordinator", "workspace": PRIMARY,
+                "task": "Review changes", "request_key": "request", "request_hash": "hash",
+                "repository_heads": {}, "executions": [], "background": null, "requests": []
+            }))
+            .unwrap(),
+        );
+        assert_eq!(
+            service.add_tab(PRIMARY, None).err(),
+            Some(crate::error::code("err.session.delegated"))
+        );
+        assert_eq!(service.get(PRIMARY).unwrap().tabs.len(), 1);
+        assert_eq!(
+            service.get(PRIMARY).unwrap().active.as_deref(),
+            Some(PRIMARY)
+        );
+    }
+
     #[test]
     fn tab_admission_and_persistence_keep_identity_and_selection_consistent() {
         let store = Arc::new(Memory::default());

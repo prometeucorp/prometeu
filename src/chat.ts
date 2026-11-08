@@ -963,7 +963,7 @@ export class ChatView {
     const button = this.box.querySelector<HTMLElement>(".actionsbtn")!;
     const box = button.getBoundingClientRect();
     menu.openAt({ x: box.left, y: box.top - 4, above: true, anchor: button }, actions.catalog().commands.length
-      ? actions.catalog().commands.map(action => ({ label: `/${action.name}`, track: "action.select", hint: t(action.kind === "prompt" ? "actions.prompt" : "actions.agent"), run: () => this.useAction(action, this.area.value) }))
+      ? actions.catalog().commands.map(action => ({ label: `/${action.name}`, track: "action.select", disabled: action.kind === "agent" && this.ctx.info().canCreateConversation === false, hint: t(action.kind === "prompt" ? "actions.prompt" : "actions.agent"), run: () => this.useAction(action, this.area.value) }))
       : [{ label: t("actions.empty"), disabled: true }]);
   }
 
@@ -985,6 +985,7 @@ export class ChatView {
       this.keep(); this.grow(); this.area.focus();
       return;
     }
+    if (this.ctx.info().canCreateConversation === false) { this.ctx.say(t("err.actions.unavailable")); return; }
     const workspace = this.ctx.info().workspace;
     if (!workspace || this.startingAction) return;
     this.startingAction = true;

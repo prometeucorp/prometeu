@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prometeu · Hierarquia de workspaces</title>
+</head>
+<body>
+<!-- Actual desktop shell and production components; only hierarchy presentation is proposed. -->
+<div class="shell">
+<nav class="rail" id="rail" aria-label="Workspaces">
+<div class="railtop"><span class="spacer"></span></div>
+<div class="railbody" id="railbody"></div>
+<div class="railfoot"><span id="settings-icon"></span><span class="ver">0.39.0</span><span class="spacer"></span></div>
+</nav>
+<div class="stack">
+<header class="top"><div class="crumb" id="crumb"></div><span class="spacer"></span><span id="prototype-label"></span></header>
+<main><section class="view wsview" id="wsView"><div class="center" id="wscenter">
+<div class="subbar tabbar" id="tabbar"></div>
+<div id="family-context"></div>
+<div class="tabbody"><div class="chatwrap" id="chatwrap"><div class="feed" id="feed"></div></div></div>
+</div></section></main>
+</div>
+</div>
+<script type="module" src="./workspace-hierarchy-preview.ts"></script>
+</body>
+</html>

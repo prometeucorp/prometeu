@@ -28,7 +28,7 @@ type Ctx = {
   say: (m: string, err?: boolean) => void;
   /// Open a worktree file in the center viewer.
   openFile: (path: string) => Promise<void>;
-  /// Start a conversation with an initial prompt.
+  /// Ask for script configuration; the host reuses delegated conversations.
   newTab: (prompt: string) => Promise<void>;
   /// Open the center browser at the Run port.
   openBrowser: () => Promise<void>;
@@ -384,7 +384,7 @@ function drawEmpty() {
       : t("dock.run.idle.body");
 }
 
-/// Use a new agent conversation to inspect the repository and write settings.toml without consuming the current task's context.
+/// Ask the host to inspect the repository and write settings.toml in an eligible conversation.
 async function askForScripts() {
   const id = ctx.workspace();
   if (!id) return;
