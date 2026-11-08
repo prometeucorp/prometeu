@@ -350,10 +350,18 @@ fn http(
         .take(max as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| i18n::t("err.cloud.network"))?;
+    // HTML/empty bodies from gateways (502/503) are transient; only a 200 with garbage is "invalid".
+    let invalid = || {
+        i18n::t(if status == 200 {
+            "err.cloud.response"
+        } else {
+            "err.cloud.network"
+        })
+    };
     if bytes.len() > max {
-        return Err(i18n::t("err.cloud.response"));
+        return Err(invalid());
     }
-    let value = serde_json::from_slice(&bytes).map_err(|_| i18n::t("err.cloud.response"))?;
+    let value = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
     Ok((status, value))
 }
 
@@ -418,9 +426,12 @@ async fn blocking<T: Send + 'static>(
 pub async fn cloud_status(app: AppHandle, refresh: bool) -> Result<Status, String> {
     blocking(move || {
         let status = status(refresh)?;
-        // Load the catalog with the account; catalog failures must not invalidate the account.
+        // Load the catalog with the account; catalog failures must not invalidate the account
+        // nor surface a toast on every focus/minute refresh (same soft-fail as login).
         if refresh && status.user.is_some() && !status.offline {
-            crate::catalog::pull(&app)?;
+            if let Err(error) = crate::catalog::pull(&app) {
+                eprintln!("catálogo não sincronizado: {error}");
+            }
         }
         Ok(status)
     })
@@ -680,6 +691,7 @@ mod tests {
         for response in [
             "HTTP/1.1 302 Found\r\nLocation: https://example.com/stolen\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
             "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\nsecret-token",
+            "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html\r\nContent-Length: 15\r\nConnection: close\r\n\r\n<html>error</html>",
         ] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -698,7 +710,12 @@ mod tests {
                 let error = result.unwrap_err();
                 assert!(!error.contains("secret-token"));
                 assert!(!error.contains("private-token"));
-                assert!(error.contains("err.cloud.response"));
+                assert!(!error.contains("<html>"));
+                assert!(error.contains(if response.starts_with("HTTP/1.1 200") {
+                    "err.cloud.response"
+                } else {
+                    "err.cloud.network"
+                }));
             }
             server.join().unwrap();
         }
