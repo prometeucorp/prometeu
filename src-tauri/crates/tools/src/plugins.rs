@@ -240,10 +240,9 @@ impl PluginLibrary {
                     .is_some_and(|key| source.canonicalize().ok().as_ref() == Some(key))
                     || source == dir
             }) else {
-                // Upstream dropped or renamed this package; do not keep the stale synthesized tree.
-                if self.owned(&dir) {
-                    std::fs::remove_dir_all(&dir).ok();
-                }
+                // Upstream dropped or renamed this package. Only delete when this entry owns the
+                // directory alone — catalog copies may share the path with made=false.
+                self.delete_owned_source(&self.load(), &plugin.id, &dir, plugin.made);
                 return Err(code("err.plugin.gone"));
             };
             fresh.id = plugin.id;
@@ -283,23 +282,30 @@ impl PluginLibrary {
     pub fn remove_local(&self, mut plugins: Vec<Plugin>, id: &str) -> Vec<Plugin> {
         if let Some(gone) = plugins.iter().find(|p| p.id == id) {
             let dir = PathBuf::from(self.expand(&gone.source));
-            // Catalog install may register the same package directory under another local ID.
-            let shared = plugins.iter().filter(|p| p.id != id).any(|p| {
-                PathBuf::from(self.expand(&p.source))
+            // Delete only this package's source. Sibling plugins left unregistered in the same
+            // clone stay on disk until scrap; removing the whole clone here would erase them.
+            self.delete_owned_source(&plugins, id, &dir, gone.made);
+        }
+        plugins.retain(|p| p.id != id);
+        plugins
+    }
+
+    /// Delete a package directory only when Prometeu created it and no other hub entry shares it.
+    fn delete_owned_source(&self, plugins: &[Plugin], id: &str, dir: &Path, made: bool) {
+        let shared = plugins
+            .iter()
+            .filter(|plugin| plugin.id != id)
+            .any(|plugin| {
+                PathBuf::from(self.expand(&plugin.source))
                     .canonicalize()
                     .is_ok_and(|path| {
                         dir.canonicalize()
                             .is_ok_and(|gone| path.starts_with(&gone) || gone.starts_with(&path))
                     })
             });
-            // Delete only this package's source. Sibling plugins left unregistered in the same
-            // clone stay on disk until scrap; removing the whole clone here would erase them.
-            if gone.made && self.owned(&dir) && !shared {
-                std::fs::remove_dir_all(&dir).ok();
-            }
+        if made && self.owned(dir) && !shared {
+            std::fs::remove_dir_all(dir).ok();
         }
-        plugins.retain(|p| p.id != id);
-        plugins
     }
 }
 impl Plugins for PluginLibrary {
@@ -1100,6 +1106,57 @@ mod tests {
             Ok(_) => panic!("directory link cycle must fail"),
         };
         assert!(error.contains("skill link cycle"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn shared_or_unowned_sources_are_not_deleted() {
+        let root = std::env::temp_dir().join(format!("plugin-shared-{}", uuid::Uuid::new_v4()));
+        let package = root.join("plugins/shared-package");
+        std::fs::create_dir_all(package.join(".claude-plugin")).unwrap();
+        std::fs::write(manifest_path(&package), r#"{"name":"shared"}"#).unwrap();
+        let library = PluginLibrary {
+            root: root.clone(),
+            home: root.clone(),
+            catalog: Arc::new(packages::FilePackageCatalog {
+                path: root.join("plugins.json"),
+            }),
+            files: Arc::new(Files),
+            runner: Arc::new(Timeout),
+        };
+        let hub = vec![
+            Plugin {
+                id: "local-a".into(),
+                source: package.display().to_string(),
+                note: String::new(),
+                made: false,
+                from: String::new(),
+            },
+            Plugin {
+                id: "local-b".into(),
+                source: package.display().to_string(),
+                note: String::new(),
+                made: true,
+                from: String::new(),
+            },
+        ];
+        library.delete_owned_source(&hub, "local-a", &package, false);
+        assert!(package.exists());
+        library.delete_owned_source(&hub, "local-b", &package, true);
+        assert!(package.exists());
+        library.delete_owned_source(
+            &[Plugin {
+                id: "solo".into(),
+                source: package.display().to_string(),
+                note: String::new(),
+                made: true,
+                from: String::new(),
+            }],
+            "solo",
+            &package,
+            true,
+        );
+        assert!(!package.exists());
         std::fs::remove_dir_all(root).ok();
     }
 
