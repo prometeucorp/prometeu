@@ -209,9 +209,37 @@ pub fn browser_open(app: AppHandle, state: State<AppState>, id: String) -> Resul
 
 /// Read the current webview URL to catch SPA navigation and history.pushState changes.
 #[tauri::command]
-pub fn browser_url(app: AppHandle, id: String) -> Option<String> {
+pub async fn browser_url(app: AppHandle, id: String) -> Option<String> {
     let view = app.get_webview(&label(&id))?;
-    view.url().ok().map(|u| u.to_string())
+    #[cfg(target_os = "macos")]
+    {
+        let (send, receive) = mpsc::sync_channel(1);
+        view.with_webview(move |platform| unsafe {
+            // Wry 0.55.1 unwraps both nullable URL properties. Read them on the AppKit
+            // thread without panicking when WebKit has no current URL.
+            let webview: &objc2_web_kit::WKWebView = &*platform.inner().cast();
+            let _ = send.try_send(native_url(webview.URL().as_deref()));
+        })
+        .ok()?;
+        tauri::async_runtime::spawn_blocking(move || {
+            receive.recv_timeout(Duration::from_secs(3)).ok().flatten()
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        view.url().ok().map(|u| u.to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn native_url(url: Option<&objc2_foundation::NSURL>) -> Option<String> {
+    let absolute = url?.absoluteString()?;
+    Url::parse(&absolute.to_string())
+        .ok()
+        .map(|url| url.to_string())
 }
 
 /// Accept typed HTTP or HTTPS addresses only. Unlike the initial Run URL, this address
@@ -561,6 +589,22 @@ pub async fn browser_capture(
 #[cfg(test)]
 mod tests {
     use super::{parse_inspection, BrowserRect};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_url_handles_missing_url_and_preserves_navigation() {
+        use objc2_foundation::{NSString, NSURL};
+
+        assert_eq!(super::native_url(None), None);
+        for value in [
+            "about:blank",
+            "http://localhost:3000/",
+            "https://example.com/page?q=1#section",
+        ] {
+            let url = NSURL::URLWithString(&NSString::from_str(value)).unwrap();
+            assert_eq!(super::native_url(Some(&url)).as_deref(), Some(value));
+        }
+    }
 
     fn inspection() -> serde_json::Value {
         serde_json::json!({
