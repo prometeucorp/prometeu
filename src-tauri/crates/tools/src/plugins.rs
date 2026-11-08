@@ -228,12 +228,17 @@ impl PluginLibrary {
                 &[("cause", last_line(&String::from_utf8_lossy(&out.stderr)))],
             ));
         }
-        // Re-run discovery so skill-bundle packages under `.prometeu/packages/` are rebuilt from
-        // the updated tree; ordinary root manifests still resolve through the same path.
-        let mut fresh = plugins_in(&root, &plugin.from)
-            .into_iter()
-            .find(|entry| entry.id == plugin.id)
-            .ok_or_else(|| code("err.plugin.gone"))?;
+        // Rebuild synthesized packages from the updated clone; ordinary packages refresh from the
+        // saved source. Hub IDs stay local (catalog install may rename them).
+        if is_synthesized_package(&root, &dir) {
+            let _ = plugins_in(&root, &plugin.from);
+        }
+        if !manifest_path(&dir).exists() {
+            return Err(code("err.plugin.gone"));
+        }
+        let mut fresh = read_plugin(&dir, &plugin.from);
+        fresh.id = plugin.id;
+        fresh.source = plugin.source;
         fresh.made = plugin.made;
         self.save_local(fresh)
     }
@@ -262,23 +267,24 @@ impl PluginLibrary {
             let dir = PathBuf::from(self.expand(&gone.source));
             if gone.made && self.owned(&dir) {
                 let root = self.git_root(&dir).unwrap_or_else(|| dir.clone());
+                let gone_path = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+                let root_path = root.canonicalize().unwrap_or_else(|_| root.clone());
                 let others_in_root = plugins.iter().filter(|p| p.id != id).any(|p| {
                     PathBuf::from(self.expand(&p.source))
                         .canonicalize()
+                        .is_ok_and(|path| path.starts_with(&root_path))
+                });
+                // Catalog install may register the same package directory under another local ID.
+                let shared = plugins.iter().filter(|p| p.id != id).any(|p| {
+                    PathBuf::from(self.expand(&p.source))
+                        .canonicalize()
                         .is_ok_and(|path| {
-                            root.canonicalize()
-                                .is_ok_and(|root| path.starts_with(root))
+                            path.starts_with(&gone_path) || gone_path.starts_with(&path)
                         })
                 });
                 if !others_in_root {
-                    // Drop the whole clone when this was the last hub entry from it.
                     std::fs::remove_dir_all(&root).ok();
-                } else if dir
-                    .canonicalize()
-                    .ok()
-                    .is_some_and(|path| path != root.canonicalize().unwrap_or(root.clone()))
-                {
-                    // Sibling packages still use the clone; remove only this package directory.
+                } else if !shared && gone_path != root_path {
                     std::fs::remove_dir_all(&dir).ok();
                 }
             }
@@ -538,6 +544,7 @@ fn skill_meta(skill_dir: &Path) -> (Option<String>, Option<String>) {
 }
 
 /// Extract `name` and `description` from YAML frontmatter without a YAML dependency.
+/// Matches the scalar forms used by kickoff so quoted and hashed descriptions stay intact.
 pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
     let mut lines = text.trim_start_matches('\u{feff}').lines();
     if lines.next().map(str::trim_end) != Some("---") {
@@ -551,34 +558,91 @@ pub fn skill_frontmatter(text: &str) -> (Option<String>, Option<String>) {
         })?;
         let raw = body[at][key.len()..].trim_start()[1..].trim();
         let folded = if raw.starts_with('"') {
-            let end = raw[1..]
-                .find('"')
-                .map(|index| index + 2)
-                .unwrap_or(raw.len());
-            let quoted = &raw[..end];
+            let quoted = &raw[..quoted_end(raw, '"')];
             serde_json::from_str::<String>(quoted)
                 .unwrap_or_else(|_| quoted.trim_matches('"').to_string())
         } else if raw.starts_with('\'') {
-            let end = raw[1..]
-                .find('\'')
-                .map(|index| index + 2)
-                .unwrap_or(raw.len());
-            let inner = &raw[1..end.saturating_sub(1)];
-            inner.replace("''", "'")
-        } else if raw.is_empty() || raw.starts_with('>') || raw.starts_with('|') {
-            body[at + 1..]
-                .iter()
-                .take_while(|line| line.trim().is_empty() || line.starts_with([' ', '\t']))
-                .map(|line| line.trim())
-                .collect::<Vec<_>>()
-                .join(" ")
+            let quoted = &raw[..quoted_end(raw, '\'')];
+            let inner = quoted.strip_prefix('\'').unwrap_or(quoted);
+            inner.strip_suffix('\'').unwrap_or(inner).replace("''", "'")
         } else {
-            raw.split('#').next().unwrap_or(raw).trim().to_string()
+            let raw = without_comment(raw);
+            if raw.is_empty() || raw.starts_with('>') || raw.starts_with('|') {
+                body[at + 1..]
+                    .iter()
+                    .take_while(|line| line.trim().is_empty() || line.starts_with([' ', '\t']))
+                    .map(|line| line.trim())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                raw.to_string()
+            }
         };
         let line = folded.split_whitespace().collect::<Vec<_>>().join(" ");
         (!line.is_empty()).then_some(line)
     };
     (value("name"), value("description"))
+}
+
+fn without_comment(raw: &str) -> &str {
+    let cut = raw
+        .char_indices()
+        .find(|&(i, c)| c == '#' && (i == 0 || raw[..i].ends_with([' ', '\t'])))
+        .map_or(raw.len(), |(i, _)| i);
+    raw[..cut].trim_end()
+}
+
+fn quoted_end(raw: &str, quote: char) -> usize {
+    let mut chars = raw.char_indices().skip(1).peekable();
+    while let Some((i, c)) = chars.next() {
+        match c {
+            '\\' if quote == '"' => {
+                chars.next();
+            }
+            c if c == quote => {
+                if quote == '\'' && chars.peek().is_some_and(|&(_, next)| next == '\'') {
+                    chars.next();
+                } else {
+                    return i + c.len_utf8();
+                }
+            }
+            _ => {}
+        }
+    }
+    raw.len()
+}
+
+fn is_synthesized_package(clone: &Path, dir: &Path) -> bool {
+    let packages = clone.join(".prometeu").join("packages");
+    dir.starts_with(&packages)
+        || dir
+            .canonicalize()
+            .ok()
+            .zip(packages.canonicalize().ok())
+            .is_some_and(|(dir, packages)| dir.starts_with(packages))
+}
+
+/// Ensure `path` resolves inside `clone` when it already exists (including as a symlink).
+fn path_inside_clone(clone: &Path, path: &Path) -> Result<(), String> {
+    let clone = clone
+        .canonicalize()
+        .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
+    if !path.exists() && path.symlink_metadata().is_err() {
+        return Ok(());
+    }
+    let resolved = path.canonicalize().map_err(|error| {
+        with_args(
+            "err.plugin.clone",
+            &[("cause", format!("unsafe package path: {error}"))],
+        )
+    })?;
+    if !resolved.starts_with(&clone) {
+        return Err(with_args(
+            "err.plugin.clone",
+            &[("cause", "package path escapes the clone".into())],
+        ));
+    }
+    Ok(())
 }
 
 /// Write Claude and Codex manifests plus copied skill trees under `.prometeu/packages/<id>/`.
@@ -589,55 +653,125 @@ fn synthesize_skill_package(
     skills: &[(String, PathBuf)],
     from: &str,
 ) -> Option<Plugin> {
-    let id = slug(id);
-    if id.is_empty() || skills.is_empty() {
-        return None;
-    }
-    let package = clone.join(".prometeu").join("packages").join(&id);
-    let _ = std::fs::remove_dir_all(&package);
-    std::fs::create_dir_all(package.join(".claude-plugin")).ok()?;
-    std::fs::create_dir_all(package.join(".codex-plugin")).ok()?;
-    let manifest = serde_json::json!({
-        "name": id,
-        "description": description,
-        "version": "0.0.0",
-    });
-    let body = serde_json::to_string_pretty(&manifest).ok()?;
-    std::fs::write(package.join(".claude-plugin").join("plugin.json"), &body).ok()?;
-    let mut native = manifest;
-    native["skills"] = serde_json::json!("./skills/");
-    std::fs::write(
-        package.join(".codex-plugin").join("plugin.json"),
-        serde_json::to_string_pretty(&native).ok()?,
-    )
-    .ok()?;
-    for (name, src) in skills {
-        let folder = slug(name);
-        let folder = if folder.is_empty() {
-            name.clone()
-        } else {
-            folder
-        };
-        let dest = package.join("skills").join(&folder);
-        copy_tree(src, &dest).ok()?;
-    }
-    Some(Plugin {
-        id,
-        source: package.display().to_string(),
-        note: description.to_string(),
-        made: true,
-        from: from.to_string(),
-    })
+    synthesize_skill_package_result(clone, id, description, skills, from).ok()
 }
 
-fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+fn synthesize_skill_package_result(
+    clone: &Path,
+    id: &str,
+    description: &str,
+    skills: &[(String, PathBuf)],
+    from: &str,
+) -> Result<Plugin, String> {
+    let id = slug(id);
+    if id.is_empty() || skills.is_empty() {
+        return Err(code("err.plugin.noName"));
+    }
+    let prometeu = clone.join(".prometeu");
+    let packages = prometeu.join("packages");
+    path_inside_clone(clone, &prometeu)?;
+    path_inside_clone(clone, &packages)?;
+    std::fs::create_dir_all(&packages)
+        .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
+    path_inside_clone(clone, &packages)?;
+
+    let package = packages.join(&id);
+    path_inside_clone(clone, &package)?;
+    let staging = packages.join(format!(".tmp-{id}-{}", uuid::Uuid::new_v4()));
+    path_inside_clone(clone, &staging)?;
+
+    let built = (|| -> Result<Plugin, String> {
+        std::fs::create_dir_all(staging.join(".claude-plugin"))
+            .map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(staging.join(".codex-plugin"))
+            .map_err(|error| error.to_string())?;
+        let manifest = serde_json::json!({
+            "name": id,
+            "description": description,
+            "version": "0.0.0",
+        });
+        let body = serde_json::to_string_pretty(&manifest).map_err(|error| error.to_string())?;
+        std::fs::write(staging.join(".claude-plugin").join("plugin.json"), &body)
+            .map_err(|error| error.to_string())?;
+        let mut native = manifest;
+        native["skills"] = serde_json::json!("./skills/");
+        std::fs::write(
+            staging.join(".codex-plugin").join("plugin.json"),
+            serde_json::to_string_pretty(&native).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let mut used = std::collections::HashSet::new();
+        for (name, src) in skills {
+            // Keep the source directory name so `foo_bar` and `foo-bar` stay distinct.
+            if name.is_empty()
+                || name.starts_with('.')
+                || name.contains(['/', '\\'])
+                || !used.insert(name.clone())
+            {
+                return Err(with_args(
+                    "err.plugin.clone",
+                    &[("cause", format!("duplicate skill folder {name}"))],
+                ));
+            }
+            let dest = staging.join("skills").join(name);
+            copy_tree(src, &dest, clone)?;
+        }
+        Ok(Plugin {
+            id: id.clone(),
+            source: package.display().to_string(),
+            note: description.to_string(),
+            made: true,
+            from: from.to_string(),
+        })
+    })();
+
+    match built {
+        Ok(plugin) => {
+            path_inside_clone(clone, &staging)?;
+            if package.exists() || package.symlink_metadata().is_ok() {
+                path_inside_clone(clone, &package)?;
+                std::fs::remove_dir_all(&package).map_err(|error| error.to_string())?;
+            }
+            std::fs::rename(&staging, &package).map_err(|error| error.to_string())?;
+            path_inside_clone(clone, &package)?;
+            Ok(plugin)
+        }
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            Err(error)
+        }
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path, bound: &Path) -> Result<(), String> {
     std::fs::create_dir_all(to).map_err(|error| error.to_string())?;
+    let bound = bound
+        .canonicalize()
+        .map_err(|error| with_args("err.plugin.clone", &[("cause", error.to_string())]))?;
     for entry in std::fs::read_dir(from).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
         let dest = to.join(entry.file_name());
         let file_type = entry.file_type().map_err(|error| error.to_string())?;
-        if file_type.is_dir() {
-            copy_tree(&entry.path(), &dest)?;
+        if file_type.is_symlink() {
+            let target = entry.path().canonicalize().map_err(|error| {
+                with_args(
+                    "err.plugin.clone",
+                    &[("cause", format!("unsupported skill link: {error}"))],
+                )
+            })?;
+            if !target.starts_with(&bound) {
+                return Err(with_args(
+                    "err.plugin.clone",
+                    &[("cause", "skill link escapes the clone".into())],
+                ));
+            }
+            if target.is_dir() {
+                copy_tree(&target, &dest, &bound)?;
+            } else {
+                std::fs::copy(&target, &dest).map_err(|error| error.to_string())?;
+            }
+        } else if file_type.is_dir() {
+            copy_tree(&entry.path(), &dest, &bound)?;
         } else if file_type.is_file() {
             std::fs::copy(entry.path(), dest).map_err(|error| error.to_string())?;
         }
@@ -812,11 +946,7 @@ mod tests {
             "---\nname: untangle-codebase\ndescription: Untangle a codebase.\n---\n\nDo the work.\n",
         )
         .unwrap();
-        std::fs::write(
-            skill.join("notes.md"),
-            "supporting asset\n",
-        )
-        .unwrap();
+        std::fs::write(skill.join("notes.md"), "supporting asset\n").unwrap();
         std::fs::create_dir_all(root.join(".claude-plugin")).unwrap();
         std::fs::write(
             root.join(".claude-plugin/marketplace.json"),
@@ -872,5 +1002,42 @@ mod tests {
             .join("skills/review/SKILL.md")
             .exists());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn skill_frontmatter_keeps_quotes_and_hashes() {
+        let (name, description) =
+            skill_frontmatter("---\nname: tip\ndescription: 'It''s useful'\n---\n\nBody\n");
+        assert_eq!(name.as_deref(), Some("tip"));
+        assert_eq!(description.as_deref(), Some("It's useful"));
+        let (_, description) = skill_frontmatter("---\nname: x\ndescription: C# tips\n---\n");
+        assert_eq!(description.as_deref(), Some("C# tips"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn packages_symlink_escape_is_rejected() {
+        let root = std::env::temp_dir().join(format!("skill-escape-{}", uuid::Uuid::new_v4()));
+        let outside = std::env::temp_dir().join(format!("skill-outside-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("skills/a")).unwrap();
+        std::fs::write(
+            root.join("skills/a/SKILL.md"),
+            "---\nname: a\ndescription: A\n---\n\nA\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(root.join(".prometeu")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join(".prometeu/packages")).unwrap();
+        assert!(synthesize_skill_package_result(
+            &root,
+            "a",
+            "A",
+            &[("a".into(), root.join("skills/a"))],
+            "https://example.com/skills.git",
+        )
+        .is_err());
+        assert!(outside.read_dir().unwrap().next().is_none());
+        std::fs::remove_dir_all(root).ok();
+        std::fs::remove_dir_all(outside).ok();
     }
 }
