@@ -4,6 +4,20 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.40.1] - 2026-11-08
+
+### New
+
+- **workspaces:** Group delegated work into sub-workspaces
+
+### Fixes
+
+- **workspaces:** Reveal pinned sub-workspaces and child attention
+- **cloud:** Quiet transient cloud blips instead of invalid-response toasts
+- **browser:** Prevent crashes when preview url is unavailable
+- **sidebar:** Keep update actions inside footer
+- **sidebar:** Align footer focus with visual order
+
 ## [0.40.0] - 2026-11-08
 
 ### New
