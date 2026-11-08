@@ -850,16 +850,20 @@ mod tests {
         assert!(git_url("caveman").is_empty());
     }
 
-    /// Derive the clone directory from the repository name, with or without .git.
+    /// Derive the clone directory from owner and repository so two `*/skills` URLs do not collide.
     #[test]
-    fn directory_uses_the_repository_name() {
+    fn directory_uses_the_owner_and_repository_name() {
         assert_eq!(
             repo_name("https://github.com/JuliusBrussee/caveman"),
-            "caveman"
+            "juliusbrussee-caveman"
         );
         assert_eq!(
             repo_name("git@github.com:dietrichgebert/ponytail.git"),
-            "ponytail"
+            "dietrichgebert-ponytail"
+        );
+        assert_eq!(
+            repo_name("https://github.com/caldoai/skills"),
+            "caldoai-skills"
         );
     }
 
@@ -923,6 +927,26 @@ mod tests {
         // Return no entries when no plugins exist.
         std::fs::create_dir_all(root.join("vazio")).unwrap();
         assert!(plugins_in(&root.join("vazio"), "").is_empty());
+
+        // A skill-bundle marketplace without plugin.json still yields a portable package.
+        let bundle = root.join("bundle");
+        std::fs::create_dir_all(bundle.join("skills/untangle-codebase")).unwrap();
+        std::fs::write(
+            bundle.join("skills/untangle-codebase/SKILL.md"),
+            "---\nname: untangle-codebase\ndescription: Untangle.\n---\n\nGo.\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(bundle.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            bundle.join(".claude-plugin/marketplace.json"),
+            r#"{"plugins":[{"name":"untangle-codebase","description":"Untangle.","source":"./","strict":false,"skills":["./skills/untangle-codebase"]}]}"#,
+        )
+        .unwrap();
+        let found = plugins_in(&bundle, "https://github.com/caldoai/skills");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "untangle-codebase");
+        assert!(manifest_path(Path::new(&found[0].source)).exists());
+
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1277,7 +1301,7 @@ mod tests {
 
         // Removal also deletes the application-owned directory.
         remove_hub("caveman").unwrap();
-        assert!(!store().join("caveman").exists());
+        assert!(!store().join("juliusbrussee-caveman").exists());
         std::env::remove_var("PROMETEU_ROOT");
         std::fs::remove_dir_all(&root).ok();
     }
