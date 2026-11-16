@@ -216,6 +216,10 @@ Dragging the sidebar's right edge or using Left/Right on its separator saves
 this local preference. Double-click or Home removes it and restores the default.
 Rendering clamps the width to 200px–50% of the window (at least 200px), including
 on startup and window resize, without overwriting the preferred width on resize.
+The right panel is additionally capped by the remaining workspace width, reserving
+320px for the conversation, or half the workspace when it is narrower than 640px.
+This rendering cap applies to restored widths, either resize handle and panel
+visibility changes without rewriting the saved `side-w` preference.
 It does not change the board, relay or the existing right-panel `side-w` key.
 Older installations need no migration; older versions ignore the new key.
 Compatibility and browser interaction coverage: `e2e/sidebar-resize.spec.ts`.

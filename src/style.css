@@ -450,6 +450,8 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Right panel. */
 
 .side {
+  /* Reserve conversation space within the remaining workspace, including restored panel widths. */
+  max-width: calc(100% - min(320px, 50%));
   width: var(--side-w); flex: none; border-left: 1px solid var(--line);
   background: var(--bg); display: flex; flex-direction: column; min-height: 0;
   position: relative;

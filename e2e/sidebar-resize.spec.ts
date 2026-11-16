@@ -44,3 +44,45 @@ test("sidebar width follows dragging and keyboard input across reloads @webkit",
   await page.reload();
   await expect(rail).toHaveCSS("width", "256px");
 });
+
+// Both panels share the workspace's flex width; persisted sizes must not collapse chat.
+test("wide panels preserve conversation space on drag, reopen and window resize @webkit", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.evaluate(() => {
+    localStorage.setItem("rail-w", "640");
+    localStorage.setItem("side-w", "700");
+  });
+  await page.reload();
+  await page.locator("#railbody .navitem.sub .lbl").getByText("Hello", { exact: true }).click();
+  const center = page.locator("#wscenter");
+  const side = page.locator("#side");
+  await expect(center).toHaveCSS("width", "320px");
+  await expect(side).toHaveCSS("width", "320px");
+  const drag = async (selector: string, distance: number) => {
+    const bounds = (await page.locator(selector).boundingBox())!;
+    const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + distance, y, { steps: 5 });
+    await page.mouse.up();
+  };
+  await drag("#railresize", -160);
+  await expect(side).toHaveCSS("width", "480px");
+  await expect(center).toHaveCSS("width", "320px");
+  await drag("#sideresize", -200);
+  await expect(center).toHaveCSS("width", "320px");
+  await page.locator("#sidetoggle").click();
+  await expect(center).toHaveCSS("width", "800px");
+  await page.locator("#sidetoggle").click();
+  await expect(center).toHaveCSS("width", "320px");
+  await page.setViewportSize({ width: 800, height: 720 });
+  await expect(center).toHaveCSS("width", "200px");
+  await expect(side).toHaveCSS("width", "200px");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(center).toHaveCSS("width", "320px");
+  await page.locator("#railtoggle").click();
+  await expect.poll(async () => (await center.boundingBox())!.width).toBeGreaterThanOrEqual(320);
+  await page.locator("#railshow").click();
+  await expect(center).toHaveCSS("width", "320px");
+});
