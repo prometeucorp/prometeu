@@ -5,6 +5,9 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub trait ApplicationClient: Send {
+    fn archive_supported(&self) -> bool {
+        false
+    }
     fn initialization_supported(&self) -> bool {
         false
     }

@@ -51,7 +51,11 @@ safe worktrees with `force: false`. The backend rechecks eligibility and safety.
 commands wait for the foreground archive hook to exit before replying; merely
 spawning it would let automatic deletion race resource teardown. Hooks must
 not detach teardown work. This preserves existing exit-status policy and adds
-no timeout.
+no hook timeout. Desktop stops agents before teardown. WSL uses the existing
+deferred-operation worker and polling contract, negotiated through
+`application.archive.v1`, so long hooks do not block requests or hit the
+thirty-second transport timeout; catalog mutation stays on the owner loop.
+The bridge retains its ten-minute polling deadline.
 Blocked rows retain the scoped dialog; errors are reported without escalating
 to force. Manual cleanup remains unchanged. The setting explains that this
 removes the whole worktree, including ignored files, rather than only

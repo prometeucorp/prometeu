@@ -329,6 +329,64 @@ impl Client {
 }
 
 #[test]
+fn deferred_archive_keeps_requests_responsive_and_guards_cleanup_until_hook_exit() {
+    for command in ["archive_workspace", "finish_workspace"] {
+        let fixture = Fixture::new();
+        std::fs::create_dir_all(fixture.workdir.join(".prometeu")).unwrap();
+        std::fs::write(fixture.workdir.join(".prometeu/settings.toml"),
+            "[scripts]\narchive = 'touch started; while [ ! -f release ]; do sleep .01; done; echo done > finished'\n").unwrap();
+        let mut client = Client::open(&fixture.root, &fixture.workdir, &fixture.executable);
+        let job = client.app(
+            "application_operation_start",
+            json!({"command":command,"args":{"id":"primary","archived":true}}),
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !fixture.workdir.join("started").exists() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        common::assert_served_while_held(&mut client, &[("application_operation_poll", &job)]);
+        assert_eq!(
+            client.app("load_board", Value::Null)["workspaces"][0]["archived"],
+            false
+        );
+        for (name, args) in [
+            ("cleanup_worktree", json!({"id":"primary","force":true})),
+            (
+                "archive_workspace",
+                json!({"id":"primary","archived":false}),
+            ),
+            (
+                "chat_send",
+                json!({"session":"primary","text":"Must not restart"}),
+            ),
+        ] {
+            assert!(client.app_result(name, args)["error"]
+                .as_str()
+                .unwrap()
+                .contains("err.windows.operationBusy"));
+        }
+        std::fs::write(fixture.workdir.join("release"), "").unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let result = client.app("application_operation_poll", job.clone());
+            if result["done"] == true {
+                assert!(result["result"].is_null());
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(fixture.workdir.join("finished").exists());
+        assert_eq!(
+            client.app("load_board", Value::Null)["workspaces"][0]["archived"],
+            true
+        );
+        client.shutdown();
+    }
+}
+
+#[test]
 fn archive_and_finish_wait_for_scripts_before_acknowledging_cleanup() {
     for command in ["archive_workspace", "finish_workspace"] {
         let fixture = Fixture::new();

@@ -1,17 +1,16 @@
 //! Workspace effects composed around the shared board and cleanup rules.
-use crate::{dock::DockLaunch, host::Host, terminal::TerminalService};
+use crate::{host::Host, terminal::TerminalService};
 use prometeu_core::{
     board::{Choice, Workspace},
     workspace_lifecycle::{has_worktree, Change, Cleanable},
 };
-use std::path::Path;
 
 impl Host {
     pub(crate) fn change_workspace(&mut self, id: &str, change: Change) -> Result<(), String> {
         let catalog = self.catalog.change(id, change)?;
         self.application_events.publish_board(catalog.board)
     }
-    fn stop_workspace(&mut self, workspace: &Workspace) -> Result<(), String> {
+    pub(crate) fn stop_workspace(&mut self, workspace: &Workspace) -> Result<(), String> {
         for tab in &workspace.tabs {
             self.pending_launches.remove(&tab.id);
         }
@@ -30,42 +29,6 @@ impl Host {
             }
         }
         Ok(())
-    }
-    pub(crate) fn archive_workspace(
-        &mut self,
-        id: &str,
-        archived: bool,
-        finish: bool,
-    ) -> Result<(), String> {
-        self.admit_destructive_operation()?;
-        let workspace = self.catalog.get(id)?.clone();
-        if archived {
-            self.stop_workspace(&workspace)?;
-            // Cleaned workspaces retain their history but no longer own script resources.
-            if !workspace.cleaned {
-                let primary = workspace.primary();
-                let declarations = self
-                    .services
-                    .settings
-                    .read(Path::new(&primary.worktree), Path::new(&primary.path));
-                self.factory.archive(
-                    Path::new(&primary.worktree),
-                    DockLaunch {
-                        command: declarations.archive,
-                        environment: prometeu_files::scripts::workspace_env(&workspace),
-                        header: None,
-                        name: None,
-                    },
-                )?;
-            }
-        }
-        self.change_workspace(
-            id,
-            match finish {
-                true => Change::Finish,
-                false => Change::Archive(archived),
-            },
-        )
     }
     pub(crate) fn remove_workspace(&mut self, id: &str) -> Result<(), String> {
         self.admit_destructive_operation()?;

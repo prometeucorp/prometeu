@@ -290,6 +290,7 @@ struct Client {
     application_supported: bool,
     operations_supported: bool,
     initialization_supported: bool,
+    archive_supported: bool,
     retirement: Option<String>,
 }
 impl Client {
@@ -315,6 +316,7 @@ impl Client {
             application_supported: false,
             operations_supported: false,
             initialization_supported: false,
+            archive_supported: false,
             retirement: None,
         };
         let stdout = stdout.ok_or("launcher did not provide stdout")?;
@@ -357,6 +359,8 @@ impl Client {
                     .executable
                     .filter(|_| capabilities.iter().any(|c| c == "retire.v1"));
                 client.terminal_supported = capabilities.iter().any(|c| c == "terminal.v1");
+                client.archive_supported =
+                    capabilities.iter().any(|c| c == "application.archive.v1");
                 client.initialization_supported = capabilities
                     .iter()
                     .any(|c| c == "application.initialization.v1");
@@ -476,6 +480,9 @@ impl SessionClient for Client {
     }
 }
 impl ApplicationClient for Client {
+    fn archive_supported(&self) -> bool {
+        self.archive_supported
+    }
     fn initialization_supported(&self) -> bool {
         self.initialization_supported
     }

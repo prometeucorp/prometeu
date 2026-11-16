@@ -279,18 +279,10 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
         // use.
         dock::kill_docks(&state.ptys, id);
         if let Some(ws) = workspace_copy(state, id) {
-            if let Some(command) = dock::scripts_of(&ws).archive {
-                let _ = prometeu_process::archive::run(
-                    Path::new(&ws.primary().worktree),
-                    &command,
-                    dock::script_env(&ws),
-                );
-            }
+            stop_and_archive(&ws, |tabs| stop(state, tabs));
         }
     }
     let effects = crate::workspace_lifecycle::archive(&mut lock(&state.board), id, archived);
-    // Stop processes outside the board lock: signalling and waiting must not block other sessions.
-    stop(state, &effects.stop_tabs);
     publish(app);
     if effects.changed {
         analytics::track(Event::WorkspaceActionUsed {
@@ -310,6 +302,18 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
             } else {
                 crate::telemetry::Fact::WorkspaceResumed {}
             },
+        );
+    }
+}
+
+/// Stop every agent before the foreground hook touches resources they may still use.
+fn stop_and_archive(ws: &Workspace, stop_tabs: impl FnOnce(&[String])) {
+    stop_tabs(&ws.tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>());
+    if let Some(command) = dock::scripts_of(ws).archive {
+        let _ = prometeu_process::archive::run(
+            Path::new(&ws.primary().worktree),
+            &command,
+            dock::script_env(ws),
         );
     }
 }
@@ -2145,6 +2149,32 @@ mod tests {
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
+
+    #[test]
+    fn archive_stops_all_agents_before_the_hook_reads_resources() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-archive-order-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".prometeu")).unwrap();
+        std::fs::write(
+            root.join(".prometeu/settings.toml"),
+            "[scripts]\narchive = 'cat stopped > observed; sleep .1; echo done > finished'\n",
+        )
+        .unwrap();
+        let mut ws = bare();
+        ws.repo = root.display().to_string();
+        ws.worktree = ws.repo.clone();
+        ws.tabs = vec![tab("first", None), tab("second", None)];
+        super::stop_and_archive(&ws, |tabs| {
+            assert_eq!(tabs, ["first", "second"]);
+            std::fs::write(root.join("stopped"), "agents stopped").unwrap();
+        });
+        assert_eq!(
+            std::fs::read_to_string(root.join("observed")).unwrap(),
+            "agents stopped"
+        );
+        assert!(root.join("finished").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn project_order_follows_ids_and_keeps_unlisted_projects_last() {

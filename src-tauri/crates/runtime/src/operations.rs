@@ -4,12 +4,15 @@ use crate::{
     dock::PreparedSetup,
     host::Host,
 };
-use prometeu_core::{board::Workspace, workspaces::PreparedApplication};
+use prometeu_core::{
+    board::Workspace, workspace_lifecycle::Change, workspaces::PreparedApplication,
+};
 use serde_json::{json, Value};
 use std::path::Path;
 
 pub(crate) enum Outcome {
     Value(Value),
+    Archive(String, Change),
     Workspace(Box<PreparedApplication>, Option<PreparedSetup>, u16, u16),
     Setup(String, PreparedSetup, u16, u16),
 }
@@ -23,10 +26,16 @@ impl Operation {
     }
 }
 impl Host {
-    pub(crate) fn prepare_operation(&self, request: Request) -> Result<Operation, String> {
+    pub(crate) fn prepare_operation(&mut self, request: Request) -> Result<Operation, String> {
         let board = self.application_events.board(self.catalog.snapshot().board);
         let mut writes = Vec::new();
         match &request {
+            Request::ArchiveWorkspace { id, .. } | Request::FinishWorkspace { id } => {
+                self.admit_destructive_operation()?;
+                let workspace = self.catalog.get(id)?;
+                writes.extend(workspace.repos.iter().map(|repo| repo.worktree.clone()));
+                writes.push(workspace.worktree.clone());
+            }
             Request::WorkspaceGitAction {
                 id,
                 repo,
@@ -80,6 +89,38 @@ impl Host {
             _ => return Err("application_operation_unsupported".into()),
         }
         self.check_operation_paths(&writes)?;
+        if let Request::ArchiveWorkspace { id, .. } | Request::FinishWorkspace { id } = &request {
+            let change = match &request {
+                Request::ArchiveWorkspace { archived, .. } => Change::Archive(*archived),
+                _ => Change::Finish,
+            };
+            let archived = !matches!(change, Change::Archive(false));
+            let workspace = self.catalog.get(id)?.clone();
+            if archived {
+                self.stop_workspace(&workspace)?;
+            }
+            let id = id.clone();
+            let settings = self.services.settings.clone();
+            return Ok(Operation {
+                writes,
+                effect: Box::new(move || {
+                    if archived && !workspace.cleaned {
+                        let primary = workspace.primary();
+                        let declarations =
+                            settings.read(Path::new(&primary.worktree), Path::new(&primary.path));
+                        if let Some(command) = declarations.archive {
+                            prometeu_process::archive::run(
+                                Path::new(&primary.worktree),
+                                &command,
+                                prometeu_files::scripts::workspace_env(&workspace),
+                            )
+                            .map_err(|error| error.to_string())?;
+                        }
+                    }
+                    Ok(Outcome::Archive(id, change))
+                }),
+            });
+        }
         if let Request::CreateWorkspace { draft, cols, rows } = request {
             if cols == 0 || rows == 0 {
                 return Err("terminal_size_invalid".into());
@@ -300,6 +341,9 @@ impl Host {
     pub(crate) fn finish_operation(&mut self, outcome: Outcome) -> Result<Value, String> {
         match outcome {
             Outcome::Value(value) => Ok(value),
+            Outcome::Archive(id, change) => {
+                self.change_workspace(&id, change).map(|()| Value::Null)
+            }
             Outcome::Setup(id, prepared, cols, rows) => self
                 .start_prepared_setup(&id, prepared, cols, rows)
                 .map(Value::String),

@@ -606,12 +606,6 @@ impl Host {
             Request::SetUnread { id, unread } => self
                 .change_workspace(&id, Change::Unread(unread))
                 .map(|()| Value::Null),
-            Request::ArchiveWorkspace { id, archived } => self
-                .archive_workspace(&id, archived, false)
-                .map(|()| Value::Null),
-            Request::FinishWorkspace { id } => self
-                .archive_workspace(&id, true, true)
-                .map(|()| Value::Null),
             Request::RemoveWorkspace { id } => self.remove_workspace(&id).map(|()| Value::Null),
             Request::SetTabChoice { id, tab, choice } => {
                 self.retune_tab(&id, &tab, choice).map(|()| Value::Null)
@@ -704,7 +698,9 @@ impl Host {
                 self.application_events.publish_board(catalog.board)?;
                 Ok(Value::Null)
             }
-            request @ (Request::WorkspaceGitStatus { .. }
+            request @ (Request::ArchiveWorkspace { .. }
+            | Request::FinishWorkspace { .. }
+            | Request::WorkspaceGitStatus { .. }
             | Request::WorkspaceGitDiff { .. }
             | Request::WorkspaceGitAction { .. }
             | Request::WorkspaceGitHistory { .. }

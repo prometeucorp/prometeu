@@ -56,11 +56,6 @@ pub trait ContextFactory {
         workspace: &Workspace,
         session: &str,
     ) -> Result<(), String>;
-    fn archive(
-        &self,
-        workdir: &std::path::Path,
-        launch: crate::dock::DockLaunch,
-    ) -> Result<(), String>;
     fn shell(
         &self,
         workdir: &std::path::Path,

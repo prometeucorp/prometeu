@@ -76,6 +76,7 @@ value as an unavailable feature, rejecting before sending the request.
 | `application.v1` | `application` method carrying desktop IPC commands |
 | `application.operations.v1` | deferred Git, reference and checkout effects |
 | `application.initialization.v1` | deferred discovery, account refresh and manual Setup |
+| `application.archive.v1` | deferred archive/finish hooks, followed by owner-loop catalog commit |
 
 ## Session methods
 
