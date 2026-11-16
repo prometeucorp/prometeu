@@ -731,6 +731,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "stage.Travado": "Blocked",
   "stage.Feito": "Done",
 
+  "rail.resize": "Resize sidebar",
+  "rail.resize.hint": "Drag or use arrow keys to resize; double-click or Home restores the default width",
   "rail.hide": "Hide sidebar  ⌘B",
   "rail.show": "Show sidebar  ⌘B",
   "nav.back": "Back  ⌘[",

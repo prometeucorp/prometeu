@@ -208,6 +208,18 @@ The preference is local to this Mac, never the board or relay. Missing or
 unrecognized values resolve to `off`. The native assertion is ephemeral and
 ends when the app exits; no sleep assertion is persisted.
 
+## Sidebar width
+
+`rail-w` is an optional decimal pixel width in desktop webview localStorage.
+Missing, non-finite or non-positive values use the design token default (256px).
+Dragging the sidebar's right edge or using Left/Right on its separator saves
+this local preference. Double-click or Home removes it and restores the default.
+Rendering clamps the width to 200px–50% of the window (at least 200px), including
+on startup and window resize, without overwriting the preferred width on resize.
+It does not change the board, relay or the existing right-panel `side-w` key.
+Older installations need no migration; older versions ignore the new key.
+Compatibility and browser interaction coverage: `e2e/sidebar-resize.spec.ts`.
+
 ## Model selection preferences
 
 These preferences live in desktop webview localStorage, not the board or relay:

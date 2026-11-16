@@ -16,6 +16,16 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## Sidebar resizing
+
+The desktop sidebar supports pointer dragging, Left/Right keyboard resizing and
+Home/double-click reset, with a local saved width. Behavior is identical for all
+providers, including Claude, Codex, Antigravity and Cursor. The browser check in
+`e2e/sidebar-resize.spec.ts` covers pointer capture, actual flex width, focusable
+separator input, collapse/reopen, reload and window resizing in Chromium/WebKit.
+This browser exception protects geometry and pointer capture across engines;
+unit tests cannot prove hit testing or flex layout. No provider protocol changes.
+
 ## GitHub issues and pull requests
 
 GitHub issue and PR discovery uses the same desktop path for Claude, Codex and

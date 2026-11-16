@@ -735,6 +735,8 @@ export const PT = {
 
   /* Sidebar and navigation. */
 
+  "rail.resize": "Redimensionar barra lateral",
+  "rail.resize.hint": "Arraste ou use as setas para redimensionar; clique duas vezes ou pressione Home para restaurar a largura padrão",
   "rail.hide": "Esconder barra lateral  ⌘B",
   "rail.show": "Mostrar barra lateral  ⌘B",
   "nav.back": "Voltar  ⌘[",
