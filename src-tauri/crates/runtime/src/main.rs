@@ -107,23 +107,12 @@ impl ContextFactory for NativeContexts {
         workdir: &std::path::Path,
         launch: prometeu_runtime::dock::DockLaunch,
     ) -> Result<(), String> {
-        use std::process::{Command, Stdio};
         let Some(command) = launch.command else {
             return Ok(());
         };
-        let mut child = Command::new("/bin/sh")
-            .args(["-lc", &command])
-            .current_dir(workdir)
-            .envs(launch.environment)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        });
-        Ok(())
+        prometeu_process::archive::run(workdir, &command, launch.environment)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     fn shell(

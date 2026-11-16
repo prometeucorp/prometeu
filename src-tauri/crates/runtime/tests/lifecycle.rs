@@ -329,6 +329,28 @@ impl Client {
 }
 
 #[test]
+fn archive_and_finish_wait_for_scripts_before_acknowledging_cleanup() {
+    for command in ["archive_workspace", "finish_workspace"] {
+        let fixture = Fixture::new();
+        std::fs::create_dir_all(fixture.workdir.join(".prometeu")).unwrap();
+        std::fs::write(fixture.workdir.join("resource"), "resource configuration").unwrap();
+        std::fs::write(
+            fixture.workdir.join(".prometeu/settings.toml"),
+            "[scripts]\narchive = 'sleep 0.2; cat resource > finished'\n",
+        )
+        .unwrap();
+        let mut client = Client::open(&fixture.root, &fixture.workdir, &fixture.executable);
+        client.app(command, json!({"id":"primary","archived":true}));
+        // The frontend may delete the worktree as soon as this reply arrives.
+        assert_eq!(
+            std::fs::read_to_string(fixture.workdir.join("finished")).unwrap(),
+            "resource configuration",
+            "{command} returned before its hook finished"
+        );
+    }
+}
+
+#[test]
 fn application_lifecycle_preserves_transcripts_and_stops_only_owned_execution() {
     let fixture = Fixture::new();
     let script = include_str!("fake_codex.py").replace("import json", "import pathlib\nimport json")

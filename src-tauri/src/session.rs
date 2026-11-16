@@ -272,20 +272,19 @@ pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
 fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
     let generation = lock(&state.telemetry).generation;
     // Run the archive script before archiving, while its resources still exist. It cleans up
-    // containers, databases, and tunnels asynchronously, without a PTY or blocking the window.
+    // containers, databases, and tunnels on the command worker. Wait before returning to
+    // the UI, which may immediately delete the worktree when automatic cleanup is enabled.
     if archived {
         // Stop docks before the archive script removes resources that development servers still
         // use.
         dock::kill_docks(&state.ptys, id);
         if let Some(ws) = workspace_copy(state, id) {
             if let Some(command) = dock::scripts_of(&ws).archive {
-                let mut cmd = Command::new("/bin/sh");
-                cmd.args(["-lc", &command])
-                    .current_dir(&ws.primary().worktree);
-                for (key, value) in dock::script_env(&ws) {
-                    cmd.env(key, value);
-                }
-                let _ = cmd.spawn();
+                let _ = prometeu_process::archive::run(
+                    Path::new(&ws.primary().worktree),
+                    &command,
+                    dock::script_env(&ws),
+                );
             }
         }
     }

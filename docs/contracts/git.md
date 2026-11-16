@@ -282,7 +282,11 @@ offer a generic action that completes those sequencers.
 ### Archived worktree cleanup
 
 Archiving and finishing stop workspace processes and run the archive script
-before applying the local cleanup preference for that workspace. By default,
+to completion before applying the local cleanup preference for that workspace.
+Both desktop command workers and the WSL host wait for the foreground archive
+hook to exit before replying, so automatic deletion cannot race the hook's
+remaining worktree reads. Hooks must not detach resource teardown; no timeout
+is imposed, and existing nonzero-exit handling is unchanged. By default,
 the scoped dialog asks whether to clean up; canceling keeps the worktree, local
 branch, transcript and archived card.
 
@@ -328,6 +332,9 @@ protocol migration.
   isolation between repositories.
 - `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving
   and finishing, plus dialog lifetime during deletion.
+- `src-tauri/crates/process/src/archive.rs` and
+  `src-tauri/crates/runtime/tests/lifecycle.rs`: foreground hook completion before
+  archive/finish replies permit cleanup.
 - `src/cleanup.test.ts`: preference compatibility, opt-in persistence, scoped
   automatic cleanup, blocked and missing rows, and scan/deletion failures.
 - `src-tauri/tests/mock.rs`: IPC command parity.

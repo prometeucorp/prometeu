@@ -246,7 +246,8 @@ Core `workspace_lifecycle` is shared with the desktop; WSL commits before
 publishing. Model changes reuse `Workspace::retune`: provider changes and frozen
 task profiles reject, and only the selected tab stops and resumes later with the
 saved choice. Archive and Finish stop the workspace's agents, docks and pending
-launch; the archive script must start before the mutation commits. Unarchive
+launch; the foreground archive script must exit before the mutation commits and the
+command replies, so automatic cleanup cannot delete files still used by the hook. Unarchive
 starts nothing. `WorktreeCleanup` uses the desktop checks: cleanup requires an
 archived, non-original checkout, dirty or unmerged work needs explicit force, and
 saved existing branches stay protected. WSL admits single-repository worktrees
