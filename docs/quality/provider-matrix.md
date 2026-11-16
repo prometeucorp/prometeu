@@ -26,6 +26,18 @@ original clones and remote workspaces are excluded. `src/cleanup.test.ts`
 covers defaults, persistence, safe scoped deletion and error handling; existing
 archive/finish wiring is covered by `e2e/audit-regressions.spec.ts`.
 
+## Sidebar resizing
+
+The desktop sidebar supports pointer dragging, Left/Right keyboard resizing and
+Home/double-click reset, with a local saved width. Behavior is identical for all
+providers, including Claude, Codex, Antigravity and Cursor. The browser check in
+`e2e/sidebar-resize.spec.ts` covers pointer capture, actual flex width, focusable
+separator input, collapse/reopen, reload and window resizing in Chromium/WebKit.
+It also covers both panels at large saved widths, dragging either edge, panel
+visibility and shrinking the window while preserving conversation space.
+This browser exception protects geometry and pointer capture across engines;
+unit tests cannot prove hit testing or flex layout. No provider protocol changes.
+
 ## GitHub issues and pull requests
 
 GitHub issue and PR discovery uses the same desktop path for Claude, Codex and

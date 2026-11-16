@@ -35,6 +35,7 @@ code { font-family: var(--mono); font-size: 0.92em; color: var(--fg); }
 /* ---------- sidebar ---------- */
 
 .rail {
+  position: relative;
   width: var(--rail-w); flex: none; background: var(--bg-side);
   border-right: 1px solid var(--line-side);
   display: flex; flex-direction: column; min-height: 0;
@@ -449,16 +450,20 @@ main { flex: 1; min-height: 0; position: relative; }
 /* Right panel. */
 
 .side {
+  /* Reserve conversation space within the remaining workspace, including restored panel widths. */
+  max-width: calc(100% - min(320px, 50%));
   width: var(--side-w); flex: none; border-left: 1px solid var(--line);
   background: var(--bg); display: flex; flex-direction: column; min-height: 0;
   position: relative;
 }
 /* The resize handle overlays the 1px border and highlights on hover. */
-.sideresize {
+.sideresize, .railresize {
   position: absolute; left: -3px; top: 0; bottom: 0; width: 7px;
   cursor: col-resize; z-index: 4;
 }
-.sideresize:hover, .sideresize.dragging { background: var(--bg-raised-3); }
+.railresize { left: auto; right: -3px; touch-action: none; }
+.sideresize:hover, .sideresize.dragging, .railresize:hover, .railresize.dragging { background: var(--bg-raised-3); }
+.railresize:focus-visible { outline: 2px solid var(--tab-line); outline-offset: -2px; }
 body.noside .side { display: none; }
 .sidetabs { display: flex; align-items: center; gap: 4px; padding: 8px 8px; flex: none; }
 .sidetab {
