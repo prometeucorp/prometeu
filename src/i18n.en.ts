@@ -1298,6 +1298,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "boardRecovery.blocked": "Changes to workspaces won't be saved until Prometeu can keep a copy of the files it couldn't read: {cause}",
   "boardRecovery.open": "Open folder",
   "boardRecovery.close": "Close",
+  "clean.auto": "Automatically clean up archived worktrees",
+  "clean.autoHint": "After archiving or finishing, remove the entire worktree (including node_modules and ignored files) and workspace-created branches. Keep conversations and archived cards. Ask when changes are uncommitted or unmerged.",
   "clean.title": "Clean up worktrees",
   "clean.offer": "Workspace archived. Remove the worktree from disk?",
   "clean.keep": "Keep worktree",
@@ -1821,6 +1823,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.noBase": "the base branch '{base}' does not exist in {path}",
   "err.session.noPort": "workspace with no port",
   "err.session.noPr": "no open PR for this branch",
+  "err.session.archiving": "Wait for the workspace operation to finish.",
+  "err.session.archived": "Unarchive this workspace before starting an agent.",
   "err.session.cleaned": "this workspace’s worktree was removed",
   "err.session.interrupted":
     "the app closed while the worktree was being built; the folder may be half-made",

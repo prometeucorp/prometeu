@@ -26,6 +26,7 @@ pub(crate) mod files;
 pub(crate) mod find;
 pub(crate) mod git;
 mod launch;
+pub(crate) use launch::WorkspaceGates;
 
 #[cfg(test)]
 use diff::patch_map;
@@ -270,27 +271,23 @@ pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
 }
 
 fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
+    // Wait for admitted launches to publish their tabs; reject new launches until teardown ends.
+    let gate = state.workspace_lifecycle.workspace(id);
+    let _lifecycle = gate.write().unwrap_or_else(|error| error.into_inner());
     let generation = lock(&state.telemetry).generation;
     // Run the archive script before archiving, while its resources still exist. It cleans up
-    // containers, databases, and tunnels asynchronously, without a PTY or blocking the window.
+    // containers, databases, and tunnels on the command worker. Wait before returning to
+    // the UI, which may immediately delete the worktree when automatic cleanup is enabled.
     if archived {
         // Stop docks before the archive script removes resources that development servers still
         // use.
         dock::kill_docks(&state.ptys, id);
         if let Some(ws) = workspace_copy(state, id) {
-            if let Some(command) = dock::scripts_of(&ws).archive {
-                let mut cmd = Command::new("/bin/sh");
-                cmd.args(["-lc", &command])
-                    .current_dir(&ws.primary().worktree);
-                for (key, value) in dock::script_env(&ws) {
-                    cmd.env(key, value);
-                }
-                let _ = cmd.spawn();
-            }
+            stop_and_archive(&ws, |tabs| stop(state, tabs));
         }
     }
     let effects = crate::workspace_lifecycle::archive(&mut lock(&state.board), id, archived);
-    // Stop processes outside the board lock: signalling and waiting must not block other sessions.
+    // Recheck the final tab set while launch admission remains closed.
     stop(state, &effects.stop_tabs);
     publish(app);
     if effects.changed {
@@ -311,6 +308,18 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
             } else {
                 crate::telemetry::Fact::WorkspaceResumed {}
             },
+        );
+    }
+}
+
+/// Stop every agent before the foreground hook touches resources they may still use.
+fn stop_and_archive(ws: &Workspace, stop_tabs: impl FnOnce(&[String])) {
+    stop_tabs(&ws.tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>());
+    if let Some(command) = dock::scripts_of(ws).archive {
+        let _ = prometeu_process::archive::run(
+            Path::new(&ws.primary().worktree),
+            &command,
+            dock::script_env(ws),
         );
     }
 }
@@ -867,6 +876,10 @@ pub fn cleanup_worktree(
     id: String,
     force: bool,
 ) -> Result<(), String> {
+    let gate = state.workspace_lifecycle.workspace(&id);
+    let _lifecycle = gate
+        .try_write()
+        .map_err(|_| i18n::t("err.session.archiving"))?;
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     if ws.cleaned {
         return Ok(());
@@ -1480,6 +1493,8 @@ fn build(
         .iter()
         .find(|d| d.workspace == id)
         .map(|d| d.id.clone());
+    let gate = state.workspace_lifecycle.workspace(id);
+    let _admission = launch::admit(&gate, &state.board, id)?;
     let mut tab = spawn_tab_with_id(
         app,
         &state,
@@ -1553,6 +1568,8 @@ pub fn new_tab(
     prompt: String,
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
+    let gate = state.workspace_lifecycle.workspace(&workspace);
+    let _admission = launch::admit(&gate, &state.board, &workspace)?;
     let generation = lock(&state.telemetry).generation;
     let explicit_choice = choice.is_some();
     // Neither path restores plan mode; it belongs to the initial request.
@@ -2146,6 +2163,81 @@ mod tests {
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
+
+    #[test]
+    fn archive_admission_blocks_restarts_and_fresh_tabs_until_explicit_restore() {
+        let gates = super::WorkspaceGates::default();
+        let gate = gates.workspace("w");
+        let board = std::sync::Mutex::new(crate::state::Board::default());
+        board.lock().unwrap().workspaces.push(bare());
+        let lifecycle = gate.write().unwrap();
+        assert!(super::launch::admit(&gate, &board, "w").is_err());
+        // Another workspace remains usable throughout a long hook.
+        let mut other = bare();
+        other.id = "other".into();
+        board.lock().unwrap().workspaces.push(other);
+        assert!(super::launch::admit(&gates.workspace("other"), &board, "other").is_ok());
+        crate::workspace_lifecycle::archive(&mut board.lock().unwrap(), "w", true);
+        drop(lifecycle);
+        assert!(super::launch::admit(&gate, &board, "w").is_err());
+        crate::workspace_lifecycle::archive(&mut board.lock().unwrap(), "w", false);
+        assert!(super::launch::admit(&gate, &board, "w").is_ok());
+    }
+
+    #[test]
+    fn archive_waits_for_inflight_launch_to_publish_before_collecting_stop_targets() {
+        use std::sync::{mpsc, Mutex};
+        let gate = std::sync::RwLock::new(());
+        let board = Mutex::new(crate::state::Board::default());
+        board.lock().unwrap().workspaces.push(bare());
+        let admission = super::launch::admit(&gate, &board, "w").unwrap();
+        // Independent launches in the same workspace retain their previous concurrency.
+        assert!(super::launch::admit(&gate, &board, "w").is_ok());
+        let (started, waiting) = mpsc::channel();
+        let (done, completion) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                started.send(()).unwrap();
+                let _lifecycle = gate.write().unwrap();
+                let effects =
+                    crate::workspace_lifecycle::archive(&mut board.lock().unwrap(), "w", true);
+                done.send(effects.stop_tabs).unwrap();
+            });
+            waiting.recv().unwrap();
+            assert!(completion.try_recv().is_err());
+            board.lock().unwrap().workspaces[0]
+                .tabs
+                .push(tab("inflight", None));
+            drop(admission);
+            assert_eq!(completion.recv().unwrap(), ["inflight"]);
+        });
+    }
+
+    #[test]
+    fn archive_stops_all_agents_before_the_hook_reads_resources() {
+        let root =
+            std::env::temp_dir().join(format!("prometeu-archive-order-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join(".prometeu")).unwrap();
+        std::fs::write(
+            root.join(".prometeu/settings.toml"),
+            "[scripts]\narchive = 'cat stopped > observed; sleep .1; echo done > finished'\n",
+        )
+        .unwrap();
+        let mut ws = bare();
+        ws.repo = root.display().to_string();
+        ws.worktree = ws.repo.clone();
+        ws.tabs = vec![tab("first", None), tab("second", None)];
+        super::stop_and_archive(&ws, |tabs| {
+            assert_eq!(tabs, ["first", "second"]);
+            std::fs::write(root.join("stopped"), "agents stopped").unwrap();
+        });
+        assert_eq!(
+            std::fs::read_to_string(root.join("observed")).unwrap(),
+            "agents stopped"
+        );
+        assert!(root.join("finished").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn project_order_follows_ids_and_keeps_unlisted_projects_last() {

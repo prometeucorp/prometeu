@@ -1,5 +1,18 @@
 //! Desktop preparation and lifecycle composition for the portable launch service.
 use super::*;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard},
+};
+
+/// Launches may overlap; archive and cleanup exclude them through tab publication.
+#[derive(Default)]
+pub(crate) struct WorkspaceGates(Mutex<HashMap<String, Arc<RwLock<()>>>>);
+impl WorkspaceGates {
+    pub(crate) fn workspace(&self, id: &str) -> Arc<RwLock<()>> {
+        lock(&self.0).entry(id.into()).or_default().clone()
+    }
+}
 use prometeu_core::session::launch::{
     ConversationLauncher, LaunchEffects, LaunchRequest, LaunchService, Launched, PreparedResume,
     ResumePreparation, ResumeSnapshot, StartMode,
@@ -22,6 +35,12 @@ impl Desktop<'_> {
 }
 
 pub(super) fn resume(app: &AppHandle, state: &AppState, session: &str) -> Result<bool, String> {
+    let workspace = lock(&state.board)
+        .workspace_of(session)
+        .map(|ws| ws.id.clone())
+        .ok_or_else(|| i18n::t("err.session.noTab"))?;
+    let gate = state.workspace_lifecycle.workspace(&workspace);
+    let _admission = admit(&gate, &state.board, &workspace)?;
     Desktop { app, state }.service().resume(session)
 }
 pub(super) fn start(
@@ -33,6 +52,30 @@ pub(super) fn start(
         .service()
         .start(request, None)
         .map(|_| ())
+}
+
+/// Hold through process installation AND tab publication, so archive sees every admitted launch.
+pub(super) fn admit<'a>(
+    gate: &'a RwLock<()>,
+    board: &std::sync::Mutex<crate::state::Board>,
+    workspace: &str,
+) -> Result<RwLockReadGuard<'a, ()>, String> {
+    let admission = gate
+        .try_read()
+        .map_err(|_| i18n::t("err.session.archiving"))?;
+    let board = lock(board);
+    let ws = board
+        .workspaces
+        .iter()
+        .find(|ws| ws.id == workspace)
+        .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    if ws.archived {
+        return Err(i18n::t("err.session.archived"));
+    }
+    if ws.cleaned {
+        return Err(i18n::t("err.session.cleaned"));
+    }
+    Ok(admission)
 }
 
 impl ResumePreparation for Desktop<'_> {

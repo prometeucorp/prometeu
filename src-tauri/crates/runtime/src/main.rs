@@ -102,30 +102,6 @@ impl ContextFactory for NativeContexts {
     ) -> Result<(), String> {
         runtime.reconfigure(Arc::new(self.preparation(Some(workspace), session)))
     }
-    fn archive(
-        &self,
-        workdir: &std::path::Path,
-        launch: prometeu_runtime::dock::DockLaunch,
-    ) -> Result<(), String> {
-        use std::process::{Command, Stdio};
-        let Some(command) = launch.command else {
-            return Ok(());
-        };
-        let mut child = Command::new("/bin/sh")
-            .args(["-lc", &command])
-            .current_dir(workdir)
-            .envs(launch.environment)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        });
-        Ok(())
-    }
-
     fn shell(
         &self,
         workdir: &std::path::Path,
@@ -357,6 +333,7 @@ fn run() -> Result<(), String> {
                 "application.v1",
                 "application.operations.v1",
                 "application.initialization.v1",
+                "application.archive.v1",
             ]))?;
             let (send, receive) = std::sync::mpsc::sync_channel(2);
             std::thread::spawn(move || {

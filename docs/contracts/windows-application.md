@@ -145,7 +145,15 @@ implement `running_terminals`
 `application.operations.v1` adds private `application_operation_start
 {command,args}` and `application_operation_poll {job}` for Git, reference queries
 and `create_workspace`. `application.initialization.v1` adds deferred
-`agent_models`, `accounts` refresh and `open_dock` with `kind: "setup"`. MCP checks
+`agent_models`, `accounts` refresh and `open_dock` with `kind: "setup"`.
+`application.archive.v1` adds deferred `archive_workspace` and `finish_workspace`:
+agents and docks stop on the owner loop, the hook runs on a worker, then the
+owner commits the archive/stage change before completing the job. Other requests
+and polling remain responsive while the hook runs. The bridge negotiates this
+capability separately so older residents keep their synchronous path. The native
+`ApplicationConnection` forwards this capability only from its captured active
+target; every application-client implementation must explicitly implement that
+query, preventing wrappers from silently disabling deferred archive. MCP checks
 and authentication use `mcp_operation_start {operation}` (`check`, `begin`,
 `finish`, `logins`, `logout`), `mcp_operation_poll {job}` and
 `mcp_auth_cancel {state}`. The shared UI, registry and mock keep their shapes;
@@ -162,7 +170,9 @@ only the native adapter selects this path.
   or poll never falls back or replays. Old residents reject MCP operations.
 - Shutdown and retirement refuse running or unclaimed jobs. Archive, remove and
   cleanup refuse while any application effect runs; Setup preparation and Git
-  writes reject competing input and writes on the same checkout.
+  writes reject competing input and writes on the same checkout. Archive jobs
+  reserve all workspace checkouts until settlement, preventing agent input, competing
+  Git writes and cleanup while the hook runs.
 
 Manual Setup copies files on a worker and starts the PTY on the owner; reopening
 a live Setup reuses it.
@@ -246,7 +256,8 @@ Core `workspace_lifecycle` is shared with the desktop; WSL commits before
 publishing. Model changes reuse `Workspace::retune`: provider changes and frozen
 task profiles reject, and only the selected tab stops and resumes later with the
 saved choice. Archive and Finish stop the workspace's agents, docks and pending
-launch; the archive script must start before the mutation commits. Unarchive
+launch; the foreground archive script must exit before the mutation commits and the
+command replies, so automatic cleanup cannot delete files still used by the hook. Unarchive
 starts nothing. `WorktreeCleanup` uses the desktop checks: cleanup requires an
 archived, non-original checkout, dirty or unmerged work needs explicit force, and
 saved existing branches stay protected. WSL admits single-repository worktrees

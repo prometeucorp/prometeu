@@ -44,6 +44,9 @@ mod tests {
         requests: Vec<Value>,
     }
     impl ApplicationClient for Client {
+        fn archive_supported(&self) -> bool {
+            false
+        }
         fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
             assert_eq!(command, "read_bytes");
             self.requests.push(args);

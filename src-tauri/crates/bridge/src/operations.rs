@@ -5,6 +5,9 @@ use std::time::{Duration, Instant};
 
 pub(crate) struct Deferred<'a>(pub &'a mut dyn ApplicationClient);
 impl ApplicationClient for Deferred<'_> {
+    fn archive_supported(&self) -> bool {
+        self.0.archive_supported()
+    }
     fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
         let deferred = matches!(
             command.as_str(),
@@ -25,7 +28,9 @@ impl ApplicationClient for Deferred<'_> {
         let initialization = matches!(command.as_str(), "agent_models" | "accounts")
             || command == "open_dock" && args["kind"] == "setup";
         if !(deferred && self.0.operations_supported()
-            || initialization && self.0.initialization_supported())
+            || initialization && self.0.initialization_supported()
+            || matches!(command.as_str(), "archive_workspace" | "finish_workspace")
+                && self.0.archive_supported())
         {
             return self.0.application(command, args);
         }
@@ -65,10 +70,14 @@ mod tests {
     struct Client {
         supported: bool,
         initialization: bool,
+        archive: bool,
         fail: Option<&'static str>,
         calls: Vec<String>,
     }
     impl ApplicationClient for Client {
+        fn archive_supported(&self) -> bool {
+            self.archive
+        }
         fn initialization_supported(&self) -> bool {
             self.initialization
         }
@@ -93,6 +102,7 @@ mod tests {
             let mut client = Client {
                 supported,
                 initialization: false,
+                archive: false,
                 fail: None,
                 calls: vec![],
             };
@@ -128,6 +138,7 @@ mod tests {
                 let mut client = Client {
                     supported: true,
                     initialization,
+                    archive: false,
                     fail: None,
                     calls: vec![],
                 };
@@ -145,11 +156,37 @@ mod tests {
         }
     }
     #[test]
+    fn archive_negotiates_worker_support_without_replaying_old_hosts() {
+        for archive in [false, true] {
+            for command in ["archive_workspace", "finish_workspace"] {
+                let mut client = Client {
+                    supported: true,
+                    initialization: true,
+                    archive,
+                    fail: None,
+                    calls: vec![],
+                };
+                Deferred(&mut client)
+                    .application(command.into(), json!({"id":"primary","archived":true}))
+                    .unwrap();
+                assert_eq!(
+                    client.calls,
+                    if archive {
+                        vec!["application_operation_start", "application_operation_poll"]
+                    } else {
+                        vec![command]
+                    }
+                );
+            }
+        }
+    }
+    #[test]
     fn uncertain_start_or_completion_never_replays_the_original_mutation() {
         for fail in ["application_operation_start", "application_operation_poll"] {
             let mut client = Client {
                 supported: true,
                 initialization: false,
+                archive: false,
                 fail: Some(fail),
                 calls: vec![],
             };

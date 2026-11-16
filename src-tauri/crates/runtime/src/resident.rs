@@ -207,6 +207,7 @@ pub fn serve(
                             "application.v1",
                             "application.operations.v1",
                             "application.initialization.v1",
+                            "application.archive.v1",
                             "retire.v1"
                         ])
                     )

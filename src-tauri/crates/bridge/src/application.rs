@@ -5,6 +5,8 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub trait ApplicationClient: Send {
+    /// Every connection wrapper must explicitly forward this capability.
+    fn archive_supported(&self) -> bool;
     fn initialization_supported(&self) -> bool {
         false
     }
@@ -163,6 +165,9 @@ mod tests {
         requests: Vec<(String, Value)>,
     }
     impl ApplicationClient for Client {
+        fn archive_supported(&self) -> bool {
+            false
+        }
         fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
             self.requests.push((command, args));
             self.reply.clone()

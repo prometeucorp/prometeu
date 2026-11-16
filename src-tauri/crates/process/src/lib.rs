@@ -174,3 +174,5 @@ pub mod auxiliary;
 
 pub mod command;
 pub mod query;
+
+pub mod archive;

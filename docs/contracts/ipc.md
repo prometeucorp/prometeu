@@ -41,6 +41,16 @@ map and the existing boundary tests. Untrusted relay/control input remains
 subject to backend validation. Errors keep their existing rejection format.
 See [ADR 0024](../decisions/0024-typed-ipc.md).
 
+## Archive launch admission
+
+Desktop archive/finish excludes new-tab and resumed process launches while the
+hook runs, returning `err.session.archiving` through the existing string-error
+format. Once archived, launches return `err.session.archived` until restoration.
+Concurrent manual cleanup uses the same gate. Success payloads and persisted
+workspace shapes do not change. Tests in `src-tauri/src/session.rs` cover
+admission during teardown and publication of in-flight launches before archive
+collects its final stop targets.
+
 ## Executable serialization examples
 
 `src-tauri/src/boundary_contract.rs` serializes real board, snapshot, model and

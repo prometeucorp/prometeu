@@ -282,8 +282,34 @@ offer a generic action that completes those sequencers.
 ### Archived worktree cleanup
 
 Archiving and finishing stop workspace processes and run the archive script
-before offering cleanup for that workspace. Cleanup remains a separate choice:
-canceling keeps the worktree, local branch, transcript and archived card.
+to completion before applying the local cleanup preference for that workspace.
+Desktop serializes archive/restore and process launch admission per workspace.
+Archive waits for any admitted launch to install and publish its tab, stops
+agents before the hook, then stops the final tab set before completing. New
+and resumed launches reject while the hook runs; archived workspaces require
+explicit restoration before launching again. This gate is memory-only and
+also prevents manual cleanup from racing a repeated archive hook. Other
+workspaces remain usable. Desktop runs the hook on its command worker. WSL stops
+agents and docks before dispatching the hook through its deferred-operation
+worker; its owner loop remains responsive and commits the archive after the
+hook exits. Both paths wait for the foreground hook before completing cleanup
+eligibility, so automatic deletion cannot race the hook's
+remaining worktree reads. Hooks must not detach resource teardown; no timeout
+is imposed on the hook, and existing nonzero-exit handling is unchanged; the WSL
+bridge retains its existing ten-minute deferred-result polling deadline. By default,
+the scoped dialog asks whether to clean up; canceling keeps the worktree, local
+branch, transcript and archived card.
+
+Settings / General / Clean up worktrees offers an opt-in automatic cleanup
+switch. It applies to manual archive and finish, across projects and agents.
+It removes the entire eligible worktree, including ignored files such as
+`node_modules`, and workspace-created branches, not just dependencies. Safe
+rows are cleaned without a modal using `force: false`; the backend rechecks
+safety. Blocked rows still open the scoped dialog for explicit selection.
+Missing rows do nothing; scan or deletion failures report an error without
+retrying with force. Manual cleanup remains available regardless of the switch.
+The preference is local to the webview, as defined in
+[persistence](persistence.md#automatic-worktree-cleanup).
 
 The scoped offer uses the same `cleanup_list` and `cleanup_worktree` commands as
 the archived-workspaces screen. A safe worktree starts selected. A worktree with
@@ -316,6 +342,15 @@ protocol migration.
   isolation between repositories.
 - `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving
   and finishing, plus dialog lifetime during deletion.
+- `src-tauri/src/session.rs::tests::archive_stops_all_agents_before_the_hook_reads_resources`:
+  desktop shutdown order before foreground teardown; adjacent admission tests
+  cover restart rejection and launch/publication races.
+- `src-tauri/crates/bridge/src/operations.rs`: archive capability negotiation.
+- `src-tauri/crates/process/src/archive.rs` and
+  `src-tauri/crates/runtime/tests/lifecycle.rs`: foreground hook completion before
+  archive/finish replies permit cleanup.
+- `src/cleanup.test.ts`: preference compatibility, opt-in persistence, scoped
+  automatic cleanup, blocked and missing rows, and scan/deletion failures.
 - `src-tauri/tests/mock.rs`: IPC command parity.
 
 ## Preparation fetch execution

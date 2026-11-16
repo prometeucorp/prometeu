@@ -1327,6 +1327,8 @@ export const PT = {
   "boardRecovery.blocked": "As mudanças nos workspaces não serão salvas até o Prometeu conseguir guardar uma cópia dos arquivos que não leu: {cause}",
   "boardRecovery.open": "Abrir pasta",
   "boardRecovery.close": "Fechar",
+  "clean.auto": "Limpar worktrees arquivados automaticamente",
+  "clean.autoHint": "Ao arquivar ou concluir, remover o worktree inteiro (incluindo node_modules e arquivos ignorados) e branches criadas pelo workspace. Manter conversas e cartões arquivados. Perguntar quando houver mudanças sem commit ou não integradas.",
   "clean.title": "Limpar worktrees",
   "clean.offer": "Workspace arquivado. Tirar o worktree do disco?",
   "clean.keep": "Manter worktree",
@@ -1867,6 +1869,8 @@ export const PT = {
   "err.session.noBase": "a branch base '{base}' não existe em {path}",
   "err.session.noPort": "workspace sem porta",
   "err.session.noPr": "não achei um PR aberto para esta branch",
+  "err.session.archiving": "Aguarde a operação do workspace terminar.",
+  "err.session.archived": "Desarquive este workspace antes de iniciar um agente.",
   "err.session.cleaned": "o worktree deste workspace foi removido",
   "err.session.interrupted":
     "o app fechou enquanto o worktree montava; a pasta pode ter ficado pela metade",
