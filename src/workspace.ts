@@ -11,7 +11,7 @@ import { GitRefreshPolicy, TurnSettlePolicy, changesInterval } from "./git-refre
 import { invoke } from "./ipc";
 import * as sidebar from "./sidebar";
 import * as browser from "./browser";
-import { openCleanup } from "./cleanup";
+import { cleanupAfterArchive } from "./cleanup";
 import * as diff from "./diff";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
@@ -749,7 +749,7 @@ export function finish(id: string) {
   invoke("finish_workspace", { id })
     .then(() => {
       if (target) void announceWorkspaceUsage(target, ctx.board(), ctx.say, true);
-      if (target && !target.remote && !target.cleaned && target.worktree !== target.repo) openCleanup(ctx.say, id);
+      if (target && !target.remote && !target.cleaned && target.worktree !== target.repo) void cleanupAfterArchive(ctx.say, id);
     })
     .catch((e) => ctx.say(fromBack(e), true));
 }

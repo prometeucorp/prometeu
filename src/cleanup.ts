@@ -1,7 +1,7 @@
 import { invoke } from "./ipc";
 import { current as locale, fromBack, t, tn } from "./i18n";
 import type { Cleanable } from "./types";
-import { checkbox, formDialog } from "./ui";
+import { checkbox, formDialog, toggle } from "./ui";
 import { h, template } from "./util";
 
 // Cleanup removes worktrees and workspace-owned branches, but keeps selected existing branches and workspace cards.
@@ -10,6 +10,48 @@ function size(kb: number): string {
   const mb = kb / 1024;
   if (mb >= 1024) return `${(mb / 1024).toLocaleString(locale(), { maximumFractionDigits: 1 })} GB`;
   return `${Math.round(mb).toLocaleString(locale())} MB`;
+}
+
+const AUTO_CLEANUP_KEY = "prometeu:auto-cleanup";
+
+export function autoCleanupEnabled(): boolean {
+  try { return localStorage.getItem(AUTO_CLEANUP_KEY) === "true"; }
+  catch { return false; }
+}
+
+export function cleanupSettingsRow(say: (text: string, isError?: boolean) => void): HTMLElement {
+  const row = h("div", "setrow");
+  const copy = h("div", "txt");
+  const hint = h("span", "", t("clean.autoHint"));
+  hint.id = "auto-cleanup-description";
+  copy.append(h("b", "", t("clean.auto")), hint);
+  const choice = toggle(t("clean.auto"), autoCleanupEnabled(), "settings.cleanup.auto");
+  choice.control.dataset.focus = "auto-cleanup";
+  choice.control.setAttribute("aria-describedby", hint.id);
+  choice.control.onchange = () => {
+    try { localStorage.setItem(AUTO_CLEANUP_KEY, String(choice.control.checked)); }
+    catch (error) {
+      choice.control.checked = autoCleanupEnabled();
+      say(fromBack(error), true);
+    }
+  };
+  const action = h("div", "act");
+  action.append(choice.label);
+  row.append(copy, action);
+  return row;
+}
+
+/// Apply the local preference only after a successful manual archive or finish.
+export async function cleanupAfterArchive(say: (text: string, isError?: boolean) => void, id: string) {
+  if (!autoCleanupEnabled()) { openCleanup(say, id); return; }
+  try {
+    const row = (await invoke("cleanup_list")).find(item => item.id === id);
+    if (!row) return;
+    if (row.blocked) { openCleanup(say, id); return; }
+    // The backend rechecks safety; the preference never authorizes force.
+    await invoke("cleanup_worktree", { id, force: false });
+    say(tn(1, "clean.done", { size: size(row.sizeKb) }));
+  } catch (error) { say(fromBack(error), true); }
 }
 
 export function openCleanup(say: (text: string, isError?: boolean) => void, only?: string) {

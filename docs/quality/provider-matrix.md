@@ -16,6 +16,16 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## Automatic worktree cleanup
+
+The local opt-in preference applies equally to Claude, Codex, Antigravity and
+Cursor when manually archiving or finishing from the desktop UI, including the
+shared Windows/WSL interface. It uses the existing cleanup IPC with no provider
+payloads. Dirty, unmerged or unverifiable worktrees retain explicit selection;
+original clones and remote workspaces are excluded. `src/cleanup.test.ts`
+covers defaults, persistence, safe scoped deletion and error handling; existing
+archive/finish wiring is covered by `e2e/audit-regressions.spec.ts`.
+
 ## GitHub issues and pull requests
 
 GitHub issue and PR discovery uses the same desktop path for Claude, Codex and

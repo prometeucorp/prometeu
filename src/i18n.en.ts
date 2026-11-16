@@ -1296,6 +1296,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "boardRecovery.blocked": "Changes to workspaces won't be saved until Prometeu can keep a copy of the files it couldn't read: {cause}",
   "boardRecovery.open": "Open folder",
   "boardRecovery.close": "Close",
+  "clean.auto": "Automatically clean up archived worktrees",
+  "clean.autoHint": "After archiving or finishing, remove the entire worktree (including node_modules and ignored files) and workspace-created branches. Keep conversations and archived cards. Ask when changes are uncommitted or unmerged.",
   "clean.title": "Clean up worktrees",
   "clean.offer": "Workspace archived. Remove the worktree from disk?",
   "clean.keep": "Keep worktree",

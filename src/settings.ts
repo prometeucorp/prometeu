@@ -1,3 +1,4 @@
+import { cleanupSettingsRow } from "./cleanup";
 import { track } from "./analytics";
 import * as accountUI from "./accounts";
 import * as actions from "./actions";
@@ -100,6 +101,7 @@ const PAGES: Page[] = [
   { id: "geral", title: "settings.page.general", description: "settings.general.intro", glyph: "settings", sections: [
     { id: "language", title: "settings.languageVoice", rows: () => [langRow(), ...(voice.available() ? [voiceRow()] : [])], keywords: ["settings.lang", "settings.voice"] },
     { id: "notifications", title: "notifications.title", rows: () => [notifications.settings(ctx.say, true)], keywords: ["notifications.events", "notifications.sound", "notifications.style"] },
+    { id: "cleanup", title: "clean.title", rows: () => [cleanupSettingsRow(ctx.say)], keywords: ["clean.auto", "clean.autoHint"] },
     { id: "privacy", title: "analytics.privacy", rows: () => [analyticsRow(ctx.say, draw)], keywords: ["analytics.title", "analytics.description"] },
     { id: "app", title: "settings.app", rows: appRows, keywords: ["update.ask", "settings.news"] },
   ] },

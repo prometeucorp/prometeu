@@ -16,7 +16,7 @@ import * as appmenu from "./appmenu";
 import type { Info } from "./chat";
 import * as archived from "./archived";
 import * as sidebar from "./sidebar";
-import { openCleanup } from "./cleanup";
+import { cleanupAfterArchive, openCleanup } from "./cleanup";
 import { announceBoardRecovery } from "./board-recovery";
 import * as notificationCenter from "./notification-center";
 import * as desk from "./desk";
@@ -100,7 +100,7 @@ const hooks: sidebar.Hooks = {
     invoke("archive_workspace", { id, archived })
       .then(() => {
         if (archived && target) void announceWorkspaceUsage(target, state, say, false);
-        if (archived && target && !target.cleaned && target.worktree !== target.repo) openCleanup(say, id);
+        if (archived && target && !target.remote && !target.cleaned && target.worktree !== target.repo) void cleanupAfterArchive(say, id);
       })
       .catch((e) => say(fromBack(e), true));
   },

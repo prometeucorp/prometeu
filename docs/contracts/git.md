@@ -282,8 +282,20 @@ offer a generic action that completes those sequencers.
 ### Archived worktree cleanup
 
 Archiving and finishing stop workspace processes and run the archive script
-before offering cleanup for that workspace. Cleanup remains a separate choice:
-canceling keeps the worktree, local branch, transcript and archived card.
+before applying the local cleanup preference for that workspace. By default,
+the scoped dialog asks whether to clean up; canceling keeps the worktree, local
+branch, transcript and archived card.
+
+Settings / General / Clean up worktrees offers an opt-in automatic cleanup
+switch. It applies to manual archive and finish, across projects and agents.
+It removes the entire eligible worktree, including ignored files such as
+`node_modules`, and workspace-created branches, not just dependencies. Safe
+rows are cleaned without a modal using `force: false`; the backend rechecks
+safety. Blocked rows still open the scoped dialog for explicit selection.
+Missing rows do nothing; scan or deletion failures report an error without
+retrying with force. Manual cleanup remains available regardless of the switch.
+The preference is local to the webview, as defined in
+[persistence](persistence.md#automatic-worktree-cleanup).
 
 The scoped offer uses the same `cleanup_list` and `cleanup_worktree` commands as
 the archived-workspaces screen. A safe worktree starts selected. A worktree with
@@ -316,6 +328,8 @@ protocol migration.
   isolation between repositories.
 - `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving
   and finishing, plus dialog lifetime during deletion.
+- `src/cleanup.test.ts`: preference compatibility, opt-in persistence, scoped
+  automatic cleanup, blocked and missing rows, and scan/deletion failures.
 - `src-tauri/tests/mock.rs`: IPC command parity.
 
 ## Preparation fetch execution

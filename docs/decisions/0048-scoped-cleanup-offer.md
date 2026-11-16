@@ -27,8 +27,8 @@ and protects original clones.
 
 ## Decision
 
-After a successful manual archive or finish, open the cleanup dialog with only
-that workspace. Keep archive and cleanup as separate decisions. A safe row
+By default, after a successful manual archive or finish, open the cleanup dialog
+with only that workspace. Keep archive and cleanup as separate decisions. A safe row
 starts selected; a blocked row starts unselected and must be selected before the
 destructive action becomes available. The dialog states that cleanup removes
 the folder and, for a newly created branch, the local branch, while preserving
@@ -43,6 +43,17 @@ Use the same `cleanup_list` eligibility scan and `cleanup_worktree` command as
 the full cleanup screen. Do not offer cleanup for original clones, remote
 workspaces or workspaces already cleaned. A cancellation is not persisted;
 cleanup remains available from the archived-workspaces screen.
+
+Settings / General also offers explicit opt-in automatic cleanup (issue #260).
+The preference is local to the webview and off on new installs and upgrades.
+When enabled, inspect only the selected row from the existing scan, then clean
+safe worktrees with `force: false`. The backend rechecks eligibility and safety.
+Blocked rows retain the scoped dialog; errors are reported without escalating
+to force. Manual cleanup remains unchanged. The setting explains that this
+removes the whole worktree, including ignored files, rather than only
+`node_modules`. This reuses the cleanup boundary instead of introducing a
+second filesystem deletion policy. It trades a repeated confirmation for an
+explicit persistent choice while preserving the existing guards.
 
 ## Consequences
 
@@ -59,6 +70,9 @@ does not need to be merged before its clean worktree is removed. Refusing the
 offer keeps the diff reachable and does not suppress future cleanup access.
 
 ## Evidence
+
+- `src/cleanup.test.ts` covers preference defaults, persistence, automatic
+  scoped cleanup, blocked/missing rows and failures without force.
 
 - `e2e/audit-regressions.spec.ts` covers scoped offers from both archive and
   finish and confirms that only the affected workspace appears. It also covers
