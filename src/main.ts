@@ -575,6 +575,57 @@ $("railtoggle").addEventListener("click", toggleRail);
 $("railshow").addEventListener("click", toggleRail);
 $("sidetoggle").addEventListener("click", () => document.body.classList.toggle("noside"));
 
+/* Keep the sidebar preference independent of the current window size. */
+const RAIL_W = "rail-w";
+const railGrip = $("railresize");
+const defaultRailWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--rail-w"));
+const savedRailWidth = Number(localStorage.getItem(RAIL_W));
+let railWidth = Number.isFinite(savedRailWidth) && savedRailWidth > 0 ? savedRailWidth : defaultRailWidth;
+const maxRailWidth = () => Math.max(200, Math.floor(window.innerWidth / 2));
+const clampRailWidth = (width: number) => Math.round(Math.max(200, Math.min(width, maxRailWidth())));
+function paintRailWidth() {
+  const width = clampRailWidth(railWidth);
+  document.documentElement.style.setProperty("--rail-w", `${width}px`);
+  railGrip.setAttribute("aria-valuemin", "200");
+  railGrip.setAttribute("aria-valuemax", String(maxRailWidth()));
+  railGrip.setAttribute("aria-valuenow", String(width));
+}
+function resetRailWidth() {
+  railWidth = defaultRailWidth;
+  localStorage.removeItem(RAIL_W);
+  paintRailWidth();
+}
+railGrip.setAttribute("aria-label", t("rail.resize"));
+paintRailWidth();
+window.addEventListener("resize", paintRailWidth);
+let railDragOffset = 0;
+railGrip.addEventListener("pointerdown", event => {
+  if (event.button !== 0) return;
+  railDragOffset = event.clientX - clampRailWidth(railWidth);
+  railGrip.setPointerCapture(event.pointerId);
+  railGrip.classList.add("dragging");
+  railGrip.focus();
+  event.preventDefault();
+});
+railGrip.addEventListener("pointermove", event => {
+  if (!railGrip.hasPointerCapture(event.pointerId)) return;
+  railWidth = clampRailWidth(event.clientX - railDragOffset);
+  paintRailWidth();
+});
+railGrip.addEventListener("lostpointercapture", () => {
+  railGrip.classList.remove("dragging");
+  localStorage.setItem(RAIL_W, String(railWidth));
+});
+railGrip.addEventListener("dblclick", resetRailWidth);
+railGrip.addEventListener("keydown", event => {
+  if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+  event.preventDefault();
+  if (event.key === "Home") return resetRailWidth();
+  railWidth = clampRailWidth(clampRailWidth(railWidth) + (event.key === "ArrowLeft" ? -16 : 16));
+  paintRailWidth();
+  localStorage.setItem(RAIL_W, String(railWidth));
+});
+
 /* Persist side-panel width after dragging its left edge; double-click restores CSS defaults. Clamp width to preserve useful center space. Terminal ResizeObservers refit their hosts. */
 const SIDE_W = "side-w";
 let sideW = Number(localStorage.getItem(SIDE_W)) || 0;
