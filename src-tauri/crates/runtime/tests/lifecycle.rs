@@ -1000,6 +1000,9 @@ fn plugin_import_updates_and_removal_keep_catalog_choices_and_user_files() {
 }
 
 impl prometeu_bridge::application::ApplicationClient for Client {
+    fn archive_supported(&self) -> bool {
+        true
+    }
     fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
         let response = self.app_result(&command, args);
         match response.get("error").and_then(Value::as_str) {

@@ -283,7 +283,13 @@ offer a generic action that completes those sequencers.
 
 Archiving and finishing stop workspace processes and run the archive script
 to completion before applying the local cleanup preference for that workspace.
-Desktop stops agents before running the hook on its command worker. WSL stops
+Desktop serializes archive/restore and process launch admission per workspace.
+Archive waits for any admitted launch to install and publish its tab, stops
+agents before the hook, then stops the final tab set before completing. New
+and resumed launches reject while the hook runs; archived workspaces require
+explicit restoration before launching again. This gate is memory-only and
+also prevents manual cleanup from racing a repeated archive hook. Other
+workspaces remain usable. Desktop runs the hook on its command worker. WSL stops
 agents and docks before dispatching the hook through its deferred-operation
 worker; its owner loop remains responsive and commits the archive after the
 hook exits. Both paths wait for the foreground hook before completing cleanup
@@ -337,7 +343,8 @@ protocol migration.
 - `e2e/audit-regressions.spec.ts`: scoped cleanup offers after both archiving
   and finishing, plus dialog lifetime during deletion.
 - `src-tauri/src/session.rs::tests::archive_stops_all_agents_before_the_hook_reads_resources`:
-  desktop shutdown order before foreground teardown.
+  desktop shutdown order before foreground teardown; adjacent admission tests
+  cover restart rejection and launch/publication races.
 - `src-tauri/crates/bridge/src/operations.rs`: archive capability negotiation.
 - `src-tauri/crates/process/src/archive.rs` and
   `src-tauri/crates/runtime/tests/lifecycle.rs`: foreground hook completion before

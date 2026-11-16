@@ -88,6 +88,7 @@ pub struct AppState {
     pub terminal_factory:
         Arc<dyn prometeu_core::terminal::TerminalFactory<portable_pty::CommandBuilder>>,
     pub sessions: prometeu_core::session::host::SessionHost<chat::Chat>,
+    pub(crate) workspace_lifecycle: session::WorkspaceGates,
     pub process_launcher: Arc<dyn prometeu_core::process::ProcessLauncher<std::process::Command>>,
     pub telemetry: Mutex<telemetry::Service>,
     pub board: Mutex<state::Board>,
@@ -178,6 +179,7 @@ fn main() {
             query_launcher: Arc::new(prometeu_process::query::UnixQueryLauncher),
             terminal_factory: Arc::new(prometeu_process::terminal::UnixTerminalFactory),
             sessions: prometeu_core::session::host::SessionHost::default(),
+            workspace_lifecycle: Default::default(),
             process_launcher: Arc::new(prometeu_process::UnixProcessLauncher),
             telemetry: Mutex::new(telemetry),
             board: Mutex::new(board),

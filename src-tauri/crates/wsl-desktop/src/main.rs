@@ -186,6 +186,17 @@ struct ApplicationConnection {
     target: Target,
 }
 impl prometeu_bridge::application::ApplicationClient for ApplicationConnection {
+    fn archive_supported(&self) -> bool {
+        self.desktop
+            .session
+            .lock()
+            .ok()
+            .and_then(|s| {
+                s.as_ref()
+                    .map(|s| s.target == self.target && s.client.archive_supported())
+            })
+            .unwrap_or(false)
+    }
     fn initialization_supported(&self) -> bool {
         self.desktop
             .session

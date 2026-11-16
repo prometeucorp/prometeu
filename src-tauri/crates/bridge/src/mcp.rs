@@ -60,6 +60,9 @@ mod tests {
         fail_finish: bool,
     }
     impl ApplicationClient for Client {
+        fn archive_supported(&self) -> bool {
+            false
+        }
         fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
             self.calls.push(format!(
                 "{command}:{}",

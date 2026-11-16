@@ -1867,6 +1867,8 @@ export const PT = {
   "err.session.noBase": "a branch base '{base}' não existe em {path}",
   "err.session.noPort": "workspace sem porta",
   "err.session.noPr": "não achei um PR aberto para esta branch",
+  "err.session.archiving": "Aguarde a operação do workspace terminar.",
+  "err.session.archived": "Desarquive este workspace antes de iniciar um agente.",
   "err.session.cleaned": "o worktree deste workspace foi removido",
   "err.session.interrupted":
     "o app fechou enquanto o worktree montava; a pasta pode ter ficado pela metade",

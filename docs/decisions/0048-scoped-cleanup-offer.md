@@ -51,7 +51,11 @@ safe worktrees with `force: false`. The backend rechecks eligibility and safety.
 commands wait for the foreground archive hook to exit before replying; merely
 spawning it would let automatic deletion race resource teardown. Hooks must
 not detach teardown work. This preserves existing exit-status policy and adds
-no hook timeout. Desktop stops agents before teardown. WSL uses the existing
+no hook timeout. Desktop closes per-workspace launch admission across teardown, waits for
+already admitted launches to publish their tabs, and stops agents both before
+the hook and before archive completion. Admission reopens after completion,
+but an archived workspace must be explicitly restored before launching again.
+The same memory-only gate excludes cleanup during a repeated archive hook. WSL uses the existing
 deferred-operation worker and polling contract, negotiated through
 `application.archive.v1`, so long hooks do not block requests or hit the
 thirty-second transport timeout; catalog mutation stays on the owner loop.

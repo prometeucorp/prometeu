@@ -26,6 +26,7 @@ pub(crate) mod files;
 pub(crate) mod find;
 pub(crate) mod git;
 mod launch;
+pub(crate) use launch::WorkspaceGates;
 
 #[cfg(test)]
 use diff::patch_map;
@@ -270,6 +271,9 @@ pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
 }
 
 fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
+    // Wait for admitted launches to publish their tabs; reject new launches until teardown ends.
+    let gate = state.workspace_lifecycle.workspace(id);
+    let _lifecycle = gate.write().unwrap_or_else(|error| error.into_inner());
     let generation = lock(&state.telemetry).generation;
     // Run the archive script before archiving, while its resources still exist. It cleans up
     // containers, databases, and tunnels on the command worker. Wait before returning to
@@ -283,6 +287,8 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
         }
     }
     let effects = crate::workspace_lifecycle::archive(&mut lock(&state.board), id, archived);
+    // Recheck the final tab set while launch admission remains closed.
+    stop(state, &effects.stop_tabs);
     publish(app);
     if effects.changed {
         analytics::track(Event::WorkspaceActionUsed {
@@ -870,6 +876,10 @@ pub fn cleanup_worktree(
     id: String,
     force: bool,
 ) -> Result<(), String> {
+    let gate = state.workspace_lifecycle.workspace(&id);
+    let _lifecycle = gate
+        .try_write()
+        .map_err(|_| i18n::t("err.session.archiving"))?;
     let ws = workspace_copy(&state, &id).ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
     if ws.cleaned {
         return Ok(());
@@ -1483,6 +1493,8 @@ fn build(
         .iter()
         .find(|d| d.workspace == id)
         .map(|d| d.id.clone());
+    let gate = state.workspace_lifecycle.workspace(id);
+    let _admission = launch::admit(&gate, &state.board, id)?;
     let mut tab = spawn_tab_with_id(
         app,
         &state,
@@ -1556,6 +1568,8 @@ pub fn new_tab(
     prompt: String,
     choice: Option<Choice>,
 ) -> Result<Tab, String> {
+    let gate = state.workspace_lifecycle.workspace(&workspace);
+    let _admission = launch::admit(&gate, &state.board, &workspace)?;
     let generation = lock(&state.telemetry).generation;
     let explicit_choice = choice.is_some();
     // Neither path restores plan mode; it belongs to the initial request.
@@ -2149,6 +2163,55 @@ mod tests {
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
+
+    #[test]
+    fn archive_admission_blocks_restarts_and_fresh_tabs_until_explicit_restore() {
+        let gates = super::WorkspaceGates::default();
+        let gate = gates.workspace("w");
+        let board = std::sync::Mutex::new(crate::state::Board::default());
+        board.lock().unwrap().workspaces.push(bare());
+        let lifecycle = gate.write().unwrap();
+        assert!(super::launch::admit(&gate, &board, "w").is_err());
+        // Another workspace remains usable throughout a long hook.
+        let mut other = bare();
+        other.id = "other".into();
+        board.lock().unwrap().workspaces.push(other);
+        assert!(super::launch::admit(&gates.workspace("other"), &board, "other").is_ok());
+        crate::workspace_lifecycle::archive(&mut board.lock().unwrap(), "w", true);
+        drop(lifecycle);
+        assert!(super::launch::admit(&gate, &board, "w").is_err());
+        crate::workspace_lifecycle::archive(&mut board.lock().unwrap(), "w", false);
+        assert!(super::launch::admit(&gate, &board, "w").is_ok());
+    }
+
+    #[test]
+    fn archive_waits_for_inflight_launch_to_publish_before_collecting_stop_targets() {
+        use std::sync::{mpsc, Mutex};
+        let gate = std::sync::RwLock::new(());
+        let board = Mutex::new(crate::state::Board::default());
+        board.lock().unwrap().workspaces.push(bare());
+        let admission = super::launch::admit(&gate, &board, "w").unwrap();
+        // Independent launches in the same workspace retain their previous concurrency.
+        assert!(super::launch::admit(&gate, &board, "w").is_ok());
+        let (started, waiting) = mpsc::channel();
+        let (done, completion) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                started.send(()).unwrap();
+                let _lifecycle = gate.write().unwrap();
+                let effects =
+                    crate::workspace_lifecycle::archive(&mut board.lock().unwrap(), "w", true);
+                done.send(effects.stop_tabs).unwrap();
+            });
+            waiting.recv().unwrap();
+            assert!(completion.try_recv().is_err());
+            board.lock().unwrap().workspaces[0]
+                .tabs
+                .push(tab("inflight", None));
+            drop(admission);
+            assert_eq!(completion.recv().unwrap(), ["inflight"]);
+        });
+    }
 
     #[test]
     fn archive_stops_all_agents_before_the_hook_reads_resources() {

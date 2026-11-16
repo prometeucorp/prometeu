@@ -1821,6 +1821,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.session.noBase": "the base branch '{base}' does not exist in {path}",
   "err.session.noPort": "workspace with no port",
   "err.session.noPr": "no open PR for this branch",
+  "err.session.archiving": "Wait for the workspace operation to finish.",
+  "err.session.archived": "Unarchive this workspace before starting an agent.",
   "err.session.cleaned": "this workspace’s worktree was removed",
   "err.session.interrupted":
     "the app closed while the worktree was being built; the folder may be half-made",

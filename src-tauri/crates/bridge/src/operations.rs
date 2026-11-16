@@ -5,6 +5,9 @@ use std::time::{Duration, Instant};
 
 pub(crate) struct Deferred<'a>(pub &'a mut dyn ApplicationClient);
 impl ApplicationClient for Deferred<'_> {
+    fn archive_supported(&self) -> bool {
+        self.0.archive_supported()
+    }
     fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
         let deferred = matches!(
             command.as_str(),

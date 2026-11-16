@@ -150,7 +150,10 @@ and `create_workspace`. `application.initialization.v1` adds deferred
 agents and docks stop on the owner loop, the hook runs on a worker, then the
 owner commits the archive/stage change before completing the job. Other requests
 and polling remain responsive while the hook runs. The bridge negotiates this
-capability separately so older residents keep their synchronous path. MCP checks
+capability separately so older residents keep their synchronous path. The native
+`ApplicationConnection` forwards this capability only from its captured active
+target; every application-client implementation must explicitly implement that
+query, preventing wrappers from silently disabling deferred archive. MCP checks
 and authentication use `mcp_operation_start {operation}` (`check`, `begin`,
 `finish`, `logins`, `logout`), `mcp_operation_poll {job}` and
 `mcp_auth_cancel {state}`. The shared UI, registry and mock keep their shapes;
