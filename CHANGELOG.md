@@ -4,6 +4,20 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.41.0] - 2026-11-16
+
+### New
+
+- **cleanup:** Optionally clean archived worktrees automatically
+- **sidebar:** Allow resizing the left sidebar
+
+### Fixes
+
+- **cleanup:** Wait for archive scripts before removing worktrees
+- **cleanup:** Stop agents before teardown and defer archive hooks
+- **cleanup:** Block agent restarts during archive teardown
+- **sidebar:** Keep conversation visible when panels widen
+
 ## [0.40.1] - 2026-11-08
 
 ### New
