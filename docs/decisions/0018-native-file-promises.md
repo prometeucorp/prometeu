@@ -27,8 +27,13 @@ materialize the capture.
 ## Decision
 
 Register the types accepted by `NSFilePromiseReceiver` in the main webview,
-preserving Tauri's drag mechanism for existing files. Subclass only that native
-view and intercept `performDragOperation:` for file promises. Read the gesture's
+preserving Tauri's drag mechanism for existing files. Replace the implementation
+of `performDragOperation:` on the class that declares it (Wry's webview class) and
+handle file promises only when the receiving view is the main webview; every
+other call goes to Wry's original implementation. Never change the live view's
+class: KVO already swaps it, and on macOS 27.2.1 an injected subclass makes AppKit
+assert in `NSDP_getComputedPropertyValue` whenever the window zooms or resizes
+with animation. Read the gesture's
 pasteboard and request reception synchronously inside that callback, in a private
 folder per gesture. Do not forward a handled promise to Wry, which would queue a
 second drop. Other drag methods and ordinary file drops retain Wry's behavior.
@@ -60,8 +65,13 @@ successfully received files are preserved.
 
 - [Apple documentation](https://developer.apple.com/documentation/appkit/supporting-table-view-drag-and-drop-through-file-promises).
 - `src-tauri/src/file_drop.rs`: native interception, reception, destination
-  validation and tests. The interception test verifies the override and unchanged
-  instance layout; it does not simulate an AppKit drag session.
+  validation and tests. The interception test verifies the patched implementation
+  and that a second install keeps the original; it does not simulate an AppKit
+  drag session.
+- Five local crash logs on 2026-11-17 (v0.41.1) abort in
+  `NSDP_getComputedPropertyValue` from `-[WKWebView _viewDidChangeEffectiveCornerRadii]`
+  during window zoom, from both the title-bar double-click and the green button,
+  after the view's class was replaced at runtime.
 - Two local crash logs on 2026-11-16 contain `NSFilePromiseReceiver.m:300`.
   Disassembly of the installed AppKit maps that assertion to the callback-scope
   requirement above. Native smoke validation must drag a floating screenshot
