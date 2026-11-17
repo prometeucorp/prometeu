@@ -23,10 +23,12 @@ pub fn install(app: &tauri::AppHandle) -> tauri::Result<()> {
     {
         use tauri::Manager;
         if let Some(view) = app.get_webview("main") {
-            view.with_webview(|view| unsafe {
+            let window = view.window();
+            view.with_webview(move |view| unsafe {
                 // The handle belongs to WKWebView, an NSView subclass. This closure runs on the
                 // main thread as required by AppKit.
                 let view = &*view.inner().cast::<objc2_app_kit::NSView>();
+                macos::install(view, window);
                 view.registerForDraggedTypes(
                     &objc2_app_kit::NSFilePromiseReceiver::readableDraggedTypes(),
                 );
@@ -57,18 +59,12 @@ pub fn on_webview_event(webview: &Webview, event: &WebviewEvent) {
                 .iter()
                 .map(|p| p.to_string_lossy().into_owned())
                 .collect();
-            #[cfg(target_os = "macos")]
-            macos::capture();
         }
         DragDropEvent::Over { position } => {
             drag.kind = "over";
             drag.position = Some(*position);
         }
         DragDropEvent::Drop { paths, position } => {
-            #[cfg(target_os = "macos")]
-            if macos::receive(&window, *position) {
-                return;
-            }
             drag.kind = "drop";
             drag.position = Some(*position);
             drag.paths = paths
@@ -78,8 +74,6 @@ pub fn on_webview_event(webview: &Webview, event: &WebviewEvent) {
         }
         DragDropEvent::Leave => {
             drag.kind = "leave";
-            #[cfg(target_os = "macos")]
-            macos::clear();
         }
         _ => return,
     }
@@ -246,10 +240,15 @@ mod linux {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use objc2::{rc::Retained, ClassType};
+    use objc2::{
+        msg_send,
+        rc::Retained,
+        runtime::{AnyClass, AnyObject, Bool, ClassBuilder, ProtocolObject, Sel},
+        sel, ClassType,
+    };
     use objc2_app_kit::{
-        NSBitmapImageFileType, NSBitmapImageRep, NSFilePromiseReceiver, NSPasteboard,
-        NSPasteboardNameDrag, NSPasteboardTypePNG, NSPasteboardTypeTIFF,
+        NSBitmapImageFileType, NSBitmapImageRep, NSDraggingInfo, NSFilePromiseReceiver,
+        NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeTIFF, NSView,
     };
     use objc2_foundation::{NSArray, NSDictionary, NSError, NSOperationQueue, NSString, NSURL};
     use std::{
@@ -260,10 +259,60 @@ mod macos {
         time::{Duration, Instant},
     };
 
+    const CLASS: &std::ffi::CStr = c"PrometeuFilePromiseWebView";
+
     thread_local! {
-        // Window and AppKit events run on the main thread. Retain promise receivers for the gesture
-        // instead of querying a later pasteboard.
-        static RECEIVERS: RefCell<Vec<Retained<NSFilePromiseReceiver>>> = const { RefCell::new(Vec::new()) };
+        static WINDOW: RefCell<Option<Window>> = const { RefCell::new(None) };
+    }
+
+    fn promise_class(superclass: &AnyClass) -> &'static AnyClass {
+        if let Some(class) = AnyClass::get(CLASS) {
+            assert_eq!(class.superclass(), Some(superclass));
+            return class;
+        }
+        let mut class = ClassBuilder::new(CLASS, superclass).expect("unique file promise class");
+        unsafe {
+            class.add_method(
+                sel!(performDragOperation:),
+                perform_drop as extern "C-unwind" fn(_, _, _) -> Bool,
+            );
+        }
+        class.register()
+    }
+
+    pub fn install(view: &NSView, window: Window) {
+        let object: &AnyObject = view.as_ref();
+        if object.class().name() != CLASS {
+            // Add no ivars and preserve Wry's layout and all other drag methods.
+            unsafe { AnyObject::set_class(object, promise_class(object.class())) };
+        }
+        WINDOW.with(|slot| *slot.borrow_mut() = Some(window));
+    }
+
+    extern "C-unwind" fn perform_drop(
+        view: &NSView,
+        _selector: Sel,
+        info: &ProtocolObject<dyn NSDraggingInfo>,
+    ) -> Bool {
+        let window = WINDOW.with(|slot| slot.borrow().clone());
+        if let Some(window) = window {
+            let pasteboard = info.draggingPasteboard();
+            let receivers = promises(&pasteboard);
+            if !receivers.is_empty() {
+                let point = info.draggingLocation();
+                let position = PhysicalPosition::new(
+                    point.x as i32 as f64,
+                    (view.frame().size.height - point.y) as i32 as f64,
+                );
+                // AppKit requires reception inside its native drop callback. Tauri queues its
+                // event until after this callback returns, which triggers NSFilePromiseReceiver's
+                // assertion on newer macOS versions. Do not queue a second drop through Wry.
+                receive(&window, position, receivers);
+                return Bool::YES;
+            }
+        }
+        let superclass = AnyClass::get(CLASS).unwrap().superclass().unwrap();
+        unsafe { msg_send![super(view, superclass), performDragOperation: info] }
     }
 
     fn promises(pasteboard: &NSPasteboard) -> Vec<Retained<NSFilePromiseReceiver>> {
@@ -277,15 +326,6 @@ mod macos {
                     .collect()
             })
             .unwrap_or_default()
-    }
-
-    pub fn capture() {
-        let pasteboard = NSPasteboard::pasteboardWithName(unsafe { NSPasteboardNameDrag });
-        RECEIVERS.with(|receivers| *receivers.borrow_mut() = promises(&pasteboard));
-    }
-
-    pub fn clear() {
-        RECEIVERS.with(|receivers| receivers.borrow_mut().clear());
     }
 
     fn received_path(url: &NSURL, directory: &Path) -> Result<String, String> {
@@ -349,11 +389,11 @@ mod macos {
         save_pasted_png(&crate::paths::root(), &png).map(|path| vec![path])
     }
 
-    pub fn receive(window: &Window, position: PhysicalPosition<f64>) -> bool {
-        let receivers = RECEIVERS.with(|receivers| receivers.take());
-        if receivers.is_empty() {
-            return false;
-        }
+    fn receive(
+        window: &Window,
+        position: PhysicalPosition<f64>,
+        receivers: Vec<Retained<NSFilePromiseReceiver>>,
+    ) {
         let id = uuid::Uuid::new_v4().to_string();
         let directory = crate::paths::root().join("attachments").join(&id);
         let mut drag = Drag {
@@ -367,7 +407,7 @@ mod macos {
         if let Err(error) = crate::paths::ensure_private_dir(&directory) {
             drag.error = Some(error);
             let _ = window.emit("file-drag", drag);
-            return true;
+            return;
         }
         let destination = NSURL::fileURLWithPath_isDirectory(
             &NSString::from_str(&directory.to_string_lossy()),
@@ -421,12 +461,26 @@ mod macos {
             }
             let _ = window.emit("file-drag", drag);
         });
-        true
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn promise_view_intercepts_the_native_drop_without_replacing_the_superclass() {
+            let superclass = NSView::class();
+            let class = promise_class(superclass);
+            assert_eq!(class.superclass(), Some(superclass));
+            assert!(class.instance_method(sel!(performDragOperation:)).is_some());
+            assert_eq!(class.instance_size(), superclass.instance_size());
+            let enter = sel!(draggingEntered:);
+            assert!(std::ptr::eq(
+                class.instance_method(enter).unwrap(),
+                superclass.instance_method(enter).unwrap(),
+            ));
+            assert_eq!(promise_class(superclass), class);
+        }
 
         #[test]
         fn received_files_must_exist_inside_the_destination() {
