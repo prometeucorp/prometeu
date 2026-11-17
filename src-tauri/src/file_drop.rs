@@ -241,9 +241,8 @@ mod linux {
 mod macos {
     use super::*;
     use objc2::{
-        msg_send,
         rc::Retained,
-        runtime::{AnyClass, AnyObject, Bool, ClassBuilder, ProtocolObject, Sel},
+        runtime::{AnyClass, AnyObject, Bool, Imp, ProtocolObject, Sel},
         sel, ClassType,
     };
     use objc2_app_kit::{
@@ -255,46 +254,52 @@ mod macos {
         cell::RefCell,
         path::Path,
         ptr::NonNull,
-        sync::mpsc,
+        sync::{mpsc, OnceLock},
         time::{Duration, Instant},
     };
 
-    const CLASS: &std::ffi::CStr = c"PrometeuFilePromiseWebView";
+    type PerformDrop =
+        extern "C-unwind" fn(&NSView, Sel, &ProtocolObject<dyn NSDraggingInfo>) -> Bool;
+
+    /// Wry's own `performDragOperation:`, called for drops this hook does not handle.
+    static ORIGINAL: OnceLock<PerformDrop> = OnceLock::new();
 
     thread_local! {
-        static WINDOW: RefCell<Option<Window>> = const { RefCell::new(None) };
+        /// The main webview, identified by address, and the window that receives its events.
+        static MAIN: RefCell<Option<(usize, Window)>> = const { RefCell::new(None) };
     }
 
-    fn promise_class(superclass: &AnyClass) -> &'static AnyClass {
-        if let Some(class) = AnyClass::get(CLASS) {
-            assert_eq!(class.superclass(), Some(superclass));
-            return class;
-        }
-        let mut class = ClassBuilder::new(CLASS, superclass).expect("unique file promise class");
-        unsafe {
-            class.add_method(
-                sel!(performDragOperation:),
-                perform_drop as extern "C-unwind" fn(_, _, _) -> Bool,
-            );
-        }
-        class.register()
+    /// Replace the implementation on the class that declares `performDragOperation:` (Wry's
+    /// WryWebView). Do not change the live view's class: KVO has already swapped it, and on macOS
+    /// 27 AppKit's computed-property tracking asserts on resize when it meets a foreign subclass.
+    fn hook(class: &AnyClass) {
+        let Some(method) = class.instance_method(sel!(performDragOperation:)) else {
+            return;
+        };
+        ORIGINAL.get_or_init(|| unsafe {
+            let ours: Imp = std::mem::transmute(perform_drop as PerformDrop);
+            std::mem::transmute::<Imp, PerformDrop>(method.set_implementation(ours))
+        });
     }
 
     pub fn install(view: &NSView, window: Window) {
         let object: &AnyObject = view.as_ref();
-        if object.class().name() != CLASS {
-            // Add no ivars and preserve Wry's layout and all other drag methods.
-            unsafe { AnyObject::set_class(object, promise_class(object.class())) };
-        }
-        WINDOW.with(|slot| *slot.borrow_mut() = Some(window));
+        hook(object.class());
+        MAIN.with(|slot| *slot.borrow_mut() = Some((view as *const NSView as usize, window)));
     }
 
     extern "C-unwind" fn perform_drop(
         view: &NSView,
-        _selector: Sel,
+        selector: Sel,
         info: &ProtocolObject<dyn NSDraggingInfo>,
     ) -> Bool {
-        let window = WINDOW.with(|slot| slot.borrow().clone());
+        // Every WryWebView shares the patched method; only the main webview receives promises.
+        let window = MAIN.with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .filter(|(main, _)| *main == view as *const NSView as usize)
+                .map(|(_, window)| window.clone())
+        });
         if let Some(window) = window {
             let pasteboard = info.draggingPasteboard();
             let receivers = promises(&pasteboard);
@@ -311,8 +316,10 @@ mod macos {
                 return Bool::YES;
             }
         }
-        let superclass = AnyClass::get(CLASS).unwrap().superclass().unwrap();
-        unsafe { msg_send![super(view, superclass), performDragOperation: info] }
+        match ORIGINAL.get() {
+            Some(original) => original(view, selector, info),
+            None => Bool::NO,
+        }
     }
 
     fn promises(pasteboard: &NSPasteboard) -> Vec<Retained<NSFilePromiseReceiver>> {
@@ -467,19 +474,42 @@ mod macos {
     mod tests {
         use super::*;
 
+        extern "C-unwind" fn wry_drop(
+            _: &NSView,
+            _: Sel,
+            _: &ProtocolObject<dyn NSDraggingInfo>,
+        ) -> Bool {
+            Bool::NO
+        }
+
         #[test]
-        fn promise_view_intercepts_the_native_drop_without_replacing_the_superclass() {
-            let superclass = NSView::class();
-            let class = promise_class(superclass);
-            assert_eq!(class.superclass(), Some(superclass));
-            assert!(class.instance_method(sel!(performDragOperation:)).is_some());
-            assert_eq!(class.instance_size(), superclass.instance_size());
-            let enter = sel!(draggingEntered:);
-            assert!(std::ptr::eq(
-                class.instance_method(enter).unwrap(),
-                superclass.instance_method(enter).unwrap(),
-            ));
-            assert_eq!(promise_class(superclass), class);
+        fn hook_patches_the_declaring_method_once() {
+            use objc2::runtime::ClassBuilder;
+            let mut builder =
+                ClassBuilder::new(c"PrometeuTestWryWebView", NSView::class()).unwrap();
+            unsafe {
+                builder.add_method(
+                    sel!(performDragOperation:),
+                    wry_drop as extern "C-unwind" fn(_, _, _) -> Bool,
+                );
+            }
+            let wry = builder.register();
+            let drop = sel!(performDragOperation:);
+            let before = wry.instance_method(drop).unwrap().implementation();
+            hook(wry);
+            let after = wry.instance_method(drop).unwrap().implementation();
+            assert_ne!(before as usize, after as usize);
+            assert_eq!(after as usize, perform_drop as PerformDrop as usize);
+            assert_eq!(
+                *ORIGINAL.get().unwrap() as usize,
+                wry_drop as PerformDrop as usize
+            );
+            // A second install never wraps the hook around itself.
+            hook(wry);
+            assert_eq!(
+                *ORIGINAL.get().unwrap() as usize,
+                wry_drop as PerformDrop as usize
+            );
         }
 
         #[test]
