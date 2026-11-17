@@ -243,15 +243,18 @@ event carries no type at all: WebKitGTK hides a pasted image from the page that
 way. A paste with text types keeps the browser's own paste.
 
 `file-drag` adapts the native drag without changing Tauri's internal events. The
-registration uses `on_webview_event`, filtering the `main` webview: with the
+ordinary-file registration uses `on_webview_event`, filtering the `main` webview: with the
 `unstable` feature, the runtime creates even the main webview as a child of the
 window and does not deliver its drag to the `WindowEvent` listeners.
 `enter`, `over`, `leave` and `drop` represent the gesture; `paths` is always a
 list. `position` contains `{ x, y }` in the runtime's coordinates: on
 macOS/wry 0.55 they are logical window points, without division by DPR.
 
-For a macOS promise, `pending` replaces `drop`, with a unique `id` and the final
-position. The frontend captures the target draft at that instant. The draft
+For a macOS promise, reception starts synchronously in the main native view's
+`performDragOperation:` callback, before AppKit ends the drop operation. The
+queued Tauri event is too late to request reception. A handled promise bypasses
+Wry's ordinary drop callback, so it produces no duplicate `drop` event.
+`pending` replaces `drop`, with a unique `id` and the final position. The frontend captures the target draft at that instant. The draft
 counts pending receipts and blocks sending in all of its presentations;
 completion or an error releases sending when the count reaches zero. `received`
 completes the same `id` with the materialized local paths and an optional

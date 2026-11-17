@@ -27,9 +27,19 @@ materialize the capture.
 ## Decision
 
 Register the types accepted by `NSFilePromiseReceiver` in the main webview,
-preserving Tauri's drag mechanism. Retain the receivers at the start of the
-gesture and materialize them on drop, in a private folder per gesture. The
-Objective-C bindings are already part of Tauri's transitive dependencies.
+preserving Tauri's drag mechanism for existing files. Subclass only that native
+view and intercept `performDragOperation:` for file promises. Read the gesture's
+pasteboard and request reception synchronously inside that callback, in a private
+folder per gesture. Do not forward a handled promise to Wry, which would queue a
+second drop. Other drag methods and ordinary file drops retain Wry's behavior.
+The Objective-C bindings are already part of Tauri's transitive dependencies.
+
+Tauri queues `on_webview_event` until after the native callback returns. Starting
+reception there violates AppKit's requirement that it happen during
+`prepareForDragOperation:`, `performDragOperation:` or `concludeDragOperation:`.
+On macOS 27.2.1 this raises the assertion at `NSFilePromiseReceiver.m:300`; the
+foreign exception reaches Tao's Rust panic boundary and aborts the process.
+Keeping receivers alive does not extend the allowed native callback scope.
 
 The internal `file-drag` event unifies immediate paths and promises. `pending`
 captures the destination in the UI; `received` delivers the paths without
@@ -49,8 +59,13 @@ successfully received files are preserved.
 ## Evidence
 
 - [Apple documentation](https://developer.apple.com/documentation/appkit/supporting-table-view-drag-and-drop-through-file-promises).
-- `src-tauri/src/file_drop.rs`: registration, reception, destination validation
-  and tests.
+- `src-tauri/src/file_drop.rs`: native interception, reception, destination
+  validation and tests. The interception test verifies the override and unchanged
+  instance layout; it does not simulate an AppKit drag session.
+- Two local crash logs on 2026-11-16 contain `NSFilePromiseReceiver.m:300`.
+  Disassembly of the installed AppKit maps that assertion to the callback-scope
+  requirement above. Native smoke validation must drag a floating screenshot
+  thumbnail into chat and also check an ordinary Finder file drop.
 - `e2e/file-drop.spec.ts`: asynchronous phases, tab switching, failure, retry,
   Finder, launcher and terminal over the mock, with selected WebKit scenarios.
 - The real thumbnail gesture was confirmed in Prometeu Dev on 2026-09-06, after
