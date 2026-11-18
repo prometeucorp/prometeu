@@ -51,8 +51,10 @@ fn validate(notice: &Notice) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn check_main(window: &tauri::WebviewWindow) -> Result<(), String> {
-    if window.label() != "main" {
+/// Takes the calling `Webview` rather than a `WebviewWindow`: once the embedded browser adds a
+/// child webview to the main window, Tauri no longer treats that window as a `WebviewWindow`.
+pub(crate) fn check_main(webview: &tauri::Webview) -> Result<(), String> {
+    if webview.label() != "main" {
         return Err(i18n::t("err.notifications.invalid"));
     }
     Ok(())
@@ -77,7 +79,7 @@ pub fn open_tab(app: &tauri::AppHandle, tab: Option<&str>) -> Result<(), String>
         app.emit_to("main", "notification-open", tab)
             .map_err(i18n::io)?;
     }
-    if let Some(main) = app.get_webview_window("main") {
+    if let Some(main) = app.get_window("main") {
         main.unminimize().map_err(i18n::io)?;
         main.show().map_err(i18n::io)?;
         main.set_focus().map_err(i18n::io)?;
@@ -87,10 +89,10 @@ pub fn open_tab(app: &tauri::AppHandle, tab: Option<&str>) -> Result<(), String>
 
 #[tauri::command]
 pub async fn notification_permission(
-    window: tauri::WebviewWindow,
+    webview: tauri::Webview,
     request: bool,
 ) -> Result<String, String> {
-    check_main(&window)?;
+    check_main(&webview)?;
     #[cfg(target_os = "macos")]
     return tauri::async_runtime::spawn_blocking(move || mac::permission(request))
         .await
@@ -105,10 +107,10 @@ pub async fn notification_permission(
 #[tauri::command]
 pub async fn notification_show(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    webview: tauri::Webview,
     notice: Notice,
 ) -> Result<(), String> {
-    check_main(&window)?;
+    check_main(&webview)?;
     validate(&notice)?;
     if notice
         .tab
@@ -194,8 +196,8 @@ pub fn notification_open(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn notification_sound(window: tauri::WebviewWindow, tone: Tone) -> Result<(), String> {
-    check_main(&window)?;
+pub async fn notification_sound(webview: tauri::Webview, tone: Tone) -> Result<(), String> {
+    check_main(&webview)?;
     play(tone).await
 }
 

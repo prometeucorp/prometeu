@@ -55,14 +55,14 @@ pub struct Current {
 #[tauri::command]
 pub fn island_enable(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    webview: tauri::Webview,
     enabled: bool,
 ) -> Result<(), String> {
-    notifications::check_main(&window)?;
+    notifications::check_main(&webview)?;
     ENABLED.store(enabled, Ordering::SeqCst);
     if enabled {
         let handle = app.clone();
-        let main = window.clone();
+        let main = webview.window();
         WATCH.call_once(move || {
             #[cfg(target_os = "macos")]
             follow_screens(handle.clone());
@@ -77,10 +77,10 @@ pub fn island_enable(
 #[tauri::command]
 pub fn island_update(
     app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
+    webview: tauri::Webview,
     snapshot: Value,
 ) -> Result<(), String> {
-    notifications::check_main(&window)?;
+    notifications::check_main(&webview)?;
     if serde_json::to_vec(&snapshot).map_err(i18n::io)?.len() > MAX_SNAPSHOT {
         return Err(i18n::t("err.notifications.invalid"));
     }
@@ -183,7 +183,8 @@ fn overlay(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
     .map_err(i18n::io)?;
     #[cfg(target_os = "macos")]
     {
-        let native = ns_window(&window)?;
+        let native = window.as_ref().window();
+        let native = ns_window(&native)?;
         native.setLevel(objc2_app_kit::NSStatusWindowLevel);
         native.setOpaque(false);
         native.setBackgroundColor(Some(&objc2_app_kit::NSColor::clearColor()));
@@ -192,7 +193,7 @@ fn overlay(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
 }
 
 #[cfg(target_os = "macos")]
-fn ns_window(window: &tauri::WebviewWindow) -> Result<&objc2_app_kit::NSWindow, String> {
+fn ns_window(window: &tauri::Window) -> Result<&objc2_app_kit::NSWindow, String> {
     // Called on the main thread; the Tauri window owns this pointer for the borrow's lifetime.
     Ok(unsafe {
         &*window
@@ -216,7 +217,8 @@ fn arrange(
     use objc2_app_kit::NSScreen;
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     let mtm = MainThreadMarker::new().ok_or_else(|| i18n::t("err.notifications.unavailable"))?;
-    let native = ns_window(overlay)?;
+    let native = overlay.as_ref().window();
+    let native = ns_window(&native)?;
     // safeAreaInsets and the auxiliary areas exist from macOS 12.
     let notched = |screen: &NSScreen| {
         screen.respondsToSelector(sel!(safeAreaInsets)) && screen.safeAreaInsets().top > 0.0
@@ -225,7 +227,7 @@ fn arrange(
         .iter()
         .find(|screen| notched(screen))
         .or_else(|| {
-            app.get_webview_window("main")
+            app.get_window("main")
                 .and_then(|main| ns_window(&main).ok().and_then(|main| main.screen()))
         })
         .or_else(|| NSScreen::mainScreen(mtm))
@@ -293,7 +295,7 @@ fn follow_screens(app: tauri::AppHandle) {
 /// Without a notch the island anchors to the main window's display (ADR 0089), so it must be
 /// rearranged when that window moves to another display. AppKit only reports screen parameter
 /// changes, not window moves, and moving the main window across displays changes neither.
-fn follow_main_window(main: &tauri::WebviewWindow, app: &tauri::AppHandle) {
+fn follow_main_window(main: &tauri::Window, app: &tauri::AppHandle) {
     let app = app.clone();
     main.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Moved(_))
@@ -319,7 +321,7 @@ fn arrange(
         (2.0 * WING + 48.0, TOP)
     };
     let monitor = app
-        .get_webview_window("main")
+        .get_window("main")
         .and_then(|main| main.current_monitor().ok().flatten())
         .or_else(|| overlay.primary_monitor().ok().flatten())
         .ok_or_else(|| i18n::t("err.notifications.unavailable"))?;

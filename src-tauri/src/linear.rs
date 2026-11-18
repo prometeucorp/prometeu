@@ -85,7 +85,7 @@ pub async fn linear_connect(app: AppHandle) -> Result<Status, String> {
     let result = blocking(connect).await;
     PENDING.store(false, Ordering::SeqCst);
     // Restore app focus after browser authorization.
-    if let Some(win) = app.get_webview_window("main") {
+    if let Some(win) = app.get_window("main") {
         let _ = win.set_focus();
     }
     let now = status();
