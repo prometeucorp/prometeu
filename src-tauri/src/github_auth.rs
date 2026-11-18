@@ -63,7 +63,7 @@ pub fn github_status() -> Status {
 pub async fn github_connect(app: AppHandle) -> Result<Status, String> {
     let handle = app.clone();
     let result = crate::linear::blocking(move || connect(&handle)).await;
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_window("main") {
         let _ = window.set_focus();
     }
     let now = status();
