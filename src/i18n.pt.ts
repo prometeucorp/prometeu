@@ -1328,7 +1328,7 @@ export const PT = {
   "boardRecovery.open": "Abrir pasta",
   "boardRecovery.close": "Fechar",
   "clean.auto": "Limpar worktrees arquivados automaticamente",
-  "clean.autoHint": "Ao arquivar ou concluir, remover o worktree inteiro (incluindo node_modules e arquivos ignorados) e branches criadas pelo workspace. Manter conversas e cartões arquivados. Perguntar quando houver mudanças sem commit ou não integradas.",
+  "clean.autoHint": "Ao arquivar ou concluir, remover o worktree inteiro (incluindo node_modules e arquivos ignorados) e branches criadas pelo workspace. Manter conversas e cartões arquivados. Mudanças sem commit ou não integradas também são apagadas.",
   "clean.title": "Limpar worktrees",
   "clean.offer": "Workspace arquivado. Tirar o worktree do disco?",
   "clean.keep": "Manter worktree",

@@ -47,9 +47,9 @@ export async function cleanupAfterArchive(say: (text: string, isError?: boolean)
   try {
     const row = (await invoke("cleanup_list")).find(item => item.id === id);
     if (!row) return;
-    if (row.blocked) { openCleanup(say, id); return; }
-    // The backend rechecks safety; the preference never authorizes force.
-    await invoke("cleanup_worktree", { id, force: false });
+    // Opting in is the approval to lose uncommitted or unmerged work; the backend still refuses
+    // unarchived workspaces and original clones, and keeps saved existing branches.
+    await invoke("cleanup_worktree", { id, force: true });
     say(tn(1, "clean.done", { size: size(row.sizeKb) }));
   } catch (error) { say(fromBack(error), true); }
 }

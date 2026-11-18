@@ -1299,7 +1299,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "boardRecovery.open": "Open folder",
   "boardRecovery.close": "Close",
   "clean.auto": "Automatically clean up archived worktrees",
-  "clean.autoHint": "After archiving or finishing, remove the entire worktree (including node_modules and ignored files) and workspace-created branches. Keep conversations and archived cards. Ask when changes are uncommitted or unmerged.",
+  "clean.autoHint": "After archiving or finishing, remove the entire worktree (including node_modules and ignored files) and workspace-created branches. Keep conversations and archived cards. Uncommitted or unmerged changes are deleted too.",
   "clean.title": "Clean up worktrees",
   "clean.offer": "Workspace archived. Remove the worktree from disk?",
   "clean.keep": "Keep worktree",

@@ -204,7 +204,7 @@ unrecognized or inaccessible values keep the scoped confirmation, preserving
 upgrade behavior. `false` disables automation. The preference applies across
 projects in that webview and survives restarts; it is not stored on the board
 or synchronized through the relay. No IPC or board format changes are needed.
-Cleanup still uses the existing backend safety checks without force; see the
+Enabled cleanup runs with `force`, so dirty or unmerged work is deleted; see the
 [Git contract](git.md#archived-worktree-cleanup) and
 [ADR 0048](../decisions/0048-scoped-cleanup-offer.md).
 Tests: `src/cleanup.test.ts`.
