@@ -77,6 +77,7 @@ impl NativeContexts {
             .filter(|m| !m.is_empty())
             .unwrap_or(&self.config.model);
         CodexPreparation {
+            conversation_mode: tab.map(|tab| tab.conversation_mode).unwrap_or_default(),
             workspace: workspace.map_or(PRIMARY, |w| w.id.as_str()).into(),
             session: session.into(),
             selection: self.selection.clone(),
@@ -100,6 +101,14 @@ impl ContextFactory for NativeContexts {
         workspace: &Workspace,
         session: &str,
     ) -> Result<(), String> {
+        prometeu_runtime::provider::require_chat(
+            workspace
+                .tabs
+                .iter()
+                .find(|tab| tab.id == session)
+                .map(|tab| tab.conversation_mode)
+                .unwrap_or_default(),
+        )?;
         runtime.reconfigure(Arc::new(self.preparation(Some(workspace), session)))
     }
     fn shell(

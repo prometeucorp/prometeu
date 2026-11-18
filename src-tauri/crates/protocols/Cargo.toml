@@ -6,5 +6,7 @@ rust-version = "1.88"
 publish = false
 
 [dependencies]
+base64 = "0.22"
 prometeu-core = { path = "../core" }
 serde_json = "1"
+sha2 = "0.10"

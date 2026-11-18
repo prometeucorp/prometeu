@@ -273,6 +273,54 @@ option = "retained"
     std::fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn derived_codex_home_migrates_shared_control_links_and_preserves_physical_endpoints() {
+    let root =
+        std::env::temp_dir().join(format!("prometeu-codex-control-{}", uuid::Uuid::new_v4()));
+    let base = root.join("base");
+    let home = root.join("workspace");
+    let original = base.join("app-server-control");
+    let local = home.join("app-server-control");
+    std::fs::create_dir_all(&original).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(original.join("existing-control"), "native-owned").unwrap();
+    std::fs::write(base.join("auth.json"), "shared-login").unwrap();
+    std::os::unix::fs::symlink(&original, &local).unwrap();
+    let prepare = || {
+        host()
+            .prepare_codex_home(&base, &home, &home.join("marketplace"), &[])
+            .unwrap()
+    };
+    prepare();
+    assert!(std::fs::symlink_metadata(&local).is_err());
+    assert_eq!(
+        std::fs::read_to_string(original.join("existing-control")).unwrap(),
+        "native-owned"
+    );
+    assert_eq!(
+        std::fs::read_link(home.join("auth.json")).unwrap(),
+        base.join("auth.json")
+    );
+    // Native creation is retained across another tab's preparation of the same config home.
+    std::fs::create_dir(&local).unwrap();
+    std::fs::write(local.join("current-control"), "derived-owned").unwrap();
+    prepare();
+    assert!(!std::fs::symlink_metadata(&local)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert_eq!(
+        std::fs::read_to_string(local.join("current-control")).unwrap(),
+        "derived-owned"
+    );
+    assert!(!original.join("current-control").exists());
+    // A previously absent runtime entry must not acquire a link when it appears in the base.
+    std::fs::remove_dir_all(&local).unwrap();
+    prepare();
+    assert!(std::fs::symlink_metadata(&local).is_err());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 struct Files;
 impl PackageFiles for Files {
     fn ensure_private_dir(&self, path: &Path) -> Result<(), String> {

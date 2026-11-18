@@ -183,6 +183,9 @@ pub(crate) enum Request {
     SetWorkspacePlugins(Value),
     SetWorkspaceSkills(Value),
     SetToolsGlobal(Value),
+    SetConversationMode {
+        mode: prometeu_core::board::ConversationMode,
+    },
     WorkspaceTools {
         id: String,
         agent: Option<prometeu_core::board::ProviderId>,
@@ -409,7 +412,8 @@ pub(crate) enum Request {
     },
     PtyWrite {
         session: String,
-        data: String,
+        data: Option<String>,
+        bytes: Option<Vec<u8>>,
     },
     PtyResize {
         session: String,
@@ -524,6 +528,12 @@ impl Host {
             }
             Request::SetToolsGlobal(body) => {
                 let catalog = self.catalog.global_tools(&body)?;
+                self.application_events.publish_board(catalog.board)?;
+                Ok(Value::Null)
+            }
+            Request::SetConversationMode { mode } => {
+                crate::provider::require_chat(mode)?;
+                let catalog = self.catalog.conversation_mode(mode)?;
                 self.application_events.publish_board(catalog.board)?;
                 Ok(Value::Null)
             }
@@ -756,6 +766,7 @@ impl Host {
                 prompt,
                 choice,
             } => {
+                crate::provider::require_chat(self.catalog.snapshot().board.conversation_mode)?;
                 self.admit_application_input(&workspace)?;
                 self.services
                     .discovery
@@ -920,13 +931,22 @@ impl Host {
                     (false, true) => Err("terminal_not_found".into()),
                 }
             }
-            Request::PtyWrite { session, data } => {
+            Request::PtyWrite {
+                session,
+                data,
+                bytes,
+            } => {
+                let bytes = match (data, bytes) {
+                    (Some(text), None) => text.into_bytes(),
+                    (None, Some(bytes)) => bytes,
+                    _ => return Err(prometeu_core::error::code("err.terminalAgent.data")),
+                };
                 let terminal = self.docks.get_mut(&session).ok_or("terminal_not_found")?;
                 let id = terminal.current()?["id"]
                     .as_str()
                     .ok_or("terminal_not_found")?
                     .to_owned();
-                terminal.write(&id, data.as_bytes()).map(|()| Value::Null)
+                terminal.write(&id, &bytes).map(|()| Value::Null)
             }
             Request::PtyResize {
                 session,

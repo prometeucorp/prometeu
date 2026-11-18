@@ -2,6 +2,17 @@ use super::*;
 use crate::process::ProcessIdentity;
 use serde_json::json;
 
+#[test]
+fn launch_mode_distinguishes_inheritance_from_an_explicit_chat_choice() {
+    let inherited: Launch = serde_json::from_value(json!({})).unwrap();
+    let chat: Launch = serde_json::from_value(json!({"conversation_mode":"chat"})).unwrap();
+    let terminal: Launch = serde_json::from_value(json!({"conversation_mode":"terminal"})).unwrap();
+    assert_eq!(inherited.conversation_mode, None);
+    assert_eq!(chat.conversation_mode, Some(ConversationMode::Chat));
+    assert_eq!(terminal.conversation_mode, Some(ConversationMode::Terminal));
+    assert!(serde_json::from_value::<Launch>(json!({"conversation_mode":"unknown"})).is_err());
+}
+
 #[derive(Default)]
 struct Conversation(ProcessIdentity);
 impl HostedConversation for Conversation {

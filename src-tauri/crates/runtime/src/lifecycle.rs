@@ -40,6 +40,14 @@ impl Host {
     }
     pub(crate) fn retune_tab(&mut self, id: &str, tab: &str, choice: Choice) -> Result<(), String> {
         let mut workspace = self.catalog.get(id)?.clone();
+        crate::provider::require_chat(
+            workspace
+                .tabs
+                .iter()
+                .find(|saved| saved.id == tab)
+                .map(|saved| saved.conversation_mode)
+                .unwrap_or_default(),
+        )?;
         workspace.retune(tab, choice.clone())?;
         self.admit_application_input(id)?;
         if let Some(context) = self.contexts.get_mut(tab) {

@@ -169,6 +169,7 @@ impl Drop for Waiter {
 mod tests;
 
 pub mod terminal;
+pub mod terminal_state;
 
 pub mod auxiliary;
 

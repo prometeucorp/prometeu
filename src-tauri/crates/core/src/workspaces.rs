@@ -159,6 +159,7 @@ impl ApplicationPreparation {
             .map(crate::selection::Selection::only);
         workspace.model = draft.launch.model.clone();
         workspace.effort = draft.launch.effort.clone();
+        workspace.tabs[0].conversation_mode = draft.launch.conversation_mode.unwrap_or_default();
         workspace.issue = draft.issue.clone();
         workspace.tabs[0].permission = Some(
             draft
@@ -295,6 +296,14 @@ impl Workspaces {
         crate::workspace_tools::global(&mut next.board, body)?;
         self.commit(next)
     }
+    pub fn conversation_mode(
+        &mut self,
+        mode: crate::board::ConversationMode,
+    ) -> Result<Catalog, String> {
+        let mut next = self.catalog.clone();
+        next.board.conversation_mode = mode;
+        self.commit(next)
+    }
     pub fn tool_trust(
         &mut self,
         declaration: crate::tool_resolution::ProjectDeclaration,
@@ -323,13 +332,14 @@ impl Workspaces {
     pub fn create(&mut self, title: &str, path: &str) -> Result<Catalog, String> {
         let title = self.validate_creation(title)?;
         let project = self.folders.inspect(path)?;
-        let workspace = in_place(
+        let mut workspace = in_place(
             uuid::Uuid::new_v4().to_string(),
             title.into(),
             &project,
             &self.catalog.board.stages[0],
             self.provider,
         );
+        workspace.tabs[0].conversation_mode = self.catalog.board.conversation_mode;
         self.register(project, workspace)
     }
     pub fn create_worktree(
@@ -351,6 +361,7 @@ impl Workspaces {
         workspace.branch = prepared.branch;
         workspace.repos[0].worktree = prepared.path.clone();
         workspace.repos[0].base = prepared.base;
+        workspace.tabs[0].conversation_mode = self.catalog.board.conversation_mode;
         // Git and catalog persistence are separate commits. Never delete files after an
         // uncertain save: the atomic rename may already have published the new catalog.
         self.register(prepared.project, workspace)
@@ -395,9 +406,16 @@ impl Workspaces {
             (true, false, None | Some(true)) | (false, true, _) => {}
             _ => return Err(crate::error::code("err.windows.workspaceOptions")),
         }
+        let mut draft = draft.clone();
+        draft.launch.conversation_mode = Some(
+            draft
+                .launch
+                .conversation_mode
+                .unwrap_or(self.catalog.board.conversation_mode),
+        );
         Ok(ApplicationPreparation {
             id: uuid::Uuid::new_v4().to_string(),
-            draft: draft.clone(),
+            draft,
             folders: self.folders.clone(),
             provider: self.provider,
         })
@@ -490,11 +508,13 @@ impl Workspaces {
         }
         let mut next = self.catalog.clone();
         let tab = Tab {
+            conversation_mode: self.catalog.board.conversation_mode,
             id: uuid::Uuid::new_v4().to_string(),
             title: String::new(),
             status: Status::Desligada,
             note: None,
             pending_prompt: None,
+            native_dispatch: None,
             plan: false,
             permission: current.tabs.first().and_then(|tab| tab.permission),
             task: None,
@@ -594,11 +614,13 @@ fn in_place(
         skills: None,
         active: Some(id.clone()),
         tabs: vec![Tab {
+            conversation_mode: Default::default(),
             id,
             title: String::new(),
             status: Status::Desligada,
             note: None,
             pending_prompt: None,
+            native_dispatch: None,
             plan: false,
             permission: None,
             task: None,
@@ -1013,8 +1035,22 @@ mod tests {
             Some(PRIMARY)
         );
         store.fail.store(false, Ordering::SeqCst);
+        service
+            .conversation_mode(crate::board::ConversationMode::Terminal)
+            .unwrap();
         let sibling = service.add_tab(PRIMARY, None).unwrap();
         assert_ne!(sibling.id, PRIMARY);
+        assert_eq!(
+            sibling.conversation_mode,
+            crate::board::ConversationMode::Terminal
+        );
+        assert_eq!(
+            service.get(PRIMARY).unwrap().tabs[0].conversation_mode,
+            crate::board::ConversationMode::Chat
+        );
+        service
+            .conversation_mode(crate::board::ConversationMode::Chat)
+            .unwrap();
         let mut invalid = store.value.lock().unwrap().clone().unwrap();
         invalid.board.workspaces[0].tabs[1].id = PRIMARY.into();
         *store.value.lock().unwrap() = Some(invalid);
@@ -1034,6 +1070,10 @@ mod tests {
         let restored =
             Workspaces::open(store, Arc::new(Folders), "/project", ProviderId::Codex).unwrap();
         assert_eq!(restored.get(PRIMARY).unwrap().tabs[0].id, sibling.id);
+        assert_eq!(
+            restored.get(PRIMARY).unwrap().tabs[0].conversation_mode,
+            crate::board::ConversationMode::Terminal
+        );
     }
     #[test]
     fn creation_selection_and_stage_preserve_independent_sessions() {

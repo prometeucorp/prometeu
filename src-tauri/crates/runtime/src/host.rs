@@ -180,17 +180,22 @@ impl Host {
         let mut quit = request.v == 1 && matches!(request.action, Action::Shutdown);
         let result = match (request.v, request.action) {
             (1, Action::Application { command, args }) => self.application(command, args),
-            (1, Action::WorkspaceWorktree { request }) => self
-                .catalog
-                .create_worktree(&request, self.worktrees.as_ref())
-                .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
+            (1, Action::WorkspaceWorktree { request }) => {
+                crate::provider::require_chat(self.catalog.snapshot().board.conversation_mode)
+                    .and_then(|()| {
+                        self.catalog
+                            .create_worktree(&request, self.worktrees.as_ref())
+                    })
+                    .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string()))
+            }
             (1, Action::WorkspaceList) => {
                 serde_json::to_value(self.catalog.snapshot()).map_err(|e| e.to_string())
             }
-            (1, Action::WorkspaceCreate { title, path }) => self
-                .catalog
-                .create(&title, &path)
-                .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
+            (1, Action::WorkspaceCreate { title, path }) => {
+                crate::provider::require_chat(self.catalog.snapshot().board.conversation_mode)
+                    .and_then(|()| self.catalog.create(&title, &path))
+                    .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string()))
+            }
             (1, Action::WorkspaceSelect { id }) => self
                 .select(&id)
                 .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),

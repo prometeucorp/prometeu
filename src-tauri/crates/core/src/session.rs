@@ -38,6 +38,19 @@ pub trait SessionRuntime {
     fn mark_ready(&self, session: &str);
     /// Implementations recheck process identity and idle-only admission under their process lock.
     fn send(&self, session: &str, text: &str, idle_only: bool) -> Result<(), String>;
+    fn send_dispatch(
+        &self,
+        _: &str,
+        _: &crate::board::NativeDispatch,
+    ) -> Result<DispatchOutcome, String> {
+        Err("native_dispatch_unavailable".into())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DispatchOutcome {
+    Sent,
+    AlreadyAccepted,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -54,6 +67,9 @@ pub trait SessionAccounts {
 pub trait SessionPublication {
     fn publish(&self);
     fn looking(&self) -> Option<String>;
+    fn persist(&self) -> Result<(), String> {
+        Err("durable_publication_unavailable".into())
+    }
 }
 
 pub trait SessionDiagnostics {
@@ -101,6 +117,16 @@ impl SessionService<'_> {
             self.runtime.stop(session);
         }
         let queued = lock(self.board).tab_mut(session).is_some_and(|tab| {
+            if tab.native_dispatch.is_some() {
+                match &mut tab.pending_prompt {
+                    Some(pending) => {
+                        pending.push_str("\n\n");
+                        pending.push_str(text);
+                    }
+                    None => tab.pending_prompt = Some(text.to_owned()),
+                }
+                return true;
+            }
             tab.pending_prompt.as_mut().is_some_and(|pending| {
                 pending.push_str("\n\n");
                 pending.push_str(text);
@@ -154,6 +180,13 @@ impl SessionService<'_> {
 
     pub fn send_prompt(&self, session: &str, prefix: Option<String>) {
         if self.runtime.state(session).waits_for_turn {
+            return;
+        }
+        if lock(self.board)
+            .tab_mut(session)
+            .is_some_and(|tab| tab.conversation_mode == crate::board::ConversationMode::Terminal)
+        {
+            self.send_native_prompt(session, prefix);
             return;
         }
         {
@@ -214,6 +247,93 @@ impl SessionService<'_> {
         }
     }
 
+    fn send_native_prompt(&self, session: &str, prefix: Option<String>) {
+        if let Some(prefix) = prefix {
+            if let Some(prompt) = lock(self.board)
+                .tab_mut(session)
+                .and_then(|tab| tab.pending_prompt.as_mut())
+            {
+                prompt.insert_str(0, &prefix);
+            }
+        }
+        match self.account_boundary(session) {
+            Ok(AccountBoundary::Keep) => {}
+            Ok(AccountBoundary::Restart) => {
+                if let Err(error) = self.runtime.revive(session) {
+                    self.diagnostics.account_error(&error);
+                }
+                return;
+            }
+            Ok(AccountBoundary::Wait) => return,
+            Err(error) => {
+                self.diagnostics.account_error(&error);
+                return;
+            }
+        }
+        let dispatch = {
+            let mut board = lock(self.board);
+            let Some(tab) = board.tab_mut(session) else {
+                return;
+            };
+            if tab.native_dispatch.is_none() {
+                let Some(text) = tab.pending_prompt.take() else {
+                    return;
+                };
+                tab.native_dispatch = Some(crate::board::NativeDispatch {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    text,
+                });
+            }
+            tab.native_dispatch.clone().unwrap()
+        };
+        // The item remains recoverable on the board until a durable acceptance receipt exists.
+        // A host cannot write it to the native process before this persistence barrier succeeds.
+        let outcome = self
+            .publication
+            .persist()
+            .and_then(|_| self.runtime.send_dispatch(session, &dispatch));
+        match outcome {
+            Ok(outcome) => {
+                {
+                    let mut board = lock(self.board);
+                    if let Some(tab) = board.tab_mut(session) {
+                        if tab
+                            .native_dispatch
+                            .as_ref()
+                            .is_some_and(|current| current.id == dispatch.id)
+                        {
+                            tab.native_dispatch = None;
+                        }
+                    }
+                }
+                if let Err(error) = self.publication.persist() {
+                    if let Some(tab) = lock(self.board).tab_mut(session) {
+                        tab.native_dispatch = Some(dispatch);
+                    }
+                    self.update(session, None, Note::Set(error.clone()), None);
+                    self.diagnostics.pending_error(session, &error);
+                    return;
+                }
+                self.update(
+                    session,
+                    (outcome == DispatchOutcome::Sent).then_some(Status::Rodando),
+                    Note::Clear,
+                    None,
+                );
+            }
+            Err(error) => {
+                if let Some(tab) = lock(self.board).tab_mut(session) {
+                    if let Some(run) = tab.task.as_mut() {
+                        run.paused = true;
+                        run.error = Some(error.clone());
+                    }
+                }
+                self.update(session, None, Note::Set(error.clone()), None);
+                self.diagnostics.pending_error(session, &error);
+            }
+        }
+    }
+
     pub fn remember_session(&self, session: &str, provider_session: &str) {
         let mut board = lock(self.board);
         let Some(tab) = board.tab_mut(session) else {
@@ -228,12 +348,29 @@ impl SessionService<'_> {
     }
 
     pub fn update(&self, session: &str, status: Option<Status>, note: Note, tokens: Option<u64>) {
+        self.update_state(session, status, note, tokens, true);
+    }
+
+    /// Read-only availability is not a completed turn or a new request for the person's attention.
+    pub(crate) fn observe_state(&self, session: &str, status: Option<Status>, note: Note) {
+        self.update_state(session, status, note, None, false);
+    }
+
+    fn update_state(
+        &self,
+        session: &str,
+        status: Option<Status>,
+        note: Note,
+        tokens: Option<u64>,
+        attention: bool,
+    ) {
         let looking = self.publication.looking();
         let mut board = lock(self.board);
         let Some(ws) = board.workspace_of_mut(session) else {
             return;
         };
-        if matches!(status, Some(Status::Pronta | Status::Querendo))
+        if attention
+            && matches!(status, Some(Status::Pronta | Status::Querendo))
             && looking.as_deref() != Some(ws.id.as_str())
         {
             ws.unread = true;

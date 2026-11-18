@@ -122,6 +122,12 @@ impl Host {
             });
         }
         if let Request::CreateWorkspace { draft, cols, rows } = request {
+            crate::provider::require_chat(
+                draft
+                    .launch
+                    .conversation_mode
+                    .unwrap_or(self.catalog.snapshot().board.conversation_mode),
+            )?;
             if cols == 0 || rows == 0 {
                 return Err("terminal_size_invalid".into());
             }

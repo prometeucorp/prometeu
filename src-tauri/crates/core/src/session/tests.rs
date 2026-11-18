@@ -12,6 +12,10 @@ struct Fixture {
     setup: AtomicBool,
     fail_send: AtomicBool,
     fail_revive: AtomicBool,
+    fail_persist: AtomicBool,
+    fail_after_dispatch: AtomicBool,
+    dispatch_accepted: AtomicBool,
+    durable: Mutex<Option<Board>>,
     effects: Mutex<Vec<String>>,
     looking: Mutex<Option<String>>,
 }
@@ -25,6 +29,7 @@ impl Fixture {
             runtime: Mutex::new(RuntimeState { up: true, ready: true, waits_for_turn: false }),
             account: Mutex::new(Ok(AccountState::default())),
             setup: AtomicBool::new(false), fail_send: AtomicBool::new(false), fail_revive: AtomicBool::new(false),
+            fail_persist: AtomicBool::new(false), fail_after_dispatch: AtomicBool::new(false), dispatch_accepted: AtomicBool::new(false), durable: Mutex::new(None),
             effects: Mutex::new(vec![]), looking: Mutex::new(None),
         }
     }
@@ -85,6 +90,30 @@ impl SessionRuntime for Fixture {
         }
         Ok(())
     }
+    fn send_dispatch(
+        &self,
+        session: &str,
+        dispatch: &crate::board::NativeDispatch,
+    ) -> Result<DispatchOutcome, String> {
+        let mut durable = lock(&self.durable)
+            .clone()
+            .expect("dispatch must first persist");
+        let tab = durable.tab_mut(session).unwrap();
+        assert_eq!(tab.native_dispatch.as_ref().unwrap().id, dispatch.id);
+        assert_eq!(tab.native_dispatch.as_ref().unwrap().text, dispatch.text);
+        if self.dispatch_accepted.load(Ordering::Relaxed) {
+            self.effect("already-accepted".into());
+            return Ok(DispatchOutcome::AlreadyAccepted);
+        }
+        self.effect(format!("dispatch:{}:{}", dispatch.id, dispatch.text));
+        if self.fail_send.load(Ordering::Relaxed) {
+            return Err("uncertain acceptance".into());
+        }
+        if self.fail_after_dispatch.load(Ordering::Relaxed) {
+            self.fail_persist.store(true, Ordering::Relaxed);
+        }
+        Ok(DispatchOutcome::Sent)
+    }
 }
 impl SessionAccounts for Fixture {
     fn state(&self, _: &str) -> Result<AccountState, String> {
@@ -98,6 +127,14 @@ impl SessionPublication for Fixture {
     fn looking(&self) -> Option<String> {
         lock(&self.looking).clone()
     }
+    fn persist(&self) -> Result<(), String> {
+        self.effect("persist".into());
+        if self.fail_persist.load(Ordering::Relaxed) {
+            return Err("storage unavailable".into());
+        }
+        *lock(&self.durable) = Some(lock(&self.board).clone());
+        Ok(())
+    }
 }
 impl SessionDiagnostics for Fixture {
     fn account_error(&self, error: &str) {
@@ -106,6 +143,125 @@ impl SessionDiagnostics for Fixture {
     fn pending_error(&self, _: &str, error: &str) {
         self.effect(format!("pending:{error}"));
     }
+}
+
+#[test]
+fn native_dispatch_is_durable_before_write_and_uncertainty_preserves_its_identity_and_later_queue()
+{
+    let fixture = Fixture::new();
+    lock(&fixture.board).tab_mut("s").unwrap().conversation_mode =
+        crate::board::ConversationMode::Terminal;
+    fixture.queue("First prompt");
+    fixture.fail_send.store(true, Ordering::Relaxed);
+    fixture.service().send_prompt("s", None);
+    let dispatch = lock(&fixture.board)
+        .tab_mut("s")
+        .unwrap()
+        .native_dispatch
+        .clone()
+        .unwrap();
+    assert_eq!(dispatch.text, "First prompt");
+    assert!(fixture.pending().is_none());
+    fixture.service().send("s", "Later prompt", false).unwrap();
+    assert_eq!(fixture.pending().as_deref(), Some("Later prompt"));
+    assert_eq!(
+        lock(&fixture.board)
+            .tab_mut("s")
+            .unwrap()
+            .native_dispatch
+            .as_ref()
+            .unwrap()
+            .id,
+        dispatch.id
+    );
+    let bytes = serde_json::to_vec(&*lock(&fixture.board)).unwrap();
+    let restored = Fixture::new();
+    *lock(&restored.board) = serde_json::from_slice(&bytes).unwrap();
+    restored.dispatch_accepted.store(true, Ordering::Relaxed);
+    restored.service().send_prompt("s", None);
+    assert!(lock(&restored.board)
+        .tab_mut("s")
+        .unwrap()
+        .native_dispatch
+        .is_none());
+    assert_eq!(restored.pending().as_deref(), Some("Later prompt"));
+    assert!(lock(&restored.effects)
+        .iter()
+        .any(|effect| effect == "already-accepted"));
+    assert!(!lock(&restored.effects)
+        .iter()
+        .any(|effect| effect.starts_with("dispatch:") || effect.starts_with("send:")));
+    assert!(matches!(
+        lock(&restored.board).tab_mut("s").unwrap().status,
+        Status::Pronta
+    ));
+}
+
+#[test]
+fn native_dispatch_storage_failure_keeps_recoverable_text_without_calling_the_process() {
+    let fixture = Fixture::new();
+    lock(&fixture.board).tab_mut("s").unwrap().conversation_mode =
+        crate::board::ConversationMode::Terminal;
+    fixture.queue("Keep this input");
+    fixture.fail_persist.store(true, Ordering::Relaxed);
+    fixture.service().send_prompt("s", None);
+    assert_eq!(
+        lock(&fixture.board)
+            .tab_mut("s")
+            .unwrap()
+            .native_dispatch
+            .as_ref()
+            .unwrap()
+            .text,
+        "Keep this input"
+    );
+    assert!(!lock(&fixture.effects)
+        .iter()
+        .any(|effect| effect.starts_with("dispatch:")));
+}
+
+#[test]
+fn native_dispatch_accepted_before_board_clear_recovers_without_a_second_send() {
+    let fixture = Fixture::new();
+    lock(&fixture.board).tab_mut("s").unwrap().conversation_mode =
+        crate::board::ConversationMode::Terminal;
+    fixture.queue("Accepted once");
+    fixture.fail_after_dispatch.store(true, Ordering::Relaxed);
+    fixture.service().send_prompt("s", None);
+    let saved = lock(&fixture.durable).clone().unwrap();
+    let id = lock(&fixture.board)
+        .tab_mut("s")
+        .unwrap()
+        .native_dispatch
+        .as_ref()
+        .unwrap()
+        .id
+        .clone();
+    let restored = Fixture::new();
+    *lock(&restored.board) = saved;
+    assert_eq!(
+        lock(&restored.board)
+            .tab_mut("s")
+            .unwrap()
+            .native_dispatch
+            .as_ref()
+            .unwrap()
+            .id,
+        id
+    );
+    restored.dispatch_accepted.store(true, Ordering::Relaxed);
+    restored.service().send_prompt("s", None);
+    assert!(lock(&restored.board)
+        .tab_mut("s")
+        .unwrap()
+        .native_dispatch
+        .is_none());
+    assert!(lock(&restored.effects)
+        .iter()
+        .any(|effect| effect == "already-accepted"));
+    assert!(!lock(&restored.effects)
+        .iter()
+        .any(|effect| effect.starts_with("dispatch:") || effect.starts_with("send:")));
 }
 impl SessionContext for Fixture {
     fn tokens(&self, _: &str) -> Option<u64> {
@@ -250,6 +406,60 @@ fn blank_input_has_no_effect_and_missing_tabs_keep_the_existing_error() {
     assert_eq!(
         f.service().send("missing", "hello", false),
         Err(code("err.session.noTab"))
+    );
+}
+
+#[test]
+fn execution_observations_update_availability_without_completion_or_answer_routes() {
+    let f = Fixture::new();
+    let sessions = f.service();
+    let work = Mutex::new(HashMap::<String, Work>::new());
+    let reactions = SessionReactions {
+        sessions: &sessions,
+        work: &work,
+        context: &f,
+        actions: &f,
+        usage: &f,
+    };
+    let ready = AtomicBool::new(false);
+    let react = |state: &str, detail: Option<&str>| {
+        reactions.react(
+            "s",
+            &json!({
+                "type":"execution.observed", "state":state, "scope":"root", "detail":detail
+            }),
+            &ready,
+        )
+    };
+    let status = || serde_json::to_value(lock(&f.board).tab_mut("s").unwrap().status).unwrap();
+    assert!(!react("working", Some("Inspecting sources")));
+    assert_eq!(status(), "rodando");
+    assert!(!react("idle", None));
+    assert_eq!(status(), "pronta");
+    assert!(
+        !lock(&f.board).workspaces[0].unread,
+        "availability does not announce completion"
+    );
+    assert!(
+        !ready.load(Ordering::Relaxed),
+        "status is not native input readiness"
+    );
+    assert!(!react("blocked", Some("Native approval required")));
+    assert_eq!(status(), "querendo");
+    assert!(lock(&f.board).workspaces[0].unread);
+    assert!(lock(&work)["s"].waiting());
+    assert!(!react("unknown", None));
+    assert_eq!(status(), "rodando");
+    assert!(!lock(&work)["s"].waiting());
+    assert!(!lock(&f.effects)
+        .iter()
+        .any(|effect| effect.starts_with("completed:")));
+    reactions.react("s", &json!({"type":"request.opened","requestId":"real","kind":"question","input":{"questions":[{"question":"Which target?"}]}}), &ready);
+    react("idle", None);
+    assert_eq!(status(), "querendo");
+    assert_eq!(
+        lock(&f.board).tab_mut("s").unwrap().note.as_deref(),
+        Some("Which target?")
     );
 }
 

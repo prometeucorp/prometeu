@@ -73,6 +73,20 @@ impl SessionReactions<'_> {
                     self.sessions.update(id, None, Note::Keep, None);
                 }
             }
+            Some("execution.observed") => {
+                let note = match (status, frame["state"].as_str()) {
+                    (Some(Status::Querendo), Some(state)) if state != "blocked" => Note::Keep,
+                    _ => match frame["detail"].as_str().filter(|detail| !detail.is_empty()) {
+                        Some(detail) => Note::Set(detail.into()),
+                        None => Note::Clear,
+                    },
+                };
+                if matches!(frame["state"].as_str(), Some("idle" | "unknown")) {
+                    self.sessions.observe_state(id, status, note);
+                } else {
+                    self.sessions.update(id, status, note, None);
+                }
+            }
             // Output while a request is open leaves the tab waiting and the request's note.
             Some("assistant.block") if status == Some(Status::Rodando) => {
                 let note = match frame["block"]["kind"].as_str() {
@@ -129,6 +143,13 @@ impl SessionReactions<'_> {
 /// lets the agent run again. The desktop reactions and the WSL runtime both derive status here.
 pub fn next_status(event: &Value, settled: bool, waited: bool, work: &Work) -> Option<Status> {
     let moved = match event["type"].as_str() {
+        Some("execution.observed") => match event["state"].as_str() {
+            Some("working") => Status::Rodando,
+            Some("blocked") => Status::Querendo,
+            Some("idle") if !work.busy() => Status::Pronta,
+            Some("idle" | "unknown") => Status::Rodando,
+            _ => return None,
+        },
         Some("user.message" | "assistant.started" | "assistant.block") => Status::Rodando,
         Some("request.opened") => Status::Querendo,
         Some("request.closed") if waited => Status::Rodando,

@@ -87,8 +87,32 @@ pub struct Choice {
     pub effort: String,
 }
 
+/// The conversation surface is fixed when the tab is created, independently of model choice.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConversationMode {
+    #[default]
+    Chat,
+    Terminal,
+}
+
+impl ConversationMode {
+    pub fn is_chat(&self) -> bool {
+        matches!(self, Self::Chat)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NativeDispatch {
+    pub id: String,
+    pub text: String,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Tab {
+    /// Old transcripts keep their chat surface when the default for new tabs changes.
+    #[serde(default, skip_serializing_if = "ConversationMode::is_chat")]
+    pub conversation_mode: ConversationMode,
     /// Restart-only runtime modes must survive process loss until the person approves execution.
     #[serde(default)]
     pub plan: bool,
@@ -106,6 +130,10 @@ pub struct Tab {
     pub status: Status,
     pub note: Option<String>,
     pub pending_prompt: Option<String>,
+    /// One immutable native queue item survives process/write uncertainty independently of
+    /// later queued input. Its opaque token is never a provider or UI control identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_dispatch: Option<NativeDispatch>,
     /// Cumulative token estimate. Context after compaction adds to the previous total.
     #[serde(default)]
     pub tokens: Option<u64>,
@@ -422,6 +450,9 @@ pub struct ToolTrust {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Board {
+    /// Applied only when creating a conversation without an explicit mode.
+    #[serde(default, skip_serializing_if = "ConversationMode::is_chat")]
+    pub conversation_mode: ConversationMode,
     /// Opaque telemetry identities for legacy path-based projects and repository branches.
     #[serde(default)]
     pub telemetry_ids: crate::identities::Identities,
@@ -512,6 +543,7 @@ pub fn split_skills(plugins: &mut Option<Selection>, skills: &mut Option<Selecti
 impl Default for Board {
     fn default() -> Self {
         Board {
+            conversation_mode: ConversationMode::Chat,
             telemetry_ids: Default::default(),
             delegations: Vec::new(),
             actions: Default::default(),
@@ -550,7 +582,7 @@ impl Board {
                 .iter()
                 .find(|w| w.id == delegation.workspace)
                 .and_then(|w| w.tabs.iter().find(|t| t.id == delegation.id))
-                .is_some_and(|t| t.pending_prompt.is_some());
+                .is_some_and(|t| t.pending_prompt.is_some() || t.native_dispatch.is_some());
             delegation.reconcile_restart(pending);
         }
         // Only legacy workspaces with no project ID reconstruct the catalog. Explicit IDs preserve
@@ -577,6 +609,7 @@ impl Board {
             // preparation never completed.
             if ws.tabs.is_empty() && ws.failed.is_none() {
                 ws.tabs.push(Tab {
+                    conversation_mode: ConversationMode::Chat,
                     plan: false,
                     permission: None,
                     task: None,
@@ -586,6 +619,7 @@ impl Board {
                     status: Status::Desligada,
                     note: None,
                     pending_prompt: None,
+                    native_dispatch: None,
                     tokens: None,
                     context_tokens: None,
                     context_window: None,
@@ -773,6 +807,50 @@ mod tests {
                    "branch":"b","worktree":"/wt","stage":"Fazendo"{extra}}}]}}"#
         );
         serde_json::from_str(&json).expect("board did not deserialize")
+    }
+
+    #[test]
+    fn legacy_conversations_keep_chat_when_the_new_tab_default_changes() {
+        let mut board = board_json(r#","tabs":[{"id":"old","title":"","status":"desligada"}]"#);
+        assert_eq!(board.conversation_mode, ConversationMode::Chat);
+        assert_eq!(
+            board.workspaces[0].tabs[0].conversation_mode,
+            ConversationMode::Chat
+        );
+        let legacy = serde_json::to_value(&board).unwrap();
+        assert!(legacy.get("conversation_mode").is_none());
+        assert!(legacy["workspaces"][0]["tabs"][0]
+            .get("conversation_mode")
+            .is_none());
+
+        board.conversation_mode = ConversationMode::Terminal;
+        let encoded = serde_json::to_value(&board).unwrap();
+        assert_eq!(encoded["conversation_mode"], "terminal");
+        let restored: Board = serde_json::from_value(encoded).unwrap();
+        assert_eq!(restored.conversation_mode, ConversationMode::Terminal);
+        assert_eq!(
+            restored.workspaces[0].tabs[0].conversation_mode,
+            ConversationMode::Chat
+        );
+    }
+
+    #[test]
+    fn terminal_conversations_keep_their_surface_across_board_revival() {
+        let mut board = board_json(
+            r#","tabs":[{"id":"native","title":"","status":"rodando","conversation_mode":"terminal"}]"#,
+        );
+        board.revive();
+        let restored: Board =
+            serde_json::from_value(serde_json::to_value(&board).unwrap()).unwrap();
+        assert_eq!(restored.conversation_mode, ConversationMode::Chat);
+        assert_eq!(
+            restored.workspaces[0].tabs[0].conversation_mode,
+            ConversationMode::Terminal
+        );
+        assert!(matches!(
+            restored.workspaces[0].tabs[0].status,
+            Status::Desligada
+        ));
     }
 
     #[test]

@@ -1,0 +1,621 @@
+{
+  "cliVersion": "1.5.10",
+  "binarySha256": "780ee763a9938a37b45c7f9d6ae31747d7c574358fd10c64d3a1cdc36faf2798",
+  "messages": {
+    "gemini_coder.Step": [
+      {
+        "name": "type",
+        "number": 1,
+        "label": 1,
+        "type": 14,
+        "type_name": ".exa.cortex_pb.CortexStepType"
+      },
+      {
+        "name": "status",
+        "number": 4,
+        "label": 1,
+        "type": 14,
+        "type_name": ".exa.cortex_pb.CortexStepStatus"
+      },
+      {
+        "name": "metadata",
+        "number": 5,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepMetadata"
+      },
+      {
+        "name": "error",
+        "number": 31,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexErrorDetails"
+      },
+      {
+        "name": "generic",
+        "number": 140,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepGeneric"
+      },
+      {
+        "name": "system_message",
+        "number": 114,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepSystemMessage"
+      },
+      {
+        "name": "user_input",
+        "number": 19,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepUserInput"
+      },
+      {
+        "name": "planner_response",
+        "number": 20,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepPlannerResponse"
+      },
+      {
+        "name": "checkpoint",
+        "number": 30,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepCheckpoint"
+      }
+    ],
+    "exa.cortex_pb.CortexErrorDetails": [
+      {
+        "name": "user_error_message",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "short_error",
+        "number": 2,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      }
+    ],
+    "exa.cortex_pb.CortexStepMetadata": [
+      {
+        "name": "source",
+        "number": 3,
+        "label": 1,
+        "type": 14,
+        "type_name": ".exa.cortex_pb.CortexStepSource"
+      },
+      {
+        "name": "tool_call",
+        "number": 4,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.codeium_common_pb.ChatToolCall"
+      },
+      {
+        "name": "modified_tool_call",
+        "number": 29,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.codeium_common_pb.ChatToolCall"
+      },
+      {
+        "name": "model_usage",
+        "number": 9,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.codeium_common_pb.ModelUsageStats"
+      },
+      {
+        "name": "model_info",
+        "number": 24,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.codeium_common_pb.ModelInfo"
+      }
+    ],
+    "exa.cortex_pb.CortexStepUserInput": [
+      {
+        "name": "user_response",
+        "number": 2,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "client_message_id",
+        "number": 19,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "query",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      }
+    ],
+    "exa.cortex_pb.CortexStepPlannerResponse": [
+      {
+        "name": "response",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "modified_response",
+        "number": 8,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "thinking",
+        "number": 3,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "tool_calls",
+        "number": 7,
+        "label": 3,
+        "type": 11,
+        "type_name": ".exa.codeium_common_pb.ChatToolCall"
+      },
+      {
+        "name": "stop_reason",
+        "number": 12,
+        "label": 1,
+        "type": 14,
+        "type_name": ".exa.codeium_common_pb.StopReason"
+      }
+    ],
+    "exa.cortex_pb.CortexStepCheckpoint": [
+      {
+        "name": "user_intent",
+        "number": 4,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "session_summary",
+        "number": 5,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "code_change_summary",
+        "number": 6,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "model_summarization_failed",
+        "number": 16,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "used_fallback_summary",
+        "number": 17,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "summary_content_id",
+        "number": 29,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "memory_summary",
+        "number": 8,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      }
+    ],
+    "exa.cortex_pb.CortexStepSystemMessage": [
+      {
+        "name": "message",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "render_info",
+        "number": 2,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.StepRenderInfo"
+      },
+      {
+        "name": "event_type",
+        "number": 3,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "agent_message",
+        "number": 4,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.AgentMessage"
+      },
+      {
+        "name": "metadata",
+        "number": 5,
+        "label": 3,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepSystemMessage.MetadataEntry"
+      },
+      {
+        "name": "media",
+        "number": 6,
+        "label": 3,
+        "type": 11,
+        "type_name": ".exa.codeium_common_pb.Media"
+      }
+    ],
+    "exa.cortex_pb.StepRenderInfo": [
+      {
+        "name": "title",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "title_prefix",
+        "number": 5,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "markdown",
+        "number": 2,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "hidden",
+        "number": 4,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "show_on_error",
+        "number": 11,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "icon",
+        "number": 6,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "aggregation_key",
+        "number": 7,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "content_blocks",
+        "number": 10,
+        "label": 3,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.StepRenderInfo.ContentBlock"
+      }
+    ],
+    "exa.cortex_pb.StepRenderInfo.ContentBlock": [
+      {
+        "name": "markdown",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "media",
+        "number": 2,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.StepRenderInfo.MediaRef"
+      },
+      {
+        "name": "terminal",
+        "number": 3,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.StepRenderInfo.TerminalBlock"
+      },
+      {
+        "name": "agent",
+        "number": 4,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.StepRenderInfo.AgentRef"
+      },
+      {
+        "name": "step",
+        "number": 5,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.StepRenderInfo.StepBlock"
+      }
+    ],
+    "exa.cortex_pb.AgentMessage": [
+      {
+        "name": "id",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "recipient",
+        "number": 2,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "sender",
+        "number": 3,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "priority",
+        "number": 5,
+        "label": 1,
+        "type": 14,
+        "type_name": ".exa.cortex_pb.MessagePriority"
+      },
+      {
+        "name": "timestamp",
+        "number": 6,
+        "label": 1,
+        "type": 11,
+        "type_name": ".google.protobuf.Timestamp"
+      },
+      {
+        "name": "hide_from_user",
+        "number": 11,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "content",
+        "number": 4,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "step_payload",
+        "number": 9,
+        "label": 1,
+        "type": 12,
+        "type_name": ""
+      }
+    ],
+    "exa.cortex_pb.CortexStepSystemMessage.MetadataEntry": [
+      {
+        "name": "key",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "value",
+        "number": 2,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      }
+    ],
+    "exa.codeium_common_pb.ChatToolCall": [
+      {
+        "name": "id",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "name",
+        "number": 2,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "arguments_json",
+        "number": 3,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      }
+    ],
+    "exa.cortex_pb.CortexStepGeneric": [
+      {
+        "name": "args",
+        "number": 1,
+        "label": 3,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.CortexStepGeneric.ArgsEntry"
+      },
+      {
+        "name": "result",
+        "number": 2,
+        "label": 1,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.GenericStepResult"
+      }
+    ],
+    "exa.cortex_pb.GenericStepResult": [
+      {
+        "name": "result",
+        "number": 1,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "result_struct",
+        "number": 10,
+        "label": 1,
+        "type": 11,
+        "type_name": ".google.protobuf.Struct"
+      },
+      {
+        "name": "result_value",
+        "number": 11,
+        "label": 1,
+        "type": 11,
+        "type_name": ".genai.Value"
+      },
+      {
+        "name": "full_output_uri",
+        "number": 7,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "payload",
+        "number": 6,
+        "label": 1,
+        "type": 11,
+        "type_name": ".google.protobuf.Any"
+      }
+    ],
+    "exa.cortex.core.tools.RunCommand": [
+      {
+        "name": "exit_code",
+        "number": 1,
+        "label": 1,
+        "type": 5,
+        "type_name": ""
+      },
+      {
+        "name": "timed_out",
+        "number": 2,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "shell_name",
+        "number": 5,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "command_line",
+        "number": 6,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "cwd",
+        "number": 7,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      },
+      {
+        "name": "exit_code_unknown",
+        "number": 8,
+        "label": 1,
+        "type": 8,
+        "type_name": ""
+      },
+      {
+        "name": "trusted_cli_control_outputs",
+        "number": 9,
+        "label": 3,
+        "type": 11,
+        "type_name": ".exa.cortex_pb.TrustedCLIControlOutput"
+      }
+    ],
+    "exa.codeium_common_pb.ModelUsageStats": [
+      {
+        "name": "input_tokens",
+        "number": 2,
+        "label": 1,
+        "type": 4,
+        "type_name": ""
+      },
+      {
+        "name": "output_tokens",
+        "number": 3,
+        "label": 1,
+        "type": 4,
+        "type_name": ""
+      },
+      {
+        "name": "thinking_output_tokens",
+        "number": 9,
+        "label": 1,
+        "type": 4,
+        "type_name": ""
+      },
+      {
+        "name": "cache_write_tokens",
+        "number": 4,
+        "label": 1,
+        "type": 4,
+        "type_name": ""
+      },
+      {
+        "name": "cache_read_tokens",
+        "number": 5,
+        "label": 1,
+        "type": 4,
+        "type_name": ""
+      }
+    ],
+    "exa.codeium_common_pb.ModelInfo": [
+      {
+        "name": "model_name",
+        "number": 8,
+        "label": 1,
+        "type": 9,
+        "type_name": ""
+      }
+    ]
+  }
+}

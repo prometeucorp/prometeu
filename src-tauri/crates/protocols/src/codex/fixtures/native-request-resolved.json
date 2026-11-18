@@ -1,0 +1,4 @@
+[
+  {"v":1,"type":"request.opened","at":1,"requestId":"native-request","kind":"approval","toolId":"native-tool","tool":"Bash","input":{"command":"echo fixture"}},
+  {"v":1,"type":"request.closed","at":2,"requestId":"native-request","outcome":"resolved"}
+]
