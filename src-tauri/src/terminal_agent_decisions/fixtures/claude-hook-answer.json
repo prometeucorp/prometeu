@@ -1,0 +1,31 @@
+{
+  "cardOutcome": "resolved",
+  "hookAnswer": "Blue",
+  "hookReplyDelivered": true,
+  "nativeToolResponse": {
+    "answers": {
+      "Choose the smoke label": "Blue"
+    },
+    "questions": [
+      {
+        "header": "Smoke label",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "Select the Blue smoke label.",
+            "label": "Blue"
+          },
+          {
+            "description": "Select the Green smoke label.",
+            "label": "Green"
+          }
+        ],
+        "question": "Choose the smoke label"
+      }
+    ]
+  },
+  "scenario": "explicit-hook-answer",
+  "selectedAnswer": "Blue",
+  "subsequentRootStopObserved": true,
+  "version": "2.1.326"
+}

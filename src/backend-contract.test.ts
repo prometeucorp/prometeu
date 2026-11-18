@@ -15,6 +15,11 @@ it("consumes serialized backend workspaces without requiring frontend-only field
   // Owner confirmation is a saved choice; a board from before it holds teammates' messages (ADR 0090).
   expect(board.workspaces.map(w => w.confirm_messages)).toEqual([false, true]);
   expect(board.workspaces[0].tabs[0].kickoff).toBe("package/skill");
+  expect(board.conversation_mode).toBe("terminal");
+  expect(board.workspaces[0].tabs[0].conversation_mode).toBeUndefined();
+  expect(board.workspaces[0].tabs[2].conversation_mode).toBe("terminal");
+  expect(board.workspaces[0].tabs[2].native_dispatch?.text).toBe("Verify the change");
+  expect(board.workspaces[0].tabs[0].native_dispatch).toBeUndefined();
 });
 
 it("replays the serialized snapshot with the same result as live events", () => {

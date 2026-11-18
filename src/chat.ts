@@ -20,6 +20,8 @@ import { pickAttachments } from "./file-input";
 import { capabilitiesOf, onCatalogChange } from "./agents";
 import { encodeBrowserContext, type BrowserContext } from "./browser-context";
 import type { ConversationCommandV1, RequestResponse } from "./conversation";
+import { isNativeCommand } from "./conversation-capabilities";
+import { afterNativePaste, nativeFilePaste, NativeReviewAcknowledgments, type NativeConversationDraft } from "./native-conversation-draft";
 import { icon } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { kilo } from "./context";
@@ -47,13 +49,15 @@ import * as voice from "./voice";
 import * as team from "./team";
 import * as ui from "./ui";
 import { pieces, Timeline, touched, turnMetadata, type Ask, type Block, type Command, type Item, type Piece } from "./timeline";
-import type { Choice, ProviderId, Selection, Status } from "./types";
+import type { Choice, ConversationMode, ProviderId, Selection, Status } from "./types";
 import { h, template } from "./util";
 
 /// Render Timeline updates and composer interaction from canonical conversation events. Send prompts, responses, and interrupts through ConversationCommandV1. Remote conversations reuse this view with relay transport. Side-panel comments anchor to stable Piece.key values without entering the transcript.
 
 /// Tab metadata needed by presentation but absent from conversation events.
 export type Info = {
+  conversationMode?: ConversationMode;
+  decisionSurface?: "terminal";
   task?: actions.TaskRun | null;
   /// Frontend workspace ID; remote IDs are prefixed.
   workspace: string | null;
@@ -94,6 +98,10 @@ export type Ctx = {
   comment?: (target: notes.Target) => void;
   thread?: (id: string) => void;
   newConversation?: (workspace: string) => void;
+  /** A generation-bound local terminal insertion target; pasting never submits the prompt. */
+  nativeInput?: () => { paste: (text: string) => Promise<void>; focus: () => void } | null;
+  /** The native tools entry can signal context waiting for insertion without reserving a footer. */
+  nativeToolsChanged?: (attention: boolean) => void;
 };
 
 /* Conversation-owned transient state. */
@@ -108,6 +116,8 @@ const drafts = {
 };
 const draftListeners = new Set<(key: string) => void>();
 const draftChanged = (key: string) => draftListeners.forEach(listener => listener(key));
+const nativeInsertions = new Set<string>();
+const nativeReviews = new NativeReviewAcknowledgments();
 
 /** Attach an immutable batch to any local tab without sending or replacing typed text. */
 export function attachReview(tab: string, draft: ReviewDraft) {
@@ -123,8 +133,15 @@ export class ChatView {
   private notices!: HTMLElement;
   /// Request cards were last drawn without answers because this member lacks Control.
   private observing = false;
+  private nativeCommands = false;
   private box!: HTMLElement;
   private area!: HTMLTextAreaElement;
+  private nativeDraft!: HTMLElement;
+  private composerHost!: HTMLElement;
+  private nativeToolsDialog: ReturnType<typeof ui.formDialog> | null = null;
+  private nativeToolsAttention = false;
+  private queuedMessage!: HTMLButtonElement;
+  private queuedDialog: ReturnType<typeof ui.formDialog> | null = null;
   private ctx!: Ctx;
   private key: string | null = null;
   private remote = false;
@@ -158,6 +175,7 @@ export class ChatView {
 
   open(host: HTMLElement, ctx: Ctx) {
     this.ctx = ctx;
+    this.composerHost = host;
     if (!host.closest("[data-track-area]")) host.dataset.trackArea = "conversation";
     this.disposed = false;
     this.feed = h("div", "feed");
@@ -235,6 +253,7 @@ export class ChatView {
     this.tl.load(snapshot.text);
     // Discard held events already included in the snapshot sequence, including initial prompts emitted while the view opens.
     for (const { seq, line } of held) if (seq > snapshot.seq) this.tl.push(line);
+    this.acknowledgeNativeReviews();
     this.renderAll();
     void this.restoreTurnUsage(key, version);
   }
@@ -308,6 +327,8 @@ export class ChatView {
 
   private reset() {
     this.gauge?.close();
+    this.queuedDialog?.close();
+    this.nativeToolsDialog?.close();
     this.tl = new Timeline();
     this.held = null;
     this.shown = [];
@@ -328,7 +349,35 @@ export class ChatView {
   }
 
   focus() {
-    this.area.focus();
+    if (this.nativeControls()) this.ctx.nativeInput?.()?.focus();
+    else this.area.focus();
+  }
+
+  /** The canonical stream still drives product controls, while the CLI owns local conversation content. */
+  private nativeControls() {
+    return !this.remote && this.ctx.info().conversationMode === "terminal";
+  }
+
+  /** Keep product integrations available on demand while the CLI owns the conversation surface. */
+  showNativeTools() {
+    if (!this.key || this.disposed || !this.nativeControls() || this.nativeToolsDialog) return;
+    const dialog = ui.formDialog({
+      title: t("terminalConversation.tools"), save: t("review.close"), cancel: t("review.close"),
+      submit: async () => {}, error: String, track: "conversation.terminal.tools", area: "conversation",
+      closed: () => {
+        this.queuedDialog?.close();
+        this.nativeToolsDialog = null;
+        this.composerHost.append(this.box);
+        this.paintComposer();
+        this.stopVoice?.(true);
+      },
+    });
+    dialog.root.classList.add("native-tools-dialog");
+    dialog.save.remove();
+    dialog.body.append(this.box);
+    this.nativeToolsDialog = dialog;
+    this.paintComposer();
+    dialog.open();
   }
 
   /// Refresh composer metadata and queued prompts after external board changes.
@@ -373,7 +422,10 @@ export class ChatView {
       drafts.contexts.set(key, [...(drafts.contexts.get(key) ?? []), context]);
       track({ name: "context_attached" });
       draftChanged(key);
-      if (!this.disposed && this.key === key) this.area.focus();
+      if (!this.disposed && this.key === key) {
+        if (this.nativeControls()) this.showNativeTools();
+        else this.focus();
+      }
     };
   }
 
@@ -381,15 +433,20 @@ export class ChatView {
   fileDropTarget(): { put: (paths: string[]) => void; wait: () => () => void } | null {
     if (!this.canAttachFiles() || !this.key) return null;
     const key = this.key;
+    const native = this.nativeControls();
+    const version = this.attachVersion;
+    const input = native ? this.ctx.nativeInput?.() ?? null : null;
+    const worktree = this.ctx.info().worktree;
     return {
-      put: (paths) => {
+      put: (filePaths) => {
         const files = (drafts.files.get(key) ?? []).slice();
-        const before = files.length;
-        for (const path of paths) if (path && !files.includes(path)) files.push(path);
+        const added: string[] = [];
+        for (const path of filePaths) if (path && !files.includes(path)) { files.push(path); added.push(path); }
         drafts.files.set(key, files);
-        if (files.length > before) track({ name: "attachment_added" });
+        if (added.length) track({ name: "attachment_added" });
         draftChanged(key);
-        if (!this.disposed && this.key === key && this.box.getClientRects().length) this.area.focus();
+        if (native && added.length) void this.insertNativeFiles(key, version, added, worktree, input);
+        else if (!this.disposed && this.key === key && this.box.getClientRects().length) this.focus();
       },
       wait: () => {
         drafts.pending.set(key, (drafts.pending.get(key) ?? 0) + 1);
@@ -404,13 +461,50 @@ export class ChatView {
     };
   }
 
+  /** A delayed file picker or clipboard read may never redirect input to another native process. */
+  private async insertNativeFiles(key: string, version: number, files: string[], worktree: string | null,
+    target: ReturnType<NonNullable<Ctx["nativeInput"]>>) {
+    const current = () => !this.disposed && this.key === key && this.attachVersion === version && this.nativeControls();
+    const retry = () => { if (current()) this.showNativeTools(); };
+    if (!current()) return;
+    if (!target || nativeInsertions.has(key)) { retry(); return; }
+    nativeInsertions.add(key);
+    draftChanged(key);
+    try {
+      await this.pasteNativeFiles(key, files, worktree, target);
+      if (current()) {
+        if (!this.hasNativeDraft()) this.nativeToolsDialog?.close();
+        if (!this.nativeToolsDialog) target.focus();
+      }
+    } catch (error) {
+      if (current()) this.ctx.say(fromBack(error), true);
+      retry();
+    } finally {
+      nativeInsertions.delete(key);
+      draftChanged(key);
+    }
+  }
+
+  /** Each image gets its own native paste; a later failure must not duplicate earlier attachments on retry. */
+  private async pasteNativeFiles(key: string, files: string[], worktree: string | null,
+    target: NonNullable<ReturnType<NonNullable<Ctx["nativeInput"]>>>) {
+    for (const file of files) {
+      await target.paste(nativeFilePaste(file, worktree));
+      const kept = afterNativePaste(this.nativeDraftSnapshot(key), { text: "", files: [file], contexts: [] });
+      if (kept.files.length) drafts.files.set(key, kept.files); else drafts.files.delete(key);
+      draftChanged(key);
+    }
+  }
+
   /* Incoming lines. */
 
   private absorb(line: string) {
     const working = this.tl.working;
     const compacting = this.tl.compacting;
     const context = this.tl.context;
-    for (const i of this.tl.push(line)) this.dirty.add(i);
+    const changed = this.tl.push(line);
+    for (const i of changed) this.dirty.add(i);
+    if ([...changed].some(at => this.tl.items[at]?.kind === "user")) this.acknowledgeNativeReviews();
     this.composerDirty ||= working !== this.tl.working || compacting !== this.tl.compacting || context !== this.tl.context;
     if (this.nativeHidden()) return;
     if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
@@ -438,6 +532,7 @@ export class ChatView {
 
   /// Show activity dots between streamed content, with labels for compaction or background work that may outlive the turn.
   private paintWorking() {
+    if (this.nativeControls()) { this.working.remove(); this.waiting.remove(); return; }
     this.paintWaiting();
     const last = this.tl.items[this.tl.items.length - 1];
     const typing = last?.kind === "assistant" && last.streaming && last.blocks[last.blocks.length - 1]?.kind === "text";
@@ -488,7 +583,7 @@ export class ChatView {
     this.shown = [];
     this.drawn = [];
     this.feed.replaceChildren();
-    if (!this.tl.items.length) this.feed.append(h("div", "nohint", t("chat.empty")));
+    if (!this.nativeControls() && !this.tl.items.length) this.feed.append(h("div", "nohint", t("chat.empty")));
     this.sync(null);
     this.paintCommentPins();
     this.paintWorking();
@@ -498,6 +593,7 @@ export class ChatView {
 
   /// Update pieces touching changed items, append new pieces, and preserve other nodes, selection, and expansion. Null dirty state requests a full update.
   private sync(dirty: Set<number> | null): boolean {
+    if (this.nativeControls()) return false;
     const next = pieces(this.tl.items);
     // Find the unchanged prefix; append-only timelines usually retain all existing pieces.
     let same = 0;
@@ -733,13 +829,16 @@ export class ChatView {
 
   private askCard(ask: Ask, _i: number): HTMLElement {
     const info = this.ctx.info();
-    this.observing = !!info.remote && !info.remote.control;
+    const key = this.key, version = this.attachVersion;
+    const current = () => this.key === key && this.attachVersion === version;
+    this.observing = info.decisionSurface === "terminal" || (!!info.remote && !info.remote.control);
     return requestCard(ask, {
       observer: this.observing,
-      respond: response => this.respond(ask, response),
-      allowAlways: () => {
+      respond: response => { if (current()) this.respond(ask, response); },
+      allowAlways: info.conversationMode === "terminal" ? undefined : () => {
+        if (!current()) return;
         void this.control({ v: 1, type: "permission.mode.set", mode: "bypass" })
-          .then(sent => { if (sent) this.respond(ask, { outcome: "allow" }); });
+          .then(sent => { if (sent && current()) this.respond(ask, { outcome: "allow" }); });
       },
       feedbackOpen: this.feedback === ask.id,
       feedbackChanged: open => { this.feedback = open ? ask.id : null; },
@@ -747,16 +846,27 @@ export class ChatView {
   }
 
   private respond(ask: Ask, response: RequestResponse) {
+    const key = this.key, version = this.attachVersion;
     void this.control({ v: 1, type: "request.respond", requestId: ask.id, response }).then(sent => {
-      if (sent) trackRequestResponse(response.outcome);
+      if (!sent) return;
+      trackRequestResponse(response.outcome);
+      if (this.key !== key || this.attachVersion !== version) return;
+      this.sync(new Set(this.tl.answer(ask.id)));
+      this.paintComposer();
     });
-    this.sync(new Set(this.tl.answer(ask.id)));
-    this.paintComposer();
   }
 
   /// Send canonical control locally or through the relay to the owner's Mac.
   private async control(frame: ConversationCommandV1): Promise<boolean> {
     if (!this.key) return false;
+    if (frame.type === "permission.mode.set" && this.ctx.info().conversationMode === "terminal") {
+      this.ctx.say(t("err.terminalAgent.nativeCommands"), true);
+      return false;
+    }
+    if (frame.type === "request.respond" && this.ctx.info().decisionSurface === "terminal") {
+      this.ctx.say(t(this.remote ? "terminalConversation.decisions.remote" : "terminalConversation.decisions.local"));
+      return false;
+    }
     try {
       if (this.remote) return await team.write(JSON.stringify(frame));
       await invoke("chat_control", { session: this.key, frame });
@@ -780,6 +890,18 @@ export class ChatView {
       voiceAvailable: voice.available(),
     });
     this.box.replaceWith(view.root); this.box = view.root; this.area = view.area;
+    this.nativeDraft = h("div", "native-context-preview");
+    this.nativeDraft.hidden = true;
+    this.area.before(this.nativeDraft);
+    this.queuedMessage = ui.button(t("terminalConversation.queued"), () => this.showQueuedMessage(), "ghost", "conversation.terminal.queued.open");
+    this.queuedMessage.classList.add("sm", "queued-message");
+    this.queuedMessage.innerHTML = `${icon("message-square", 13)}<span></span>`;
+    this.queuedMessage.querySelector("span")!.textContent = t("terminalConversation.queued");
+    this.queuedMessage.title = t("terminalConversation.queued");
+    this.queuedMessage.setAttribute("aria-label", this.queuedMessage.title);
+    this.queuedMessage.setAttribute("aria-haspopup", "dialog");
+    this.queuedMessage.hidden = true;
+    this.box.querySelector(".composer-tools")!.append(this.queuedMessage);
     this.gauge = contextGauge();
     this.box.querySelector(".composer-meta")!.append(this.gauge.root);
     this.cleanup.push(() => this.gauge.close());
@@ -812,6 +934,25 @@ export class ChatView {
     });
   }
 
+  private showQueuedMessage() {
+    const text = this.ctx.info().pending;
+    if (!this.key || !this.nativeControls() || !text) return;
+    const key = this.key, version = this.attachVersion;
+    this.queuedDialog?.close();
+    const dialog = ui.formDialog({
+      title: t("terminalConversation.queued"), save: t("review.close"), cancel: t("review.close"),
+      submit: async () => {}, error: String, track: "conversation.terminal.queued", area: "conversation",
+      closed: () => {
+        this.queuedDialog = null;
+        if (this.queuedMessage.hidden && this.key === key && this.attachVersion === version) this.focus();
+      },
+    });
+    dialog.save.remove();
+    dialog.body.append(h("pre", "queued-message-text", text));
+    this.queuedDialog = dialog;
+    dialog.open();
+  }
+
   /// Dictation appends settled speech after whatever is already typed and previews the interim tail. Typing by hand or sending ends it, so a stale transcript never overwrites edits; stopping by the button keeps the last words.
   private toggleVoice() {
     if (this.stopVoice) { this.stopVoice(); return; }
@@ -832,19 +973,24 @@ export class ChatView {
         this.area.value = voice.join(base, interim);
         this.keep();
         this.grow();
+        if (this.nativeControls()) this.paintComposer();
       },
       (error) => {
         this.area.removeEventListener("input", typed);
         this.stopVoice = undefined;
         paint(false);
         if (error) this.ctx.say(t("chat.voice.failed", { error }), true);
-        this.area.focus();
+        this.focus();
+        this.paintComposer();
       },
     );
     paint(true);
+    this.paintComposer();
   }
 
   /// The file picker starts in the worktree but allows other local files. Show attachments as removable chips and convert them to mentions on send without altering typed text.
+  pickFile() { void this.addFile(); }
+
   private async addFile() {
     const target = this.fileDropTarget();
     if (!target) return;
@@ -890,10 +1036,12 @@ export class ChatView {
     for (const key of drafts.files.keys()) if (!alive.has(key)) drafts.files.delete(key);
     for (const key of drafts.contexts.keys()) if (!alive.has(key)) drafts.contexts.delete(key);
     for (const key of drafts.reviews.keys()) if (!alive.has(key)) drafts.reviews.delete(key);
+    nativeReviews.forget(alive);
   }
 
   private grow() {
     const a = this.area;
+    if (this.nativeControls()) { a.style.height = ""; return; }
     a.style.height = "0";
     a.style.height = `${Math.min(a.scrollHeight, window.innerHeight * 0.4)}px`;
   }
@@ -917,6 +1065,7 @@ export class ChatView {
   }
 
   private send() {
+    if (this.nativeControls()) { void this.insertNativeDraft(); return; }
     if (this.key && drafts.pending.has(this.key)) return;
     this.stopVoice?.(true);
     const text = this.area.value.trim();
@@ -926,6 +1075,10 @@ export class ChatView {
     const review = this.key ? drafts.reviews.get(this.key) : undefined;
     if ((!text && !files.length && !contexts.length && !review) || !this.key) return;
     const info = this.ctx.info();
+    if (info.conversationMode === "terminal" && isNativeCommand(text)) {
+      this.ctx.say(t("err.terminalAgent.nativeCommands"), true);
+      return;
+    }
     if (info.remote && !info.remote.online) return this.ctx.say(t("err.team.offline"), true);
     // Prepend attachments as mentions, matching the launcher's initial prompt format.
     const said = [paths.mentions(files, info.worktree), ...contexts.map(encodeBrowserContext), ...(review ? [encodeReviewContext(reviewContext(review))] : []), text].filter(Boolean).join("\n\n");
@@ -946,6 +1099,84 @@ export class ChatView {
     draftChanged(key);
     this.grow();
     this.paintComposer();
+  }
+
+  private nativeDraftSnapshot(key: string): NativeConversationDraft {
+    return { text: drafts.says.get(key) ?? "", files: [...(drafts.files.get(key) ?? [])],
+      contexts: [...(drafts.contexts.get(key) ?? [])], review: drafts.reviews.get(key) };
+  }
+
+  private hasNativeDraft() {
+    return !!this.stashed() || !!this.attached().length || !!this.contexts().length || (!!this.key && drafts.reviews.has(this.key));
+  }
+
+  /** Keep context staged until the exact native input target accepts the paste; Enter remains local. */
+  private async insertNativeDraft() {
+    const key = this.key;
+    if (!key || !this.nativeControls() || drafts.pending.has(key) || nativeInsertions.has(key)) return;
+    this.stopVoice?.(true);
+    const target = this.ctx.nativeInput?.();
+    if (!target) return;
+    const version = this.attachVersion;
+    const current = () => !this.disposed && this.key === key && this.attachVersion === version && this.nativeControls();
+    const captured = this.nativeDraftSnapshot(key);
+    const worktree = this.ctx.info().worktree;
+    const text = [...captured.contexts.map(encodeBrowserContext),
+      ...(captured.review ? [encodeReviewContext(reviewContext(captured.review))] : []), captured.text].filter(Boolean).join("\n\n");
+    if (!text && !captured.files.length) return;
+    nativeInsertions.add(key);
+    draftChanged(key);
+    try {
+      await this.pasteNativeFiles(key, captured.files, worktree, target);
+      if (text) {
+        if (captured.review) nativeReviews.remember(key, captured.review);
+        await target.paste(`\n${text}\n`);
+        const kept = afterNativePaste(this.nativeDraftSnapshot(key), { ...captured, files: [] });
+        if (kept.text) drafts.says.set(key, kept.text); else drafts.says.delete(key);
+        if (kept.contexts.length) drafts.contexts.set(key, kept.contexts); else drafts.contexts.delete(key);
+        if (kept.review) drafts.reviews.set(key, kept.review); else drafts.reviews.delete(key);
+      }
+      if (current()) {
+        this.restore();
+        this.acknowledgeNativeReviews();
+        if (!this.hasNativeDraft()) this.nativeToolsDialog?.close();
+        if (!this.nativeToolsDialog) target.focus();
+      }
+    } catch (error) {
+      if (current()) this.ctx.say(fromBack(error), true);
+    } finally {
+      nativeInsertions.delete(key);
+      draftChanged(key);
+    }
+  }
+
+  private acknowledgeNativeReviews() {
+    if (!this.key || this.remote) return;
+    const key = this.key;
+    const accepted = nativeReviews.observed(key, this.tl.items.flatMap(item => item.kind === "user" ? [item.text] : []));
+    for (const draft of accepted) {
+      void reviews.submit(draft, key).then(() => track({ name: "review_notes_sent" })).catch(error => {
+        nativeReviews.remember(key, draft);
+        this.ctx.say(reviewError(error), true);
+      });
+    }
+  }
+
+  private paintNativeDraft() {
+    const text = this.stashed();
+    this.nativeDraft.hidden = !this.nativeControls() || !text;
+    if (this.nativeDraft.dataset.text === text) return;
+    this.nativeDraft.dataset.text = text;
+    const preview = h("pre", "native-context-text", text);
+    const remove = ui.button(t("terminalConversation.context.remove"), () => {
+      this.stopVoice?.(true);
+      if (!this.key) return;
+      drafts.says.delete(this.key);
+      this.area.value = "";
+      draftChanged(this.key);
+      this.focus();
+    }, "ghost", "chat.attachment.remove");
+    this.nativeDraft.replaceChildren(preview, remove);
   }
 
   /// Use commands discovered at process startup. Detached transcripts lack this metadata, so reuse the latest model-specific list or application-known defaults.
@@ -982,7 +1213,7 @@ export class ChatView {
     if (action.kind === "prompt") {
       this.area.value = actions.expand(action.prompt, rest);
       track({ name: "action_used", kind: "prompt" });
-      this.keep(); this.grow(); this.area.focus();
+      this.keep(); this.grow(); this.paintComposer(); this.focus();
       return;
     }
     if (this.ctx.info().canCreateConversation === false) { this.ctx.say(t("err.actions.unavailable")); return; }
@@ -1010,6 +1241,7 @@ export class ChatView {
 
   private providerCommands(): Command[] {
     const info = this.ctx.info();
+    if (info.conversationMode === "terminal") return [];
     const capabilities = capabilitiesOf(info.agent);
     const supported = (command: Command) =>
       (command.name !== "compact" || capabilities.compact) &&
@@ -1038,6 +1270,10 @@ export class ChatView {
 
   private paintComposer() {
     const info = this.ctx.info();
+    const native = this.nativeControls();
+    this.feed.hidden = native;
+    this.area.hidden = native;
+    this.box.classList.toggle("native-controls", native);
     const actionButton = this.box.querySelector<HTMLButtonElement>(".actionsbtn")!;
     actionButton.hidden = !!info.remote || !info.workspace;
     const watch = this.box.querySelector<HTMLButtonElement>(".taskwatch")!;
@@ -1051,8 +1287,14 @@ export class ChatView {
 
     const q = (sel: string) => this.box.querySelector<HTMLElement>(sel)!;
     const hasKey = !!this.key;
+    this.queuedMessage.hidden = !hasKey || !native || !info.pending;
     // A viewer without Send messages gets no composer: the owner would discard what it sends (ADR 0090).
-    this.box.hidden = !hasKey || (!!info.remote && !info.remote.send);
+    this.box.hidden = !hasKey || (!!info.remote && !info.remote.send) || (native && !this.nativeToolsDialog);
+    const attention = hasKey && native && (this.hasNativeDraft() || !!info.pending || !!this.stopVoice);
+    if (attention !== this.nativeToolsAttention) {
+      this.nativeToolsAttention = attention;
+      this.ctx.nativeToolsChanged?.(attention);
+    }
     this.paintNotices(info);
     this.paintObserver(info);
     if (!hasKey) { this.gauge.update(null); return; }
@@ -1064,7 +1306,7 @@ export class ChatView {
     this.box.classList.toggle("busy", this.tl.working);
 
     const off = info.remote ? !info.remote.online : false;
-    this.area.disabled = off;
+    this.area.disabled = native || off;
     this.area.placeholder = off
         ? t("chat.placeholder.remoteOff", { name: info.remote?.name ?? "" })
         : info.remote
@@ -1081,10 +1323,17 @@ export class ChatView {
     this.paintPlugins(info);
     this.paintSkills(info);
     this.paintRemoteControl(info);
-    const send = q(".send");
-    (send as HTMLButtonElement).disabled = receiving;
-    send.title = t("chat.send");
-    send.innerHTML = icon("arrow-up", 16);
+    const send = q(".send") as HTMLButtonElement;
+    const staged = this.hasNativeDraft();
+    send.hidden = native && !staged;
+    send.disabled = receiving || (native && (!!this.key && nativeInsertions.has(this.key) || !this.ctx.nativeInput?.()));
+    send.title = t(native ? "terminalConversation.context.insert" : "chat.send");
+    send.setAttribute("aria-label", send.title);
+    send.dataset.track = native ? "conversation.terminal.insert" : "chat.send";
+    send.classList.toggle("round", !native);
+    if (native) send.textContent = send.title;
+    else send.innerHTML = icon("arrow-up", 16);
+    this.paintNativeDraft();
     this.paintQuoteButton();
     this.paintFiles();
   }
@@ -1096,10 +1345,10 @@ export class ChatView {
     if (this.remote || !capabilities.contextWindow || !context || !band || context.window === null || !this.key) {
       this.gauge.update(null); return;
     }
-    const key = this.key;
+    const key = this.key, version = this.attachVersion;
     const actions = [];
-    if (capabilities.compact) actions.push({ label: t("usage.compact"), track: "usage.compact", disabled: this.tl.working, run: () => this.contextCommand("compact", key) });
-    if (capabilities.contextReport) actions.push({ label: t("usage.contextReport"), track: "usage.contextReport", disabled: this.tl.working, run: () => this.contextCommand("context", key) });
+    if (info.conversationMode !== "terminal" && capabilities.compact) actions.push({ label: t("usage.compact"), track: "usage.compact", disabled: this.tl.working, run: () => this.contextCommand("compact", key, version) });
+    if (info.conversationMode !== "terminal" && capabilities.contextReport) actions.push({ label: t("usage.contextReport"), track: "usage.contextReport", disabled: this.tl.working, run: () => this.contextCommand("context", key, version) });
     const workspace = info.workspace;
     if (workspace && this.ctx.newConversation && info.canCreateConversation !== false) {
       actions.push({ label: t("usage.newConversation"), track: "usage.newConversation", disabled: false, run: () => this.ctx.newConversation?.(workspace) });
@@ -1113,9 +1362,10 @@ export class ChatView {
   }
 
   /** Send only the explicit context command; the person's draft and attachments stay untouched. */
-  private contextCommand(name: "compact" | "context", key: string) {
-    const capabilities = capabilitiesOf(this.ctx.info().agent);
-    if (this.key !== key || this.remote || this.tl.working || !(name === "compact" ? capabilities.compact : capabilities.contextReport)) return;
+  private contextCommand(name: "compact" | "context", key: string, version: number) {
+    const info = this.ctx.info();
+    const capabilities = capabilitiesOf(info.agent);
+    if (this.key !== key || this.attachVersion !== version || info.conversationMode === "terminal" || this.remote || this.tl.working || !(name === "compact" ? capabilities.compact : capabilities.contextReport)) return;
     void invoke("chat_send", { session: key, text: `/${name}` }).catch(error => this.ctx.say(fromBack(error), true));
   }
 
@@ -1128,7 +1378,7 @@ export class ChatView {
     row.hidden = !list.length && !contexts.length && !review;
     row.replaceChildren(
       ...(review ? [reviewContextChip(reviewContext(review), () => {
-        if (this.key) { drafts.reviews.delete(this.key); draftChanged(this.key); this.area.focus(); }
+        if (this.key) { drafts.reviews.delete(this.key); draftChanged(this.key); this.focus(); }
       })] : []),
       ...list.map((path, i) => {
         return attachmentChip({ name: path.split("/").pop() ?? path,
@@ -1144,7 +1394,7 @@ export class ChatView {
         if (!this.key) return;
         drafts.contexts.set(this.key, this.contexts().filter(item => item !== context));
         draftChanged(this.key);
-        this.area.focus();
+        this.focus();
       })),
     );
   }
@@ -1153,7 +1403,7 @@ export class ChatView {
   private paintWith(info: Info) {
     const el = this.box.querySelector<HTMLElement>(".with")!;
     const label = modelLabel(info.model, info.agent);
-    el.hidden = !label;
+    el.hidden = !label || this.nativeControls();
     if (el.hidden) return;
     const working = info.status === "rodando" || info.status === "querendo";
     // No workspace or remote ownership means this view cannot change the process configuration.
@@ -1177,9 +1427,10 @@ export class ChatView {
     bars.querySelectorAll(".bars i").forEach((bar, n) => bar.classList.toggle("lit", n <= step.step));
     bars.disabled = fixed || working;
     bars.onclick = () => {
+      if (this.ctx.info().conversationMode === "terminal") return;
       const origin = this.key, version = this.attachVersion;
       openEffortPicker(bars, info, info.effort, effort => {
-        if (this.key !== origin || this.attachVersion !== version) return;
+        if (this.key !== origin || this.attachVersion !== version || this.ctx.info().conversationMode === "terminal") return;
         this.retune(info, { agent: info.agent, model: info.model, effort });
       });
     };
@@ -1187,12 +1438,13 @@ export class ChatView {
 
   /// Existing transcript identities can only resume within the same provider.
   private pickModel(at: HTMLElement, info: Info) {
+    if (info.conversationMode === "terminal" || this.ctx.info().conversationMode === "terminal") return;
     const origin = this.key, version = this.attachVersion;
     openModelPicker(at, {
       current: info,
       only: info.agent,
       select: choice => {
-        if (this.key !== origin || this.attachVersion !== version) return;
+        if (this.key !== origin || this.attachVersion !== version || this.ctx.info().conversationMode === "terminal") return;
         const effort = fitsEffort(choice.model, info.effort, choice.agent);
         if (effort !== info.effort) this.ctx.say(t("models.effortAdjusted"));
         this.retune(info, { ...choice, effort });
@@ -1204,7 +1456,8 @@ export class ChatView {
   private retune(info: Info, choice: Choice) {
     if (choice.model === info.model && choice.effort === info.effort) return;
     const current = this.ctx.info();
-    if (!info.workspace || !this.key || current.workspace !== info.workspace || current.remote || current.task ||
+    if (info.conversationMode === "terminal" || current.conversationMode === "terminal" ||
+      !info.workspace || !this.key || current.workspace !== info.workspace || current.remote || current.task ||
       current.status === "rodando" || current.status === "querendo" || current.agent !== choice.agent) return;
     void invoke("set_tab_choice", { id: info.workspace, tab: this.key, choice }).catch((e) =>
       this.ctx.say(fromBack(e), true),
@@ -1346,10 +1599,11 @@ export class ChatView {
     const viewOnly = this.key && info.remote && !info.remote.send ? info.remote.name : null;
     const waiting = local ? team.pendingIn(this.key!) : [];
     const cut = local && !!info.interrupted;
-    const signature = JSON.stringify([paused, rights, viewOnly, waiting.map(message => message.id), cut]);
+    const nativeDecisions = !!this.key && info.decisionSurface === "terminal" && !this.nativeControls();
+    const signature = JSON.stringify([paused, rights, viewOnly, waiting.map(message => message.id), cut, nativeDecisions, !!info.remote]);
     if (this.notices.dataset.shown === signature) return;
     this.notices.dataset.shown = signature;
-    this.notices.hidden = !paused.length && !rights && viewOnly === null && !waiting.length && !cut;
+    this.notices.hidden = !paused.length && !rights && viewOnly === null && !waiting.length && !cut && !nativeDecisions;
     const fail = (error: unknown) => this.ctx.say(fromBack(error), true);
     const rows = paused.map(({ person, name, own }) => {
       const row = h("div", "chat-notice");
@@ -1366,6 +1620,7 @@ export class ChatView {
       rows.push(row);
     }
     if (viewOnly !== null) rows.push(h("p", "ui-hint chat-viewonly", t("chat.viewOnly", { name: viewOnly })));
+    if (nativeDecisions) rows.push(h("p", "ui-hint", t(info.remote ? "terminalConversation.decisions.remote" : "terminalConversation.decisions.local")));
     if (cut) {
       // Continue is an ordinary message, so sending it, or anything else, clears the marker.
       const key = this.key!;
@@ -1394,15 +1649,17 @@ export class ChatView {
     const draft = drafts.says.get(key)?.trimEnd() ?? "";
     drafts.says.set(key, draft ? `${draft}\n\n${text}` : text);
     draftChanged(key);
-    this.area.focus();
-    this.area.setSelectionRange(this.area.value.length, this.area.value.length);
+    this.focus();
+    if (!this.nativeControls()) this.area.setSelectionRange(this.area.value.length, this.area.value.length);
   }
 
   /// Request cards follow the Control right; redraw them when the owner's announcement changes it.
   private paintObserver(info: Info) {
-    const observing = !!info.remote && !info.remote.control;
-    if (observing === this.observing) return;
+    const observing = info.decisionSurface === "terminal" || (!!info.remote && !info.remote.control);
+    const nativeCommands = info.conversationMode === "terminal";
+    if (observing === this.observing && nativeCommands === this.nativeCommands) return;
     this.observing = observing;
+    this.nativeCommands = nativeCommands;
     const asks = new Set(this.tl.items.flatMap((item, at) => item.kind === "ask" ? [at] : []));
     if (asks.size && this.sync(asks)) this.paintCommentPins();
   }
@@ -1417,6 +1674,7 @@ export class ChatView {
   /* Team comments anchored to transcript pieces. */
 
   private paintCommentPins() {
+    if (this.nativeControls()) return;
     const ws = this.ctx.info().workspace;
     for (const old of this.feed.querySelectorAll(".commentpin")) old.remove();
     if (!ws || !this.key || !this.ctx.info().team || !this.ctx.thread) return;
@@ -1439,6 +1697,7 @@ export class ChatView {
   }
 
   focusAnchor(anchor: string) {
+    if (this.nativeControls()) { this.focus(); return; }
     const el = this.feed.querySelector<HTMLElement>(`[data-key="${CSS.escape(anchor)}"]`);
     if (!el) return;
     for (const old of this.feed.querySelectorAll(".commentfocus")) old.classList.remove("commentfocus");

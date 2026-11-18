@@ -1,0 +1,21 @@
+{
+  "explicitPostInterruptIdleOrDone": true,
+  "interrupt": "escape",
+  "interruptCount": 1,
+  "nativeRootStates": [
+    "Blocked",
+    "Clear",
+    "Idle",
+    "Working",
+    "Idle"
+  ],
+  "processRemainsAlive": true,
+  "prompt": "Count slowly from 1 to 100, one number per line. Do not use tools or execute commands. Stop after 100.",
+  "promptObservedByHook": true,
+  "provider": "claude",
+  "settings": {
+    "permission": "ask"
+  },
+  "startupHooksSkippedWithoutTrust": false,
+  "version": "2.1.326 (Claude Code)"
+}

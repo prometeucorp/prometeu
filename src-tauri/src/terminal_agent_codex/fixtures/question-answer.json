@@ -1,0 +1,10 @@
+{
+  "answer": "Blue",
+  "answeredThroughAttachedAdapter": true,
+  "engineAndTuiReaped": true,
+  "nativeQuestionVisible": true,
+  "nativeResolutionObserved": true,
+  "oneNativeQuestion": true,
+  "repeatedAnswerRejected": true,
+  "version": "codex-cli 0.169.0"
+}

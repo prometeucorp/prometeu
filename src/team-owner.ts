@@ -1,5 +1,6 @@
 import { SNAPSHOT, decodeBinary, encodeLive, encodeSnapshot, type Down, type Segment, type Share, type Up, type Watching } from "../relay/src/protocol";
 import { t } from "./i18n";
+import { decisionSurfaceOf, isNativeCommand } from "./conversation-capabilities";
 import { personOf, type TeamChannel } from "./team-channel";
 import { remoteControl as parseRemoteControl, rightOf } from "./team-control";
 import type { Context, Feature, Gate, OwnerHost } from "./team-ports";
@@ -129,7 +130,10 @@ function toShare(w: Workspace): Share {
     stage: w.stage,
     issue: w.issue ? { identifier: w.issue.identifier, title: w.issue.title, url: w.issue.url } : null,
     active: w.active,
-    tabs: w.tabs.map((tab) => ({ id: tab.id, title: tab.title, status: tab.status, note: tab.note, tokens: tab.tokens })),
+    tabs: w.tabs.map((tab) => ({ id: tab.id, title: tab.title, status: tab.status, note: tab.note, tokens: tab.tokens,
+      ...(tab.conversation_mode === "terminal" ? { conversation_mode: "terminal" as const } : {}),
+      ...(decisionSurfaceOf(w, tab) === "terminal" ? { decision_surface: "terminal" as const } : {}),
+    })),
     sizes: Object.fromEntries(w.tabs.map((tab) => [tab.id, NO_SIZE])),
     audience: w.audience,
   };
@@ -461,6 +465,9 @@ function typed(ws: string, tab: string, data: string, from: string) {
   if (!announced.has(ws) || !mine(tab) || !w || !access || !canReceive(tab, from)) return;
   const parsed = parseRemoteControl(data);
   if (parsed.recognized && !parsed.frame) return;
+  const conversation = w.tabs.find(item => item.id === tab);
+  if (!parsed.recognized && conversation?.conversation_mode === "terminal" && isNativeCommand(data)) return;
+  if (rightOf(parsed) === "control" && decisionSurfaceOf(w, conversation) === "terminal") return;
   // Input is execution on this Mac. It needs the right for its kind, and then a member and key the owner approved;
   // only the latter leaves a notice. The channel already spent this message's replay receipt, so discarded input
   // can never run later (ADR 0090).

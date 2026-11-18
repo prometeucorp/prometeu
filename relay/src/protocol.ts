@@ -86,6 +86,10 @@ export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
 /// A tab advertisement containing the state required by a remote card.
 export type ShareTab = {
+  /// Native slash commands and permission modes belong to the owner's terminal.
+  conversation_mode?: "terminal";
+  /// Native decisions stay on the owner's terminal; omitted by legacy/chat announcements.
+  decision_surface?: "terminal";
   id: string;
   title: string;
   status: Status;
@@ -228,8 +232,13 @@ export function parseShare(value: unknown): Share | null {
     if (typeof raw.status !== "string" || !STATUSES.has(raw.status as Status)) return null;
     if (raw.note !== null && !text(raw.note, TAB_NOTE_MAX)) return null;
     if (raw.tokens !== null && !integer(raw.tokens, 0, Number.MAX_SAFE_INTEGER)) return null;
+    if (raw.decision_surface !== undefined && raw.decision_surface !== "terminal") return null;
+    if (raw.conversation_mode !== undefined && raw.conversation_mode !== "terminal") return null;
     tabIds.add(raw.id);
-    tabs.push({ id: raw.id, title: raw.title, status: raw.status as Status, note: raw.note as string | null, tokens: raw.tokens as number | null });
+    tabs.push({ id: raw.id, title: raw.title, status: raw.status as Status, note: raw.note as string | null, tokens: raw.tokens as number | null,
+      ...(raw.decision_surface === "terminal" ? { decision_surface: "terminal" as const } : {}),
+      ...(raw.conversation_mode === "terminal" ? { conversation_mode: "terminal" as const } : {}),
+    });
   }
 
   if (value.active !== null && (!id(value.active) || !tabIds.has(value.active))) return null;

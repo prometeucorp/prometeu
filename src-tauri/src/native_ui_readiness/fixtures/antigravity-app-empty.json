@@ -1,0 +1,1342 @@
+{
+  "version": "1.5.10",
+  "title": "",
+  "cols": 83,
+  "rows": 44,
+  "cursor": {
+    "x": 2,
+    "y": 14,
+    "wrapPending": false
+  },
+  "cursorHidden": false,
+  "bracketedPaste": true,
+  "pendingEscape": false,
+  "pendingUtf8": false,
+  "lines": [
+    "",
+    "",
+    "      ▄▀▀▄",
+    "     ▀▀▀▀▀▀",
+    "    ▀▀▀▀▀▀▀▀",
+    "   ▄▀▀    ▀▀▄",
+    "  ▄▀▀      ▀▀▄",
+    "",
+    "  Antigravity CLI 1.5.10",
+    "  test@example.invalid (Antigravity Starter Quota)          ",
+    "  Gemini 3.8 Flash (High)",
+    "  /private/tmp/prometeu-app-native-conformance-fixture                             ",
+    "",
+    "───────────────────────────────────────────────────────────────────────────────────",
+    ">",
+    "───────────────────────────────────────────────────────────────────────────────────",
+    "? for shortcuts                                             Gemini 3.8 Flash · high",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "styles": [
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 60,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      },
+      {
+        "start": 60,
+        "end": 83,
+        "dim": true,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ],
+    [
+      {
+        "start": 0,
+        "end": 83,
+        "dim": false,
+        "inverse": false,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "background": {
+          "mode": "default",
+          "value": -1
+        }
+      }
+    ]
+  ],
+  "characterColumns": [
+    [],
+    [],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ],
+    [],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82
+    ],
+    [],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82
+    ],
+    [
+      0
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82
+    ],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    []
+  ]
+}

@@ -48,6 +48,13 @@ impl SessionLifecycle for Host<'_> {
             idle_only,
         )
     }
+    fn send_dispatch(
+        &self,
+        session: &str,
+        dispatch: &prometeu_core::board::NativeDispatch,
+    ) -> Result<prometeu_core::session::DispatchOutcome, String> {
+        super::write_dispatch(&self.state, session, dispatch)
+    }
 }
 impl SessionPublication for Host<'_> {
     fn publish(&self) {
@@ -55,6 +62,9 @@ impl SessionPublication for Host<'_> {
     }
     fn looking(&self) -> Option<String> {
         lock(&self.state.looking).clone()
+    }
+    fn persist(&self) -> Result<(), String> {
+        crate::state::persist_now(self.app)
     }
 }
 impl SessionDiagnostics for Host<'_> {
@@ -67,6 +77,14 @@ impl SessionDiagnostics for Host<'_> {
 }
 impl SessionContext for Host<'_> {
     fn tokens(&self, session: &str) -> Option<u64> {
+        {
+            let mut board = lock(&self.state.board);
+            if let Some(tab) = board.tab_mut(session) {
+                if tab.conversation_mode == crate::state::ConversationMode::Terminal {
+                    return tab.context_tokens;
+                }
+            }
+        }
         let worktree = lock(&self.state.board)
             .workspace_of(session)?
             .worktree
@@ -216,7 +234,7 @@ impl prometeu_core::session::pump::PendingInput for ConversationHost {
     fn queued(&self) -> bool {
         lock(&self.app.state::<AppState>().board)
             .tab_mut(&self.id)
-            .is_some_and(|tab| tab.pending_prompt.is_some())
+            .is_some_and(|tab| tab.pending_prompt.is_some() || tab.native_dispatch.is_some())
     }
     fn setup_running(&self) -> bool {
         super::setup_running(&self.app.state::<AppState>(), &self.id)

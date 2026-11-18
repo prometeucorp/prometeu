@@ -147,6 +147,7 @@ const ws = (
 
 const emptyProjects = new Set<string>();
 const board: Board = {
+  conversation_mode: localStorage.getItem("mock:conversationMode") === "terminal" ? "terminal" : "chat",
   actions: initializeDefaults(JSON.parse(localStorage.getItem("mock:actions") ?? "null") ?? emptyCatalog()),
   stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
@@ -740,6 +741,7 @@ const AVAILABLE: Issue[] = [
 
 /// Number conversation lines like the backend. Live events and snapshots share that sequence for real-relay browser tests.
 const scrolls = new Map<string, { text: string; seq: number }>();
+const agentTerminals = new Map<string, { data: number[]; seq: number; generation: string }>();
 const conversationAdapters = new Map<string, LegacyConversationAdapter>();
 const lastMockReply = new Map<string, string>();
 const scrollOf = (tab: string) => {
@@ -1258,7 +1260,7 @@ const mockCommands: IpcHandlers = {
       if (String(args.context ?? "").trim()) throw `i18n:${JSON.stringify({ code: "err.actions.active" })}`;
       return existing;
     }
-    if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
+    if (workspace.tabs.some(t => t.status === "rodando" || t.status === "querendo" || t.pending_prompt || t.native_dispatch)) throw `i18n:${JSON.stringify({ code: "err.actions.busy" })}`;
     const profile = structuredClone(catalog.overrides[workspace.project]?.[action.profile] ?? catalog.profiles.find(p => p.id === action.profile)) as Profile;
     // Mirror of resolve_workspace_tools: a profile that leaves an axis unset inherits the resolved
     // global, project and workspace layers instead of only the workspace's own adds.
@@ -1272,7 +1274,7 @@ const mockCommands: IpcHandlers = {
     profile.mcp ??= axis(l.global.mcp, project.mcp, l.own.mcp, l.base, l.mcpUniverse);
     // Mirror of plugin_packages: plugins and standalone skills materialize together.
     profile.plugins ??= plugins === null && skills === null ? null : [...(plugins ?? []), ...(skills ?? [])];
-    const tab: Tab = { id: crypto.randomUUID(), title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
+    const tab: Tab = { id: crypto.randomUUID(), conversation_mode: board.conversation_mode ?? "chat", title: profile.name, choice: profile.choice, status: "pronta", note: null, tokens: null,
       task: { command: action.name, profile, done: true, error: null } };
     scrolls.set(tab.id, { text: line({ v: 1, type: "user.message", at: Date.now(), content: [{ kind: "text", text: [action.prompt, args.context].filter(Boolean).join("\n\n") || profile.prompt }] }) + "\n", seq: 1 });
     workspace.tabs.push(tab); workspace.active = tab.id;
@@ -1281,6 +1283,12 @@ const mockCommands: IpcHandlers = {
   },
   load_board() {
     return board;
+  },
+  set_conversation_mode(args) {
+    if (args.mode !== "chat" && args.mode !== "terminal") throw new Error("Invalid conversation mode");
+    board.conversation_mode = args.mode;
+    localStorage.setItem("mock:conversationMode", args.mode);
+    emit("board", board);
   },
   board_recovery() {
     return JSON.parse(localStorage.getItem("mock:boardRecovery") ?? "null");
@@ -1566,6 +1574,24 @@ const mockCommands: IpcHandlers = {
     const state = mockTab(String(args.session))?.interrupted ? "stopped" : "ready";
     return { text: s.text + line({ v: 1, type: "session.state", at: Date.now(), state }) + "\n", seq: s.seq };
   },
+  agent_terminal_snapshot({ session }) {
+    const tab = mockTab(session);
+    if (!tab || tab.conversation_mode !== "terminal") throw 'i18n:{"code":"err.terminalAgent.unsupported"}';
+    const snapshot = agentTerminals.get(session) ?? { data: [...new TextEncoder().encode("\x1b[?2004hMock agent terminal\r\n")], seq: 0, generation: crypto.randomUUID() };
+    agentTerminals.set(session, snapshot);
+    return { ...snapshot, data: [...snapshot.data], running: tab.status !== "desligada", queryReplies: "host" };
+  },
+  agent_terminal_resume({ session }) {
+    const tab = mockTab(session);
+    if (!tab || tab.conversation_mode !== "terminal") throw 'i18n:{"code":"err.terminalAgent.unsupported"}';
+    if (tab.status === "desligada" || !agentTerminals.has(session)) {
+      agentTerminals.set(session, { data: [...new TextEncoder().encode("\x1b[?2004hMock agent terminal\r\n")], seq: 0, generation: crypto.randomUUID() });
+    }
+    tab.status = "pronta";
+    tab.interrupted = false;
+    emit("board", board);
+    emit("agent-terminal-started", [session, agentTerminals.get(session)!.generation]);
+  },
   // Respond to incoming messages so remote input and replies can be tested.
   chat_send(args) {
     const tab = mockTab(String(args.session));
@@ -1584,8 +1610,16 @@ const mockCommands: IpcHandlers = {
     controlInto(String(args.session), args.frame as Record<string, any>);
     return;
   },
-  pty_write() {
-    return;
+  pty_write({ session, data, bytes: raw, generation }) {
+    if ((typeof data === "string") === Array.isArray(raw)
+      || raw?.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) throw 'i18n:{"code":"err.terminalAgent.data"}';
+    const terminal = agentTerminals.get(session);
+    if (!terminal) return;
+    if (mockTab(session)?.status === "desligada" || generation !== terminal.generation) throw 'i18n:{"code":"err.terminalAgent.notReady"}';
+    const bytes = raw ? [...raw] : [...new TextEncoder().encode(data!.replace(/\r/g, "\r\n"))];
+    terminal.data.push(...bytes);
+    terminal.seq++;
+    emit("pty", [session, bytes, terminal.seq, terminal.generation]);
   },
   workspace_git_status(args) {
     const target = board.workspaces.find((workspace) => workspace.id === args.id && !workspace.cleaned);
@@ -2361,7 +2395,7 @@ const mockCommands: IpcHandlers = {
         emit("board", board);
         return;
       }
-      fresh.tabs = [{ id: `t-${id}`, title: "", status: "pronta", note: null, tokens: null, kickoff: draft.kickoff || null }];
+      fresh.tabs = [{ id: `t-${id}`, conversation_mode: draft.conversation_mode ?? board.conversation_mode ?? "chat", title: "", status: "pronta", note: null, tokens: null, kickoff: draft.kickoff || null }];
       fresh.active = fresh.tabs[0].id;
       emit("board", board);
     }, 1400);
@@ -2527,7 +2561,7 @@ const mockCommands: IpcHandlers = {
     const workspace = board.workspaces.find(workspace => workspace.id === args.workspace);
     if (!workspace) throw 'i18n:{"code":"err.session.noWorkspace"}';
     if (workspace.cleaned) throw 'i18n:{"code":"err.session.cleaned"}';
-    const tab: Tab = { id: crypto.randomUUID(), title: args.prompt.trim(), status: "pronta", note: null, tokens: null,
+    const tab: Tab = { id: crypto.randomUUID(), conversation_mode: board.conversation_mode ?? "chat", title: args.prompt.trim(), status: "pronta", note: null, tokens: null,
       choice: args.choice ?? null };
     workspace.tabs.push(tab);
     workspace.active = tab.id;
@@ -2661,7 +2695,10 @@ const mockCommands: IpcHandlers = {
       ? reject(`i18n:${JSON.stringify({ code: `err.evaluation.${fail}` })}`)
       : done({ answers: fakeEvaluation(request), model: localStorage.getItem("mock:typesafeModel") ?? "jev-1.13.0" }), 700));
   },
-  pty_resize() {},
+  pty_resize({ session, generation }) {
+    const terminal = agentTerminals.get(session);
+    if (terminal && terminal.generation !== generation) throw 'i18n:{"code":"err.terminalAgent.notReady"}';
+  },
   remove_workspace() {},
   reveal_path() {},
 };

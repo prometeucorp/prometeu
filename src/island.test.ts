@@ -11,6 +11,15 @@ const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: []
 const line = (event: Record<string, unknown>) => JSON.stringify({ v: 1, at: 1_000, ...event });
 
 describe("notch island", () => {
+  it.each(["cursor", "antigravity"] as const)("retains %s native waiting status without exposing application decision controls", agent => {
+    const store = new Map();
+    track(store, "native", line({ type: "request.opened", requestId: "stale", kind: "approval", toolId: null, tool: "Bash", input: {} }));
+    const nativeTab = { ...tab("native", "querendo"), conversation_mode: "terminal" as const };
+    const w = workspace("ws", [nativeTab], { agent });
+    expect(snapshot(board(w), store, []).tabs[0]).toMatchObject({ status: "querendo", request: null });
+    w.tabs[0].conversation_mode = "chat";
+    expect(snapshot(board(w), store, []).tabs[0].request?.id).toBe("stale");
+  });
   it("follows prompt, tool and open requests until the turn ends", () => {
     const store = new Map();
     track(store, "a", line({ type: "user.message", content: [{ kind: "text", text: "fix the auth bug" }] }));

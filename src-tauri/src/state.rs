@@ -2,8 +2,8 @@
 
 use crate::AppState;
 pub use prometeu_core::board::{
-    split_skills, Board, Choice, Note, Project, ProviderId, Repo, ShareRights, Status, Tab,
-    TerminalSession, ToolTrust, Workspace,
+    split_skills, Board, Choice, ConversationMode, Note, Project, ProviderId, Repo, ShareRights,
+    Status, Tab, TerminalSession, ToolTrust, Workspace,
 };
 use prometeu_core::publication::BoardEvents;
 use tauri::{AppHandle, Emitter, Manager};

@@ -32,6 +32,7 @@
     ],
     "consumers": [
       "src/action-settings.ts",
+      "src/conversation-view.ts",
       "src/workspace-changes.ts"
     ],
     "states": [
@@ -191,6 +192,7 @@
     "consumers": [
       "src/action-settings.ts",
       "src/components/resource-view.ts",
+      "src/conversation-view.ts",
       "src/issues.ts",
       "src/github-issues.ts"
     ],

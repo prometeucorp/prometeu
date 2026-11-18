@@ -25,6 +25,10 @@ type Conversation = {
   pending: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   requests: Set<string>;
+  observedBlock: string | null;
+  observedBlocks: Set<string>;
+  activityId: string | null;
+  endedActivity: string | null;
 };
 const conversations = new Map<string, Conversation>();
 // Let immediate continuations invalidate a terminal event. Silence alone never means completion.
@@ -96,7 +100,7 @@ export function boardChanged(board: Board) {
   for (const [tab, workspace] of owners) {
     const conversation = conversations.get(tab);
     if (conversation) conversation.workspace = workspace;
-    else conversations.set(tab, { workspace, phase: "idle", background: false, held: null, pending: false, timer: null, requests: new Set() });
+    else conversations.set(tab, { workspace, phase: "idle", background: false, held: null, pending: false, timer: null, requests: new Set(), observedBlock: null, observedBlocks: new Set(), activityId: null, endedActivity: null });
   }
   looked();
 }
@@ -118,6 +122,10 @@ export function chatChanged(tab: string, line: string) {
         conversation.held = null;
         conversation.pending = false;
         conversation.requests.clear();
+        conversation.observedBlock = null;
+        conversation.observedBlocks.clear();
+        conversation.activityId = null;
+        conversation.endedActivity = null;
         badge();
         return;
       }
@@ -128,6 +136,36 @@ export function chatChanged(tab: string, line: string) {
       conversation.pending = false;
       badge();
       return;
+    case "execution.observed": {
+      if (event.state === "unknown") {
+        cancel(conversation);
+        conversation.held = null;
+        conversation.phase = "idle";
+        conversation.endedActivity = event.activityId;
+      } else if (event.scope === "root" && (event.state === "working" || event.state === "blocked")) {
+        if (conversation.endedActivity === event.activityId) return;
+        cancel(conversation);
+        conversation.held = null;
+        conversation.phase = "running";
+        conversation.activityId = event.activityId;
+        conversation.pending = conversation.requests.size > 0 && !watching(tab);
+      }
+      if (event.state === "blocked") {
+        if (!conversation.observedBlocks.has(event.blockId!)) {
+          conversation.observedBlocks.add(event.blockId!);
+          if (!watching(tab)) ctx.notify?.("approval", tab);
+        }
+        conversation.observedBlock = event.blockId;
+        conversation.pending = !watching(tab);
+      } else if (conversation.observedBlock !== null) {
+        conversation.observedBlock = null;
+        conversation.pending = conversation.requests.size > 0 && !watching(tab);
+      }
+      // Background activity only changes its observed blocking state. It cannot reopen the
+      // primary turn or revoke a completion held while those same children finish.
+      badge();
+      return;
+    }
     case "assistant.started":
     case "assistant.block.started":
     case "assistant.block":
@@ -170,6 +208,7 @@ export function chatChanged(tab: string, line: string) {
       badge();
       return;
     case "turn.completed":
+      conversation.endedActivity = conversation.activityId;
       if (event.outcome === "interrupted") {
         cancel(conversation);
         conversation.held = null;

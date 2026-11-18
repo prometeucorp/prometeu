@@ -1,4 +1,5 @@
 import { isDelegatedWorkspace } from "./workspace-hierarchy";
+import { decisionSurfaceOf } from "./conversation-capabilities";
 import * as actions from "./actions";
 import * as background from "./background";
 import * as cloud from "./cloud";
@@ -57,6 +58,7 @@ import { announceWorkspaceUsage } from "./workspace-usage";
 trackClicks();
 // Use the backend mock when running outside Tauri.
 if (!("__TAURI_INTERNALS__" in window)) await import("./mock");
+settings.useConversationModes(mac);
 await background.start().catch(() => {});
 // The resource sampler wakes natively on context changes; quota refresh on return stays explicit.
 background.subscribe((context) => {
@@ -866,13 +868,15 @@ actions.init(async (workspace, tab) => {
   await openWorkspace({ ...target, active: tab.id });
 });
 const infoOf = (w: Workspace | undefined, tab: Tab | undefined): Info => ({
+  decisionSurface: decisionSurfaceOf(w, tab),
+  conversationMode: tab?.conversation_mode ?? "chat",
   workspace: w?.id ?? null,
   status: tab?.status ?? null,
   task: tab?.task ?? null,
   mcp: tab?.task ? null : (w?.mcp ?? null),
   plugins: tab?.task ? null : (w?.plugins ?? null),
   skills: tab?.task ? null : (w?.skills ?? null),
-  pending: tab?.pending_prompt ?? null,
+  pending: [tab?.native_dispatch?.text, tab?.pending_prompt].filter(Boolean).join("\n\n") || null,
   interrupted: !!tab?.interrupted && !w?.remote,
   worktree: w?.worktree ?? null,
   remote: w?.remote ? { name: team.nameOf(w.remote.owner), online: w.remote.online, ...team.rightsIn(w.id) } : null,
@@ -910,7 +914,7 @@ session.init(
     const w = open ? view().workspaces.find((x) => x.id === open) : undefined;
     return infoOf(w, w?.tabs.find((t) => t.id === session.currentSession()));
   },
-  { comment: ws.comment, thread: ws.showNote, newConversation },
+  { comment: ws.comment, thread: ws.showNote, newConversation, nativeToolsChanged: ws.refreshNativeTools },
 );
 desk.init({
   say,

@@ -130,7 +130,7 @@ export class TeamChannel {
         const encrypted = await this.pack({ frame: { t: "share", share: plain }, revision: await this.security.nextRevision(),
           rights: this.ownedRights.get(plain.id) ?? NO_RIGHTS }, audience);
         const wire: Share = { ...plain, title: "", repo_name: "", branch: "", stage: "", issue: null,
-          tabs: plain.tabs.map(tab => ({ ...tab, title: "", note: null, tokens: null, status: "desligada" })), encrypted };
+          tabs: plain.tabs.map(tab => ({ id: tab.id, title: "", note: null, tokens: null, status: "desligada" })), encrypted };
         this.shares.set(plain.id, { ...plain, owner: this.self, online: true });
         this.owned.set(plain.id, this.shares.get(plain.id)!);
         out = { t: "share", share: wire };

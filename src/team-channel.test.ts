@@ -14,6 +14,16 @@ const shared: Share = {
   tabs: [{ id: "tab", title: "private-marker-tab", status: "rodando", note: "private-marker-tab-note", tokens: null }],
 };
 
+it("keeps native conversation capabilities inside the encrypted announcement and restores them for viewers", async () => {
+  const t = await team();
+  const native: Share = { ...shared, tabs: [{ ...shared.tabs[0], decision_surface: "terminal", conversation_mode: "terminal" }] };
+  const sent = await t.send("alice", { t: "share", share: native });
+  expect(JSON.stringify(sent.encrypted)).not.toContain("decision_surface");
+  expect(JSON.stringify(sent.encrypted)).not.toContain("conversation_mode");
+  expect(t.bob.shares.get(shared.id)?.tabs[0].decision_surface).toBe("terminal");
+  expect(t.bob.shares.get(shared.id)?.tabs[0].conversation_mode).toBe("terminal");
+});
+
 function storage() {
   let state: unknown = null;
   return { read: async () => structuredClone(state), write: async (next: unknown) => { state = structuredClone(next); } };

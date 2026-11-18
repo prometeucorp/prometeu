@@ -1,0 +1,32 @@
+{
+  "cardOutcome": "resolved",
+  "hookAnswer": "Green",
+  "hookReplyDelivered": true,
+  "nativeToolResponse": {
+    "annotations": {},
+    "answers": {
+      "Choose the smoke label": "Blue"
+    },
+    "questions": [
+      {
+        "header": "Smoke label",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "Select the Blue label.",
+            "label": "Blue"
+          },
+          {
+            "description": "Select the Green label.",
+            "label": "Green"
+          }
+        ],
+        "question": "Choose the smoke label"
+      }
+    ]
+  },
+  "scenario": "local-answer-before-hook",
+  "selectedAnswer": "Blue",
+  "subsequentRootStopObserved": true,
+  "version": "2.1.326"
+}

@@ -180,6 +180,7 @@ pub enum PreferenceSetting {
     DictationLanguage,
     DefaultModel,
     DefaultEffort,
+    ConversationMode,
     Notifications,
 }
 

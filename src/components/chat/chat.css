@@ -9,6 +9,13 @@
 .feed > * { width: 100%; max-width: 860px; margin: 0 auto; flex: none; }
 .feed .nohint { margin-top: 20vh; }
 
+/* Native product tools open on demand; the CLI keeps the conversation's full height. */
+.composer.native-controls { width: 100%; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; }
+.native-controls .native-context-preview { display: flex; align-items: flex-start; gap: var(--space-2); }
+.native-context-text { flex: 1; min-width: 0; max-height: 120px; overflow: auto; margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.native-controls .send { width: auto; height: var(--control-height); padding-inline: var(--space-2); }
+.queued-message-text { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
 /* Give prompts more space above them to mark a new topic. */
 .turn.user { display: flex; justify-content: flex-end; margin-top: 12px; }
 .feed > .turn.user:first-child { margin-top: 0; }

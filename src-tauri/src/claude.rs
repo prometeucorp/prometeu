@@ -57,7 +57,7 @@ pub fn account_status(profile: &accounts::Profile) -> Result<accounts::Identity,
     account_status_at(profile, &paths::home())
 }
 
-fn account_status_at(
+pub(crate) fn account_status_at(
     profile: &accounts::Profile,
     cwd: &Path,
 ) -> Result<accounts::Identity, String> {

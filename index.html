@@ -39,14 +39,6 @@
           <button id="share" data-track="collaboration.share" class="ico" hidden></button>
           <span id="watchers" class="watchers"></span>
           <span id="actors" class="actors" hidden></span>
-          <!-- Inject PR instructions and Git state into the active conversation. The agent performs the
-               work; the adjacent menu opens existing PRs per repository. -->
-          <div class="split" id="prsplit">
-            <button id="pr" data-track="git.pull_request" data-t-title="top.pr"></button>
-            <button id="prpick" class="ico sm" data-t-title="top.pr.links" hidden></button>
-          </div>
-          <button id="wsmore" class="ico" data-t-title="top.more"></button>
-          <button id="sidetoggle" class="ico" data-t-title="top.side"></button>
         </div>
       </header>
 
@@ -96,7 +88,18 @@
 
         <section id="wsView" data-track-area="workspace" class="view wsview" hidden>
           <div class="center" id="wscenter">
-            <div class="subbar tabbar" id="tabbar" data-track-area="workspace.tabs"></div>
+            <div class="workspace-tabbar">
+              <div class="subbar tabbar" id="tabbar" data-track-area="workspace.tabs"></div>
+              <div class="workspace-tab-actions" data-track-area="workspace.controls">
+                <!-- Keep conversation and workspace actions beside their tabs, outside native output. -->
+                <div class="split" id="prsplit">
+                  <button id="pr" data-track="git.pull_request" data-t-title="top.pr"></button>
+                  <button id="prpick" class="ico sm" data-t-title="top.pr.links" hidden></button>
+                </div>
+                <button id="wsmore" class="ico" data-t-title="top.more" hidden></button>
+                <button id="sidetoggle" class="ico" data-t-title="top.side"></button>
+              </div>
+            </div>
             <div id="workspace-family" class="workspace-family" hidden></div>
             <div class="tabbody" id="tabbody">
             <!-- The conversation timeline and composer are created by chat.ts. -->

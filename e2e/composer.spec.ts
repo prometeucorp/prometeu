@@ -4,8 +4,102 @@ import type { Board, Choice } from "../src/types";
 type ComposerWindow = Window & {
   mock: { line: (tab: string, event: unknown) => void };
   controls: unknown[];
+  nativePastesUntilFailure?: number;
   __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
 };
+
+// Real xterm paste modes, flex sizing and keyboard focus cannot be established by mocked view tests.
+test("native conversation keeps a full terminal and opens product tools on demand", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await expect(page.locator('#tiles .tile[data-tab="t1"]')).toBeVisible();
+  await page.evaluate(async () => {
+    const w = window as ComposerWindow;
+    const { invoke } = w.__TAURI_INTERNALS__;
+    const board = await invoke("load_board") as Board;
+    board.workspaces[0].tabs[0].conversation_mode = "terminal";
+    board.workspaces[0].tabs[0].choice = { agent: "codex", model: "gpt-5.6-sol", effort: "xhigh" };
+    w.controls = [];
+    w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "pty_write" && args?.session === "t1" && typeof args.data === "string"
+        && args.data.startsWith("\x1b[200~") && w.nativePastesUntilFailure && --w.nativePastesUntilFailure === 0) {
+        return Promise.reject('i18n:{"code":"err.terminalAgent.notReady"}');
+      }
+      if ((command === "pty_write" || command === "pty_resize") && args?.session === "t1") w.controls.push({ command, ...args });
+      return invoke(command, args);
+    };
+    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+  });
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
+  const terminal = page.locator("#chatwrap .conversation-terminal");
+  const input = terminal.locator(".xterm-helper-textarea");
+  await expect(terminal).toBeVisible();
+  await expect(input).toBeFocused();
+  const bounds = await terminal.boundingBox();
+  expect(bounds!.height).toBeGreaterThan(200);
+  await page.keyboard.type("native input");
+  await expect.poll(() => page.evaluate(() => (window as ComposerWindow).controls.filter(value => (value as { command: string }).command === "pty_write").length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => (window as ComposerWindow).controls.every(value => typeof (value as { generation?: string }).generation === "string"))).toBe(true);
+
+  const conversation = page.locator("#chatwrap");
+  await expect(conversation.getByRole("button", { name: "Transcript and controls", exact: true })).toHaveCount(0);
+  await expect(conversation.getByRole("button", { name: "Terminal", exact: true })).toHaveCount(0);
+  await expect(conversation.locator(".feed")).toBeHidden();
+  await expect(conversation.locator(".composer")).toBeHidden();
+  await expect(conversation.locator(".mdl")).toBeHidden();
+  await expect(conversation.locator(".effort")).toBeHidden();
+  await expect(conversation.locator(".conversation-surface-toolbar")).toHaveCount(0);
+  await page.locator("#wsmore").click();
+  await page.getByRole("menuitem", { name: "Conversation tools", exact: true }).click();
+  const tools = page.getByRole("dialog", { name: "Conversation tools", exact: true });
+  await expect(tools.locator(".actionsbtn")).toBeVisible();
+  await expect(tools.locator(".mdl")).toBeHidden();
+  await expect(tools.locator(".effort")).toBeHidden();
+  await expect(tools.locator(".composer textarea")).toBeHidden();
+
+  await page.evaluate(() => { (window as ComposerWindow).controls = []; });
+  await tools.locator(".addfile").click();
+  await expect(tools).toBeHidden();
+  await expect(input).toBeFocused();
+  await expect(conversation.locator(".cfiles")).toBeHidden();
+  const writes = await page.evaluate(() => (window as ComposerWindow).controls
+    .filter(value => (value as { command: string }).command === "pty_write")) as { data: string; generation: string }[];
+  expect(writes).toHaveLength(2);
+  expect(writes[0].data).toMatch(/^\x1b\[200~\n@[^\n]*spec\.md\n\x1b\[201~$/);
+  expect(writes[1].data).toBe("\x1b[200~/Users/gustavo/Desktop/screenshot.png\x1b[201~");
+  expect(writes.every(write => !write.data.includes("\r") && write.generation === writes[0].generation)).toBe(true);
+  await expect(conversation.locator(".composer")).toBeHidden();
+  expect((await terminal.boundingBox())!.height).toBe(bounds!.height);
+
+  // A failed second paste retains that file without duplicating the document already inserted.
+  // Only the browser establishes modal focus and recovery through the real xterm input boundary.
+  await page.locator('#tabbar .tab[data-tab="t1"]').click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Conversation tools", exact: true }).click();
+  await page.evaluate(() => {
+    const w = window as ComposerWindow;
+    w.controls = [];
+    w.nativePastesUntilFailure = 2;
+  });
+  await tools.locator(".addfile").click();
+  await expect(tools.locator(".cfiles")).not.toContainText("spec.md");
+  await expect(tools.locator(".cfiles")).toContainText("screenshot.png");
+  const insert = tools.getByRole("button", { name: "Insert into terminal", exact: true });
+  await expect(insert).toBeEnabled();
+  await insert.click();
+  await expect(tools).toBeHidden();
+  await expect(input).toBeFocused();
+  await expect(conversation.locator(".cfiles")).toBeHidden();
+  const retried = await page.evaluate(() => (window as ComposerWindow).controls
+    .filter(value => (value as { command: string }).command === "pty_write")) as { data: string }[];
+  expect(retried).toHaveLength(2);
+  expect(retried[0].data).toBe(writes[0].data);
+  expect(retried[1].data).toBe(writes[1].data);
+
+  await page.locator("#railbody .navitem", { hasText: "Desk" }).click();
+  await page.locator('#tiles .tile[data-tab="t2"] .topen').click();
+  await expect(page.locator("#chatwrap .composer textarea")).toBeVisible();
+  await expect(page.locator("#chatwrap .conversation-terminal")).toBeHidden();
+});
 
 async function fits(composer: Locator) {
   await expect(composer.getByRole("button", { name: "Send", exact: true })).toBeVisible();

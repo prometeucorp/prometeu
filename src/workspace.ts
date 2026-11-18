@@ -72,6 +72,7 @@ let navigation = 0;
 const gitRefresh = new GitRefreshPolicy();
 const turns = new TurnSettlePolicy();
 let usage: WorkspaceUsage;
+let nativePending: HTMLButtonElement;
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -82,7 +83,15 @@ const stillHere = (epoch: number, id: string) => navigation === epoch && openWs 
 export function init(context: Ctx) {
   ctx = context;
   usage = new WorkspaceUsage();
-  $("prsplit").before(usage.root);
+  $("wsctl").append(usage.root);
+  nativePending = button("", () => session.showNativeTools(), "ghost", "conversation.terminal.tools.open");
+  nativePending.classList.add("ico", "sm", "native-context-pending");
+  nativePending.innerHTML = icon("message-square", 14);
+  nativePending.title = t("terminalConversation.tools.pending");
+  nativePending.setAttribute("aria-label", nativePending.title);
+  nativePending.setAttribute("aria-haspopup", "dialog");
+  nativePending.hidden = true;
+  $("wsmore").before(nativePending);
   changesUi.init({
     workspace: current,
     refresh: async () => { if (openWs && hasDiff()) { await loadChanges(openWs); tree.redrawSoon(); } },
@@ -274,6 +283,7 @@ export function leave() {
   sidebar.setOpen((openWs = null));
   $("wsView").hidden = true;
   $("wsctl").hidden = true;
+  $("wsmore").hidden = true;
 }
 
 /* Rendering. */
@@ -476,6 +486,7 @@ function drawShare(ws: Workspace, tab?: Tab) {
 
 /// Move infrequent actions into menus. The sidebar already shows stage; header sharing appears after activation.
 function drawMore(ws: Workspace) {
+  refreshNativeTools();
   const btn = $("wsmore") as HTMLButtonElement;
   const available = !ws.remote && !ws.cleaned && !pending(ws);
   btn.hidden = !available;
@@ -504,9 +515,19 @@ function drawMore(ws: Workspace) {
     items.unshift({ label: t("share.on"), track: "share.on", glyph: icon("share-2", 14), sub: shareItems(ws) });
   }
   btn.onclick = () => {
+    if (current()?.id !== ws.id) return;
     const box = btn.getBoundingClientRect();
-    menu.openAt({ area: "workspace", x: box.left, y: box.bottom + 4 }, items);
+    const native = session.nativeActions();
+    menu.openAt({ area: "workspace", x: box.left, y: box.bottom + 4, anchor: btn }, native.length ? [...native, "sep", ...items] : items);
   };
+}
+
+/** Pending context has its own control in the workspace chrome, independent of agent activity. */
+export function refreshNativeTools() {
+  if (!nativePending) return;
+  const ws = current();
+  nativePending.hidden = !ws || !!ws.remote || !session.nativeToolsPending()
+    || !ws.tabs.some(tab => tab.id === session.currentSession());
 }
 
 function shareLabel(ws: Workspace): string {
@@ -679,6 +700,7 @@ function paintPr(ws: Workspace) {
         ? t("ws.pr.update")
         : t("ws.pr");
   ask.title = done ? t("top.finish") : quiet ? t("top.pr.go") : all.length ? t("top.pr.update") : t("top.pr");
+  ask.setAttribute("aria-label", ask.querySelector("span")!.textContent!);
   ask.dataset.track = done ? "workspace.finish" : quiet ? "workspace.pr.open" : all.length ? "workspace.pr.update" : "workspace.pr.create";
   ask.classList.toggle("done", done);
   ask.firstElementChild!.outerHTML = icon(done ? "check" : "git-pull-request", 14);
@@ -1012,6 +1034,15 @@ function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
   const items: menu.Item[] = [
     { label: t("ws.menu.rename"), track: "ws.menu.rename", glyph: icon("pencil"), run: () => editTab(tab.id) },
   ];
+  if (tab.conversation_mode === "terminal") {
+    const native = tab.id === session.currentSession() ? session.nativeActions() : [
+      { label: t("terminalConversation.tools"), track: "conversation.terminal.tools.open", glyph: icon("settings"),
+        run: () => { void runNativeTabAction(ws.id, tab.id, "conversation.terminal.tools.open"); } },
+      { label: t("chat.addFile"), track: "chat.addFile", glyph: icon("paperclip"),
+        run: () => { void runNativeTabAction(ws.id, tab.id, "chat.addFile"); } },
+    ];
+    if (native.length) items.unshift(...native, "sep");
+  }
   // Keep at least one conversation in each workspace.
   if (ws.tabs.length > 1) {
     items.push("sep", {
@@ -1022,6 +1053,18 @@ function tabMenu(ws: Workspace, tab: Tab): menu.Item[] {
     });
   }
   return items;
+}
+
+/** A menu for an inactive tab may outlive navigation while its native screen attaches. */
+async function runNativeTabAction(workspace: string, tab: string, track: string) {
+  const epoch = navigation;
+  if (!stillHere(epoch, workspace)) return;
+  try {
+    await selectTab(workspace, tab);
+    if (!stillHere(epoch, workspace) || session.currentSession() !== tab) return;
+    const action = session.nativeActions().find(item => item !== "sep" && item.track === track);
+    if (action && action !== "sep") action.run?.();
+  } catch (error) { ctx.say(fromBack(error), true); }
 }
 
 const tabVisits = new Map<string, number>();

@@ -7,6 +7,7 @@
       "pr_action": null,
       "profiles": []
     },
+    "conversation_mode": "terminal",
     "delegations": [],
     "projects": [
       {
@@ -140,7 +141,12 @@
             "choice": null,
             "context_tokens": null,
             "context_window": null,
+            "conversation_mode": "terminal",
             "id": "ready",
+            "native_dispatch": {
+              "id": "dispatch-contract",
+              "text": "Verify the change"
+            },
             "note": null,
             "pending_prompt": null,
             "permission": "auto",

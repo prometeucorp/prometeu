@@ -8,6 +8,7 @@ import { Recovery } from "./recovery";
 import { wslCommands } from "./transport";
 import type { Commands, Target } from "./host";
 import { useApplicationMenu, windowsApplicationMenu } from "../appmenu";
+import { useConversationModes } from "../settings";
 import { useTerminalSessions } from "../terminals";
 import { useQuitGuard } from "../quit";
 import { useAttachmentPicker } from "../file-input";
@@ -31,6 +32,7 @@ try {
   useApplicationMenu(windowsApplicationMenu);
   // The WSL runtime has no terminal sessions yet (docs/contracts/windows-application.md).
   useTerminalSessions(false);
+  useConversationModes(false);
   // Closing this window only detaches it; the resident runtime keeps every agent and terminal (ADR 0082).
   useQuitGuard(false);
   useAttachmentPicker(pickWslAttachments);

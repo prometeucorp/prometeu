@@ -1,4 +1,5 @@
 import antigravityFixture from "../src-tauri/src/antigravity/fixtures/canonical-events.json?raw";
+import nativeResolvedFixture from "../src-tauri/crates/protocols/src/codex/fixtures/native-request-resolved.json";
 import { describe, expect, it } from "vitest";
 import { parseConversationEvent } from "./conversation";
 import { LegacyConversationAdapter } from "./conversation-legacy";
@@ -8,6 +9,41 @@ import type { TelemetryMeasurement } from "./telemetry";
 const line = (value: unknown) => JSON.stringify(value);
 
 describe("ConversationEventV1", () => {
+  it("replays externally resolved requests without inferring approval or losing legacy closures", () => {
+    const timeline = new Timeline();
+    const [opened, resolved] = nativeResolvedFixture;
+    timeline.push(line(opened));
+    expect(timeline.pending).toHaveLength(1);
+    expect(parseConversationEvent(resolved)).toEqual(resolved);
+    timeline.push(line(resolved));
+    expect(timeline.pending).toEqual([]);
+    for (const outcome of ["allowed", "denied", "answered", "cancelled", "resolved"]) {
+      expect(parseConversationEvent({ ...resolved, outcome })).toMatchObject({ outcome });
+    }
+    expect(parseConversationEvent({ ...resolved, outcome: "guessed" })).toBeNull();
+    const replay = new Timeline();
+    nativeResolvedFixture.forEach(event => replay.push(line(event)));
+    expect(replay.items).toEqual(timeline.items);
+  });
+  it("keeps execution observations read-only and validates blocking identity", () => {
+    const base = { v: 1, type: "execution.observed", at: 1, activityId: "cycle", scope: "root", state: "working", blockId: null, kind: null, detail: null };
+    const timeline = new Timeline();
+    expect(parseConversationEvent(base)).toEqual(base);
+    timeline.push(line(base));
+    expect(timeline.busy).toBe(true);
+    const blocked = { ...base, state: "blocked", blockId: "native-block", kind: "permission", detail: "Native approval" };
+    expect(parseConversationEvent(blocked)).toEqual(blocked);
+    timeline.push(line(blocked));
+    expect(timeline.pending).toEqual([]);
+    expect(timeline.items).toEqual([]);
+    timeline.push(line({ ...base, state: "idle" }));
+    expect(timeline.busy).toBe(false);
+    expect(timeline.items).toEqual([]);
+    for (const invalid of [{ ...blocked, blockId: null }, { ...base, scope: "provider" }, { ...base, state: "done" }, { ...base, blockId: "unexpected" }, { ...base, kind: "permission" }]) {
+      expect(parseConversationEvent(invalid)).toBeNull();
+    }
+  });
+
   it("keeps old completions and ignores malformed optional usage without losing settlement", () => {
     const completion = { v: 1, type: "turn.completed", at: 1, outcome: "ok", message: "", durationMs: 100, costUsd: 99 };
     const usage: TelemetryMeasurement = { usageScope: "mainAgent", complete: true, selectedModel: null,

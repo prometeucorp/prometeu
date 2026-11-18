@@ -1,0 +1,1785 @@
+{
+  "snapshot": {
+    "active": "alternate",
+    "alternate": {
+      "ansi": " \r\n  >_ \u001b[1mOpenAI Codex\u001b[22;2m (v0.169.0)\r\n\u001b[0m     \u001b[2m/tmp/prometeu-engine-smoke-f963929c-1cee-49f2-909d-1a22124dd826/workspace\r\n\u001b[0m \r\n\u001b[2m  To get started, describe a task or try one of these commands:\r\n\u001b[0m \r\n \u001b[1C/init\u001b[2m - create an AGENTS.md file with instructions for Codex\r\n\u001b[0m \u001b[1C/status\u001b[2m - show current session configuration\r\n\u001b[0m \u001b[1C/permissions\u001b[2m - choose what Codex is allowed to do\r\n\u001b[0m \u001b[1C/model\u001b[2m - choose what model and reasoning effort to use\r\n\u001b[0m \u001b[1C/review\u001b[2m - review any changes and find issues\r\n\u001b[0m \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n \r\n\u001b[1m›\u001b[1C\u001b[22;2mAsk Codex to do anything\r\n\u001b[0m \r\n \u001b[1CGPT-6.1-Sol\u001b[1Clow\u001b[1C·\u001b[1C/tmp/prometeu-engine-smoke-f963929c-1cee-49f2-909d-1a22124dd826/workspace\u001b[1C·\u001b[1CPrometeu\r\n  \u001b[1m←\u001b[0m for agents · \u001b[1m?\u001b[1C\u001b[0mfor\u001b[1Cshortcuts\u001b[62CPlan mode\u001b[1C(\u001b[1m⇧tab\u001b[1C\u001b[0mto\u001b[1Ccycle)\u001b[3A\u001b[117D",
+      "cursor": {
+        "wrapPending": false,
+        "x": 2,
+        "y": 36
+      },
+      "savedCursor": {
+        "attributes": "\u001b[0m",
+        "origin": false,
+        "x": 0,
+        "y": 0
+      },
+      "scrollBottom": 39,
+      "scrollTop": 0,
+      "wrapCell": null
+    },
+    "appearance": {
+      "background": "#141110",
+      "cursor": "#d8c2b3",
+      "foreground": "#d8c2b3"
+    },
+    "cols": 120,
+    "generation": "fresh",
+    "links": [],
+    "modes": {
+      "applicationCursorKeysMode": false,
+      "applicationKeypadMode": false,
+      "bracketedPasteMode": true,
+      "cursorBlink": true,
+      "cursorHidden": false,
+      "cursorStyle": "block",
+      "insertMode": false,
+      "mouseEncoding": "SGR",
+      "mouseTrackingMode": "any",
+      "originMode": false,
+      "reverseWraparoundMode": false,
+      "sendFocusMode": true,
+      "wraparoundMode": true
+    },
+    "normal": {
+      "ansi": "",
+      "cursor": {
+        "wrapPending": false,
+        "x": 0,
+        "y": 0
+      },
+      "savedCursor": {
+        "attributes": "\u001b[0m",
+        "origin": false,
+        "x": 0,
+        "y": 0
+      },
+      "scrollBottom": 39,
+      "scrollTop": 0,
+      "wrapCell": null
+    },
+    "pendingEscape": "",
+    "pendingUtf8": "",
+    "rehydrate": "\u001b[?1l\u001b[?66l\u001b[?2004h\u001b[4l\u001b[?45l\u001b[?1004h\u001b[?7h\u001b[?25h\u001b[?9l\u001b[?1000l\u001b[?1002l\u001b[?1003l\u001b[?1003h\u001b[?1006l\u001b[?1016l\u001b[?1006h\u001b[1 q\u001b[0m\u001b]8;;\u001b\\",
+    "rows": 40,
+    "scrollback": 1000,
+    "seq": 3047,
+    "session": "engine-smoke",
+    "title": "Prometeu | workspace",
+    "titleTruncated": false,
+    "v": 1,
+    "viewportCharacterColumns": [
+      [
+        0
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77
+      ],
+      [
+        0
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62
+      ],
+      [
+        0
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25
+      ],
+      [
+        0
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103
+      ],
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118
+      ]
+    ],
+    "viewportLines": [
+      " ",
+      "  >_ OpenAI Codex (v0.169.0)",
+      "     /tmp/prometeu-engine-smoke-f963929c-1cee-49f2-909d-1a22124dd826/workspace",
+      " ",
+      "  To get started, describe a task or try one of these commands:",
+      " ",
+      "  /init - create an AGENTS.md file with instructions for Codex",
+      "  /status - show current session configuration",
+      "  /permissions - choose what Codex is allowed to do",
+      "  /model - choose what model and reasoning effort to use",
+      "  /review - review any changes and find issues",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      " ",
+      "› Ask Codex to do anything",
+      " ",
+      "  GPT-6.1-Sol low · /tmp/prometeu-engine-smoke-f963929c-1cee-49f2-909d-1a22124dd826/workspace · Prometeu",
+      "  ← for agents · ? for shortcuts                                                              Plan mode (⇧tab to cycle)"
+    ],
+    "viewportStyles": [
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 17,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 28,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 17
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 28
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 5,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 78,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 5
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 78
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 63,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 63
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 7,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 62,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 7
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 62
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 9,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 46,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 9
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 46
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 14,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 51,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 14
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 51
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 8,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 56,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 8
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 56
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 9,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 46,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 9
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 46
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 2,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": true,
+          "end": 26,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 2
+        },
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 26
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ],
+      [
+        {
+          "background": {
+            "mode": "default",
+            "value": -1
+          },
+          "dim": false,
+          "end": 120,
+          "foreground": {
+            "mode": "default",
+            "value": -1
+          },
+          "inverse": false,
+          "start": 0
+        }
+      ]
+    ]
+  },
+  "version": "codex-cli 0.169.0"
+}

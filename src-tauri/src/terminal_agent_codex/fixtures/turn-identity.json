@@ -1,0 +1,130 @@
+{
+  "consumer": {
+    "canonicalConsumerDelivered": true,
+    "coldReplayUnchanged": true,
+    "completionCount": 1,
+    "nativeUserCount": 1
+  },
+  "engineAndTuiReaped": true,
+  "oneNativeTurn": true,
+  "rollout": [
+    {
+      "collaboration_mode_kind": "default",
+      "model_context_window": 475000,
+      "root_turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+      "started_at": 1794922276,
+      "turn_attribution": {
+        "initiating_agent_path": null,
+        "parent_turn_id": null,
+        "root_turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+        "turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+        "turn_trigger": "user"
+      },
+      "turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+      "type": "task_started"
+    },
+    {
+      "completed_at_ms": 1794922277724,
+      "item": {
+        "client_id": "f6f08942-7310-4c0b-9cbe-ace76b682128",
+        "content": [
+          {
+            "text": "Reply exactly PROMETEU_NATIVE_ID_OK. Do not use tools.",
+            "text_elements": [],
+            "type": "text"
+          }
+        ],
+        "id": "01a1e9b4-6b5b-7db2-a270-cf4946fbf585",
+        "type": "UserMessage"
+      },
+      "started_at_ms": 1794922277724,
+      "thread_id": "01a1e9b4-661a-71c2-9495-5a5918c0528d",
+      "turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+      "type": "item_completed"
+    },
+    {
+      "completed_at_ms": 1794922280019,
+      "content_token_count": 7,
+      "item": {
+        "content": [
+          {
+            "text": "PROMETEU_NATIVE_ID_OK",
+            "type": "Text"
+          }
+        ],
+        "id": "msg_05f1f81bcd3a912d016afc5727e59c87d283236509375ec651",
+        "phase": "final_answer",
+        "type": "AgentMessage"
+      },
+      "started_at_ms": 1794922279937,
+      "thread_id": "01a1e9b4-661a-71c2-9495-5a5918c0528d",
+      "turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+      "type": "item_completed"
+    },
+    {
+      "content": [
+        {
+          "annotations": [],
+          "logprobs": [],
+          "text": "PROMETEU_NATIVE_ID_OK",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_05f1f81bcd3a912d016afc5727e59c87d283236509375ec651",
+      "internal_chat_message_metadata_passthrough": {
+        "content_item_kinds": [
+          "unknown"
+        ],
+        "create_time": 1794922279.9033098,
+        "turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0"
+      },
+      "phase": "final_answer",
+      "role": "assistant",
+      "status": "completed",
+      "type": "message"
+    },
+    {
+      "completed_at": 1794922280,
+      "duration_ms": 3154,
+      "last_agent_message": "PROMETEU_NATIVE_ID_OK",
+      "root_turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+      "started_at": 1794922276,
+      "time_to_first_token_ms": 3065,
+      "turn_id": "01a1e9b4-6807-7980-95be-9d497f7809d0",
+      "type": "task_complete"
+    }
+  ],
+  "rpcAssistant": {
+    "item": {
+      "completedAtMs": 1794922280019,
+      "delivery": null,
+      "id": "msg_05f1f81bcd3a912d016afc5727e59c87d283236509375ec651",
+      "memoryCitation": null,
+      "moderation": null,
+      "phase": "final_answer",
+      "questions": null,
+      "startedAtMs": 1794922279937,
+      "text": "PROMETEU_NATIVE_ID_OK",
+      "type": "agentMessage"
+    },
+    "turnId": "01a1e9b4-6807-7980-95be-9d497f7809d0"
+  },
+  "rpcUser": {
+    "item": {
+      "clientId": "f6f08942-7310-4c0b-9cbe-ace76b682128",
+      "completedAtMs": 1794922277724,
+      "content": [
+        {
+          "text": "Reply exactly PROMETEU_NATIVE_ID_OK. Do not use tools.",
+          "text_elements": [],
+          "type": "text"
+        }
+      ],
+      "id": "01a1e9b4-6b5b-7db2-a270-cf4946fbf585",
+      "startedAtMs": 1794922277724,
+      "type": "userMessage"
+    },
+    "turnId": "01a1e9b4-6807-7980-95be-9d497f7809d0"
+  },
+  "version": "codex-cli 0.169.0"
+}
