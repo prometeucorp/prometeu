@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [
+      "../packages/terminal-state/dist/prometeu-terminal-state"
+    ],
+    "resources": {
+      "../packages/terminal-state/dist/licenses/": "terminal-state-licenses/"
+    }
+  }
+}

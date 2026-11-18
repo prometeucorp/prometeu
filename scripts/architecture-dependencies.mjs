@@ -17,7 +17,9 @@ const resourceDependencies = new Set([
   "src/components/primitives.ts", "src/components/menu.ts",
 ]);
 const componentEffects = new Set(["fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage", "indexedDB"]);
-const pureRoots = new Set(["src/review-comments.ts", "src/review-context.ts", "src/message-context.ts", "src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts"]);
+const terminalRoot = "packages/terminal-state/src/";
+const terminalBrowser = new Set(["appearance.ts", "types.ts", "replay.ts"].map(file => terminalRoot + file));
+const pureRoots = new Set(["src/review-comments.ts", "src/review-context.ts", "src/message-context.ts", "src/timeline.ts", "relay/src/logic.ts", "relay/src/protocol.ts", ...terminalBrowser]);
 const desktop = /^src\/(?:ipc|mock|team)\.ts$/;
 const mobileDesktop = /^src\/(?:ipc|mock|team|chat|session|main)\.ts$/;
 const ambientEffects = new Set([
@@ -130,10 +132,12 @@ export function checkDependencies(sources) {
     const core = /^src\/team-[^/]+\.ts$/.test(root);
     const mobile = root.startsWith("src/mobile/");
     const pure = pureRoots.has(root);
+    const browser = root.startsWith("src/");
+    const terminal = root.startsWith(terminalRoot);
     const desktopComponent = root.startsWith(desktopComponentRoot) && !/\/(?:stories|gallery)\.ts$/.test(root);
     const isolatedView = isolatedViews.has(root);
     const allowedViewDependencies = root === "src/components/compositions.ts" ? compositionDependencies : resourceDependencies;
-    if (!components && !core && !mobile && !pure && !isolatedView && !desktopComponent) continue;
+    if (!components && !core && !mobile && !pure && !isolatedView && !desktopComponent && !browser && !terminal) continue;
     const seen = new Set();
     const walk = (file, chain) => {
       if (seen.has(file)) return;
@@ -157,6 +161,8 @@ export function checkDependencies(sources) {
           || (components && (!local || !target.startsWith(componentRoot)))
           || (core && (tauri || desktop.test(target)))
           || (mobile && (tauri || mobileDesktop.test(target)))
+          || (browser && target.startsWith(terminalRoot) && !terminalBrowser.has(target))
+          || (terminal && local && !target.startsWith(terminalRoot))
           || (pure && !typeOnly && !runtime);
         if (forbidden) {
           failures.add(`${chain.join(" -> ")}:${line}: forbidden dependency ${dependency.specifier}`);

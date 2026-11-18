@@ -149,7 +149,10 @@ jobs:
           CI: "true"
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         run: |
-          npm run tauri -- build --verbose --config '{"build":{"beforeBuildCommand":""}}'
+          npm run build:app -- --verbose --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Verify packaged terminal helper and notices
+        run: node scripts/terminal-state.mjs verify-bundle "src-tauri/target/release/bundle/macos/Prometeu.app"
 
       - name: notarizar DMG final
         env:

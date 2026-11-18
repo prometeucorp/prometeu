@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { wslApp, wslHome } from "./wsl-app.mjs";
+import { terminalStateApp } from "./terminal-state-app.mjs";
 
 /**
  * Resolves the port, state root, environment and Tauri arguments for a platform without touching
@@ -40,6 +41,10 @@ async function main() {
   console.log(`Prometeu dev · vite em ${launch.port} · raiz em ${launch.root}`);
   if (windows) {
     await wslApp(launch.args, env);
+    return;
+  }
+  if (process.platform === "darwin") {
+    await terminalStateApp(launch.args, env);
     return;
   }
   const tauri = fileURLToPath(new URL("../node_modules/@tauri-apps/cli/tauri.js", import.meta.url));

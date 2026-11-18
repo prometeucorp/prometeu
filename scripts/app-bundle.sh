@@ -11,11 +11,11 @@ ROOT=${PROMETEU_ROOT:-"$HOME/.prometeu-dev${NAME:+-$NAME}"}
 
 echo "Prometeu debug bundle · raiz em $ROOT"
 
-npx tauri build --debug --bundles app \
+npm run build:app -- --debug --bundles app \
   --config src-tauri/tauri.dev.conf.json \
   --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 # Verify the complete bundle, including Info.plist, before testing native authorization.
-codesign --verify --strict "src-tauri/target/debug/bundle/macos/Prometeu Dev.app"
+node scripts/terminal-state.mjs verify-bundle "src-tauri/target/debug/bundle/macos/Prometeu Dev.app"
 
 exec open -W --env PROMETEU_ROOT="$ROOT" "src-tauri/target/debug/bundle/macos/Prometeu Dev.app"
