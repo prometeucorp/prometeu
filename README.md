@@ -95,6 +95,34 @@ Agents execute tools without per-tool approval by default, with your local user'
 file and process access. Worktrees separate changes; they are not sandboxes.
 Folders without Git open in place. Use projects and tools you trust.
 
+### Native conversations — macOS development builds
+
+Choose **Settings → General → New conversations → Terminal** to open new
+conversations in the installed Claude Code, Codex, Cursor or Antigravity TUI.
+Existing tabs keep their saved mode. Each local conversation shows one interface:
+the native terminal in Terminal mode, or Prometeu's chat in Chat mode. History
+continues to be recorded for status, notifications and sharing. Run slash commands
+and change permission modes in the native terminal. Claude and Codex also accept
+individual approval/question answers through Prometeu. Cursor and Antigravity
+decisions stay in their native terminals, including for shared conversations.
+
+The terminal fills the conversation area without floating controls over its
+output. Change model and effort in the native CLI. The menu at the right of the
+central tab bar exposes Prometeu's actions, MCP, plugins, skills, dictation and
+remote access controls. The tab's context menu and desk panel's header menu offer
+the same actions. In both Chat and Terminal, PR, workspace-menu and side-panel
+controls share that tab-bar row. Pending context has its own indicator in that
+action group or the desk header. Collaboration notices that need your reply
+remain visible. Select, drop or paste files to insert
+their paths directly into the native prompt without sending it. Browser context
+and review notes stay available in the tools dialog for **Insert into terminal**.
+The provider's own input remains the place to edit and submit the message.
+
+The macOS Tauri app has verified native responses, canonical history and cold
+resume for all four providers. Provider-specific limits and remaining checks
+are tracked in the [provider matrix](docs/quality/provider-matrix.md).
+Linux and Windows/WSL retain Chat mode.
+
 ## Privacy
 
 **Usage analytics are opt-in and off by default since v0.34.0, including upgrades.**
@@ -105,7 +133,8 @@ agent output are excluded. See the [analytics contract](docs/contracts/product-a
 
 Local usage history stays on your computer and can be exported or deleted.
 App state and app-managed transcripts live under `~/.prometeu`; Claude Code
-owns its transcripts. Your chosen model provider receives the content needed to
+owns its Chat-mode transcripts, while native terminal conversations also retain
+Prometeu's canonical history. Your chosen model provider receives the content needed to
 run your tasks, under that provider's terms.
 
 Cloud accounts and sharing are optional. Shared conversations use end-to-end

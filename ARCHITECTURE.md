@@ -185,8 +185,9 @@ resumes the session when there is news. See the
   [core contract](docs/contracts/application-core.md).
 - The logical session is the transcript. The process is disposable and can be
   resumed.
-- Claude writes its own transcript; Prometeu writes the translated Codex, Antigravity and Cursor lines
-  in `~/.prometeu/chats/`.
+- Claude chat mode reads its native transcript. Prometeu stores Codex,
+  Antigravity, Cursor and every terminal-mode provider as canonical lines in
+  `~/.prometeu/chats/`. Native terminal compaction does not rewrite this history.
 - Agent accounts and the global selection live in `<root>/accounts.json`.
   Registry and login rules live in `prometeu-core::accounts`; `accounts.rs`
   composes native profiles (`prometeu-profiles`), authentication

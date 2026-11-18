@@ -143,6 +143,90 @@ touch DOM, Tauri, disk, network or provider protocols. Legacy lines go through
 for the Stop button and the busy composer so the person can still interrupt
 children that outlived the turn.
 
+`ConversationView` selects one local screen from the tab's saved mode. Chat tabs
+use the structured chat; terminal tabs use `TerminalConversationView`, without
+a second transcript view or a screen selector. A shared `ChatView` controller
+continues consuming canonical events without rendering its feed or editable
+message field. The native terminal fills the conversation area, with no
+persistent footer or floating controls over its output. The workspace menu at
+the right of the central tab bar, tab context menus and desk-header menus open
+the shared product controls on demand: MCP,
+plugins, skills, actions, context, dictation and remote access retain their
+existing ownership. Quotation and manual resume use those surrounding menus
+when available. Actionable collaboration
+notices remain visible beside the terminal when the owner must respond; they are
+not hidden behind the tools dialog. Model and effort
+changes use the native CLI; Prometeu retains the launch defaults without showing
+duplicate conversation selectors. Canonical ingestion and persistence remain
+backend responsibilities, independent of the local screen.
+Execution status remains in the tab and sidebar indicators. The native screen
+does not repeat that status in a header. PR, workspace-menu and side-panel
+controls occupy the right end of the central tab-bar row in both Chat and
+Terminal. Pending context has its own indicator in that action group or the desk
+header and never changes the agent's status.
+Native terminal typography and its neutral palette are presentation defaults;
+the [terminal state contract](../contracts/terminal-state.md#terminal-query-ownership)
+keeps the renderer's colors consistent with helper query replies and replay.
+
+Queued local messages draw attention through the tab-bar action group's
+pending-context indicator or the desk header's indicator. The tools dialog
+offers a **Queued message** control and a read-only preview of the full prompt,
+without adding a footer or treating a queued send as a warning. That attention
+clears with the pending prompt. Teammates' pending messages keep the owner's
+visible approval controls; editing one stages its text without sending it.
+
+Files selected, dropped or pasted into a native conversation insert their paths
+directly into the native prompt without Enter. Browser context, review notes and
+text previews remain staged in the tools dialog for explicit **Insert into
+terminal**. The CLI's composer is the only editable local message input. Both
+paths capture the tab, attachment and process generation before asynchronous
+work; they never resume a process or retarget a later tab. A failed paste retains
+the original tab's remaining draft for retry. Images use individual bracketed
+pastes with literal paths, quoted when necessary, without `@`; documents retain
+their path mentions. Each successful file write is removed before proceeding to
+the next file, so partial failure does not repeat earlier successful insertions.
+Successful insertion removes only the captured context, preserving concurrent
+additions. A delayed file drop still
+belongs to its original tab. Review notes are marked submitted only when
+canonical user content matches the captured review envelope; pasting alone does
+not submit a review. This acknowledgment tracking follows the existing
+in-memory draft lifetime.
+
+Native-screen quotations carry text with no invented transcript anchor. Opening
+a comment anchor on a local terminal tab focuses the native terminal without
+revealing another feed. Remote members use the canonical conversation through
+`ChatView`; the PTY stays on the owner's machine and native bytes do not become
+relay messages.
+
+`Term` owns each xterm instance and releases its event subscriptions, input and
+selection listeners, composition listeners, resize observer and recovery callback
+on disposal. Attaching awaits listeners before fetching a snapshot, buffers live
+events, and filters them by process generation and sequence. Replayed terminal
+queries cannot answer into the child: input stays disabled until xterm's parser
+callback confirms that snapshot parsing finished. Input and serialized resizes
+carry the generation, so an old attachment cannot affect a restarted process.
+The publication-time `agent-terminal-started` invalidation refreshes a terminal
+whose account handoff replaced a ready process without changing tab status;
+the current snapshot remains the authority for generation.
+Opening a local terminal tab, including after app restart, automatically resumes
+its saved native session when the snapshot has no running process. Concurrent
+surfaces share one resume request, and the backend serializes launch per session.
+The view then obtains a fresh snapshot without submitting text. Navigation and
+disposal invalidate the attachment; a failed or immediately stopped resume does
+not loop. The manual resume control is a retry after automatic attachment ends
+without a running process, not a prerequisite for opening the tab.
+The native snapshot uses the packaged headless emulator's restorable screen,
+including normal/alternate buffers, cursor, modes and incomplete input state.
+Raw-tail retention does not substitute for successful screen restoration; helper
+failure invalidates that process. See the
+[terminal state contract](../contracts/terminal-state.md) for supported state and limits.
+Tests: `src/term.test.ts`, `src/terminal-conversation.test.ts`, `src/conversation-view.test.ts`,
+`src/native-conversation-draft.test.ts`, and the native-screen
+case in `e2e/composer.spec.ts`, which checks real xterm geometry and keyboard
+focus. macOS exposes the default in Settings /
+General; the [provider matrix](../quality/provider-matrix.md) distinguishes this
+implementation and browser evidence from native Tauri app conformance.
+
 `ChatView` still reduces every live line in order and coalesces visible painting
 to an animation frame. A text-only update repaints its current message without
 rebuilding the composer or comment pins; working and compaction transitions

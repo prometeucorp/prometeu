@@ -179,7 +179,7 @@ it can actually verify.
 ### Executable import rules
 
 The checker parses production TypeScript and JavaScript recursively under
-`src/`, `relay/src/` and `packages/design-system/src/`. Tests and declaration
+`src/`, `relay/src/`, `packages/design-system/src/` and `packages/terminal-state/src/`. Tests and declaration
 files are excluded. It uses the TypeScript parser already installed for builds.
 
 - Static imports, re-exports, literal dynamic imports and `require` calls enter
@@ -191,8 +191,12 @@ files are excluded. It uses the TypeScript parser already installed for builds.
   dependencies through a helper or barrel. Direct imports of forbidden shell
   types also fail, but type-only targets are not traversed for runtime effects.
 - Design-system dependencies stay inside that package, including nested files.
+- The terminal-state helper cannot import application modules. Browser code may
+  consume only its pure `types.ts`, `appearance.ts` and `replay.ts` surfaces;
+  those modules cannot acquire Node, emulator or ambient runtime dependencies.
 - `timeline.ts`, the review rules/message codecs (`review-comments.ts`,
-  `review-context.ts`, `message-context.ts`), relay `logic.ts` and relay `protocol.ts`, plus their runtime
+  `review-context.ts`, `message-context.ts`), relay `logic.ts` and relay `protocol.ts`,
+  and the terminal-state browser surfaces, plus their runtime
   dependencies, cannot import external runtime packages or use selected ambient
   names for DOM, storage, network, Worker APIs, timers, `process` or `console`.
 - Computed import paths and unresolved relative source imports fail rather than

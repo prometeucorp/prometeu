@@ -41,6 +41,62 @@ map and the existing boundary tests. Untrusted relay/control input remains
 subject to backend validation. Errors keep their existing rejection format.
 See [ADR 0024](../decisions/0024-typed-ipc.md).
 
+## Conversation mode
+
+`set_conversation_mode({ mode: "chat" | "terminal" })` saves the default for
+new conversations and publishes the existing `board` event; it returns no
+value. It does not modify saved tabs or restart processes. Unknown mode values
+fail deserialization. The browser mock preserves the same default and applies
+it to new tabs, workspace conversations and actions. The macOS desktop accepts
+both modes and exposes the preference in Settings / General. Linux and WSL
+accept `chat` and reject `terminal` with `err.terminalAgent.unsupported` before
+saving or preparing a process; their preference control stays hidden. Desktop
+workspace creation resolves and validates the mode before publishing its
+preparing card or changing the filesystem. Persistence defaults are defined in
+the [board contract](persistence.md#board), and producer/consumer examples
+include both an omitted chat mode and an explicit terminal mode.
+
+The same `board`/`load_board` payload may include
+`Tab.native_dispatch: { id: string, text: string }` for one native input awaiting
+durable acceptance. Older tabs omit it. The interface displays its text before
+`pending_prompt`, including after interrupted delivery; the opaque ID is not a
+visible control or a new IPC argument. The desktop queue owns retries and
+receipt reconciliation. The typed Board and browser mock retain this additive
+state. See [pending session input](persistence.md#pending-session-input).
+
+The macOS native surface uses `agent_terminal_snapshot({ session })` for
+`{ data: number[], seq: number, running: boolean, generation?: string, screen?: Snapshot, queryReplies?: "host" }` and
+`agent_terminal_resume({ session })` to resume without submitting an artificial
+prompt. Opening a local terminal tab invokes resume automatically if the snapshot
+is stopped, then fetches its new snapshot. Concurrent view requests are coalesced;
+the command is idempotent for a connected process under the session input gate.
+Failures leave a manual retry instead of an automatic retry loop. Tests in
+`src/terminal-conversation.test.ts` cover resume, concurrent views and stale
+navigation/disposal results. A retained native process has a generation even after exit; no process
+has none. Agent `pty` events add that generation as a fourth tuple member, and
+`pty-closed` adds it as a third member. Native `pty_write` and `pty_resize`
+require the matching optional `generation` argument. Existing dock and WSL
+terminal tuples and callers omit it. The frontend rejects delayed output and
+exit from a replaced process; the backend rejects its stale input and resize.
+`pty_write` accepts exactly one of `data: string` and `bytes: number[]`; binary
+input preserves bytes rather than UTF-8 encoding the xterm `onBinary` string.
+Native input is serialized per attachment; queued writes for an obsolete
+generation are rejected. Resize and input handlers run outside the GUI thread.
+`agent-terminal-started` carries `[session, generation]` after the process and
+tab are published, including account handoffs that leave the tab ready. The
+view uses it only to request the current snapshot, never as proof that the
+event's process is still current. An in-flight attachment coalesces these
+invalidations and releases the subscription when disposed.
+`screen` follows the [terminal state contract](terminal-state.md). Its `seq`
+is a byte offset; the outer `seq` remains the corresponding PTY chunk sequence.
+When `screen` exists, `data` is empty and `queryReplies` is `host`. The renderer
+restores dimensions, buffers and modes, seeds pending UTF-8, and filters live
+chunks by the outer sequence. It suppresses automatic replies while preserving
+keyboard, IME, paste, focus and binary input. Helper failure refuses restoration
+instead of presenting a raw tail as a complete screen. Tests in `src/term.test.ts`
+cover these boundaries, overlap, generations, disposal and resize ordering;
+the browser mock keeps distinct native generations without invoking a provider CLI.
+
 ## Archive launch admission
 
 Desktop archive/finish excludes new-tab and resumed process launches while the

@@ -300,7 +300,9 @@
     {
       "target": "chat.addFile",
       "sources": [
-        "src/components/chat/composer.ts"
+        "src/components/chat/composer.ts",
+        "src/conversation-view.ts",
+        "src/workspace.ts"
       ]
     },
     {
@@ -312,6 +314,7 @@
     {
       "target": "chat.attachment.remove",
       "sources": [
+        "src/chat.ts",
         "src/components/chat/composer.ts"
       ]
     },
@@ -486,6 +489,7 @@
     {
       "target": "chat.send",
       "sources": [
+        "src/chat.ts",
         "src/components/chat/composer.ts"
       ]
     },
@@ -608,6 +612,44 @@
       "target": "content.link.open",
       "sources": [
         "src/components/chat/markdown.ts"
+      ]
+    },
+    {
+      "target": "conversation.terminal.insert",
+      "sources": [
+        "src/chat.ts"
+      ]
+    },
+    {
+      "target": "conversation.terminal.queued",
+      "sources": [
+        "src/chat.ts"
+      ]
+    },
+    {
+      "target": "conversation.terminal.queued.open",
+      "sources": [
+        "src/chat.ts"
+      ]
+    },
+    {
+      "target": "conversation.terminal.resume",
+      "sources": [
+        "src/conversation-view.ts"
+      ]
+    },
+    {
+      "target": "conversation.terminal.tools",
+      "sources": [
+        "src/chat.ts"
+      ]
+    },
+    {
+      "target": "conversation.terminal.tools.open",
+      "sources": [
+        "src/conversation-view.ts",
+        "src/desk.ts",
+        "src/workspace.ts"
       ]
     },
     {
@@ -1807,7 +1849,8 @@
     {
       "target": "notes.quoteSelection",
       "sources": [
-        "src/components/chat/composer.ts"
+        "src/components/chat/composer.ts",
+        "src/conversation-view.ts"
       ]
     },
     {
@@ -2528,6 +2571,12 @@
       ]
     },
     {
+      "target": "settings.conversation_mode",
+      "sources": [
+        "src/settings.ts"
+      ]
+    },
+    {
       "target": "settings.defaults.resources",
       "sources": [
         "src/settings.ts"
@@ -2776,6 +2825,7 @@
     {
       "target": "tab.menu",
       "sources": [
+        "src/desk.ts",
         "src/workspace.ts"
       ]
     },
@@ -3785,7 +3835,7 @@
     {
       "name": "preference_changed",
       "properties": {
-        "setting": "\"language\" | \"dictation_language\" | \"default_model\" | \"default_effort\" | \"notifications\""
+        "setting": "\"language\" | \"dictation_language\" | \"default_model\" | \"default_effort\" | \"conversation_mode\" | \"notifications\""
       }
     },
     {

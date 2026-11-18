@@ -35,6 +35,17 @@ PORT=1421 npm run dev
 the state root per worktree; on Windows it starts the WSL shell instead. `npm run dev` opens only the frontend over
 `src/mock.ts`, useful for UI work and for the Playwright-driven tests.
 
+On macOS, native app/build commands also install the private terminal helper's
+locked dependencies and build its self-contained Node SEA. `npm run build:app`
+is the bundle entry point; it supplies the sidecar/resource overlay to Tauri.
+Development passes the explicit helper path, while a packaged app resolves its
+sibling executable. macOS exposes Settings / General / Conversation mode for
+new conversations; the saved mode of an existing tab is unchanged. Linux and
+WSL keep Chat and reject native conversation mode. Helper/CLI tests do not
+replace an actual Tauri app run; current app conformance is recorded in the
+[provider matrix](../quality/provider-matrix.md). See the
+[terminal state contract](../contracts/terminal-state.md).
+
 The mock does not prove process lifecycle, filesystem behavior or Rust
 serialization. The Tauri app is not driven by Playwright on macOS because
 WKWebView does not expose CDP.
@@ -78,6 +89,7 @@ npm run test:scripts
 npm run test:rust
 npm run test:core
 npm run test:process
+npm run terminal-state:check
 npm run test:runtime
 npm run test:contracts
 npm run test:e2e
@@ -93,6 +105,10 @@ warnings as errors. It is the same main validation as CI. It needs a Unix host:
 crates, so on Windows `check`, `test:release` and `test:rust` stop early and point
 to `npm run check:windows` (see
 [Native Windows/WSL integration](#native-windowswsl-integration)).
+The terminal helper gate runs after the frontend build. It checks the helper's
+types and differential tests, builds its pinned SEA, runs with an empty PATH,
+then checks real helper/host ordering and restoration. It starts no provider
+and requires no external credentials.
 `npm run architecture:check` first runs its
 dependency-checker fixtures with Node's test runner, then checks the repository,
 including the Rust crate graph through `cargo tree` (see

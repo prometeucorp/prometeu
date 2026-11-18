@@ -47,7 +47,9 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
 | product analytics consent | `<root>/analytics-enabled.json` | `analytics.rs`; private JSON boolean, missing or invalid files disable capture and trigger the startup question; either saved boolean suppresses the question; see [product analytics](product-analytics.md) |
 | product analytics identity | `<root>/analytics-id` | `analytics.rs`; private random UUID, created only when consent and the build key allow capture; its presence does not imply consent |
-| Codex, Antigravity and Cursor V1 transcript | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
+| V1 transcript for Codex, Antigravity, Cursor and every terminal-mode provider | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
+| native terminal transcript binding | `<root>/terminal-bindings/<tab>.json` | `chat/terminal/binding.rs`; private versioned identity and exact path, without conversation content |
+| native terminal ingestion journal | `<root>/terminal-ingestion/<tab>.sqlite3` | `terminal_agent_journal.rs` and `chat/terminal/ingestion.rs`; private source provenance and durable canonical append |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -75,10 +77,33 @@ state root, in `$XDG_DATA_HOME` (`~/.local/share` by default):
 and removes the entry when AppImageLauncher or Gear Lever lists the same file;
 see [ADR 0055](../decisions/0055-linux-desktop.md).
 
-Transcript lookup uses the tab's resolved provider, including a frozen task
-profile, before falling back to the workspace provider. This is also the rule
-for snapshots after the process stops; mixed-provider tabs retain their own
-transcript paths without a format migration.
+Transcript lookup first honors the tab's saved conversation mode: terminal mode
+always reads the app-owned V1 log. Chat mode uses the tab's resolved provider,
+including a frozen task profile, before falling back to the workspace provider.
+The same resolver serves stopped snapshots and MCP history. Existing chat tabs
+retain their transcript paths without a format migration.
+
+The native terminal transport persists a native binding only after its process's
+authenticated root hook passes observation validation. Version 1 contains
+`version`, `session`, `provider`, `nativeSession` and the absolute `transcript`
+path. It contains neither a bridge token nor message content. Reads are bounded
+to 64 KiB and require exact app/native identity and provider; unknown versions,
+unknown fields and mismatches fail. Writes use the private atomic file helper.
+The captured account's permitted roots reauthorize the path on resume, including
+intentional shared native history across accounts. A previous account id grants
+no additional filesystem access.
+
+Resume loads this binding and completes a silent native baseline before spawning
+the CLI. This avoids waiting for a new prompt to produce the hook needed to read
+its history. Cursor may instead reauthorize its exact native session database
+when the derived JSONL path has not yet been reported. A missing or invalid
+source binding rejects terminal resume explicitly; it never selects another
+session or searches unrelated histories. Existing chat
+tabs do not read this additive format and require no migration. Compatibility is
+covered in `chat/terminal/binding.rs` and the observer's resume tests. The format
+alone does not reconcile output missed during an app crash; the ingestion
+journal below provides the Cursor recovery path. Other providers still need
+their source-provenance integration before terminal mode can be enabled.
 
 Promised files (such as a capture's thumbnail) are materialized by AppKit in a
 new directory per gesture, without overwriting previous attachments. The backend
@@ -268,6 +293,23 @@ changes. Tests: `src/model-choice.test.ts`, `src/agents.test.ts`, and
 `e2e/model-picker.spec.ts`, with action profile compatibility in `e2e/actions.spec.ts`.
 
 ## Board
+
+`Board.conversation_mode` is the default for new conversations, `chat` or
+`terminal`. Each `Tab.conversation_mode` stores the mode selected when that
+conversation was created. Both default to `chat` and omit that value on save,
+so an older tab stays in chat when the global default changes. Resume restores
+the saved tab mode, including reusable actions; changing a model or the global
+preference does not convert an existing transcript. `Launch.conversation_mode`
+is optional: omission inherits the board preference only on creation, while an
+explicit `chat` overrides a terminal default.
+
+macOS exposes the default in Settings / General and runs native terminal
+conversations. Linux and WSL reject terminal launches explicitly. Compatibility
+is covered by the board revival and mode round-trip tests in
+`crates/core/src/board.rs`, launch deserialization in
+`crates/core/src/session/launch/tests.rs`, tab creation in
+`crates/core/src/workspaces.rs`, and desktop task/tab resume tests in
+`src-tauri/src/session.rs`.
 
 `Board` contains projects, stages, workspaces and the optional `actions`
 catalog. The order of `projects` is the sidebar order the person chose by
@@ -464,9 +506,141 @@ the persisted content.
 
 ## Transcripts
 
+Terminal conversations use `<root>/chats/<tab>.jsonl` for every provider,
+including Claude. Accepted input, observed canonical output and application
+notices append to that history. Native bootstrap and rewrite snapshots never
+replace or prepend published history. Native recovery appends only uncaptured
+source occurrences and versions, with durable identity receipts. Cursor uses
+its resumable store IDs, Codex its thread/turn/item IDs, Claude native row UUIDs
+and Antigravity native step indices. Unsupported source content withholds
+coverage rather than silently certifying a complete baseline.
+The native terminal can therefore show compacted provider state while Prometeu
+retains the prior conversation, positional comment anchors and cut locations.
+Compatibility tests in `chat.rs` cover mode-aware routing and retention of
+canonical notices, usage and transcript positions across a native rewrite.
+
+### Native ingestion journal foundation
+
+`terminal_agent_journal.rs` provides a private SQLite schema 4 for durable
+native-source provenance at `<root>/terminal-ingestion/<tab>.sqlite3`. The native
+terminal host completes recovery and Cursor source replay before seeding Lines.
+It does not change V1 lines, positional indices,
+comment anchors, cut locations, relay formats or the telemetry database.
+
+Each journal binds exactly one app session and provider. Its native session may
+start absent when the CLI allocates identity asynchronously; `bind_native`
+records the authenticated identity once, under an immediate transaction, and
+rejects a different identity. Schemas 1–3 migrate without changing receipts
+or canonical bytes. Schema 2 introduced the optional native binding; schema 3
+adds prepared input intents. Schema 4 indexes causal native-user completion and
+committed input ranges. A read-only, private
+identity lookup lets Resume recover a native identity committed before a crash
+lost its board update. Fresh does not adopt an old bound journal. The captured
+account still reauthorizes the exact native source before resume; Cursor can
+validate its original session database directly before its derived JSONL exists.
+AGY 1.5.10 similarly validates its captured conversation DB and exact cascade identity;
+its [native-store contract](native-antigravity-store.md) describes step and output-file provenance.
+If neither the board nor private evidence proves a native identity, Resume
+fails explicitly instead of starting another native conversation.
+
+The journal's
+`captures` table keys a source **occurrence and version**, not message text.
+Repeated prompts are distinct occurrences. Mutable native steps retain their
+occurrence while changing version; an already captured version is never
+captured again. A private object checkpoint records the projection state needed
+to compute a later version. Cursor uses the authenticated source identities
+described in [its native-store contract](cursor.md#native-store-recovery),
+rather than ordinals in its rewritten JSONL export.
+
+Claude rows and Antigravity steps carry `sourceScope: record`: their sealed
+status is not an agent-turn completion. Their private `sourceUser` identifies
+the originating native user occurrence; tool results retain the call owner's
+association even when they arrive after another input. Claude follows known
+`parentUuid` ancestry and preserves a row's established association across rewrites.
+Unknown ancestry cannot authorize live work effects. The journal requires the
+causal user receipt, and only a durable canonical completion or a later committed
+user-message range makes otherwise supported late output historical. Prepared
+inputs without a public echo do not establish this boundary. App submissions
+with a committed echo do, even before the native alias arrives. Comparing the
+original ranges rather than receipt insertion order keeps replay and aliases
+from reviving an old turn. Legacy receipts without this attribution can update
+existing history quietly; migration does not invent completion evidence.
+The full Antigravity store also pins its native `trajectoryId` in a private,
+content-free receipt before accepting its first capture. The binding survives
+restart and is checked before deduplication and newly discovered steps, since
+the same cascade/session ID does not authorize adopting a different trajectory.
+Older receipts lacking this field acquire a binding from the first authorized
+full-store observation; no trajectory identity is fabricated during migration.
+
+The caller holds one writer gate covering native output, app echoes and notices.
+Under that gate, it records the exact next canonical byte and line positions.
+SQLite commits an intent with exact canonical bytes and their SHA-256 before
+those bytes are appended. The canonical file is synced before SQLite acknowledges
+the capture. Committed rows retain provenance, checkpoint and byte/line ranges;
+their temporary canonical payload is cleared. An explicitly proven native input
+may alias an app submission's committed range without appending a second echo.
+No global text deduplication is permitted.
+
+An app submission's private checkpoint retains an opaque ID, the hash of the
+provider's proven normalized input and the preceding native user occurrence.
+The canonical echo keeps the original text. At most 64 unbound submissions are
+restored in causal order after a crash; a mismatched candidate is an explicit
+conflict. Cursor's proven paste normalization changes CRLF/CR to LF and tabs to
+two spaces, without NFC normalization. A source baseline and an empty pending
+submission queue are both required before admitting another app prompt or
+claiming catch-up. An unconfirmed input is never resent automatically.
+
+Before attempting any PTY input, `prepared_inputs` retains one private intent
+with its opaque submission ID, original text/hash, normalized hash, timestamp
+and native causal watermark. Its serialized value is bounded to 2 MiB, its text
+to 1 MiB and its read to two rows so corrupt excess rows fail explicitly. The
+canonical echo is not published by preparing an intent. Once a durable receipt
+exists the transient original payload is deleted. A crash between append and
+that deletion is reconciled from the receipt on open. An unresolved intent
+never authorizes another write, even for identical text. It can be cancelled
+only when the still-reserved process input proves that no byte write was
+attempted. Source replay can prove the exact next accepted native user
+occurrence and preserve the original app text before aliasing it; absent
+evidence remains uncertain and blocks input. Other source adapters must prove
+the same correlation before claiming equivalent recovery.
+
+Recovery runs before any new writer. It compares the existing tail with the
+intent's exact prefix, appends only the missing suffix and then acknowledges it.
+A different prefix, shortened file or corrupt intent stops recovery and preserves
+both artifacts. Recovery is storage-only: it does not pass replay through the
+Pump or emit completion, notifications, telemetry or new input. The host loads
+canonical Lines after recovery. Live frames use the pump's commit port; a proven
+revision of finished content updates public lines without reopening execution,
+telemetry or reactions. App input reserves its opaque ID before writing to the
+PTY, and native observations wait until the canonical echo commits. A commit
+failure retires that process instead of publishing an unjournaled echo or
+retrying the write. Generic output or notice commit failures latch the same
+incarnation as failed, revoke input readiness and retire it on the observation
+worker; a later successful write cannot silently skip the missing occurrence.
+
+The journal uses a private directory, a `0600` file, WAL with `synchronous=FULL`
+and an explicit identity/schema check; unknown schemas are rejected. Each batch
+is bounded to 8 MiB and 4,096 canonical lines, checkpoint objects to 64 KiB and
+source keys to 1,024 bytes. Pending payload/checkpoint reads remain bounded even
+for damaged journal rows. Ephemeral and private telemetry payloads are rejected
+as canonical lines; their source occurrence/version may retain an empty-line
+receipt before live effects. Replay creates that receipt without effects. Late
+revisions of ephemeral metadata update only receipts, so old usage/context
+cannot charge or replace a newer request. Retained summary, notice and context
+report text uses the quiet revision path and keeps earlier line positions.
+`terminal_agent_journal/tests.rs` covers every append/ack crash window, exact
+prefix conflicts, repeated input aliases, source revisions, damaged intents and
+compatibility rejection. `chat/terminal/ingestion/tests.rs` composes the real
+journal and portable pump to test restart, missing native tails, normalized
+input aliases, source revisions and failure-before-publication. All native
+providers use durable app/output commits and the source occurrence ingestion
+path. Append batches retain their causal user cursor, while complete snapshot
+batches reconstruct it without global text deduplication. Provider recovery/control
+conformance remains a prerequisite for enabling terminal mode.
+
 ### Claude
 
-Claude Code writes in `~/.claude/projects/<cwd-slug>/<tab>.jsonl`, or in the
+Existing Claude chat-mode history reads `~/.claude/projects/<cwd-slug>/<tab>.jsonl`, or the
 `projects` of the original `CLAUDE_CONFIG_DIR` when configured. Managed account
 profiles share that directory through a link; the selection does not change the
 conversation's path. The folder derives from the worktree's path. The file may
@@ -600,8 +774,22 @@ conversation transcript or existing exports.
 ## Pending session input
 
 `SessionService` keeps the existing `pending_prompt` field and its append order
-across setup, account changes and process loss; a failed send puts the original
-prompt before later text. No format migration is introduced. See
+across setup, account changes and process loss; chat-mode failed sends put the
+original prompt before later text. Terminal mode adds optional
+`Tab.native_dispatch: { id, text }`, absent on old boards and defaulting to null.
+One queued item moves into this immutable slot and the board is durably saved
+before the process write. Later prompts remain in `pending_prompt` and cannot
+change that item's ID or text. Both texts remain visible, in that order, while
+acceptance is uncertain; the ID is internal queue identity.
+
+The native host returns `Sent` only after its canonical receipt is durable, or
+`AlreadyAccepted` for that exact ID/content after recovery. The latter performs
+no process write, capture, telemetry or reactions. Only then does the core
+clear the slot through another board persistence barrier. A crash before this
+clear is safe because the same token resolves to its old receipt. A crash after
+write but before the receipt requires prepared-input reconciliation above and
+never retries automatically. A failed board barrier preserves the slot and
+prevents sending. Ordinary Chat retains its existing queue policy. See
 [sessions](application-core.md#sessions-launch-and-workers).
 
 ## WSL runtime root

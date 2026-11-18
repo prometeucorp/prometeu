@@ -16,6 +16,295 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## Native conversation mode
+
+The optional conversation mode format is shared by Claude, Codex, Antigravity
+and Cursor. It persists a global new-conversation preference independently
+from each tab's fixed mode, including action tabs. On macOS, **Settings → General
+→ New conversations** selects Chat or Terminal for newly created conversations.
+Changing it does not convert existing tabs or restart their processes. Linux
+and WSL keep the control hidden and explicitly reject terminal mode.
+Local Chat and Terminal views are exclusive. Terminal tabs have no transcript
+screen or surface switcher; canonical persistence, status, notifications and
+remote transcript sharing remain independent of that local presentation.
+The native terminal fills the conversation area without a permanent footer or
+floating controls. The workspace menu at the right of the central tab bar, tab
+context menus and desk-header menus open the shared actions, MCP, plugins,
+skills, context, dictation and remote access controls on
+demand; quotation and manual resume are contextual menu actions. Actionable collaboration notices
+remain visible when the owner must respond. Model and effort
+changes use the native CLI; launch defaults remain available. Selecting,
+dropping or pasting files inserts paths directly into the native draft without
+Enter. Browser context, review notes and text previews remain staged in the
+tools dialog for explicit insertion; the CLI owns the only editable local
+message input. Failed insertion retains the original tab's draft without
+resuming a process or retargeting another tab.
+Queued local prompts and staged context draw attention through a conditional
+indicator in the tab-bar action group or desk header, separate from agent status. Their preview is
+available through the tools dialog, shared across providers.
+Native typography uses 14 px SF Mono on macOS with monospace fallbacks,
+500/700 weights and line height 1. The neutral palette uses `#282c34` and white
+text; shared helper defaults keep OSC reports and replay aligned. Existing
+native color changes survive restoration, and running helpers keep their current
+colors until normal replacement. The renderer/helper versions remain pinned to
+xterm 5.5.0; this visual change does not establish newer terminal protocol or GPU
+rendering conformance. Geometry and input coverage remain in
+`e2e/composer.spec.ts`, `src/term.test.ts` and the terminal-state replay/query tests;
+browser evidence remains distinct from native macOS app conformance.
+All four local terminal providers share automatic saved-session resume when a
+stopped tab is opened. `src/terminal-conversation.test.ts` covers concurrent
+surfaces, fresh snapshots, no input submission, bounded failure retry and stale
+navigation/disposal; `src/conversation-view.test.ts` keeps the manual retry
+hidden while attaching or running. These lifecycle tests use mocked IPC.
+Compatibility tests live in `crates/core/src/board.rs`,
+`crates/core/src/session/launch/tests.rs`, `crates/core/src/workspaces.rs`,
+`src-tauri/src/session.rs`, and `src/backend-contract.test.ts`.
+
+Native command preparation in `src-tauri/src/terminal_agent_launch.rs`, the PTY
+host, screen restoration and canonical ingestion are composed in the macOS
+application. Actual macOS Tauri verification with isolated scratch projects and
+existing authenticated accounts passed native responses, canonical user and
+assistant content, and `turn.completed` for all four providers. Cold resume
+retained each bound native identity and recovered history without duplicate
+prompts. Cursor also passed a live follow-up after the physical-workspace path
+fix. Graceful app exit left none of the nine owned direct children alive: four
+provider CLIs, the Codex engine and four terminal-state helpers. Antigravity's
+programmatic follow-up reached the native TUI, and canonical recovery after the
+hidden-system-message fix retained exactly two users and two answers. Recovery
+kept the earlier completion count unchanged; a new live completion after that
+fix was not separately exercised. The native CLI smokes and automated tests
+below retain their narrower scope; these checks do not establish
+every tool, decision or sharing combination. Later provider tables describe the
+existing Chat adapters unless they explicitly name native terminal behavior.
+
+Native queued input has a separate durable dispatch token and a prepared-input
+intent before process writes. Core and journal composite tests cover crash
+recovery, exact receipt reuse without another send, preservation of later
+pending text and refusal to retry uncertain acceptance. Causal source replay
+uses native Cursor/Codex identities, Claude row UUIDs and Antigravity step indices
+to reconcile an accepted intent; unsupported source content withholds coverage.
+AGY 1.5.10 terminal content now reads its scoped original SQLite trajectory and
+complete output files. A native Ask-approved `printf` smoke and offline projection
+proved one exact call/result identity; synthetic tests cover WAL immutability,
+output changes, paths, Fresh/Resume and durable acknowledgment. Auxiliary Any
+metadata can accompany complete native output; unknown result forms remain
+coverage failures. This does not establish all-tool parity. See
+the [AGY store boundary](../contracts/native-antigravity-store.md).
+Observer and journal fixtures cover replay, rewrites and metadata receipt ordering;
+those tests do not establish complete native control parity. The board/TypeScript
+boundary fixture includes the additive dispatch state, whose text remains
+visible until durable acceptance. Ordinary Chat queue behavior is unchanged.
+The ingestion composite also checks that a sealed source row keeps current tool
+effects, while a result after completion, interruption or a new committed app
+input updates history quietly. Causal-user and trajectory bindings survive
+restart; journal schema migrations preserve public bytes and native receipts.
+
+Empty-session restart has a narrower limitation: a tab without a native session
+identity cannot resume, and an unresolved prepared input with uncertain
+acceptance remains explicitly blocked. The observed empty AGY and Cursor cases
+do not automatically recreate a conversation or resend input. The journal
+regression for proven-unwritten cancellation covers safe retry after a live
+rejection; it does not authorize retry of an uncertain intent after a crash.
+
+| Provider | Native preparation and behavior | Evidence and specific remaining checks |
+| --- | --- | --- |
+| Claude | Exact native session id, captured account, model/effort, explicit permission mode, instructions and selected MCP/packages | Tauri response/history/completion and cold resume passed, as did native hook question response, native-dialog race and explicit Bash approval; ExitPlanMode request opening passed, while its response delivery and app decision controls remain unverified |
+| Codex | Owned app-server and remote TUI, exact resume id, derived account/tools home, native config and selected hook hashes | Tauri response/history/completion, cold resume and engine cleanup on app exit passed; native Ask/Plan bootstrap, RPC recovery, question/answer and explicit command approval also passed. File-change approval, quota and shared-control conformance remain |
+| Antigravity | Workspace, exact resume id, model/effort, permission/plan flags and private always-on instructions; decisions stay in the native TUI by product choice | Tauri initial response/history/completion, cold resume and programmatic follow-up with quiet canonical recovery passed; a new live completion after the hidden-system-message fix remains unverified. Native instructions and an Ask-approved printf/tool projection passed. Nonempty hub selections remain unsupported |
+| Cursor | Workspace, exact resume id, model, native permission/plan flags, private native prompt-hook instructions and selected stdio MCP activation; decisions stay in the native TUI by product choice | Tauri response/history/completion, cold resume and live follow-up passed, as did native successful-stop fence and one Shell call/recovery; MCP tool calls/remote transports remain unverified. Separate effort and hub packages remain unsupported |
+
+The opt-in ignored native smoke in `terminal_agent_hooks/smoke.rs` has verified
+fresh response and exact resume for Claude 2.1.326, Codex 0.169.0,
+Antigravity 1.5.9 and Cursor 2026.11.13. Claude required the real headless
+emulator's query replies in this harness. Codex and Antigravity also accepted a bracketed-paste follow-up after
+an explicit native idle/done report. Cursor emitted no verified OSC readiness
+signal. These short no-tool prompts use isolated scratch workspaces and existing
+external credentials. The earlier direct Codex smoke used `on-request` with `read-only`; the owned
+engine proof below supersedes that preparation path for Ask/Plan. Antigravity also obeyed private always-on instructions on fresh start
+and resume. Cursor rules from private plugins/additional roots did not load in
+this build; its native prompt-hook context instead passed fresh/resume with a
+changed instruction and unchanged user prompt. The verified carrier is limited
+to 10,000 UTF-16 units. These
+smoke results are separate from end-to-end Prometeu conformance.
+
+The ignored `terminal_agent_launch::mcp_smoke::native_cursor_loads_selected_stdio_mcp_without_inference`
+also passed on Cursor `2026.11.13-eacade1`. It uses the real preparation and
+MCP materializer, a private plugin and `CURSOR_CONFIG_DIR`, and the existing
+native authentication. The selected stdio server received `initialize`,
+`notifications/initialized` and `tools/list`, with its configured environment
+overriding an inherited value. No prompt or `tools/call` was sent. The test
+confirms the scratch path before native trust, checks private artifact modes
+and reaps the PTY, fixture server and screen helper. It does not certify remote
+MCP transports or native tool invocation; `agent mcp list-tools` is not used
+as evidence because that subcommand does not load invocation plugins.
+
+The [Claude decision bridge](../contracts/native-claude-decisions.md) also passed
+two bounded synthetic-question cases on 2.1.326: an explicit hook answer was
+returned by the native tool; a local Blue choice remained Blue after a late
+hook answer of Green was delivered. The canonical card closed as `resolved`,
+which records delivery rather than claiming that the hook won. Timeout,
+disconnection and retirement remain neutral. A separate native Bash case verified
+the exact literal printf command, permission dialog before the explicit hook
+allow, native tool completion, the exact scratch-file result and duplicate
+response rejection. Ask+Plan startup now preserves manual permissions without
+enabling bypass. ExitPlanMode reached its native empty-plan dialog and emitted
+the plan request; real response delivery remains unverified. The empty-plan
+selector has an offline regression. Broader native rule combinations and shared
+remote control remain unverified.
+
+The separate [Codex engine proof](../contracts/native-codex-engine.md) uses the
+actual native TUI with per-thread `untrusted`, `dangerFullAccess`, Plan and low
+effort without a model request. A separate bounded one-turn smoke fed actual
+RPC into the runtime consumer and cold `thread/turns/list` replay left canonical
+bytes unchanged, with one user and one completion. Fake-process and consumer
+tests cover bounded pagination, explicit-only decisions, cleanup, source receipts
+and active-tool crash tails. A real Plan question also passed through the native
+TUI and attached answer adapter, with Blue returned by the model, native card
+resolution and rejection of repeated answers. An explicit one-shot command
+approval also passed, with native resolution, matching completed tool identity,
+exact scratch-file contents and repeated-answer rejection. File-change approvals,
+quota and shared remote control still require native conformance.
+The previous on-request stop smoke does not certify those behaviors.
+
+Cursor and Antigravity terminal decisions intentionally use the native TUI in the first version;
+application and shared approval/question buttons are outside that accepted scope.
+Chat keeps its existing capabilities. `conversation-capabilities.test.ts`, `team-viewer.test.ts`,
+`team-owner.test.ts`, `team-channel.test.ts`, `island.test.ts`, relay compatibility
+tests and the native input rejection test cover per-conversation ownership,
+encrypted announcements, old-client responses and preserved native input.
+
+Across all four native providers, slash commands and permission-mode changes
+stay in the TUI. Shared transcript controls omit provider command suggestions,
+compact/context actions and approval actions that switch to bypass. User Actions
+still expand first, ordinary prompts retain paths such as `/Users/file`, and
+Claude/Codex keep individual approval/question responses. Manual slash rejection
+preserves the sending viewer's composer; shared mode metadata remains encrypted and both
+viewer and owner guard unsupported commands. Pure grammar, relay compatibility,
+encrypted round-trip and peer-input tests cover this boundary.
+
+Native input admission in `native_ui_readiness.rs` uses real Claude, Cursor,
+Codex and Antigravity viewport captures. Codex's fresh/cold-resume and literal/Home/clear test
+uses no inference: the dim placeholder distinguishes empty input from an
+identical draft at the same physical cursor. It still requires separate native
+idle. Antigravity 1.5.10 uses the captured single-row composer, physical cursor
+at Home, full-width borders and exact idle footer, also with separate native
+idle. A read-only audit of its pinned submit handler proves plain spaces are
+discarded when no pasted-content placeholders exist. Regression tests reject
+literal mode-hint text at Home; the native empty hint instead requires its
+captured palette-8 foreground and exact native truncation. An explicit
+`NO_COLOR` hint remains ambiguous and does not release programmatic input.
+Tests also reject
+literal drafts, chips, menus, incomplete paint, changed geometry and unknown
+versions; application payloads remain unchanged. See the
+[fixture evidence](../../src-tauri/src/native_ui_readiness/fixtures/README.md).
+
+Cursor's pinned native-store decoder additionally covers tool arguments/results,
+MCP JSON values, read-content blobs and compacted tool references in
+`crates/protocols/src/cursor_store/tests.rs`. Call/result revisions retain the
+native call ID and are committed separately; they do not invent approval cards
+or turn completion. Unknown tool fields, shell-only turns and synthetic users
+still withhold full source coverage. A controlled native Shell smoke additionally
+passed prompt painting, one explicit native approval, execution and copied-store
+recovery with matching native call/result IDs. Other tool variants retain fixture
+coverage only; these checks do not establish full app or programmatic approval
+conformance. Cursor approvals intentionally remain native.
+
+Native stop profiles in `terminal_agent_controls.rs` require an observed active
+turn and a versioned, current composer hint. Codex 0.169.0 and Antigravity 1.5.9/1.5.10
+have additionally passed the opt-in no-tool interruption smoke: one Escape
+produced an explicit idle/done report and a native interrupted message while
+the same process remained alive. Codex uses `on-request`/`read-only` in this
+check; Antigravity uses explicit Ask settings. Startup MCP cancellation is a
+negative Codex fixture, not model-turn evidence. Claude 2.1.326 also passed one
+Escape after its prompt hook and native Working, outside the startup-hook phase,
+followed by explicit Idle with the process alive. Its compact composer can sit
+above the viewport bottom and hide the physical cursor while working; the
+current cursor position, borders and footer identify the control. Cursor
+2026.11.13-eacade1 also passed a no-tool interruption: its native prompt, model
+output and Working/footer preceded exactly one Ctrl+C; an authenticated root
+Stop reported `aborted`, the process remained alive, and its waiter confirmed
+reaping after the proof. Cursor restores the interrupted prompt as a draft; the
+harness preserves it. Any later Stop reasons are recorded separately, and no
+OSC idle/done is invented. The control accepts a scrolled-off startup banner
+only with the current aligned composer/footer/cursor. The fixture tests reject conflicting bindings,
+partial paints, transcript mentions and unverified versions; unsupported layouts
+remain unavailable. Cursor's native hint is hidden when its composer has a draft.
+
+For Cursor, the pinned source also accepts local Escape with an empty prompt
+when no overlay/history/queue action consumes it; the application Stop profile
+still sends its advertised Ctrl+C. The authenticated root aborted hook is bound
+to the current durable request before committing canonical `interrupted`.
+Observer regressions reject old requests and new-prompt races and retain
+cancellation across a later completed hook for the same generation. They also
+clear the pending prompt-generation barrier after exact durable capture and
+allow a later native request without a repeated prompt hook; bounded Stop
+candidates preserve each request's evidence despite delayed older hooks.
+`journal_cursor_interruption_stops_spinner_and_keeps_late_source_quiet` covers
+the real portable pump, duplicate receipts, a restored native draft and late
+source/tool activity without a success notification. These tests cover the
+native interruption evidence above; they do not claim a new Tauri Esc run.
+
+Cursor's spinner also starts before the native store catches up when a local
+Enter boundary is followed by a newer, verified busy composer. The host test
+`cursor_busy_paint_starts_before_source_and_restored_retry_reopens_after_escape`
+checks initial work, settled-screen rejection and a new native submission.
+`cursor_working_observation_requires_its_current_complete_busy_composer` and
+`observed_native_input_reopens_a_settled_cycle_and_source_claims_it_once` cover
+the screen profile and shared execution cycle. Enter alone and paste are
+negative cases. `cursor_restored_prompt_retry_settles_without_repeating_before_submit_hook`
+covers the independent source identity barrier and delayed Stop ordering; none
+of these synthetic tests claims a new native model run.
+
+The recorded no-tool AGY 1.5.10 Escape sequence is `Idle` → `Working` → `Idle`.
+`terminal_execution` and native host regressions cover quiet settlement of that
+root activity, late source updates, the next input and preservation of children,
+requests and valid Done tickets. `src/timeline.test.ts` and `src/alert.test.ts`
+cover clearing the busy presentation without a success notification. These
+regressions exercise the observed native sequence.
+A separate owned native file-read/Escape run on 1.5.10 captured `Idle` → `Working`
+→ `Done` → `Idle`, with an explored file, the native interruption notice and the
+process still alive. The projector and host replay that captured sequence with
+late source thinking/tool content: the tab stays ready, content is retained, and
+no success is inferred from Done alone. Completion-ticket and delayed-input
+regressions preserve the independent source barrier. This is native CLI evidence
+plus host regression coverage, not a new Tauri cancellation run.
+The same recorded interrupted viewport also covers input readiness: the native
+interruption banner above the empty composer does not block queued input. The
+host regression retains the local-input fence until a newer verified paint and
+native idle, then admits the next message without retrying its submission.
+
+The provider-neutral OSC parser/reducer tests cover chunked status records,
+bounded retention and explicit per-record completion. Native PTY tests cover
+input, resize, shared process control and reaping. Neither group proves
+permission response, notification eligibility, content sharing or usage capture.
+
+The native renderer is shared across providers. `src/term.test.ts`
+covers generation filtering, faithful-screen replay, pending UTF-8, query suppression,
+ordered text/binary input and cleanup;
+`src/conversation-view.test.ts` covers exclusive local views, remote transcript
+routing and native quotations. `src/native-conversation-draft.test.ts` covers
+concurrent context retention and exact review acknowledgment by tab and envelope,
+including repeated snapshots and closed-tab cleanup. It also checks individual
+image-path formatting and document mentions. The image format follows the
+Codex 0.169.0 source normalizer: one literal path per paste, with quoting when
+needed and no `@` prefix. This source inspection does not establish native Tauri
+image-chip rendering or another provider's image recognition. `src/term.test.ts` and
+`src/terminal-conversation.test.ts` cover generation-bound insertion, bracketed
+paste readiness, rejected controls and no automatic Enter or resume. The
+native-screen case in `e2e/composer.spec.ts` checks actual xterm geometry and
+keyboard focus. Those
+browser fixtures do not certify native provider behavior.
+
+The private [terminal state helper](../contracts/terminal-state.md) has shared
+headless replay and stdio tests in `packages/terminal-state/test/`. The macOS
+desktop host and renderer use its screen contract, single query authority and
+generation ordering. The Node SEA/Tauri bundle has been verified locally
+on macOS arm64 without installed Node and is included by the standard macOS
+app/release build. CI verifies helper and host behavior; Linux release and WSL
+do not consume the helper. These shared transport tests
+establish no additional provider capability and do not replace the Tauri app
+verification above.
+
 ## Automatic worktree cleanup
 
 The local opt-in preference applies equally to Claude, Codex, Antigravity and
@@ -433,7 +722,17 @@ transcript, sharing and presentation paths after V1 normalization.
 | Account quotas | Dashboard API using the CLI login; unified weekly or explicit legacy individual monthly limits | `cursor/quota/tests.rs`: mapping, failure and compatibility tests; ignored `live_cursor_quota` verifies the signed-in account |
 | Per-turn token/cost meters, context and compaction controls | Unavailable | descriptor capabilities; no invented readings |
 | Subagent lifecycle | No separately verified background signal | native prompt terminal settles turn |
+| Native terminal recovery (macOS) | The host restores missing native tails before seeding history and commits live batches before publication; native IDs survive derived JSONL rewrites; successful completion requires the exact request, a private pre-ACK witness, post-hooks marker and empty composer; unprojected content prevents coverage | `protocols::cursor_store` synthetic protobuf/projection tests, `terminal_agent_cursor_store` copied DB/WAL tests, `terminal_agent_observation/cursor/tests.rs`, pre-ACK hook tests and `chat/terminal/ingestion/tests.rs`, pinned to CLI `2026.11.13-eacade1`; hook-authorized scratch store and request identity smokes |
+| Native terminal interruption (macOS) | An authenticated root aborted hook matching the durable source request commits `interrupted`; a restored draft does not keep the spinner running; later source/tool activity or a completed hook for that request cannot reopen or successfully complete it; new prompts invalidate older proof | `cursor_interruption_*` observer regressions and `journal_cursor_interruption_stops_spinner_and_keeps_late_source_quiet`; pinned native Ctrl+C smoke and local Escape source inspection above |
+| Native terminal running feedback (macOS) | A newer verified busy composer after a native submission boundary starts observed Working before source persistence; source capture claims the same cycle, and old paints cannot reopen a settled cycle | `cursor_busy_paint_starts_before_source_and_restored_retry_reopens_after_escape`, `cursor_working_observation_requires_its_current_complete_busy_composer`, `observed_native_input_reopens_a_settled_cycle_and_source_claims_it_once` |
 | Windows/WSL | Not registered | existing Codex-only runtime composition |
+
+Native-terminal preparation resolves the workspace once and shares the physical
+cwd between the PTY, Cursor workspace argument, transcript slug and store hash.
+`preparation_captures_profiles_and_resume_state_without_starting_agents` covers
+symlink traversal on fresh/resumed launches. This fixes the actual Tauri scratch
+case where `/tmp` and `/private/tmp` selected different stores despite a native
+response; the path regression itself does not claim another model or UI run.
 
 Native verification targets Cursor CLI `2026.10.22-27dcf5f`. A real scratch
 workspace prompt ran `pwd`, wrote `CURSOR_OK`, and remembered a marker across

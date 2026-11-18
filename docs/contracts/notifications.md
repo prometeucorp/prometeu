@@ -23,6 +23,18 @@ Interruptions, snapshots, replay, reading, request answers and background-task
 drainage never arm a new completion. Visible, focused conversations consume
 their activity without notification. Comments remain Dock-only.
 
+Native terminal observations use the additive `execution.observed` event from
+the [conversation contract](conversation-events-v1.md). Explicit root activity
+can confirm execution without fabricating assistant output. `blocked` can
+notify once per observed blocking episode, but supplies no answerable request
+to the notch. Child activity preserves a primary completion held for those
+children. `idle` never arms completion; `unknown` cancels a candidate before
+uncertain child removal can release it. A completed activity identifier cannot
+be armed again by a delayed status report. Native replay and baseline reads
+stay outside this tracker. This observation path does not establish parity for
+native approvals or remote controls; those use separate provider-specific
+channels documented in the [agent runtime](agent-runtime.md).
+
 GitHub activity from the Cloud feed is the other source
 ([GitHub notifications](github-notifications.md)): only rows that arrive after the
 first load since startup notify, under the `github` preference. Its title is the
