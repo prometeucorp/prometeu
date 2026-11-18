@@ -10,7 +10,8 @@ fn observer(format: TranscriptFormat) -> NativeTranscript {
     NativeTranscript::new(TranscriptBinding {
         format,
         native_session: "fixture-session".into(),
-        transcript_path: PathBuf::from("/fixture/native.jsonl"),
+        // Absolute on every platform; "/fixture" has no drive letter on Windows.
+        transcript_path: std::env::temp_dir().join("native.jsonl"),
     })
     .unwrap()
 }
