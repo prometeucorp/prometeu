@@ -2007,7 +2007,8 @@ pub fn agent_terminal_snapshot(
     })
 }
 
-#[tauri::command]
+// Async: provider preparation runs external CLIs (with multi-second timeouts) and must not block the GUI thread.
+#[tauri::command(async)]
 pub fn agent_terminal_resume(
     app: AppHandle,
     state: State<AppState>,

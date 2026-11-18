@@ -13,6 +13,9 @@ enum State {
         client: Client,
         stream: Stream,
         chunk: u64,
+        /// Last helper snapshot. Only `write` and `resize` change the emulator, and both clear it,
+        /// so idle readiness polls reuse it instead of re-serializing the whole history.
+        cached: Option<Box<Snapshot>>,
     },
     Frozen {
         chunk: u64,
@@ -53,6 +56,7 @@ impl Screen {
             client,
             stream,
             chunk: 0,
+            cached: None,
         })))
     }
 
@@ -62,10 +66,12 @@ impl Screen {
             client,
             stream,
             chunk,
+            cached,
         } = &mut *state
         else {
             return Err(Error::Closed);
         };
+        *cached = None;
         let next = chunk.checked_add(1).ok_or(Error::Limit)?;
         match stream.write_chunk(client, next, bytes) {
             Ok(applied) => {
@@ -86,9 +92,16 @@ impl Screen {
             return Err(Error::Limit);
         }
         let mut state = lock(&self.0);
-        let State::Live { client, stream, .. } = &mut *state else {
+        let State::Live {
+            client,
+            stream,
+            cached,
+            ..
+        } = &mut *state
+        else {
             return Err(Error::Closed);
         };
+        *cached = None;
         stream.resize(
             client,
             Size {
@@ -105,7 +118,22 @@ impl Screen {
 
     pub fn snapshot(&self) -> Result<AppliedSnapshot, Error> {
         match &mut *lock(&self.0) {
-            State::Live { client, stream, .. } => stream.snapshot(client),
+            State::Live {
+                client,
+                stream,
+                chunk,
+                cached,
+            } => {
+                if let Some(state) = cached {
+                    return Ok(AppliedSnapshot {
+                        chunk_seq: *chunk,
+                        state: state.as_ref().clone(),
+                    });
+                }
+                let applied = stream.snapshot(client)?;
+                *cached = Some(Box::new(applied.state.clone()));
+                Ok(applied)
+            }
             State::Frozen { chunk, state } => Ok(AppliedSnapshot {
                 chunk_seq: *chunk,
                 state: state.as_ref().clone(),
