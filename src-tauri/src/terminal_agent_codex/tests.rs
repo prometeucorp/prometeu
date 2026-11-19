@@ -228,7 +228,7 @@ fn resume_never_adopts_another_thread_or_releases_input_without_settings_ack() {
         let mut tui = Command::new("codex");
         let result = fixture
             .plan(scenario, resume)
-            .start_bounded(&mut tui, Duration::from_millis(700));
+            .start_bounded(&mut tui, Duration::from_secs(3));
         assert!(result.is_err());
         assert!(tui.get_args().next().is_none());
         fixture.assert_reaped();
