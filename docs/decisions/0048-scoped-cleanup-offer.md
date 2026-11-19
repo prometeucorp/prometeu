@@ -47,7 +47,10 @@ cleanup remains available from the archived-workspaces screen.
 Settings / General also offers explicit opt-in automatic cleanup (issue #260).
 The preference is local to the webview and off on new installs and upgrades.
 When enabled, inspect only the selected row from the existing scan, then clean
-safe worktrees with `force: false`. The backend rechecks eligibility and safety. Desktop and WSL archive/finish
+it with `force: true`: opting in is the approval to lose uncommitted or unmerged
+work, because Git merge detection misses squash merges and PRs the GitHub
+integration cannot read. Force still requires an archived, non-original
+checkout and keeps saved existing branches. Desktop and WSL archive/finish
 commands wait for the foreground archive hook to exit before replying; merely
 spawning it would let automatic deletion race resource teardown. Hooks must
 not detach teardown work. This preserves existing exit-status policy and adds
@@ -60,12 +63,11 @@ deferred-operation worker and polling contract, negotiated through
 `application.archive.v1`, so long hooks do not block requests or hit the
 thirty-second transport timeout; catalog mutation stays on the owner loop.
 The bridge retains its ten-minute polling deadline.
-Blocked rows retain the scoped dialog; errors are reported without escalating
-to force. Manual cleanup remains unchanged. The setting explains that this
+Errors are reported without retrying. Manual cleanup remains unchanged. The setting explains that this
 removes the whole worktree, including ignored files, rather than only
 `node_modules`. This reuses the cleanup boundary instead of introducing a
 second filesystem deletion policy. It trades a repeated confirmation for an
-explicit persistent choice while preserving the existing guards.
+explicit persistent choice that also covers dirty or unmerged work.
 
 ## Consequences
 

@@ -39,21 +39,13 @@ test("setting persists explicit opt-in and can be disabled", () => {
   expect(autoCleanupEnabled()).toBe(false);
 });
 
-test("automatic cleanup targets only the archived workspace and never forces", async () => {
+test.each([undefined, "dirty"])("automatic cleanup forces only the archived workspace (blocked: %s)", async blocked => {
   stored = "true";
-  mocks.invoke.mockResolvedValue([{ id: "other", sizeKb: 4096 }, { id: "target", sizeKb: 1024 }]);
+  mocks.invoke.mockResolvedValue([{ id: "other", sizeKb: 4096 }, { id: "target", sizeKb: 1024, blocked }]);
   await cleanupAfterArchive(say, "target");
-  expect(mocks.invoke.mock.calls).toEqual([["cleanup_list"], ["cleanup_worktree", { id: "target", force: false }]]);
+  expect(mocks.invoke.mock.calls).toEqual([["cleanup_list"], ["cleanup_worktree", { id: "target", force: true }]]);
   expect(mocks.dialog).not.toHaveBeenCalled();
   expect(say).toHaveBeenCalledWith("Cleaned");
-});
-
-test("blocked work still requires explicit dialog selection", async () => {
-  stored = "true";
-  mocks.invoke.mockResolvedValue([{ id: "target", blocked: "dirty" }]);
-  await cleanupAfterArchive(say, "target");
-  expect(mocks.dialog).toHaveBeenCalled();
-  expect(mocks.invoke).not.toHaveBeenCalledWith("cleanup_worktree", expect.anything());
 });
 
 test("ineligible workspaces are not deleted", async () => {
@@ -63,7 +55,7 @@ test("ineligible workspaces are not deleted", async () => {
   expect(mocks.dialog).not.toHaveBeenCalled();
 });
 
-test.each(["cleanup_list", "cleanup_worktree"])("failure in %s reports error without forcing or claiming success", async command => {
+test.each(["cleanup_list", "cleanup_worktree"])("failure in %s reports error without claiming success", async command => {
   stored = "true";
   mocks.invoke.mockImplementation(async name => {
     if (name === command) throw new Error("Safety check failed");
@@ -71,7 +63,11 @@ test.each(["cleanup_list", "cleanup_worktree"])("failure in %s reports error wit
   });
   await cleanupAfterArchive(say, "target");
   expect(say.mock.calls).toEqual([["Error: Safety check failed", true]]);
-  expect(mocks.invoke).not.toHaveBeenCalledWith("cleanup_worktree", { id: "target", force: true });
+});
+
+test("an opt-in saved before cleanup forced does not enable it", () => {
+  vi.stubGlobal("localStorage", { getItem: (key: string) => key === "prometeu:auto-cleanup" ? "true" : null });
+  expect(autoCleanupEnabled()).toBe(false);
 });
 
 test("unavailable storage defaults to asking", () => {

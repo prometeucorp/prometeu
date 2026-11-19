@@ -303,11 +303,11 @@ branch, transcript and archived card.
 Settings / General / Clean up worktrees offers an opt-in automatic cleanup
 switch. It applies to manual archive and finish, across projects and agents.
 It removes the entire eligible worktree, including ignored files such as
-`node_modules`, and workspace-created branches, not just dependencies. Safe
-rows are cleaned without a modal using `force: false`; the backend rechecks
-safety. Blocked rows still open the scoped dialog for explicit selection.
-Missing rows do nothing; scan or deletion failures report an error without
-retrying with force. Manual cleanup remains available regardless of the switch.
+`node_modules`, and workspace-created branches, not just dependencies. Turning
+it on is the approval to lose uncommitted or unmerged work, so every listed
+row is cleaned without a modal using `force: true`; force still refuses
+unarchived workspaces and original clones and keeps saved existing branches.
+Missing rows do nothing; scan or deletion failures report an error. Manual cleanup remains available regardless of the switch.
 The preference is local to the webview, as defined in
 [persistence](persistence.md#automatic-worktree-cleanup).
 

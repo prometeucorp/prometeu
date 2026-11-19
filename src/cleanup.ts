@@ -12,7 +12,9 @@ function size(kb: number): string {
   return `${Math.round(mb).toLocaleString(locale())} MB`;
 }
 
-const AUTO_CLEANUP_KEY = "prometeu:auto-cleanup";
+// Opt-ins saved under "prometeu:auto-cleanup" promised to ask before deleting dirty or unmerged
+// work. Forced cleanup needs consent given under the current wording, so it reads a new key.
+const AUTO_CLEANUP_KEY = "prometeu:auto-cleanup-force";
 
 export function autoCleanupEnabled(): boolean {
   try { return localStorage.getItem(AUTO_CLEANUP_KEY) === "true"; }
@@ -47,9 +49,9 @@ export async function cleanupAfterArchive(say: (text: string, isError?: boolean)
   try {
     const row = (await invoke("cleanup_list")).find(item => item.id === id);
     if (!row) return;
-    if (row.blocked) { openCleanup(say, id); return; }
-    // The backend rechecks safety; the preference never authorizes force.
-    await invoke("cleanup_worktree", { id, force: false });
+    // Opting in is the approval to lose uncommitted or unmerged work; the backend still refuses
+    // unarchived workspaces and original clones, and keeps saved existing branches.
+    await invoke("cleanup_worktree", { id, force: true });
     say(tn(1, "clean.done", { size: size(row.sizeKb) }));
   } catch (error) { say(fromBack(error), true); }
 }
