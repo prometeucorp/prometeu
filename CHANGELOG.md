@@ -4,6 +4,19 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.42.0] - 2026-11-19
+
+### New
+
+- **chat:** Run agent conversations in the native terminal
+
+### Fixes
+
+- **notifications:** Stop "not a WebviewWindow" errors while a page is open
+- **cleanup:** Delete archived worktrees without asking when auto cleanup is on
+- **cleanup:** Turn automatic cleanup off for people who opted in before it forced
+- **chat:** Keep the window responsive while terminal tabs resume
+
 ## [0.41.2] - 2026-11-17
 
 ### Fixes
