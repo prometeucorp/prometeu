@@ -12,7 +12,9 @@ function size(kb: number): string {
   return `${Math.round(mb).toLocaleString(locale())} MB`;
 }
 
-const AUTO_CLEANUP_KEY = "prometeu:auto-cleanup";
+// Opt-ins saved under "prometeu:auto-cleanup" promised to ask before deleting dirty or unmerged
+// work. Forced cleanup needs consent given under the current wording, so it reads a new key.
+const AUTO_CLEANUP_KEY = "prometeu:auto-cleanup-force";
 
 export function autoCleanupEnabled(): boolean {
   try { return localStorage.getItem(AUTO_CLEANUP_KEY) === "true"; }

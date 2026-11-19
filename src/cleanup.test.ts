@@ -65,6 +65,11 @@ test.each(["cleanup_list", "cleanup_worktree"])("failure in %s reports error wit
   expect(say.mock.calls).toEqual([["Error: Safety check failed", true]]);
 });
 
+test("an opt-in saved before cleanup forced does not enable it", () => {
+  vi.stubGlobal("localStorage", { getItem: (key: string) => key === "prometeu:auto-cleanup" ? "true" : null });
+  expect(autoCleanupEnabled()).toBe(false);
+});
+
 test("unavailable storage defaults to asking", () => {
   vi.stubGlobal("localStorage", { getItem() { throw new Error("Unavailable"); } });
   expect(autoCleanupEnabled()).toBe(false);

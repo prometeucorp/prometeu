@@ -198,13 +198,16 @@ longer offers, or unavailable storage, starts without a skill. Tests:
 
 ## Automatic worktree cleanup
 
-`prometeu:auto-cleanup` is a desktop webview localStorage string. Only `true`
+`prometeu:auto-cleanup-force` is a desktop webview localStorage string. Only `true`
 enables automatic cleanup after a successful manual archive or finish. Missing,
 unrecognized or inaccessible values keep the scoped confirmation, preserving
 upgrade behavior. `false` disables automation. The preference applies across
 projects in that webview and survives restarts; it is not stored on the board
 or synchronized through the relay. No IPC or board format changes are needed.
-Enabled cleanup runs with `force`, so dirty or unmerged work is deleted; see the
+Enabled cleanup runs with `force`, so dirty or unmerged work is deleted. The
+earlier `prometeu:auto-cleanup` key recorded consent to a cleanup that asked
+before deleting that work, so it is no longer read and those opt-ins start off;
+see the
 [Git contract](git.md#archived-worktree-cleanup) and
 [ADR 0048](../decisions/0048-scoped-cleanup-offer.md).
 Tests: `src/cleanup.test.ts`.
