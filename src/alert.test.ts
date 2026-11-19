@@ -31,6 +31,10 @@ const question = (tab = "a-t") => emit(tab, {
   type: "request.opened", requestId: "q", kind: "question", toolId: null, tool: "AskUserQuestion", input: {},
 });
 const speak = (tab = "a-t") => emit(tab, { type: "user.message", content: [{ kind: "text", text: "continue" }] });
+const observed = (state: "working" | "blocked" | "idle" | "unknown", scope = "root", activityId = "native-cycle", blockId = "native-block") => emit("a-t", {
+  type: "execution.observed", activityId, scope, state, blockId: state === "blocked" ? blockId : null,
+  kind: state === "blocked" ? "permission" : null, detail: null,
+});
 let focused = false;
 const visible = new Set<string>();
 const notify = vi.fn();
@@ -55,14 +59,95 @@ afterEach(() => {
 });
 
 describe("Dock notifications", () => {
-  it("requires accepted input and completion; status and synthetic messages do not create notifications", () => {
+  it("keeps native interruption and late source content silent, then notifies the next completed activity", () => {
+    boardChanged(board(workspace("a")));
+    observed("idle"); speak(); observed("working");
+    emit("a-t", { type: "assistant.block", messageId: "native", index: 0, block: { kind: "text", text: "Partial" } });
+    observed("idle");
+    emit("a-t", { type: "assistant.block", messageId: "native", index: 0, block: { kind: "text", text: "Partial reply before interruption" } });
+    settle();
+    expect(notify).not.toHaveBeenCalled();
+    expect(unseen("a-t")).toBe(false);
+    speak(); observed("working", "root", "next-cycle"); done(); settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith("done", "a-t");
+  });
+
+  it("keeps real requests pending and child drainage silent after native root idle", () => {
+    boardChanged(board(workspace("a")));
+    observed("working"); background(["child"]); question(); observed("idle"); settle();
+    expect(unseen("a-t")).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith("approval", "a-t");
+    background([]); settle();
+    expect(unseen("a-t")).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1);
+    emit("a-t", { type: "request.closed", requestId: "q", outcome: "resolved" });
+    expect(unseen("a-t")).toBe(false);
+  });
+
+  it("preserves an authoritative completion followed by native root idle", () => {
+    boardChanged(board(workspace("a")));
+    observed("working"); done(); observed("idle"); settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith("done", "a-t");
+  });
+
+  it("uses explicit primary activity without fabricating assistant output", () => {
+    boardChanged(board(workspace("a")));
+    observed("idle");
+    done(); settle();
+    expect(notify).not.toHaveBeenCalled();
+    observed("working");
+    done(); settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith("done", "a-t");
+    observed("working"); done(); settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+    observed("working", "root", "next-cycle"); done(); settle();
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies one read-only blocking episode without creating an answerable request", () => {
+    boardChanged(board(workspace("a")));
+    observed("blocked"); observed("blocked");
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenLastCalledWith("approval", "a-t");
+    observed("working");
+    observed("blocked", "root", "native-cycle", "another-block");
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps primary completion held across child activity but discards uncertain drains", () => {
+    boardChanged(board(workspace("a")));
+    observed("working"); background(["child"]); done();
+    observed("working", "background");
+    background([]); settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+    observed("working", "root", "next-cycle"); background(["child"]); done();
+    observed("unknown", "root", "next-cycle"); background([]); settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not repeat a blocked child episode when root priority temporarily hides it", () => {
+    boardChanged(board(workspace("a")));
+    observed("blocked", "background", "native-cycle", "child-block");
+    observed("blocked", "root", "native-cycle", "root-block");
+    observed("blocked", "background", "native-cycle", "child-block");
+    expect(notify).toHaveBeenCalledTimes(2);
+    question();
+    observed("working");
+    expect(unseen("a-t"), "an actual request remains unanswered").toBe(true);
+  });
+
+  it.each(["answered", "resolved"] as const)("requires accepted input and completion after %s; status and synthetic messages do not notify", (outcome) => {
     boardChanged(board(workspace("a")));
     for (let i = 0; i < 5; i++) {
       boardChanged(board(workspace("a", [tab("a-t", i % 2 ? "pronta" : "rodando")])));
       speak();
       emit("a-t", { type: "assistant.started", messageId: "m" });
       question();
-      emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
+      emit("a-t", { type: "request.closed", requestId: "q", outcome });
       done();
       settle();
     }
@@ -71,7 +156,7 @@ describe("Dock notifications", () => {
     question();
     settle();
     expect(waiting()).toBe(1);
-    emit("a-t", { type: "request.closed", requestId: "q", outcome: "answered" });
+    emit("a-t", { type: "request.closed", requestId: "q", outcome });
     done();
     settle();
     expect(waiting()).toBe(1);

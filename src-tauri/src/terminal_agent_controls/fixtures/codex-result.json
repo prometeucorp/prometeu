@@ -1,0 +1,20 @@
+{
+  "explicitPostInterruptIdleOrDone": true,
+  "interrupt": "escape",
+  "interruptCount": 1,
+  "nativeRootStates": [
+    "Idle",
+    "Working",
+    "Idle"
+  ],
+  "processRemainsAlive": true,
+  "prompt": "Count slowly from 1 to 100, one number per line. Do not use tools or execute commands. Stop after 100.",
+  "promptObservedByHook": true,
+  "provider": "codex",
+  "settings": {
+    "approvalPolicy": "on-request",
+    "sandboxMode": "read-only"
+  },
+  "startupHooksSkippedWithoutTrust": true,
+  "version": "codex-cli 0.169.0"
+}

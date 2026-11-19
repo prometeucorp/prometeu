@@ -219,13 +219,7 @@ body.reordering, body.reordering * { cursor: grabbing !important; user-select: n
   border-color: var(--line-raised); background: none; font-weight: 400; font-size: 12px; color: var(--fg-2);
 }
 .crumb .repos:hover { background: var(--bg-raised-2); color: var(--fg); }
-/* The PR dropdown chevron must fit within the bar height. */
-.top .split { height: 28px; margin-right: 0; }
 .wsctl { display: flex; align-items: center; gap: 8px; }
-/* Async Git, diff, and PR labels must not move neighboring controls. */
-.top #prsplit { width: 146px; }
-.top #prsplit > #pr { flex: 1; min-width: 0; }
-.top #prsplit > #pr span { overflow: hidden; text-overflow: ellipsis; }
 #pr[data-ci="running"] > svg, .pr-ci[data-ci="running"] { color: var(--wait); }
 #pr[data-ci="passed"] > svg, .pr-ci[data-ci="passed"] { color: var(--done); }
 #pr[data-ci="failed"] > svg, .pr-ci[data-ci="failed"] { color: var(--err); }
@@ -292,6 +286,22 @@ main { flex: 1; min-height: 0; position: relative; }
 }
 
 .tabbar { padding: 0 8px; gap: 0; }
+/* The tab list scrolls independently; actions stay reachable at the center pane's right edge. */
+.workspace-tabbar { display: flex; align-items: center; flex: none; min-width: 0; height: var(--tabs-h); background: var(--bg-raised); box-shadow: inset 0 -1px var(--line-raised); }
+.workspace-tabbar > .tabbar { flex: 1; min-width: 0; box-shadow: none; }
+.workspace-tab-actions { display: flex; align-items: center; flex: none; gap: var(--space-1); padding: 0 var(--space-2); margin-left: auto; }
+.workspace-tab-actions:not(:has(> :not([hidden]))) { display: none; }
+.workspace-tabbar:has(> #tabbar[hidden]):not(:has(.workspace-tab-actions > :not([hidden]))) { display: none; }
+.workspace-tab-actions .split { height: 28px; margin-right: 0; }
+/* Async PR labels must not move neighboring controls. */
+.workspace-tab-actions #prsplit { width: 146px; }
+.workspace-tab-actions #pr { flex: 1; min-width: 0; }
+.workspace-tab-actions #pr span { overflow: hidden; text-overflow: ellipsis; }
+@container workspace-center (max-width: 450px) {
+  .workspace-tab-actions #prsplit { width: auto; }
+  .workspace-tab-actions #pr { width: var(--button-height); padding: 0; }
+  .workspace-tab-actions #pr span { display: none; }
+}
 .tab {
   height: var(--tabs-h); flex: none; max-width: 240px;
   padding: 0 8px; border: none; border-radius: 0;

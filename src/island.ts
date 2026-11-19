@@ -1,4 +1,5 @@
 import { parseConversationEvent } from "./conversation";
+import { decisionSurfaceOf } from "./conversation-capabilities";
 import { fromBack } from "./i18n";
 import { modelLabelOf } from "./agents";
 import { invoke } from "./ipc";
@@ -159,7 +160,7 @@ export function snapshot(board: Board, store: Map<string, Live>, quota: IslandUs
         prompt: state?.prompt ?? null,
         activity: state?.activity ?? null,
         since: state?.since ?? null,
-        request: state?.requests.values().next().value ?? null,
+        request: decisionSurfaceOf(w, tab) === "terminal" ? null : state?.requests.values().next().value ?? null,
       }];
     }))
     .sort((a, b) => RANK[a.status] - RANK[b.status] || (b.since ?? 0) - (a.since ?? 0))

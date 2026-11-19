@@ -6,6 +6,8 @@ export type { Member } from "../relay/src/protocol";
 
 export type Status = "rodando" | "querendo" | "pronta" | "desligada";
 
+export type ConversationMode = "chat" | "terminal";
+
 /// Carry stable provider identity explicitly alongside the model; only the catalog resolves their association.
 export type ProviderId = "claude" | "codex" | "antigravity" | "cursor" | "gemini";
 
@@ -17,6 +19,10 @@ export const stateLabel = (ws: Workspace) =>
   pending(ws) ? t(ws.failed ? "card.failed" : "card.building") : label(statusOf(ws));
 
 export type Tab = {
+  /// Remote announcement only; local decision ownership is derived from the saved mode/provider.
+  decision_surface?: "terminal";
+  /// Omitted on older boards and for the chat surface; fixed when the conversation starts.
+  conversation_mode?: ConversationMode;
   task?: import("./actions").TaskRun | null;
   /// Restart-only runtime choices; older boards omit both.
   plan?: boolean;
@@ -33,6 +39,8 @@ export type Tab = {
   context_window?: number | null;
   /// A prompt queued until worktree setup finishes.
   pending_prompt?: string | null;
+  /// An immutable native input awaiting durable acceptance. The id is internal queue identity.
+  native_dispatch?: { id: string; text: string } | null;
   /// An optional tab-specific model choice; absent choices inherit workspace defaults.
   choice?: Choice | null;
   /// The "Start with" skill (`<package>/<skill>`) this conversation began from; absent otherwise.
@@ -361,7 +369,7 @@ export type DelegationExecution = { id: string; state: string; source: string; a
 // Owner identifies an MCP client; legacy conversation IDs remain valid.
 export type Delegation = { id: string; owner: string; workspace: string; task: string; request_key: string; request_hash: string; repository_heads: Record<string, string>; permission?: "ask" | "auto" | null; executions: DelegationExecution[]; background: import("./conversation").BackgroundTask[] | null; requests: import("./conversation").ConversationEventV1[] };
 
-export type Board = { telemetry_ids?: Record<string, string>; delegations?: Delegation[]; actions?: import("./actions").Catalog; tools?: Tools; tool_trust?: ToolTrust[]; stages: string[]; projects: Project[]; terminals?: TerminalSession[]; workspaces: Workspace[] };
+export type Board = { conversation_mode?: ConversationMode; telemetry_ids?: Record<string, string>; delegations?: Delegation[]; actions?: import("./actions").Catalog; tools?: Tools; tool_trust?: ToolTrust[]; stages: string[]; projects: Project[]; terminals?: TerminalSession[]; workspaces: Workspace[] };
 
 /// The authenticated Linear user and organization.
 export type LinearWho = { id: string; name: string; email: string; org: string; org_key: string };

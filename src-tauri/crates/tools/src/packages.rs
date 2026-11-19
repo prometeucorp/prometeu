@@ -209,8 +209,8 @@ impl NativePackages {
         })
     }
 
-    /// Share native login, rollouts, skills, and databases through links. Only configuration and
-    /// marketplace contents are disposable application-owned data.
+    /// Share native login, rollouts, skills, and databases through links. Configuration,
+    /// marketplace contents and native control endpoints belong to the derived home.
     fn prepare_codex_home(
         &self,
         base: &Path,
@@ -638,9 +638,21 @@ fn remove_codex_home(root: &Path, home: &Path) {
     }
 }
 
-/// Mirror existing and future Codex entries except writable configuration files. Preserve real
-/// entries already created in the derived home; replace only obsolete links to another home.
+/// Mirror durable Codex entries, retaining configuration and process-control endpoints locally.
+/// Preserve real entries already created in the derived home; migrate only obsolete links.
 fn mirror_codex_home(base: &Path, home: &Path) -> Result<(), String> {
+    let control = home.join("app-server-control");
+    // Older materialization linked every native entry. Codex requires this socket directory to
+    // be physical and private; let the native process create it with its own ownership checks.
+    // Unlinking the derived alias never removes endpoints owned by the original home.
+    if std::fs::symlink_metadata(&control).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        std::fs::remove_file(&control).map_err(|error| {
+            prometeu_core::error::with_args(
+                "err.plugin.codex.config",
+                &[("cause", error.to_string())],
+            )
+        })?;
+    }
     let entries = std::fs::read_dir(base).map_err(|error| {
         prometeu_core::error::with_args("err.plugin.codex.config", &[("cause", error.to_string())])
     })?;
@@ -656,6 +668,7 @@ fn mirror_codex_home(base: &Path, home: &Path) -> Result<(), String> {
         if text.starts_with("config.toml")
             || text.starts_with(".config.toml")
             || text == "marketplace"
+            || text == "app-server-control"
         {
             continue;
         }

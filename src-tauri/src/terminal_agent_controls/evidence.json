@@ -1,0 +1,66 @@
+{
+  "claude": {
+    "version": "2.1.326 (Claude Code)",
+    "defaultInterrupt": "escape",
+    "observedHint": "esc to interrupt",
+    "evidence": [
+      "../native_ui_readiness/fixtures/claude-fresh-busy.json",
+      "../native_ui_readiness/fixtures/claude-resume-busy.json",
+      "https://code.claude.com/docs/en/interactive-mode#general-controls",
+      "https://code.claude.com/docs/en/keybindings",
+      "fixtures/claude-busy.json",
+      "fixtures/claude-interrupted.json",
+      "fixtures/claude-result.json"
+    ],
+    "scope": "A bounded no-tool request with explicit Ask settings reached the prompt hook, native Working and interrupt footer after startup hooks. One Escape produced explicit Idle while the process remained alive. The compact layout may hide its physical cursor while working; its current cursor position, bordered composer and native hint still identify the control. Escape may close a dialog or decline permission instead; those states do not authorize this control."
+  },
+  "codex": {
+    "version": "codex-cli 0.169.0",
+    "defaultInterrupt": "escape",
+    "observedHint": "esc to interrupt",
+    "evidence": [
+      "https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/tui/src/keymap.rs#L1866",
+      "fixtures/codex-busy.json",
+      "fixtures/codex-interrupted.json",
+      "fixtures/codex-mcp-startup.json",
+      "https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/tui/src/startup_hooks_review.rs",
+      "fixtures/codex-result.json"
+    ],
+    "sourceBlob": "499a5cabe008c4bcec85573f2fc9c9dc1a785ca4",
+    "scope": "A bounded no-tool request under on-request/read-only reached a prompt hook, native Working status and the live composer hint. One Escape produced the native interrupted message and explicit idle/done while the process remained alive. Startup MCP cancellation is a separate negative fixture. Configured interrupt bindings must still match the observed hint. Other working-status layouts remain unsupported."
+  },
+  "antigravity": {
+    "version": "1.5.10",
+    "defaultInterrupt": "escape",
+    "observedHint": "esc to cancel",
+    "evidence": [
+      "https://antigravity.google/docs/cli/using#keybindings",
+      "https://antigravity.google/docs/cli/prompting",
+      "fixtures/antigravity-busy.json",
+      "fixtures/antigravity-interrupted.json",
+      "fixtures/antigravity-result.json",
+      "fixtures/antigravity-1.5.10-busy.json",
+      "fixtures/antigravity-1.5.10-interrupted.json",
+      "fixtures/antigravity-1.5.10-result.json"
+    ],
+    "binarySha256": "780ee763a9938a37b45c7f9d6ae31747d7c574358fd10c64d3a1cdc36faf2798",
+    "scope": "Antigravity 1.5.9 and 1.5.10 each passed a bounded no-tool request with explicit Ask settings (agentMode empty and toolPermission request-review). The prompt/model hook, native Working and bordered composer hint preceded one Escape. The native interrupted message and explicit idle/done followed while the process remained alive. Configured interrupt bindings must still match the observed hint."
+  },
+  "cursor": {
+    "version": "2026.11.13-eacade1",
+    "defaultInterrupt": "ctrl+c",
+    "observedHint": "ctrl+c to stop",
+    "evidence": [
+      "../native_ui_readiness/fixtures/cursor-fresh-busy.json",
+      "installed cursor-agent/versions/2026.11.13-eacade1/2986.index.js",
+      "installed cursor-agent/versions/2026.11.13-eacade1/8920.index.js: ./src/components/text-input.tsx",
+      "fixtures/cursor-busy.json",
+      "fixtures/cursor-scrolled-busy.json",
+      "fixtures/cursor-interrupted.json",
+      "fixtures/cursor-result.json"
+    ],
+    "sourceSha256": "deb07a87c5c16c31c0429d41320fa1ea2f6fd29bc14250f461969940b0fb365b",
+    "inputSourceSha256": "a98878d47223628a27a97e67f54fa074aa1603bc5d90c6638b3c0683d17cf3ad",
+    "scope": "A bounded no-tool request with private native settings rendered the submitted prompt, model-generated counting output and a Working composer with ctrl+c to stop. Exactly one Ctrl+C produced an authenticated root Stop with reason aborted while the process remained alive. Later root Stop reasons are retained separately. Cursor restored the interrupted prompt as a native draft; the harness did not clear or resubmit it and reaped its owned process. The banner can scroll offscreen, so the control uses the aligned composer, footer and current cursor. A repeated Ctrl+C in exit mode exits, and the right-side hint requires empty input."
+  }
+}

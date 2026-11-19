@@ -1,13 +1,14 @@
-import { ChatView, type Ctx, type Info } from "./chat";
+import type { Ctx, Info } from "./chat";
+import { ConversationView } from "./conversation-view";
 import * as team from "./team";
 import { $ } from "./util";
 
-/// Coordinate conversation attachment and interaction through ChatView, including question, plan, and permission cards.
+/// Route each conversation to its saved interface, including remote transcript input.
 
-const view = new ChatView();
+const view = new ConversationView();
 let attachVersion = 0;
 
-export function init(onError: (m: string) => void, info: () => Info, comments: Pick<Ctx, "comment" | "thread" | "newConversation"> = {}) {
+export function init(onError: (m: string) => void, info: () => Info, comments: Pick<Ctx, "comment" | "thread" | "newConversation" | "nativeToolsChanged"> = {}) {
   view.open($("chatwrap"), { say: onError, info, ...comments });
   team.setSink({
     live: (tab, bytes) => view.remoteWrite(tab, bytes),
@@ -51,3 +52,6 @@ export const fileDropTarget = () => view.fileDropTarget();
 export const contextTarget = () => view.contextTarget();
 export const quoteSelection = () => view.quoteSelection();
 export const focusAnchor = (anchor: string) => view.focusAnchor(anchor);
+export const nativeActions = () => view.nativeActions();
+export const nativeToolsPending = () => view.nativeToolsPending();
+export const showNativeTools = () => view.showNativeTools();

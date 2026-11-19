@@ -1,5 +1,7 @@
 import { SNAPSHOT, decodeBinary, type Down, type Shared } from "../relay/src/protocol";
 import { t } from "./i18n";
+import { remoteControl, rightOf } from "./team-control";
+import { isNativeCommand } from "./conversation-capabilities";
 import { AttachLifecycle } from "./attach-lifecycle";
 import { Mirror } from "./mirror";
 import { personOf } from "./team-channel";
@@ -167,6 +169,16 @@ export async function write(data: string): Promise<boolean> {
   if (!attached) return false;
   const s = ctx.shares().get(attached.ws);
   if (!s) return false;
+  const tab = s.tabs.find(tab => tab.id === attached!.tab);
+  if (tab?.conversation_mode === "terminal" && isNativeCommand(data)) {
+    ctx.fail(t("err.terminalAgent.nativeCommands"));
+    return false;
+  }
+  if (tab?.decision_surface === "terminal"
+    && rightOf(remoteControl(data)) === "control") {
+    ctx.fail(t("terminalConversation.decisions.remote"));
+    return false;
+  }
   if (!s.online) {
     ctx.fail(t("err.team.offline"));
     return false;

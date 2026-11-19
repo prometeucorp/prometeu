@@ -29,5 +29,10 @@ Formats and guarantees that cross process or layer boundaries.
 - [Relay protocol v4](relay-v4.md) — Encrypted collaboration and TOFU.
 - [Desktop release and update contract](releases.md) — Desktop packages, updater manifest and installation ownership.
 - [Local telemetry and insights](telemetry.md) — Content-free local events, usage measurements, SQLite storage and insight queries.
+- [Native Claude decisions](native-claude-decisions.md) — Explicit, generation-scoped hook responses alongside the native permission dialog.
+- [Native Antigravity store](native-antigravity-store.md) — Scoped original trajectory recovery, stable tool identity and complete result files.
+- [Native Antigravity decision boundary](native-antigravity-decisions.md) — Verified hook, ACP and Remote Control paths and the missing local TUI attachment API.
+- [Native Codex engine](native-codex-engine.md) — Private app-server ownership, exact thread settings and native terminal attachment.
+- [Native terminal state helper](terminal-state.md) — Ordered emulation, generation-scoped screen snapshots and terminal query ownership.
 - [Native Windows application](windows-application.md) — Shared interface over WSL, command coverage, deadlines and paths.
 - [WSL runtime protocol](wsl-runtime.md) — Framing, capabilities, resident attachment, storage and compatibility.

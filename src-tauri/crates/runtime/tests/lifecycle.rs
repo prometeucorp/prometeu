@@ -421,6 +421,34 @@ fn application_lifecycle_preserves_transcripts_and_stops_only_owned_execution() 
     )
     .unwrap();
     let mut client = Client::open(&fixture.root, &fixture.workdir, &fixture.executable);
+    let unsupported = client.app_result("set_conversation_mode", json!({"mode":"terminal"}));
+    assert!(unsupported["error"]
+        .as_str()
+        .unwrap()
+        .contains("err.terminalAgent.unsupported"));
+    let board = client.app("load_board", Value::Null);
+    assert!(board.get("conversation_mode").is_none());
+    client.app("set_conversation_mode", json!({"mode":"chat"}));
+    let unsupported = client.app_result(
+        "create_workspace",
+        json!({
+            "draft": {"project":fixture.workdir,"branch":"","base":"main","worktree":false,
+                "title":"Native terminal","stage":"Preparando","prompt":"","inject":[],
+                "agent":"codex","conversation_mode":"terminal"},
+            "cols":80,"rows":24
+        }),
+    );
+    assert!(unsupported["error"]
+        .as_str()
+        .unwrap()
+        .contains("err.terminalAgent.unsupported"));
+    assert_eq!(
+        client.app("load_board", Value::Null)["workspaces"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     client.conversation("primary", "Original conversation");
     let created = client.request(
         2,

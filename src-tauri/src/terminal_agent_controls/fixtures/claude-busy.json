@@ -1,0 +1,729 @@
+{
+  "bracketedPaste": true,
+  "cols": 120,
+  "cursor": {
+    "wrapPending": false,
+    "x": 2,
+    "y": 13
+  },
+  "cursorHidden": true,
+  "lines": [
+    "",
+    "",
+    " ▝▝   ▝▝   /tmp/interrupt-smoke/workspace",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "❯ Count slowly from 1 to 100, one number per line. Do not use tools or execute commands. Stop after 100.",
+    "",
+    "✻ Quantumizing…",
+    "",
+    "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    "❯  ",
+    "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    "  ⏸ manual mode on · esc to interrupt · ← for agents                                                   ○ low · /effort",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "pendingEscape": false,
+  "pendingUtf8": false,
+  "phase": "busy",
+  "provider": "claude",
+  "rows": 40,
+  "styles": [
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 2,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      },
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 3,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": true,
+        "start": 2
+      },
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 3
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ]
+  ],
+  "title": "",
+  "version": "2.1.326 (Claude Code)"
+}

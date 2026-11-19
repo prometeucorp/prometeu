@@ -11,6 +11,7 @@ pub struct Prepared {
     pub stderr_line: fn(&str) -> Option<String>,
 }
 pub struct CodexPreparation {
+    pub conversation_mode: prometeu_core::board::ConversationMode,
     pub workspace: String,
     pub session: String,
     pub selection: std::sync::Arc<dyn prometeu_core::tool_resolution::ToolSelection>,
@@ -24,6 +25,8 @@ pub struct CodexPreparation {
 }
 impl ProviderPreparation<Prepared> for CodexPreparation {
     fn prepare(&self, request: &LaunchRequest) -> Result<Prepared, String> {
+        require_chat(self.conversation_mode)?;
+        require_chat(request.settings.conversation_mode.unwrap_or_default())?;
         let account = self
             .accounts
             .active(prometeu_core::board::ProviderId::Codex)?;
@@ -78,5 +81,25 @@ impl ProviderPreparation<Prepared> for CodexPreparation {
             }),
             stderr_line: codex::process_stderr,
         })
+    }
+}
+
+/// Terminal conversations must fail before provider or filesystem effects until WSL supports them.
+pub fn require_chat(mode: prometeu_core::board::ConversationMode) -> Result<(), String> {
+    if mode == prometeu_core::board::ConversationMode::Terminal {
+        return Err(prometeu_core::error::code("err.terminalAgent.unsupported"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn terminal_conversations_are_rejected_instead_of_starting_app_server() {
+        assert!(super::require_chat(prometeu_core::board::ConversationMode::Chat).is_ok());
+        assert_eq!(
+            super::require_chat(prometeu_core::board::ConversationMode::Terminal),
+            Err(prometeu_core::error::code("err.terminalAgent.unsupported")),
+        );
     }
 }

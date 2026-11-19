@@ -175,7 +175,8 @@ pub fn action_start(
             return Ok(tab.clone());
         }
         if ws.tabs.iter().any(|t| {
-            matches!(t.status, Status::Rodando | Status::Querendo) || t.pending_prompt.is_some()
+            matches!(t.status, Status::Rodando | Status::Querendo)
+                || (t.pending_prompt.is_some() || t.native_dispatch.is_some())
         }) {
             return Err(i18n::t("err.actions.busy"));
         }
@@ -200,7 +201,8 @@ pub fn action_start(
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join("\n\n");
-        let tab = Tab {
+        let mut tab = Tab {
+            conversation_mode: Default::default(),
             plan: false,
             permission: None,
             id: uuid::Uuid::new_v4().to_string(),
@@ -211,6 +213,7 @@ pub fn action_start(
             tokens: None,
             context_tokens: None,
             context_window: None,
+            native_dispatch: None,
             pending_prompt: Some(if prompt.is_empty() {
                 profile.prompt.clone()
             } else {
@@ -234,6 +237,7 @@ pub fn action_start(
         // started or finished a tab while this one resolved off the lock.
         let mut board = lock(&state.board);
         board.allow_new_conversation(&workspace)?;
+        tab.conversation_mode = board.conversation_mode;
         let ws = board
             .workspace_mut(&workspace)
             .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
@@ -251,7 +255,8 @@ pub fn action_start(
             return Ok(existing.clone());
         }
         if ws.tabs.iter().any(|t| {
-            matches!(t.status, Status::Rodando | Status::Querendo) || t.pending_prompt.is_some()
+            matches!(t.status, Status::Rodando | Status::Querendo)
+                || (t.pending_prompt.is_some() || t.native_dispatch.is_some())
         }) {
             return Err(i18n::t("err.actions.busy"));
         }

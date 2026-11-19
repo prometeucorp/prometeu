@@ -66,6 +66,28 @@ showing its controls. `write` includes `expires`, at most two minutes ahead. The
 client validates the payload again after opening the box and checks the
 workspace, tab, author, recipient and audience.
 
+An encrypted tab announcement may contain `decision_surface: "terminal"`.
+It means approvals and questions must be answered in the owner's native
+terminal, including when a viewer has Control. The field is omitted from the
+outer routing frame. Missing values retain legacy application controls; old
+clients may ignore it, so the owner and provider boundary independently reject
+unsupported responses. Prompts, interruption and notes retain their own rights.
+The initial consumers are Cursor and Antigravity terminal modes. Their existing
+Chat transports retain their capabilities.
+
+An encrypted tab announcement also carries `conversation_mode: "terminal"`
+for every native provider. Viewers omit provider slash suggestions and
+permission-mode changes, and reject slash input before sending. The owner
+independently rejects it before adding a teammate prefix or holding it for
+confirmation, including input from old clients. The mode is omitted from outer
+routing metadata; absent values retain legacy Chat behavior. The command grammar
+is a trim-start `/`, followed by zero or more non-whitespace/non-slash characters
+and then whitespace or end of text: `/`, `/compact` and `/plugin:command` are
+commands; `/Users/file` remains ordinary prompt content. Ordinary prompts,
+interruption and supported individual request answers remain available.
+Compatibility and encrypted round-trip tests live in `relay/src/protocol.test.ts`
+and `src/team-channel.test.ts`.
+
 In the outer frame:
 
 - `share`: titles, repository, branch and stage empty; issue null; tab text and

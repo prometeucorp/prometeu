@@ -1,0 +1,15 @@
+{
+  "provider": "antigravity",
+  "version": "1.5.10",
+  "interrupt": "escape",
+  "interruptCount": 1,
+  "nativeRootStates": ["Idle", "Working", "Done", "Idle"],
+  "nativeDoneMessage": "Task complete",
+  "exploredFile": true,
+  "nativeInterruptedMessage": true,
+  "processRemainsAlive": true,
+  "cols": 107,
+  "rows": 31,
+  "settings": { "permission": "auto" },
+  "scope": "An owned scratch request read one synthetic text file. One Escape after the native Explored indicator produced Done then Idle while the native interface displayed Interrupted. The sequence proves input availability, not successful turn completion."
+}

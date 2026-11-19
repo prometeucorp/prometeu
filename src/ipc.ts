@@ -64,6 +64,8 @@ export type Commands = {
   chat_control_remote: { args: { session: string; frame: unknown }; result: void };
   chat_send: { args: { session: string; text: string }; result: void };
   chat_snapshot: { args: { session: string }; result: { text: string; seq: number } };
+  agent_terminal_snapshot: { args: { session: string }; result: import("./terminal-output").TerminalOutput & { seq: number; running: boolean } };
+  agent_terminal_resume: { args: { session: string }; result: void };
   agent_models: { args: { agent: T.ProviderId }; result: ModelCatalog };
   cleanup_list: { args: undefined; result: T.Cleanable[] };
   cleanup_worktree: { args: { id: string; force: boolean }; result: void };
@@ -144,8 +146,8 @@ export type Commands = {
   project_tools: { args: { id: string }; result: T.ProjectTools };
   project_tools_trust: { args: { id: string; hash: string; approved: boolean }; result: void };
   pty_buffer: { args: { session: string }; result: number[] };
-  pty_resize: { args: { session: string; cols: number; rows: number }; result: void };
-  pty_write: { args: { session: string; data: string }; result: void };
+  pty_resize: { args: { session: string; cols: number; rows: number; generation?: string }; result: void };
+  pty_write: { args: { session: string; generation?: string } & ({ data: string; bytes?: never } | { data?: never; bytes: number[] }); result: void };
   read_bytes: { args: { id: string; rel: string }; result: ArrayBuffer };
   read_file: { args: { id: string; rel: string }; result: string };
   refresh_prs: { args: undefined; result: void };
@@ -161,6 +163,7 @@ export type Commands = {
   scripts_prompt: { args: { id: string }; result: string };
   set_awake: { args: { mode: "off" | "system" | "display" }; result: void };
   set_confirm_messages: { args: { id: string; confirm: boolean }; result: void };
+  set_conversation_mode: { args: { mode: T.ConversationMode }; result: void };
   set_resource_detail: { args: { open: boolean }; result: void };
   set_lang: { args: { lang: Lang }; result: void };
   set_shared: { args: { id: string; shared: boolean; audience?: string[] | null; remoteControl: boolean; team?: string | null; rights?: T.ShareRights | null }; result: void };

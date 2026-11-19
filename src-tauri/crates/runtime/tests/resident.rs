@@ -807,6 +807,51 @@ fn application_terminal_docks_keep_one_shell_per_kind() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(!output(&second_shell).contains("FIRST_SHELL"));
+    client.application("pty_write".into(), serde_json::json!({
+        "session":first_shell,
+        "data":"stty raw -echo; printf 'BINARY_%s\\n' READY; dd bs=1 count=1 2>/dev/null | od -An -tu1; stty sane\n"
+    })).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let buffer = client
+            .application(
+                "pty_buffer".into(),
+                serde_json::json!({"session":first_shell}),
+            )
+            .unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(buffer).unwrap();
+        if String::from_utf8_lossy(&bytes).contains("BINARY_READY") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "terminal did not enter raw input mode"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    client
+        .application(
+            "pty_write".into(),
+            serde_json::json!({"session":first_shell,"bytes":[255]}),
+        )
+        .unwrap();
+    loop {
+        let buffer = client
+            .application(
+                "pty_buffer".into(),
+                serde_json::json!({"session":first_shell}),
+            )
+            .unwrap();
+        let bytes: Vec<u8> = serde_json::from_value(buffer).unwrap();
+        if String::from_utf8_lossy(&bytes).contains(" 255") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "binary input was not preserved by application IPC"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
     client
         .application(
             "close_dock".into(),

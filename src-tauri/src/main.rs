@@ -13,6 +13,18 @@ mod awake;
 mod background;
 mod board_store;
 mod cursor;
+mod native_completion_fence;
+mod native_ui_readiness;
+mod terminal_agent_antigravity_store;
+mod terminal_agent_codex;
+mod terminal_agent_controls;
+mod terminal_agent_cursor_store;
+mod terminal_agent_decisions;
+mod terminal_agent_hooks;
+mod terminal_agent_journal;
+mod terminal_agent_launch;
+mod terminal_agent_observation;
+mod terminal_agent_sqlite_snapshot;
 
 #[cfg(test)]
 mod boundary_contract;
@@ -82,6 +94,11 @@ pub struct AppState {
     pub authentication: Arc<dyn prometeu_core::accounts::login::AccountAuthentication>,
     pub providers:
         Arc<dyn prometeu_core::session::provider::ProviderPreparation<agent_launch::PreparedAgent>>,
+    pub terminal_providers: Arc<
+        dyn prometeu_core::session::provider::ProviderPreparation<
+            terminal_agent_launch::PreparedTerminalAgent,
+        >,
+    >,
     pub tasks: Arc<dyn prometeu_core::tasks::TaskExecutor>,
     pub command_runner: Arc<dyn prometeu_core::command::CommandRunner<std::process::Command>>,
     pub query_launcher: Arc<dyn prometeu_core::command::QueryLauncher<std::process::Command>>,
@@ -131,6 +148,10 @@ fn install_crypto() {
 }
 
 fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--terminal-agent-hook") {
+        let _ = terminal_agent_hooks::run();
+        return;
+    }
     if std::env::args().nth(1).as_deref() == Some("--prometeu-mcp") {
         if let Err(error) = embedded_mcp::stdio() {
             eprintln!("{error}");
@@ -170,6 +191,10 @@ fn main() {
             worktree_cleanup: Arc::new(prometeu_git::cleanup::NativeCleanup),
             repository_git: Arc::new(prometeu_git::NativeGit),
             providers: Arc::new(agent_launch::NativeProviders {
+                profiles: profiles.clone(),
+                tools: Arc::new(tool_materialization::native()),
+            }),
+            terminal_providers: Arc::new(terminal_agent_launch::TerminalProviders {
                 profiles: profiles.clone(),
                 tools: Arc::new(tool_materialization::native()),
             }),
@@ -230,6 +255,7 @@ fn main() {
             machine::set_resource_detail,
             awake::set_awake,
             session::load_board,
+            session::set_conversation_mode,
             session::board_recovery,
             session::board_recovery_open,
             session::add_project,
@@ -330,6 +356,8 @@ fn main() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_buffer,
+            chat::terminal::agent_terminal_snapshot,
+            chat::terminal::agent_terminal_resume,
             chat::chat_send,
             chat::chat_control,
             chat::chat_control_remote,
@@ -418,6 +446,7 @@ fn main() {
             } if label == "main" => app.exit(0),
             // Flush deferred board writes during shutdown, when no later save can be assumed.
             tauri::RunEvent::Exit => {
+                terminal_agent_codex::shutdown();
                 awake::shutdown();
                 embedded_mcp::shutdown();
                 notifications::shutdown();

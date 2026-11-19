@@ -196,7 +196,10 @@ For every explicit selection, including `[]`, `NativePackages` in the tools crat
    account, it uses the `<workspace-hash>/<account>/` subdirectory, preserving
    the links of processes still working with another account;
 2. mirrors in that home the entries of the account profile captured at spawn,
-   except configuration files. Each account keeps its credential; sessions,
+   except configuration files and the native `app-server-control` runtime directory.
+   Old derived links for that directory are unlinked without following them;
+   Codex creates its private local directory and existing physical endpoints stay
+   intact. Each account keeps its credential; sessions,
    skills and the plugin cache stay shared with the original installation;
 3. computes a deterministic SHA-256 of each plugin folder, without `.git`, and
    combines a revision of the derived format so that adapter fixes also

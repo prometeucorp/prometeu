@@ -27,14 +27,34 @@ fn drain(mut reader: Box<dyn Read + Send>) -> mpsc::Receiver<Vec<u8>> {
 #[test]
 fn terminal_output_exit_code_and_repeated_wait_are_retained() {
     let mut terminal = open("printf service-output; exit 7");
+    assert_eq!(
+        terminal.process.control.system_id(),
+        terminal.control.system_id()
+    );
     let output = drain(terminal.output)
         .recv_timeout(Duration::from_secs(5))
         .unwrap();
     assert_eq!(terminal.waiter.wait().unwrap(), 7);
     assert_eq!(terminal.waiter.wait().unwrap(), 7);
     assert!(!terminal.control.running());
+    assert!(!terminal.process.control.running());
     assert_eq!(output, b"service-output");
     terminal.control.close();
+}
+#[test]
+fn conversation_control_stops_the_terminal_without_another_process_owner() {
+    let mut terminal = open("trap '' HUP TERM; printf ready; exec sleep 30");
+    let mut marker = [0; 5];
+    terminal.output.read_exact(&mut marker).unwrap();
+    assert_eq!(&marker, b"ready");
+    assert!(terminal.process.control.running());
+    let drained = drain(terminal.output);
+    terminal.process.control.kill();
+    assert!(terminal.waiter.wait().is_ok());
+    drained.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(!terminal.control.running());
+    assert!(terminal.process.control.wait_exit(Duration::ZERO));
+    assert!(!running(terminal.process.control.system_id()));
 }
 #[test]
 fn terminal_input_and_resizing_reach_the_child() {
@@ -57,14 +77,10 @@ fn output_eof_does_not_disable_shutdown_of_a_live_terminal_child() {
     command.args(["-c", "trap '' HUP TERM; printf ready; exec sleep 30"]);
     // End the injected reader after the readiness marker. Native PTYs differ in when
     // they report EOF for a live session; shutdown must remain independent of either.
-    let mut terminal = open_with_streams(
-        command,
-        TerminalSize { cols: 80, rows: 24 },
-        |master, closing| {
-            let (reader, writer) = blocking_streams(master, closing)?;
-            Ok((Box::new(reader.take(5)), writer))
-        },
-    )
+    let mut terminal = open_with_streams(command, TerminalSize { cols: 80, rows: 24 }, |master| {
+        let (reader, writer) = native_streams(master)?;
+        Ok((Box::new(reader.take(5)), writer))
+    })
     .unwrap();
     let output = drain(terminal.output)
         .recv_timeout(Duration::from_secs(5))
@@ -195,4 +211,87 @@ fn dock_terminals_drop_the_launching_terminal_and_agent_and_present_prometeu() {
     command.env("TERM_PROGRAM_VERSION", "3.5");
     own_terminal(&mut command, None);
     assert_eq!(command.get_env("TERM_PROGRAM_VERSION"), None);
+}
+
+#[test]
+fn abandoning_a_flooding_terminal_waiter_closes_descriptors_retained_by_the_host() {
+    let mut terminal = open("trap '' HUP TERM; while :; do printf 'native-output-flood'; done");
+    let pid = terminal.control.system_id();
+    let mut marker = [0; 19];
+    terminal.output.read_exact(&mut marker).unwrap();
+    assert_eq!(&marker, b"native-output-flood");
+    // Stop draining, so the child can block with a full PTY. Retain every public IO handle.
+    std::thread::sleep(Duration::from_millis(50));
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        drop(terminal.waiter);
+        let _ = tx.send(());
+    });
+    let completed = rx.recv_timeout(Duration::from_secs(5)).is_ok();
+    if completed {
+        assert_eq!(terminal.output.read(&mut marker).unwrap(), 0);
+        assert_eq!(
+            terminal.input.write(b"ignored").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert!(terminal
+            .control
+            .resize(TerminalSize { cols: 80, rows: 24 })
+            .is_err());
+        assert!(!terminal.control.running());
+    }
+    // A failed regression must still release its own process and descriptors before panicking.
+    terminal.process.control.kill();
+    drop(terminal.input);
+    drop(terminal.output);
+    drop(terminal.control);
+    if !completed {
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("own terminal cleanup");
+    }
+    assert!(completed, "waiter drop blocked on retained PTY handles");
+    assert!(!running(pid));
+}
+
+#[test]
+fn disconnect_cancels_a_reader_and_blocked_writer_without_owning_process_shutdown() {
+    let mut terminal = open("trap '' HUP TERM; stty raw -echo; printf ready; exec sleep 30");
+    let mut marker = [0; 5];
+    terminal.output.read_exact(&mut marker).unwrap();
+    assert_eq!(&marker, b"ready");
+    let drained = drain(terminal.output);
+    let (tx, written) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(terminal.input.write_all(&vec![b'x'; 4 * 1024 * 1024]));
+    });
+    std::thread::sleep(Duration::from_millis(50));
+    terminal.control.disconnect();
+    terminal.control.disconnect();
+    // The conversation remains the policy owner. Disconnect itself schedules no escalation.
+    terminal.process.control.kill();
+    let (tx, reaped) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(terminal.waiter.wait());
+    });
+    assert!(written
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_err());
+    assert!(drained
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_empty());
+    assert!(reaped.recv_timeout(Duration::from_secs(5)).unwrap().is_ok());
+    assert!(!terminal.control.running());
+}
+
+#[test]
+fn natural_terminal_exit_preserves_the_full_output_before_disconnect() {
+    let mut terminal = open(
+        "i=0; while [ \"$i\" -lt 4096 ]; do printf 0123456789abcdef; i=$((i+1)); done; exit 9",
+    );
+    let drained = drain(terminal.output);
+    let output = drained.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(terminal.waiter.wait().unwrap(), 9);
+    assert_eq!(output, b"0123456789abcdef".repeat(4096));
 }

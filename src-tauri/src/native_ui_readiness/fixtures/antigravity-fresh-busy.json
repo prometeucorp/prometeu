@@ -1,0 +1,1637 @@
+{
+  "bracketedPaste": true,
+  "characterColumns": [
+    [],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ],
+    [],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66
+    ],
+    [],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119
+    ],
+    [
+      0
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119
+    ],
+    [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54,
+      55,
+      56,
+      57,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74,
+      75,
+      76,
+      77,
+      78,
+      79,
+      80,
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119
+    ],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    []
+  ],
+  "cols": 120,
+  "cursor": {
+    "wrapPending": false,
+    "x": 2,
+    "y": 14
+  },
+  "cursorHidden": false,
+  "lines": [
+    "",
+    "",
+    "",
+    "",
+    "   ▄▀▀    ▀▀▄     /tmp/native-smoke/workspace",
+    "",
+    "",
+    "────────────────────────────────────────────────────────────",
+    "> Perform the configured native rule smoke check. Do not use tools.",
+    "",
+    "  PROMETEU_TERMINAL_SMOKE",
+    "⣟  Generating...",
+    "└ Tip: Use @ to mention files and give the model more context.",
+    "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    ">",
+    "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+    "esc to cancel                                                                                    Gemini 3.8 Flash · high",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "pendingEscape": false,
+  "pendingUtf8": false,
+  "provider": "antigravity",
+  "rows": 40,
+  "styles": [
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 97,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      },
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": true,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 97
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ],
+    [
+      {
+        "background": {
+          "mode": "default",
+          "value": -1
+        },
+        "dim": false,
+        "end": 120,
+        "foreground": {
+          "mode": "default",
+          "value": -1
+        },
+        "inverse": false,
+        "start": 0
+      }
+    ]
+  ],
+  "title": "",
+  "version": "1.5.10",
+  "vetoTags": [
+    {
+      "row": 16,
+      "tag": "esc to cancel"
+    }
+  ]
+}

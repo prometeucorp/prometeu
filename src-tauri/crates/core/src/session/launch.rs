@@ -1,7 +1,7 @@
 //! Session launch settings and restart coordination, with native preparation and spawning injected.
 use super::host::{HostedConversation, SessionHost};
 use crate::actions::Permission;
-use crate::board::{Board, Choice, ProviderId, Status, ToolTrust, Workspace};
+use crate::board::{Board, Choice, ConversationMode, ProviderId, Status, ToolTrust, Workspace};
 use crate::error::code;
 use crate::lock::lock;
 use crate::selection::Tools;
@@ -10,6 +10,9 @@ use std::sync::Mutex;
 /// Provider-neutral launch settings shared by the launcher and persisted workspace defaults.
 #[derive(serde::Deserialize, Clone, Default)]
 pub struct Launch {
+    /// Missing inherits the board default for new tabs; resume always supplies the saved mode.
+    #[serde(default)]
+    pub conversation_mode: Option<ConversationMode>,
     #[serde(default)]
     pub permission: Option<crate::actions::Permission>,
     #[serde(default)]

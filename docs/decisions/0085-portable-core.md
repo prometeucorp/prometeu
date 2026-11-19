@@ -84,8 +84,12 @@ own evidence.
   Terminal close sends hangup, waits 1 s, terminates, waits 500 ms, then kills.
 - Signals and reaping share one mutex. Only an observed exit clears running state;
   EOF does not. Dropping an unreaped waiter kills and reaps its child, including
-  after partial startup. Descendants that outlive the reaped leader, or detach,
-  are outside the guarantee. Native pipe drains keep their unbounded queues.
+  after partial startup. A PTY waiter releases every master descriptor before
+  forced cleanup, including streams retained by the host; this avoids kernel
+  exit waiting on the still-open PTY. Conversation closure disconnects terminal
+  IO without starting the dock's separate shutdown policy. Natural process exit
+  still permits output draining. Descendants that outlive the reaped leader, or
+  detach, are outside the guarantee. Native pipe drains keep their unbounded queues.
 - `TaskExecutor` never runs a job inline; a rejected job is dropped before
   returning, releasing its waiter. A failed reader schedule fails the launch and
   cleans up the child; a failed shutdown schedule requests an immediate kill.

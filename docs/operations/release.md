@@ -32,7 +32,7 @@ every commit of the PR.
 
 - `macos` installs Chromium and WebKit and runs `npm run check`.
 - `linux` uses the same Ubuntu 22.04 baseline as release, installs the WebKitGTK
-  development packages and runs `npm run build`, `npm run build:wsl`,
+  development packages and runs `npm run build`, `npm run terminal-state:check`, `npm run build:wsl`,
   `npm run test:rust` and `npm run lint:rust`, covering the Linux `cfg` branches;
   see [Linux](linux.md).
 - `windows` tests and lints `prometeu-core`, `prometeu-protocols` and
@@ -139,6 +139,16 @@ build has populated the default-branch cache. The macOS and Linux release jobs
 reuse their validated frontend output by overriding Tauri's
 `beforeBuildCommand` only in CI.
 Local `tauri build` retains its normal frontend build hook.
+
+The macOS build uses `npm run build:app`, which installs the private terminal
+helper from its lockfile, verifies the pinned Node archive and bundles the SEA
+and third-party notices through an explicit Tauri overlay. Tauri signs the
+nested executable with the application. Before DMG notarization, the workflow
+verifies the complete signature, exact notice files and the packaged helper's
+protocol with an empty PATH. The helper needs no installed Node or additional
+Apple entitlements. Linux release and WSL do not yet package it. Native
+conversation mode is enabled on macOS; a separate platform gate keeps it hidden
+and rejects terminal launches on Linux and WSL regardless of packaged resources.
 
 `workflow_dispatch` builds packages for all three systems without creating a
 release or tag. Its workflow artifacts expire after seven days. It does not

@@ -69,6 +69,8 @@ export class Timeline {
   private legacy = new LegacyConversationAdapter();
   private tools = new Map<string, { item: number; block: number }>();
   private settled: number[] = [];
+  // Source catchup after explicit native idle may revise content without restarting activity.
+  private nativeIdle = false;
   private restored = new Map<number, { before: TurnMetadata | undefined; current: TurnMetadata }>();
   private contextPosition = -1;
   private restoredContext?: { before: ContextState | null; position: number; current: ContextState };
@@ -149,19 +151,20 @@ export class Timeline {
       case "user.message": {
         const text = inputText(event.content);
         if (!text.trim()) return [];
+        this.nativeIdle = false;
         this.busy = true;
         return [this.add({ kind: "user", ts: event.at, text })];
       }
       case "assistant.started": {
         if (this.findAssistant(event.messageId) !== -1) return [];
-        this.busy = true;
+        if (!this.nativeIdle) this.busy = true;
         return [
           this.add({
             kind: "assistant",
             ts: event.at,
             msg: event.messageId,
             blocks: [],
-            streaming: true,
+            streaming: !this.nativeIdle,
             next: 0,
           }),
         ];
@@ -238,11 +241,25 @@ export class Timeline {
       }
       case "session.state":
         if (event.state === "busy" || event.state === "waiting") {
+          this.nativeIdle = false;
           this.busy = true;
           return [];
         }
         if (event.state === "stopped") return this.stop(event.at);
         return event.state === "ready" ? this.idle() : [];
+      case "execution.observed":
+        if (event.scope === "root") {
+          if (event.state === "working" || event.state === "blocked") {
+            this.nativeIdle = false;
+            this.busy = true;
+          } else if (event.state === "idle") {
+            this.nativeIdle = true;
+            this.busy = false;
+            this.settle();
+          }
+        }
+        // Read-only observations create no assistant, request, reply footer or completion.
+        return [];
       case "commands.updated":
         this.commands = event.commands;
         return [];
@@ -336,7 +353,7 @@ export class Timeline {
         ts: at,
         msg: messageId,
         blocks: [],
-        streaming: true,
+        streaming: !this.nativeIdle,
         next: 0,
       });
     }
@@ -379,15 +396,20 @@ export class Timeline {
   }
 
   private commitBlock(messageId: string, index: number, source: AssistantBlock, at: number): number[] {
-    const found = this.assistant(messageId, at);
+    const current = this.findAssistant(messageId);
+    // Authoritative source revisions may arrive after a later turn. Keep the item's position
+    // and completion state; only live drafts are restricted to the current response.
+    const historical = current === -1 ? this.items.findIndex(item => item.kind === "assistant" && item.msg === messageId) : -1;
+    const found = historical === -1 ? this.assistant(messageId, at)
+      : { index: historical, item: this.items[historical] as Extract<Item, { kind: "assistant" }> };
     const block = viewBlock(source);
     const draft = found.item.blocks[index];
     if (block.kind === "thinking" && !block.text && draft?.kind === "thinking") block.text = draft.text;
     found.item.blocks[index] = block;
     found.item.next = Math.max(found.item.next, index + 1);
-    found.item.streaming = true;
+    if (historical === -1 && !this.nativeIdle) found.item.streaming = true;
     if (block.kind === "tool") this.tools.set(block.id, { item: found.index, block: index });
-    this.busy = true;
+    if (historical === -1 && !this.nativeIdle) this.busy = true;
     return [found.index];
   }
 

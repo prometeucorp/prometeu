@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 fn board() -> state::Board {
     let mut board: state::Board = serde_json::from_value(json!({
         "stages": ["Working", "Done"],
+        "conversation_mode": "terminal",
         "projects": [{"id":"project","name":"Project","path":"/contract/repo"}],
         "workspaces": [{
             "id":"workspace","title":"Contract task","repo":"/contract/repo","repo_name":"Project",
@@ -18,7 +19,7 @@ fn board() -> state::Board {
             "tabs":[
                 {"id":"running","title":"Build","status":"rodando","note":"Testing","tokens":42,"choice":{"agent":"codex","model":"model","effort":"high"},"kickoff":"package/skill"},
                 {"id":"waiting","title":"Review","status":"querendo","permission":"ask","plan":true},
-                {"id":"ready","title":"Ready","status":"pronta","permission":"auto"},
+                {"id":"ready","title":"Ready","status":"pronta","permission":"auto","conversation_mode":"terminal","native_dispatch":{"id":"dispatch-contract","text":"Verify the change"}},
                 {"id":"stopped","title":"Stopped","status":"desligada","pending_prompt":"Continue","agent_session":"native-thread"}
             ],"active":"running"
         }, {

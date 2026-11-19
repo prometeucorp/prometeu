@@ -4,7 +4,7 @@ import type { ProviderId } from "./types";
 export type FeatureEvent =
   | { name: "settings_section_viewed"; section: "general" | "agents" | "resources" | "actions" | "work" | "analytics" }
   | { name: "settings_search_used" }
-  | { name: "preference_changed"; setting: "language" | "dictation_language" | "default_model" | "default_effort" | "notifications" }
+  | { name: "preference_changed"; setting: "language" | "dictation_language" | "default_model" | "default_effort" | "conversation_mode" | "notifications" }
   | { name: "resource_action_used"; kind: "mcp" | "plugin" | "skill"; action: "save" | "remove" | "install" | "update" | "copy" | "share" | "authenticate" | "disconnect" | "check" | "discover" | "generate" }
   | { name: "resource_selection_changed"; kind: "mcp" | "plugin" | "skill"; scope: "defaults" | "global" | "workspace" | "project" }
   | { name: "integration_action_used"; integration: "linear" | "github" | "typesafe" | "cloud"; action: "connect" | "disconnect" | "configure" | "test" }

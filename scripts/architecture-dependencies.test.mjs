@@ -156,3 +156,18 @@ test("review rules and context codecs reject indirect effects", () => {
     assert.match(check({ [root]: 'export * from "./helper";', "src/helper.ts": 'localStorage.getItem("review")' }).join("\n"), /ambient effect/);
   }
 });
+
+test("terminal replay stays browser safe and native emulation stays outside presentation", () => {
+  const sources = {
+    "src/term.ts": 'import { replay } from "../packages/terminal-state/src/replay";',
+    "packages/terminal-state/src/replay.ts": 'import type { Snapshot } from "./types.js"; export const replay = () => "";',
+    "packages/terminal-state/src/types.ts": 'export type Snapshot = { seq: number };',
+    "packages/terminal-state/src/appearance.ts": 'export const background = "#141110";',
+    "packages/terminal-state/src/emulator.ts": 'import "node:stream";',
+  };
+  assert.deepEqual(check(sources), []);
+  assert.match(check({ ...sources, "src/term.ts": 'import "../packages/terminal-state/src/emulator";' }).join("\n"), /forbidden dependency.*emulator/);
+  assert.match(check({ ...sources, "packages/terminal-state/src/replay.ts": 'import "./emulator.ts";' }).join("\n"), /forbidden dependency node:stream/);
+  assert.match(check({ ...sources, "packages/terminal-state/src/appearance.ts": 'process.env.THEME;' }).join("\n"), /ambient effect process/);
+  assert.match(check({ ...sources, "packages/terminal-state/src/emulator.ts": 'import "../../../src/term";' }).join("\n"), /forbidden dependency.*src\/term/);
+});

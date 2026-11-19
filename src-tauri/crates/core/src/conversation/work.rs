@@ -15,12 +15,24 @@ pub struct Work {
     /// Questions and approvals not answered yet. A settled conversation can no longer receive an
     /// answer, so settling drops them.
     requests: HashSet<String>,
+    /// A terminal may report a blocked state without exposing any answerable request.
+    observed_waiting: bool,
 }
 
 impl Work {
     /// Apply a canonical event. `true` when the conversation settles on it: the turn has ended and
     /// no background task is still running. Both adapters feed this through the same two events.
     pub fn observe(&mut self, event: &Value) -> bool {
+        if event["type"] == "execution.observed" {
+            self.observed_waiting = event["state"] == "blocked";
+            if event["state"] == "unknown"
+                || (event["scope"] == "root"
+                    && matches!(event["state"].as_str(), Some("working" | "blocked")))
+            {
+                self.held = false;
+            }
+            return false;
+        }
         // The main agent answering again invalidates the terminal its children were holding, or a
         // later drain would settle the conversation in the middle of the resumed turn.
         if conversation::agent_activity(event) {
@@ -68,6 +80,7 @@ impl Work {
     fn settle(&mut self, settled: bool) -> bool {
         if settled {
             self.requests.clear();
+            self.observed_waiting = false;
         }
         settled
     }
@@ -81,7 +94,7 @@ impl Work {
 
     /// A question or approval is still waiting for the person.
     pub fn waiting(&self) -> bool {
-        !self.requests.is_empty()
+        self.observed_waiting || !self.requests.is_empty()
     }
 }
 
@@ -89,6 +102,41 @@ impl Work {
 mod work_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn execution_observations_do_not_invent_requests_or_complete_uncertain_background_work() {
+        for state in ["working", "blocked", "idle", "unknown"] {
+            let mut work = Work::default();
+            work.observe(&json!({"type":"background.changed","tasks":[{"id":"child"}]}));
+            work.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+            assert!(!work
+                .observe(&json!({"type":"execution.observed","state":state,"scope":"background"})));
+            assert_eq!(work.waiting(), state == "blocked");
+            assert!(work.requests.is_empty());
+            assert_eq!(
+                work.observe(&json!({"type":"background.changed","tasks":[]})),
+                state != "unknown"
+            );
+            assert!(!work.waiting());
+        }
+        let mut work = Work::default();
+        work.observe(&json!({"type":"request.opened","requestId":"real-request"}));
+        work.observe(&json!({"type":"execution.observed","state":"idle","scope":"root"}));
+        assert!(
+            work.waiting(),
+            "native availability cannot answer an actual request"
+        );
+    }
+
+    #[test]
+    fn root_execution_continuation_revokes_a_held_completion() {
+        let mut work = Work::default();
+        work.observe(&json!({"type":"background.changed","tasks":[{"id":"child"}]}));
+        work.observe(&json!({"type":"turn.completed","outcome":"ok"}));
+        work.observe(&json!({"type":"execution.observed","state":"working","scope":"root"}));
+        assert!(!work.observe(&json!({"type":"background.changed","tasks":[]})));
+        assert!(work.observe(&json!({"type":"turn.completed","outcome":"ok"})));
+    }
 
     #[test]
     fn a_turn_settles_only_after_its_background_tasks_drain() {

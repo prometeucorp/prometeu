@@ -5,6 +5,10 @@ const j = (o: unknown) => JSON.stringify(o);
 const assistant = (id: string, block: unknown, extra = {}) =>
   j({ type: "assistant", message: { id, role: "assistant", content: [block] }, uuid: `u-${Math.random()}`, ...extra });
 const ev = (event: unknown) => j({ type: "stream_event", event, parent_tool_use_id: null });
+const observed = (state: "working" | "idle" | "unknown", scope = "root") => j({
+  v: 1, type: "execution.observed", at: 1, activityId: "native-cycle", scope, state,
+  blockId: null, kind: null, detail: null,
+});
 
 describe("turn insights", () => {
   const turn = (timeline: Timeline, id: string, at: number, completion = {}) => {
@@ -65,6 +69,82 @@ const contextMeasurement = { usageScope: "mainAgent" as const, complete: true, s
     contextUsed: 24000, contextWindow: 200000, peakContext: 24000, modelCalls: null, compactions: null, cacheRebuilds: null, costUsd: null }, usageByModel: null };
 
 describe("Timeline", () => {
+  it("settles native activity on explicit root idle and keeps late source revisions quiet", () => {
+    const t = new Timeline();
+    t.push(observed("idle"));
+    t.push(observed("working"));
+    t.push(j({ v: 1, type: "assistant.started", at: 1, messageId: "native" }));
+    t.push(j({ v: 1, type: "assistant.block.started", at: 2, messageId: "native", index: 0, block: { kind: "text", text: "" } }));
+    t.push(j({ v: 1, type: "assistant.delta", at: 3, messageId: "native", index: 0, kind: "text", delta: "Partial" }));
+    expect(t.working).toBe(true);
+    expect(t.items[0]).toMatchObject({ kind: "assistant", streaming: true, blocks: [{ text: "Partial" }] });
+
+    expect(t.push(observed("idle"))).toEqual([0]);
+    expect(t.busy).toBe(false);
+    expect(t.working).toBe(false);
+    expect(t.items[0]).toMatchObject({ kind: "assistant", streaming: false });
+    const keys = pieces(t.items).map(piece => piece.key);
+    expect(t.push(j({ v: 1, type: "assistant.block", at: 4, messageId: "native", index: 0, block: { kind: "text", text: "Partial reply before interruption" } }))).toEqual([0]);
+    expect(pieces(t.items).map(piece => piece.key)).toEqual(keys);
+    expect(t.items[0]).toMatchObject({ kind: "assistant", streaming: false, blocks: [{ text: "Partial reply before interruption" }] });
+    expect(t.items[0]).not.toHaveProperty("completion");
+
+    t.push(j({ v: 1, type: "assistant.started", at: 5, messageId: "late-native" }));
+    t.push(j({ v: 1, type: "assistant.block", at: 6, messageId: "late-native", index: 0, block: { kind: "text", text: "Source catchup" } }));
+    expect(t.items.map(item => item.kind)).toEqual(["assistant", "assistant"]);
+    expect(t.items[1]).toMatchObject({ kind: "assistant", streaming: false, blocks: [{ text: "Source catchup" }] });
+    expect(t.items[1]).not.toHaveProperty("completion");
+    expect(t.working).toBe(false);
+  });
+
+  it.each([
+    ["accepted input", j({ v: 1, type: "user.message", at: 2, content: [{ kind: "text", text: "Continue" }] })],
+    ["observed activity", observed("working")],
+    ["busy session", j({ v: 1, type: "session.state", at: 2, state: "busy" })],
+  ])("does not keep source content quiet after %s", (_name, event) => {
+    const t = new Timeline();
+    t.push(observed("idle"));
+    t.push(event);
+    t.push(j({ v: 1, type: "assistant.block", at: 3, messageId: "next", index: 0, block: { kind: "text", text: "Continuing" } }));
+    expect(t.busy).toBe(true);
+    expect(t.items[t.items.length - 1]).toMatchObject({ kind: "assistant", streaming: true });
+  });
+
+  it("does not infer new root activity or a stop from lost observation", () => {
+    const t = new Timeline();
+    t.push(observed("working"));
+    t.push(j({ v: 1, type: "assistant.block", at: 1, messageId: "native", index: 0, block: { kind: "text", text: "Partial" } }));
+    t.push(observed("unknown"));
+    expect(t.busy).toBe(true);
+    expect(t.items[0]).toMatchObject({ kind: "assistant", streaming: true });
+
+    t.push(j({ v: 1, type: "background.changed", at: 2, tasks: [{ id: "child", description: "Child task", toolId: null }] }));
+    t.push(observed("idle"));
+    t.push(observed("unknown"));
+    t.push(j({ v: 1, type: "assistant.block", at: 3, messageId: "native", index: 0, block: { kind: "text", text: "Partial reply before interruption" } }));
+    expect(t.busy).toBe(false);
+    expect(t.items[0]).toMatchObject({ kind: "assistant", streaming: false, blocks: [{ text: "Partial reply before interruption" }] });
+    expect(t.working).toBe(true);
+    expect(t.tasks.has("child")).toBe(true);
+  });
+
+  it("preserves background work and answerable requests when the native root becomes idle", () => {
+    const t = new Timeline();
+    t.push(observed("working"));
+    t.push(j({ v: 1, type: "background.changed", at: 1, tasks: [{ id: "child", description: "Child task", toolId: null }] }));
+    t.push(j({ v: 1, type: "request.opened", at: 2, requestId: "question", kind: "question", toolId: null, tool: null, input: {} }));
+    t.push(observed("idle", "background"));
+    expect(t.busy).toBe(true);
+    t.push(observed("idle"));
+    expect(t.busy).toBe(false);
+    expect(t.working).toBe(true);
+    expect(t.tasks.has("child")).toBe(true);
+    expect(t.pending).toMatchObject([{ id: "question", answered: false }]);
+    t.push(j({ v: 1, type: "background.changed", at: 3, tasks: [] }));
+    expect(t.working).toBe(false);
+    expect(t.pending).toMatchObject([{ id: "question", answered: false }]);
+  });
+
   it.each([
     ["question", "custom_question"],
     ["question", null],
@@ -96,6 +176,23 @@ describe("Timeline", () => {
     if (a.kind !== "assistant") throw new Error();
     expect(a.blocks.map((b) => b.kind)).toEqual(["thinking", "text", "tool"]);
     expect(t.items[0].ts).toBe(Date.parse("2026-08-27T22:12:36.835Z"));
+  });
+
+  it("updates an earlier authoritative block without moving anchors or reopening completed turns", () => {
+    const t = new Timeline();
+    for (const id of ["first", "second"]) {
+      t.push(j({ v: 1, type: "user.message", at: 1, content: [{ kind: "text", text: "Repeat" }] }));
+      t.push(j({ v: 1, type: "assistant.block", at: 2, messageId: id, index: 0, block: { kind: "text", text: "Partial" } }));
+      t.push(j({ v: 1, type: "turn.completed", at: 3, outcome: "ok", message: "", durationMs: null, costUsd: null, messageId: id }));
+    }
+    const keys = pieces(t.items).map(piece => piece.key);
+    const count = t.items.length;
+    expect(t.busy).toBe(false);
+    expect(t.push(j({ v: 1, type: "assistant.block", at: 4, messageId: "first", index: 0, block: { kind: "text", text: "Final text" } }))).toEqual([1]);
+    expect(t.items).toHaveLength(count);
+    expect(pieces(t.items).map(piece => piece.key)).toEqual(keys);
+    expect(t.items[1]).toMatchObject({ kind: "assistant", ts: 2, streaming: false, blocks: [{ text: "Final text" }] });
+    expect(t.busy).toBe(false);
   });
 
   it("places tool results inside their tool block instead of a message", () => {

@@ -83,6 +83,35 @@ input only when a queue exists and setup is not running, and admission is
 rechecked when the send runs. Failed writes restore the previous turn flag and
 produce no capture or reactions.
 
+`feed_committed` is the ingestion port for a host that must journal a native
+occurrence before publication. Under the same capture and stream locks, it
+passes the sanitized public line and absolute line offset to an injected
+commit callback. `Appended` publishes that line without a second store append;
+`AlreadyCommitted` and an error produce no buffer, execution, telemetry,
+notification or queue effects. Ephemeral events bypass durable commit and keep
+their ordinary sequence rules on this port. `feed_observed_committed` uses the
+same internal reduction/publication path but requires the callback for every
+native fact: its public line is `None` for an ephemeral event. A receipt can
+therefore gate context or private usage capture without retaining that payload
+in history. The host owns source identities, journal paths,
+crash reconciliation and the decision to stop on a failed commit. It must seed
+recovered history before accepting live ingestion. This additive port preserves
+the default `feed` behavior, including live delivery after a storage failure.
+
+`with_commit` installs the same durable policy for all ordinary output and app
+notices in a native terminal session. `command_committed` stages the complete
+canonical input batch and commits it before publishing busy state, accepted
+input or telemetry. The PTY write happens once; a failed commit is returned to
+the host, which retires that process without resending the input.
+`accept_committed` records an already accepted native prompt without another
+process write. `capture_committed` omits accepted telemetry and reactions for a
+duplicate receipt. `revise_committed` publishes an authoritative block, tool
+result or retained summary/notice/report without execution, telemetry or reaction effects; the host must prove
+the same native occurrence, a new version and a previously finished turn.
+Ordinary chat keeps its existing policy without installing the optional port.
+`session/pump/tests.rs` verifies both policies, private-field removal, duplicate
+suppression and the ordering of durable commit before reentrant reactions.
+
 ## Processes, terminals and commands
 
 `StartedProcess` hands over input, two independently drained output streams, a
@@ -90,6 +119,20 @@ produce no capture or reactions.
 both drains start before input is returned. The core owns the agent and terminal
 shutdown policies; the Unix adapter starts a process group, serializes signals
 with nonblocking reaping and clears running state only on observed exit.
+
+`StartedTerminal` exposes a `ProcessHandle` for that same PTY child alongside
+its resize/input ports. A conversation can therefore retain the existing
+process identity, accounting and shutdown rules without owning a second
+process or reaper. `TerminalWait` remains the single child owner. Explicit
+conversation closure calls `TerminalControl::disconnect` to release all PTY
+master descriptors and cancel held readers/writers without scheduling another
+shutdown policy. Dock `close` retains its hangup and escalation policy. Native
+IO performs nonblocking operations under short shared locks, so a blocked reader
+or writer cannot prevent disconnection. Dropping an unreaped waiter disconnects
+before killing and reaping; natural exit keeps output available for draining.
+Native tests in `crates/process/src/terminal/tests.rs` verify shared exit state,
+retained handles under output flood, cancellation and natural-exit draining.
+These additive Rust ports do not alter persisted or IPC formats.
 
 `TerminalOutput` keeps 512 KiB of raw bytes with one sequence per header, chunk
 or exit notice; snapshots use the same lock, and retirement suppresses late
@@ -105,6 +148,17 @@ output-bound and I/O failures. Current per-caller limits are listed in
 
 ## Sessions, launch and workers
 
+Native queued input uses the additive `NativeDispatch` board value and
+`SessionRuntime::send_dispatch` port. The core first persists one immutable item,
+then dispatches it, and clears it only after `Sent` or `AlreadyAccepted` through
+a second durable board barrier. The latter denotes an existing exact receipt
+and produces no new process write or accepted-input effects. Errors preserve
+the item separately from later pending text. `SessionPublication::persist`
+provides the barrier; defaults refuse this native path, while ordinary Chat
+keeps the existing `send` path. Native uncertain-delivery reconciliation belongs
+to the injected host. Core session tests verify persistence-before-write,
+stable identity across revival, later queue preservation and duplicate silence.
+
 `SessionService` receives the board plus runtime, account, publication and
 diagnostic ports. Blank input has no effect; pending input appends in order and
 survives setup, account changes and failed sends (a failed send restores the
@@ -113,6 +167,15 @@ save. `SessionReactions` updates tab status, notes, unread state, context and
 provider identity, never workspace stage. `SessionHost` owns one host's registry,
 `InputGates`, readiness and background work; exit cleanup compares identity under
 the registry lock and keeps a stopped conversation for replay.
+
+`execution.observed` updates read-only native activity through those same
+reactions. Work keeps observed blocking separate from answerable requests;
+root activity invalidates a held completion while background activity preserves
+it. Unknown evidence invalidates completion before an ambiguous task drain.
+Idle availability updates status without marking new unread attention or calling
+completion actions. SessionOutput orders these events but Lines does not persist
+them or consume transcript positions; no assistant message or response route is
+created. The [conversation contract](conversation-events-v1.md) defines the event.
 
 `LaunchService` snapshots the workspace, tools, trust and delegation permission
 under one board lock, prepares outside it, and only then retires the old process.

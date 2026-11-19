@@ -70,6 +70,8 @@ struct Ask {
     /// Preserve the server's JSON-RPC request ID for the reply.
     rpc: Value,
     kind: AskKind,
+    /// Attached responses await native resolution; delivery alone does not settle a card.
+    replied: bool,
 }
 
 enum AskKind {
@@ -135,6 +137,10 @@ pub fn exec_usage(event: &Value) -> Option<prometeu_core::conversation::usage::M
 }
 
 pub struct Link {
+    /// A native TUI owns turns and unknown requests on an already initialized private server.
+    attached: bool,
+    request_namespace: Option<String>,
+    native_item: Option<String>,
     pick: fn(&str, &str) -> String,
     out: Box<dyn Write + Send>,
     start: Start,
@@ -177,7 +183,61 @@ impl Link {
         pick: fn(&str, &str) -> String,
         version: &str,
     ) -> Link {
-        let mut link = Link {
+        let mut link = Self::uninitialized(out, start, pick);
+        let _ = link.call(
+            "initialize",
+            json!({
+                "clientInfo": { "name": "prometeu", "title": "Prometeu", "version": version },
+                "capabilities": { "experimentalApi": true },
+            }),
+            Sent::Init,
+        );
+        link
+    }
+
+    /// Observe and explicitly control one verified native thread without opening a thread or
+    /// submitting turns. The host owns bootstrap, input admission and native request transport.
+    pub fn attached(
+        out: Box<dyn Write + Send>,
+        start: Start,
+        thread: String,
+        incarnation: String,
+        pick: fn(&str, &str) -> String,
+    ) -> Link {
+        let fresh = start.resume.is_none();
+        let mut link = Self::uninitialized(out, start, pick);
+        link.attached = true;
+        link.request_namespace = Some(incarnation);
+        link.thread = Some(thread);
+        link.model = link.start.model.clone();
+        if fresh {
+            link.telemetry_total = Some(prometeu_core::conversation::usage::Usage {
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+                reasoning_tokens: Some(0),
+                ..Default::default()
+            });
+        }
+        link
+    }
+
+    /// This account query does not change the native thread or initiate inference.
+    pub fn refresh_usage(&mut self) -> Result<(), String> {
+        self.call("account/rateLimits/read", json!({}), Sent::Usage)
+            .map(|_| ())
+    }
+
+    fn uninitialized(
+        out: Box<dyn Write + Send>,
+        start: Start,
+        pick: fn(&str, &str) -> String,
+    ) -> Link {
+        Link {
+            attached: false,
+            request_namespace: None,
+            native_item: None,
             pick,
             out,
             start,
@@ -204,16 +264,7 @@ impl Link {
             telemetry_baseline: None,
             telemetry_usage: Default::default(),
             telemetry_terminals: Default::default(),
-        };
-        let _ = link.call(
-            "initialize",
-            json!({
-                "clientInfo": { "name": "prometeu", "title": "Prometeu", "version": version },
-                "capabilities": { "experimentalApi": true },
-            }),
-            Sent::Init,
-        );
-        link
+        }
     }
 
     /// Close stdin to signal process shutdown.
@@ -226,6 +277,14 @@ impl Link {
     /// Handle a canonical UI command and return any local events that do not require process input.
     pub fn write(&mut self, frame: &Value) -> Result<Vec<Value>, String> {
         if frame["v"] != 1 {
+            return Err(i18n::t("err.team.bad"));
+        }
+        if self.attached
+            && !matches!(
+                frame["type"].as_str(),
+                Some("request.respond" | "turn.interrupt")
+            )
+        {
             return Err(i18n::t("err.team.bad"));
         }
         match frame["type"].as_str() {
@@ -250,6 +309,9 @@ impl Link {
                 let Some(ask) = self.asks.get(&id) else {
                     return Err(i18n::t("err.team.bad"));
                 };
+                if ask.replied {
+                    return Err(i18n::t("err.team.bad"));
+                }
                 let answer = &frame["response"];
                 let outcome = answer["outcome"]
                     .as_str()
@@ -278,8 +340,14 @@ impl Link {
                     }
                 };
                 let rpc = ask.rpc.clone();
-                self.asks.remove(&id);
                 self.reply(&rpc, result)?;
+                if self.attached {
+                    if let Some(ask) = self.asks.get_mut(&id) {
+                        ask.replied = true;
+                    }
+                } else {
+                    self.asks.remove(&id);
+                }
                 Ok(vec![])
             }
             // Advertise locally supported slash commands; the app-server does not provide this
@@ -666,12 +734,29 @@ impl Link {
         vec![notice("error", "plugin.hooks", &message)]
     }
 
+    fn request_key(&self, rpc: &Value) -> String {
+        if let Some(namespace) = &self.request_namespace {
+            use sha2::{Digest, Sha256};
+            format!(
+                "codex:{namespace}:{:x}",
+                Sha256::digest(rpc.to_string().as_bytes())
+            )
+        } else {
+            rpc.as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| rpc.to_string())
+        }
+    }
+
     /// Present server requests as pending UI cards while retaining their JSON-RPC IDs.
     fn request(&mut self, rpc: Value, method: &str, params: &Value) -> Vec<Value> {
-        let id = match &rpc {
-            Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
+        if self.attached && params["threadId"].as_str() != self.thread.as_deref() {
+            return vec![];
+        }
+        let id = self.request_key(&rpc);
+        if self.attached && self.asks.contains_key(&id) {
+            return vec![];
+        }
         let item = params["itemId"].as_str().unwrap_or("").to_string();
         let (kind, tool, input) = match method {
             "item/commandExecution/requestApproval" => {
@@ -719,7 +804,9 @@ impl Link {
                 )
             }
             _ => {
-                let _ = self.refuse(&rpc, "unsupported by prometeu");
+                if !self.attached {
+                    let _ = self.refuse(&rpc, "unsupported by prometeu");
+                }
                 return vec![];
             }
         };
@@ -728,7 +815,14 @@ impl Link {
         } else {
             "approval"
         };
-        self.asks.insert(id.clone(), Ask { rpc, kind });
+        self.asks.insert(
+            id.clone(),
+            Ask {
+                rpc,
+                kind,
+                replied: false,
+            },
+        );
         vec![canonical(
             "request.opened",
             json!({
@@ -764,6 +858,29 @@ impl Link {
             }
         }
         match method {
+            "serverRequest/resolved" if self.attached => {
+                let rpc = &p["requestId"];
+                let id = self.request_key(rpc);
+                if self.asks.remove(&id).is_some() {
+                    // The notification carries resolution, not the person's decision/outcome.
+                    vec![canonical(
+                        "request.closed",
+                        json!({"requestId":id,"outcome":"resolved"}),
+                    )]
+                } else {
+                    vec![]
+                }
+            }
+            "thread/settings/updated" if self.attached => {
+                let settings = &p["threadSettings"]["collaborationMode"]["settings"];
+                if let Some(model) = settings["model"].as_str() {
+                    self.model = model.into();
+                }
+                if let Some(effort) = settings["reasoning_effort"].as_str() {
+                    self.start.effort = effort.into();
+                }
+                vec![]
+            }
             "turn/started" => {
                 if self.turn.as_deref() != p["turn"]["id"].as_str() {
                     self.telemetry_baseline = self.telemetry_total.clone();
@@ -778,8 +895,8 @@ impl Link {
                 self.open = None;
                 vec![]
             }
-            "item/started" => self.started(&p["item"]),
-            "item/completed" => self.completed(&p["item"]),
+            "item/started" => self.native_item_event(&p["item"], false),
+            "item/completed" => self.native_item_event(&p["item"], true),
             "item/agentMessage/delta" | "item/plan/delta" => {
                 self.delta(p["itemId"].as_str(), p["delta"].as_str())
             }
@@ -838,6 +955,7 @@ impl Link {
                 }
                 let mut out = self.seal(None);
                 self.turn = None;
+                self.native_item = None;
                 self.block = 0;
                 self.message_open = false;
                 let turn = &p["turn"];
@@ -945,6 +1063,27 @@ impl Link {
             }
             _ => vec![],
         }
+    }
+
+    fn native_item_event(&mut self, item: &Value, completed: bool) -> Vec<Value> {
+        let mut out = Vec::new();
+        if self.attached && item["type"] != "userMessage" {
+            let Some(id) = item["id"].as_str().filter(|id| !id.is_empty()) else {
+                return out;
+            };
+            if self.native_item.as_deref() != Some(id) {
+                out.extend(self.seal(None));
+                self.native_item = Some(id.into());
+                self.block = 0;
+                self.message_open = false;
+            }
+        }
+        out.extend(if completed {
+            self.completed(item)
+        } else {
+            self.started(item)
+        });
+        out
     }
 
     fn completed(&mut self, item: &Value) -> Vec<Value> {
@@ -1188,7 +1327,14 @@ impl Link {
 
     /// All blocks in a turn share one displayed message.
     fn msg(&self) -> String {
-        self.turn.clone().unwrap_or_default()
+        if self.attached {
+            self.native_item
+                .clone()
+                .or_else(|| self.turn.clone())
+                .unwrap_or_default()
+        } else {
+            self.turn.clone().unwrap_or_default()
+        }
     }
 
     /// Display paths relative to the worktree when possible.
@@ -1389,6 +1535,10 @@ impl prometeu_core::session::provider::AgentInput for Input {
         false
     }
 }
+
+#[cfg(test)]
+#[path = "codex/attached_tests.rs"]
+mod attached_tests;
 
 #[cfg(test)]
 mod tests {

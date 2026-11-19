@@ -101,6 +101,28 @@ describe("control frames", () => {
     expect(parseUp({ t: "note_resolve", ws: "ws1", note: "n1" })).toEqual({ t: "note_resolve", ws: "ws1", note: "n1" });
   });
 
+  it("preserves optional terminal decision ownership and accepts legacy tab advertisements", () => {
+    const frame = (decision_surface?: unknown) => ({ t: "share", share: { ...validShare,
+      tabs: [{ ...validShare.tabs[0], ...(decision_surface === undefined ? {} : { decision_surface }) }],
+    } });
+    const legacy = parseUp(frame());
+    expect(legacy?.t === "share" && legacy.share.tabs[0]).not.toHaveProperty("decision_surface");
+    const native = parseUp(frame("terminal"));
+    expect(native?.t === "share" && native.share.tabs[0].decision_surface).toBe("terminal");
+    for (const invalid of ["app", false, null, {}]) expect(parseUp(frame(invalid))).toBeNull();
+  });
+
+  it("preserves optional terminal conversation mode without changing legacy announcements", () => {
+    const frame = (conversation_mode?: unknown) => ({ t: "share", share: { ...validShare,
+      tabs: [{ ...validShare.tabs[0], ...(conversation_mode === undefined ? {} : { conversation_mode }) }],
+    } });
+    const legacy = parseUp(frame());
+    expect(legacy?.t === "share" && legacy.share.tabs[0]).not.toHaveProperty("conversation_mode");
+    const terminal = parseUp(frame("terminal"));
+    expect(terminal?.t === "share" && terminal.share.tabs[0].conversation_mode).toBe("terminal");
+    for (const invalid of ["chat", "unknown", false, null, {}]) expect(parseUp(frame(invalid))).toBeNull();
+  });
+
   it("rejects invalid nested fields, dimensions, IDs and sizes", () => {
     expect(parseUp({ t: "share", share: { ...validShare, active: "missing" } })).toBeNull();
     expect(parseUp({ t: "share", share: { ...validShare, sizes: { t1: [0, 24] } } })).toBeNull();

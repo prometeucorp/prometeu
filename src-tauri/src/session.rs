@@ -4,8 +4,8 @@ use crate::domain::Pr;
 use crate::lock::lock;
 use crate::selection::{Selection, Tools};
 use crate::state::{
-    publish, Board, Choice, Project, ProviderId, Repo, ShareRights, Status, Tab, ToolTrust,
-    Workspace,
+    publish, Board, Choice, ConversationMode, Project, ProviderId, Repo, ShareRights, Status, Tab,
+    ToolTrust, Workspace,
 };
 use crate::workspace_tools::{self, Axis};
 use crate::{chat, dock, i18n, paths, scripts, AppState};
@@ -35,6 +35,26 @@ use diff::{ahead_of, changes_in};
 #[tauri::command]
 pub fn load_board(state: State<AppState>) -> Board {
     lock(&state.board).clone()
+}
+
+/// Changing the default never changes a saved conversation or restarts its process.
+#[tauri::command]
+pub fn set_conversation_mode(
+    app: AppHandle,
+    state: State<AppState>,
+    mode: ConversationMode,
+) -> Result<(), String> {
+    validate_conversation_mode(mode)?;
+    lock(&state.board).conversation_mode = mode;
+    publish(&app);
+    Ok(())
+}
+
+fn validate_conversation_mode(mode: ConversationMode) -> Result<(), String> {
+    if mode == ConversationMode::Terminal && !chat::terminal::ENABLED {
+        return Err(i18n::t("err.terminalAgent.unsupported"));
+    }
+    Ok(())
 }
 
 /// Report once per start that saved workspaces came from the backup or started empty, and where
@@ -1079,6 +1099,13 @@ pub(crate) fn workspace_launch_of(
     tab: &str,
     tools: &ResolvedTools,
 ) -> Launch {
+    let conversation_mode = Some(
+        workspace
+            .tabs
+            .iter()
+            .find(|saved| saved.id == tab)
+            .map_or(ConversationMode::Chat, |saved| saved.conversation_mode),
+    );
     if let Some(run) = workspace
         .tabs
         .iter()
@@ -1086,6 +1113,7 @@ pub(crate) fn workspace_launch_of(
         .and_then(|t| t.task.as_ref())
     {
         return Launch {
+            conversation_mode,
             mcp: run.profile.mcp.clone(),
             plugins: run.profile.plugins.clone(),
             permission: Some(run.profile.permission),
@@ -1103,7 +1131,10 @@ pub(crate) fn workspace_launch_of(
             .and_then(|t| t.choice.clone()),
         tools,
     );
-    if matches!(launch.agent, ProviderId::Antigravity | ProviderId::Cursor) {
+    launch.conversation_mode = conversation_mode;
+    if launch.conversation_mode == Some(ConversationMode::Terminal)
+        || matches!(launch.agent, ProviderId::Antigravity | ProviderId::Cursor)
+    {
         if let Some(tab) = workspace.tabs.iter().find(|t| t.id == tab) {
             launch.plan = tab.plan;
             launch.permission = tab.permission;
@@ -1147,11 +1178,20 @@ pub fn create_workspace(
 pub(crate) fn create_workspace_owned(
     app: AppHandle,
     state: State<AppState>,
-    draft: Draft,
+    mut draft: Draft,
     cols: u16,
     rows: u16,
     delegation: Option<crate::delegation::Delegation>,
 ) -> Result<Workspace, String> {
+    let mode = draft
+        .launch
+        .conversation_mode
+        .unwrap_or_else(|| lock(&state.board).conversation_mode);
+    validate_conversation_mode(mode)?;
+    // Capture the default before asynchronous filesystem preparation starts. A later preference
+    // change must not switch this already admitted workspace to an unavailable transport.
+    draft.launch.conversation_mode = Some(mode);
+    chat::terminal::validate_message(mode, &draft.prompt)?;
     let generation = lock(&state.telemetry).generation;
     // Reject missing selection before publishing a card or preparing filesystem state.
     crate::accounts::active(draft.launch.agent)?;
@@ -1727,12 +1767,24 @@ fn spawn_tab_with_id(
     choice: Option<Choice>,
     id: Option<String>,
 ) -> Result<Tab, String> {
-    let worktree = lock(&state.board)
-        .workspaces
-        .iter()
-        .find(|candidate| candidate.id == workspace)
-        .map(|workspace| PathBuf::from(&workspace.worktree))
-        .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+    let (worktree, conversation_mode) = {
+        let board = lock(&state.board);
+        let worktree = board
+            .workspaces
+            .iter()
+            .find(|candidate| candidate.id == workspace)
+            .map(|workspace| PathBuf::from(&workspace.worktree))
+            .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
+        (
+            worktree,
+            launch.conversation_mode.unwrap_or(board.conversation_mode),
+        )
+    };
+    let mut launch = launch.clone();
+    launch.conversation_mode = Some(conversation_mode);
+    if let Some(prompt) = pending_prompt.as_deref() {
+        chat::terminal::validate_message(conversation_mode, prompt)?;
+    }
     let id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     launch::start(
         app,
@@ -1747,7 +1799,10 @@ fn spawn_tab_with_id(
     )?;
     // The caller publishes the tab before chat::ready_now releases its pending prompt.
     Ok(Tab {
-        plan: matches!(launch.agent, ProviderId::Antigravity | ProviderId::Cursor) && launch.plan,
+        conversation_mode,
+        plan: (conversation_mode == ConversationMode::Terminal
+            || matches!(launch.agent, ProviderId::Antigravity | ProviderId::Cursor))
+            && launch.plan,
         permission: launch.permission,
         task: None,
         id,
@@ -1756,6 +1811,7 @@ fn spawn_tab_with_id(
         status: Status::Pronta,
         note: None,
         pending_prompt,
+        native_dispatch: None,
         tokens: None,
         context_tokens: None,
         context_window: None,
@@ -2158,8 +2214,8 @@ pub fn list_branches(project: String) -> Branches {
 mod tests {
     use super::{
         artifacts_of, first_message, linked_pr_text, multi_pr_text, patch_map, pr_text,
-        resolve_tools, workspace_launch, workspace_launch_of, workspace_launch_with, Choice, Draft,
-        Pr, ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
+        resolve_tools, workspace_launch, workspace_launch_of, workspace_launch_with, Choice,
+        ConversationMode, Draft, Pr, ProviderId, Repo, RepoPr, ResolvedTools, Tab, Workspace,
     };
     use crate::dock::{is_terminal, multi_setup, quoted};
     use std::path::Path;
@@ -2830,6 +2886,7 @@ mod tests {
     /// A minimal tab with an optional provider and model choice.
     fn tab(id: &str, choice: Option<Choice>) -> Tab {
         Tab {
+            conversation_mode: ConversationMode::Chat,
             plan: false,
             permission: None,
             task: None,
@@ -2839,6 +2896,7 @@ mod tests {
             status: crate::state::Status::Desligada,
             note: None,
             pending_prompt: None,
+            native_dispatch: None,
             tokens: None,
             context_tokens: None,
             context_window: None,
@@ -3612,6 +3670,7 @@ mod tests {
         })
         .unwrap();
         let mut task = tab("task", None);
+        task.conversation_mode = ConversationMode::Terminal;
         task.task = Some(
             serde_json::from_value(serde_json::json!({
                 "command":"review", "profile":profile, "paused":false, "done":false,
@@ -3624,6 +3683,7 @@ mod tests {
         ws.mcp = Some(Selection::only(vec!["changed".into()]));
         ws.model = "haiku".into();
         let launch = workspace_launch_of(&ws, "task", &ResolvedTools::default());
+        assert_eq!(launch.conversation_mode, Some(ConversationMode::Terminal));
         assert_eq!(launch.model, "opus");
         assert_eq!(launch.mcp, Some(vec!["original".into()]));
         assert_eq!(launch.plugins, Some(vec![]));
@@ -3653,6 +3713,7 @@ mod tests {
         ];
 
         let inherited = workspace_launch_of(&ws, "inherited", &ResolvedTools::default());
+        assert_eq!(inherited.conversation_mode, Some(ConversationMode::Chat));
         assert_eq!(
             (inherited.model.as_str(), inherited.effort.as_str()),
             ("opus[1m]", "high")
@@ -3661,6 +3722,11 @@ mod tests {
 
         let explicit_choice = workspace_launch_of(&ws, "explicit", &ResolvedTools::default());
         assert_eq!(explicit_choice.agent, ProviderId::Codex);
+        ws.tabs[1].conversation_mode = ConversationMode::Terminal;
+        assert_eq!(
+            workspace_launch_of(&ws, "explicit", &ResolvedTools::default()).conversation_mode,
+            Some(ConversationMode::Terminal),
+        );
         assert_eq!(
             (
                 explicit_choice.model.as_str(),

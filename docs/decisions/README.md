@@ -137,3 +137,4 @@ Index entries must be rendered links; links inside code samples do not count.
 - [ADR 0097](0097-ask-before-ending-the-app.md) — Quitting, closing the main window or restarting for an update asks first while local work would be cut off.
 - [ADR 0098](0098-skill-bundle-install.md) — Install skill-bundle repositories as portable packages.
 - [ADR 0099 — One level of sub-workspaces](0099-sub-workspaces.md): flat delegation grouping and one conversation per delegated workspace.
+- [ADR 0100](0100-conversation-transport-identity.md) — Persist conversation transport separately from provider and model; macOS defaults apply only to new conversations.

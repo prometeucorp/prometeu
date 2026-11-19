@@ -46,6 +46,14 @@ pub struct Delivery {
     pub event_error: Option<String>,
 }
 
+/// Result of a host-owned durable append under the conversation's capture and stream locks.
+/// A recovered occurrence is already in the seeded transcript and must not be published again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitOutcome {
+    Appended,
+    AlreadyCommitted,
+}
+
 /// Per-conversation memory ceiling. Persistent history is never trimmed by this buffer.
 const KEEP: usize = 4 * 1024 * 1024;
 
@@ -100,6 +108,30 @@ impl Lines {
         events: &dyn ConversationEvents,
     ) -> Delivery {
         let storage_error = persist.then(|| store.append(text).err()).flatten();
+        self.publish(text, persist, storage_error, events)
+    }
+
+    /// The caller has already committed the sanitized public line while holding this buffer.
+    /// This preserves ordinary sequence/retention rules without appending that line twice.
+    pub(crate) fn record_committed(
+        &mut self,
+        text: &str,
+        frame: &Value,
+        events: &dyn ConversationEvents,
+    ) -> Option<Delivery> {
+        if frame["type"] == "telemetry.usage" {
+            return None;
+        }
+        Some(self.publish(&public_text(text, frame), keep(frame), None, events))
+    }
+
+    fn publish(
+        &mut self,
+        text: &str,
+        persist: bool,
+        storage_error: Option<String>,
+        events: &dyn ConversationEvents,
+    ) -> Delivery {
         let seq = match persist {
             true => self.absorb(text),
             false => self.skip(),
@@ -250,7 +282,9 @@ pub fn public_text<'a>(text: &'a str, frame: &Value) -> std::borrow::Cow<'a, str
     std::borrow::Cow::Owned(public.to_string())
 }
 
-fn keep(frame: &Value) -> bool {
+/// Whether this canonical event belongs in retained public history. Native source receipts may
+/// still be required for events excluded here, without retaining their private payloads.
+pub fn persistent(frame: &Value) -> bool {
     !matches!(
         frame["type"].as_str(),
         Some(
@@ -261,6 +295,7 @@ fn keep(frame: &Value) -> bool {
                 | "context.compaction"
                 | "context.updated"
                 | "session.state"
+                | "execution.observed"
                 | "session.identity"
                 | "commands.updated"
                 | "usage.updated"
@@ -268,6 +303,8 @@ fn keep(frame: &Value) -> bool {
         )
     )
 }
+
+pub(crate) use persistent as keep;
 
 #[cfg(test)]
 mod tests;

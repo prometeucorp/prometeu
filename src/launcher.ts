@@ -45,6 +45,8 @@ export type Draft = {
   model: string;
   /// Empty effort inherits the provider default.
   effort: string;
+  /// Omission inherits the saved default for new conversations.
+  conversation_mode?: import("./types").ConversationMode;
   /// Start only the first conversation in plan mode until its plan is approved.
   plan: boolean;
   /// Null MCP selection preserves inherited CLI behavior; do not silently override existing user configuration.

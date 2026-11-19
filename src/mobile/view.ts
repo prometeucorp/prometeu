@@ -190,6 +190,7 @@ export class MobileView {
   private renderChat(screen: Extract<Screen, { kind: "chat" }>) {
     const share = viewer.remotes().find((r) => r.id === screen.id)?.share;
     this.root.append(this.header(share?.title ?? "", () => this.close()));
+    this.root.append(h("p", "ui-hint m-native-decisions", t("terminalConversation.decisions.remote")));
     this.transcript = h("main", "m-main m-transcript");
     if (this.loading) this.transcript.append(h("p", "ui-hint m-empty", t("mobile.loading")));
     this.root.append(this.transcript);
@@ -264,6 +265,9 @@ export class MobileView {
     if (this.screen.kind !== "chat") return;
     const id = this.screen.id;
     const share = viewer.remotes().find((r) => r.id === id)?.share;
+    const nativeDecisions = this.root.querySelector<HTMLElement>(".m-native-decisions");
+    const tabId = this.screen.tab;
+    if (nativeDecisions) nativeDecisions.hidden = share?.tabs.find(tab => tab.id === tabId)?.decision_surface !== "terminal";
     const box = this.root.querySelector<HTMLTextAreaElement>(".m-composer textarea");
     const button = this.root.querySelector<HTMLButtonElement>(".m-composer button");
     if (!box || !button) return;

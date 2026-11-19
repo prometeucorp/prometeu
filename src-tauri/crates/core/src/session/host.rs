@@ -30,6 +30,13 @@ pub trait SessionLifecycle {
     fn stopped(&self, session: &str);
     /// Recheck the current process and idle-only admission under the conversation lock.
     fn send(&self, session: &str, text: &str, idle_only: bool) -> Result<(), String>;
+    fn send_dispatch(
+        &self,
+        _: &str,
+        _: &crate::board::NativeDispatch,
+    ) -> Result<super::DispatchOutcome, String> {
+        Err("native_dispatch_unavailable".into())
+    }
 }
 
 pub struct SessionHost<C> {
@@ -170,6 +177,13 @@ impl<C: HostedConversation> SessionRuntime for HostedRuntime<'_, C> {
     }
     fn send(&self, session: &str, text: &str, idle_only: bool) -> Result<(), String> {
         self.lifecycle.send(session, text, idle_only)
+    }
+    fn send_dispatch(
+        &self,
+        session: &str,
+        dispatch: &crate::board::NativeDispatch,
+    ) -> Result<super::DispatchOutcome, String> {
+        self.lifecycle.send_dispatch(session, dispatch)
     }
 }
 

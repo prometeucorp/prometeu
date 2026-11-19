@@ -1,12 +1,15 @@
 import { track } from "./analytics";
-import { ChatView, type Info } from "./chat";
+import type { Info } from "./chat";
+import { ConversationView } from "./conversation-view";
 import { arrange } from "./desk-layout";
 import { icon } from "./icons";
-import { t } from "./i18n";
+import { fromBack, t } from "./i18n";
+import * as menu from "./menu";
+import { button } from "./ui";
 import { label, pending, tabLabel, type Board, type Tab, type Workspace } from "./types";
 import { $, empty, h, template } from "./util";
 
-/// Display local conversations as independent ChatViews with locally persisted order, size, and collapsed state. Use pointer gestures because WebKit resizing and Tauri's native file-drag interception prevent reliable CSS/HTML alternatives.
+/// Display local conversations with locally persisted order, size, and collapsed state. Use pointer gestures because WebKit resizing and Tauri's native file-drag interception prevent reliable CSS/HTML alternatives.
 
 export type Ctx = {
   say: (text: string, isError?: boolean) => void;
@@ -21,7 +24,7 @@ export type Ctx = {
   looked: () => void;
 };
 
-type Tile = { el: HTMLElement; head: HTMLElement; view: ChatView };
+type Tile = { el: HTMLElement; head: HTMLElement; view: ConversationView };
 type Layout = { order: string[]; sizes: Record<string, [number, number]>; hidden: string[] };
 type Pair = { w: Workspace; tab: Tab };
 
@@ -107,7 +110,7 @@ export function draw() {
       if (tile.view.current()) tile.view.detach();
       continue;
     }
-    if (!tile.view.current()) void tile.view.attach(id);
+    if (!tile.view.current()) void tile.view.attach(id).catch(error => ctx.say(fromBack(error), true));
     paintHead(tile.head, w, tab);
     tile.view.refresh();
   }
@@ -178,8 +181,34 @@ function mount(id: string): Tile {
     el.style.width = `${size[0]}px`;
     el.style.height = `${size[1]}px`;
   }
-  const view = new ChatView();
-  view.open(el.querySelector<HTMLElement>(".chatwrap")!, { say: ctx.say, info: () => ctx.info(id), newConversation: ctx.newConversation });
+  const view = new ConversationView();
+  const nativePending = button("", () => view.showNativeTools(), "ghost", "conversation.terminal.tools.open");
+  nativePending.classList.add("ico", "sm", "native-context-pending");
+  nativePending.innerHTML = icon("message-square", 14);
+  nativePending.title = t("terminalConversation.tools.pending");
+  nativePending.setAttribute("aria-label", nativePending.title);
+  nativePending.setAttribute("aria-haspopup", "dialog");
+  nativePending.hidden = true;
+  min.before(nativePending);
+  const openMenu = (x: number, y: number) => {
+    const items = view.nativeActions();
+    if (items.length) menu.openAt({ area: "desk", x, y, anchor: head }, items);
+  };
+  head.addEventListener("contextmenu", event => {
+    if (!view.nativeActions().length) return;
+    event.preventDefault();
+    openMenu(event.clientX, event.clientY);
+  });
+  head.addEventListener("keydown", event => {
+    if (event.target !== head || !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
+    event.preventDefault();
+    const bounds = head.getBoundingClientRect();
+    openMenu(bounds.left, bounds.bottom);
+  });
+  view.open(el.querySelector<HTMLElement>(".chatwrap")!, {
+    say: ctx.say, info: () => ctx.info(id), newConversation: ctx.newConversation,
+    nativeToolsChanged: attention => { nativePending.hidden = !attention; },
+  });
   drag(el, head);
   grip(el, id);
   $("tiles").append(el);
@@ -193,6 +222,11 @@ function paintHead(head: HTMLElement, w: Workspace, tab: Tab) {
   head.querySelector("b")!.textContent = w.title;
   head.querySelector(".ttab")!.textContent = tabLabel(w, tab);
   head.title = `${label(tab.status)} · ${t("desk.head.title")}`;
+  head.tabIndex = tab.conversation_mode === "terminal" ? 0 : -1;
+  if (tab.conversation_mode === "terminal") {
+    head.dataset.trackContextMenu = "tab.menu";
+    head.title += ` · ${t("terminalConversation.tools")}`;
+  } else delete head.dataset.trackContextMenu;
 }
 
 /// Listen for pointer movement and completion on document. Reordering DOM nodes can release element pointer capture; pointerup and pointercancel share cleanup.

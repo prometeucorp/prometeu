@@ -14,8 +14,8 @@ export type Where = "scripts" | "shell";
 const at = (where: Where) => (where === "scripts" ? scripts : shells);
 
 export function init(scriptsEl: HTMLElement, shellEl: HTMLElement) {
-  const sink = (key: string, data: string) => {
-    invoke("pty_write", { session: key, data });
+  const sink = (key: string, data: string | number[]) => {
+    return invoke("pty_write", { session: key, ...(typeof data === "string" ? { data } : { bytes: data }) });
   };
   scripts.open(scriptsEl, sink);
   shells.open(shellEl, sink);

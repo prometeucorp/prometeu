@@ -1,0 +1,13 @@
+{
+  "cardOutcome": "resolved",
+  "duplicateReplyRejected": true,
+  "exactInputChecked": true,
+  "exactScratchOutput": true,
+  "hookReplyDelivered": true,
+  "nativeToolFailed": false,
+  "nativeToolFinished": true,
+  "nativeWidgetObservedBeforeReply": true,
+  "scenario": "explicit-bash-approval",
+  "subsequentRootStopMarker": "PROMETEU_TERMINAL_TOOL_SMOKE",
+  "version": "2.1.326"
+}

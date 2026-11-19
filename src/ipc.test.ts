@@ -33,6 +33,8 @@ it("infers results from command names and forwards arguments and options unchang
     invoke("read_file", { ...args, path: "README.md" });
     // @ts-expect-error Argument values must match the command.
     invoke("pty_resize", { session: "terminal", cols: "80", rows: 24 });
+    // @ts-expect-error A conversation mode must be a supported saved enum value.
+    invoke("set_conversation_mode", { mode: "automatic" });
     // @ts-expect-error Callers cannot invent a response type.
     invoke<number>("read_file", args);
     // @ts-expect-error Persisting security state requires an explicit state payload.

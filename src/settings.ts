@@ -24,7 +24,7 @@ import * as notifications from "./notification-settings";
 import * as team from "./team";
 import { disposeTelemetry, telemetryRows } from "./telemetry-settings";
 import { loadTypesafe, typesafeRows } from "./typesafe-settings";
-import type { GitHubStatus, LinearStatus } from "./types";
+import type { Board, ConversationMode, GitHubStatus, LinearStatus } from "./types";
 import { settingsRow } from "./update";
 import { $, h, template } from "./util";
 import { button, disclosure, field, input, select } from "./ui";
@@ -41,9 +41,21 @@ type Ctx = { say: (text: string, isError?: boolean) => void };
 let ctx: Ctx;
 let status: LinearStatus = { connected: false, can_assign: false, who: null, busy: false };
 let githubStatus: GitHubStatus = { connected: false, login: null, busy: false, code: null, url: null, install_url: "" };
+let conversationMode: ConversationMode = "chat";
+let conversationModesEnabled = false;
+/// The execution host enables this control only when native terminal conversations are available.
+export function useConversationModes(enabled: boolean) { conversationModesEnabled = enabled; }
 
 export async function init(context: Ctx) {
   ctx = context;
+  const modeChanged = (board: Board) => {
+    const mode = board.conversation_mode ?? "chat";
+    if (mode === conversationMode) return;
+    conversationMode = mode;
+    refreshPages("geral");
+  };
+  listen<Board>("board", ({ payload }) => modeChanged(payload));
+  void invoke("load_board").then(modeChanged).catch(() => {});
   onCatalogChange(() => { if (!$("settingsView").hidden) { paintDefaultModel(); paintDefaultEffort(); } });
   accountUI.onChange(() => refreshPages("agentes"));
   skills.init(ctx.say, async () => {
@@ -99,6 +111,7 @@ type Page = { id: SettingsPage; title: Key; description: Key; glyph: Parameters<
 
 const PAGES: Page[] = [
   { id: "geral", title: "settings.page.general", description: "settings.general.intro", glyph: "settings", sections: [
+    { id: "conversation", title: "settings.conversationMode", rows: () => [conversationModeRow()], keywords: ["settings.conversationMode.body", "settings.conversationMode.chat", "settings.conversationMode.terminal"] },
     { id: "language", title: "settings.languageVoice", rows: () => [langRow(), ...(voice.available() ? [voiceRow()] : [])], keywords: ["settings.lang", "settings.voice"] },
     { id: "notifications", title: "notifications.title", rows: () => [notifications.settings(ctx.say, true)], keywords: ["notifications.events", "notifications.sound", "notifications.style"] },
     { id: "cleanup", title: "clean.title", rows: () => [cleanupSettingsRow(ctx.say)], keywords: ["clean.auto", "clean.autoHint"] },
@@ -198,6 +211,7 @@ export function draw() {
     if (searchQuery.trim()) {
       const results = h("div", "settings-panel settings-results");
       for (const candidate of PAGES) for (const section of candidate.sections) {
+        if (section.id === "conversation" && !conversationModesEnabled) continue;
         const words = [t(candidate.title), t(section.title), ...(section.keywords ?? []).map(key => t(key)), section.id === "accounts" ? "Claude Codex Antigravity Cursor" : "", section.id === "integrations" ? "Linear GitHub TypeSafe" : ""];
         if (!matchesSettings(searchQuery, words.join(" "))) continue;
         const result = button("", () => navigate(candidate.id, section.id), "ghost", "settings.search.result");
@@ -209,6 +223,7 @@ export function draw() {
       content.append(results); return;
     }
     for (const section of page.sections) {
+      if (section.id === "conversation" && !conversationModesEnabled) continue;
       const group = h("section", "settings-section"); group.id = `settings-${section.id}`;
       const title = h("h2", "", t(section.title)); title.id = `${group.id}-title`;
       group.setAttribute("aria-labelledby", title.id);
@@ -273,6 +288,33 @@ function projectRows(): HTMLElement[] {
 
 function appRows(): HTMLElement[] {
   return [settingsRow(), news.settingsRow()];
+}
+
+function conversationModeRow(): HTMLElement {
+  const row = template("div", "setrow", `<span class="glyph">${icon("terminal", 18)}</span><div class="txt"><b></b><span></span></div><div class="act"></div>`);
+  row.querySelector(".txt b")!.textContent = t("settings.conversationMode");
+  row.querySelector(".txt span")!.textContent = t("settings.conversationMode.body");
+  const choice = select(conversationMode, [
+    ["chat", t("settings.conversationMode.chat")],
+    ["terminal", t("settings.conversationMode.terminal")],
+  ]);
+  choice.control.setAttribute("aria-label", t("settings.conversationMode"));
+  choice.control.dataset.track = "settings.conversation_mode";
+  choice.control.dataset.focus = "settings-conversation-mode";
+  choice.onchange = async () => {
+    choice.control.setAttribute("aria-busy", "true");
+    try {
+      await invoke("set_conversation_mode", { mode: choice.value as ConversationMode });
+      track({ name: "preference_changed", setting: "conversation_mode" });
+    } catch (error) {
+      choice.value = conversationMode;
+      ctx.say(fromBack(error), true);
+    } finally {
+      choice.control.removeAttribute("aria-busy");
+    }
+  };
+  row.querySelector(".act")!.append(choice.control);
+  return row;
 }
 
 /// Store language preference locally; without an override, show the resolved system language.

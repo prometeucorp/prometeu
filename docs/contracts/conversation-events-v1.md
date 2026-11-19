@@ -101,7 +101,7 @@ type ConversationEventV1 =
     })
   | (EventBase<"request.closed"> & {
       requestId: string;
-      outcome: "allowed" | "denied" | "answered" | "cancelled";
+      outcome: "allowed" | "denied" | "answered" | "cancelled" | "resolved";
     })
   | (EventBase<"turn.completed"> & {
       outcome: "ok" | "error" | "interrupted";
@@ -129,6 +129,10 @@ type ConversationEventV1 =
 `assistant.block` is authoritative per `(messageId, index)`. Blocks with the
 same `messageId` form one visual message. A result for an unknown tool or the
 closing of an unknown request is a no-op; it never breaks the replay.
+An authoritative block revision may arrive after a later turn: it updates the
+existing item and preserves its position, timestamp and completion state.
+It does not reopen historical activity. Streaming drafts remain scoped to the
+current response. `src/timeline.test.ts` checks positional keys across this case.
 
 `request.opened.kind` determines the question, plan or approval interaction and
 the accepted response. The timeline preserves it as `Ask.requestKind`; neither
@@ -142,6 +146,15 @@ background task. Its `detail` is the task's one-line summary; when a subagent
 returns a report, the report follows as Markdown after a blank line. Adapters
 decode the XML escaping Claude applies to `<task-notification>` text, and the
 chat folds long notices behind their first line.
+
+`request.closed.outcome = "resolved"` means the provider confirmed that the
+request is no longer pending but did not disclose the decision. It closes the
+card and notification state without inferring allowance, denial, an answer or
+cancellation. Existing outcomes keep their meaning. The parser/replay fixture
+in `codex/fixtures/native-request-resolved.json`, `src/conversation.test.ts`
+and `src/alert.test.ts` cover this additive value and legacy closures. Older
+renderers that reject unknown outcome values may retain the card until another
+settlement event; the backend still rejects its stale response ID.
 
 `turn.completed` ends the turn and any visual compaction, but it does not end
 background tasks. Consumers treat the conversation as working until the turn has
@@ -161,6 +174,10 @@ Malformed optional usage is ignored without discarding a valid completion.
 `context.compacted.trigger` is optional and reports automatic/manual compaction
 only when the provider supplies that distinction; absent or unknown triggers do
 not acquire a label by inference.
+Native transcript capture receipts compaction observations as metadata, including
+when no model turn exists. `context.compacted` remains in append-only history;
+replay and late metadata revisions do not reopen execution, emit a completion,
+or repeat telemetry. `context.compaction` remains ephemeral.
 
 The existing top-level `costUsd` remains a legacy provider-reported value whose
 scope can be cumulative. It is preserved for compatibility and never summed or
@@ -207,6 +224,14 @@ type ConversationEphemeralV1 =
   | (EventBase<"session.state"> & {
       state: "starting" | "ready" | "busy" | "waiting" | "stopped";
     })
+  | (EventBase<"execution.observed"> & {
+      activityId: string;
+      state: "working" | "blocked" | "idle" | "unknown";
+      scope: "root" | "background";
+      blockId: string | null;
+      kind: "permission" | "question" | "auth" | null;
+      detail: string | null;
+    })
   | (EventBase<"session.identity"> & { providerSession: string })
   | (EventBase<"commands.updated"> & {
       commands: Array<{ name: string; description: string; hint: string }>;
@@ -220,6 +245,37 @@ type ConversationEphemeralV1 =
 Deltas run ahead of the presentation; `assistant.block` replaces the draft of
 the same index. Ephemeral events still receive a transport sequence so that the
 snapshot and the live stream keep the same order.
+
+`execution.observed` is a read-only observation of native execution, independent
+of assistant content. `activityId` identifies one process-scoped activity cycle;
+`blockId` identifies one blocking episode and is required only for `blocked`.
+Both identifiers are nonempty and at most 256 characters. Other states require
+`blockId: null` and `kind: null`. The optional blocking kind and detail describe
+observed facts; neither creates a request, answer route, tool call or assistant
+message. Background observations do not reopen the root turn or invalidate a
+completion held for those same children. `idle` reports availability, without
+completion or new unread attention. `unknown` reports lost evidence and cancels
+a pending completion before any ambiguous background removal is published.
+
+The native execution projector accepts only explicit root working/blocked to
+done/error transitions as completion candidates. The host must finish reading
+the native transcript before committing one; a canonical completion received
+during that drain cancels the candidate. Repeated completion/status reports
+cannot reopen a closed cycle. A new accepted submission or distinct native
+generation proven by the host can. First activity may precede the corresponding
+transcript prompt: its first accepted input claims that still-open provisional
+cycle without resetting activity evidence. The host must correlate or order
+input before final publication; a prompt arriving after a closed cycle cannot
+be identified as the earlier prompt by text alone. Replay never enters this
+projector or notification tracking. Clear, idle, record eviction, process exit,
+and a stop hook that does not prove finality never imply successful completion.
+
+The event is additive in V1: older readers ignore it; it consumes a live
+transport sequence but no persisted transcript position. `src/conversation.test.ts`,
+`src/alert.test.ts`, core session/work tests and protocol
+`terminal_execution/tests.rs` cover compatibility, scope, uncertain drains and
+single completion delivery. Native terminal availability and provider-specific
+control channels are described in [ADR 0100](../decisions/0100-conversation-transport-identity.md).
 
 In the live local stream, `chat.rs` emits `session.state` with `starting` when
 starting a process and with `busy` after the `message.send` write is accepted.

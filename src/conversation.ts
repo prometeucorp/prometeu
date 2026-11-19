@@ -58,7 +58,7 @@ export type ConversationEventV1 =
     })
   | (EventBase<"request.closed"> & {
       requestId: string;
-      outcome: "allowed" | "denied" | "answered" | "cancelled";
+      outcome: "allowed" | "denied" | "answered" | "cancelled" | "resolved";
     })
   | (EventBase<"turn.completed"> & {
       outcome: "ok" | "error" | "interrupted";
@@ -111,6 +111,14 @@ export type ConversationEphemeralV1 =
   | (EventBase<"session.state"> & {
       state: "starting" | "ready" | "busy" | "waiting" | "stopped";
     })
+  | (EventBase<"execution.observed"> & {
+      activityId: string;
+      state: "working" | "blocked" | "idle" | "unknown";
+      scope: "root" | "background";
+      blockId: string | null;
+      kind: "permission" | "question" | "auth" | null;
+      detail: string | null;
+    })
   | (EventBase<"session.identity"> & { providerSession: string })
   | (EventBase<"commands.updated"> & { commands: SlashCommand[] })
   | (EventBase<"usage.updated"> & { provider: "claude" | "codex" | "antigravity"; usage: unknown });
@@ -148,6 +156,7 @@ const EVENT_TYPES = new Set([
   "context.compaction",
   "context.updated",
   "session.state",
+  "execution.observed",
   "session.identity",
   "commands.updated",
   "usage.updated",
@@ -176,7 +185,7 @@ export function parseConversationEvent(value: unknown): AnyConversationEventV1 |
           isObject(event.input)
         );
       case "request.closed":
-        return isString(event.requestId) && ["allowed", "denied", "answered", "cancelled"].includes(String(event.outcome));
+        return isString(event.requestId) && ["allowed", "denied", "answered", "cancelled", "resolved"].includes(String(event.outcome));
       case "turn.completed":
         return (
           ["ok", "error", "interrupted"].includes(String(event.outcome)) &&
@@ -218,6 +227,13 @@ export function parseConversationEvent(value: unknown): AnyConversationEventV1 |
         return isNumber(event.used) && nullableNumber(event.window);
       case "session.state":
         return ["starting", "ready", "busy", "waiting", "stopped"].includes(String(event.state));
+      case "execution.observed":
+        return isString(event.activityId) && event.activityId.length > 0 && event.activityId.length <= 256
+          && ["working", "blocked", "idle", "unknown"].includes(String(event.state))
+          && ["root", "background"].includes(String(event.scope))
+          && (event.state === "blocked" ? isString(event.blockId) && event.blockId.length > 0 && event.blockId.length <= 256 : event.blockId === null)
+          && (event.kind === null || (event.state === "blocked" && ["permission", "question", "auth"].includes(String(event.kind))))
+          && nullableString(event.detail);
       case "session.identity":
         return isString(event.providerSession);
       case "commands.updated":

@@ -61,10 +61,11 @@ impl TerminalFactory<CommandBuilder> for UnixTerminalFactory {
         command: CommandBuilder,
         size: TerminalSize,
     ) -> Result<StartedTerminal, TerminalError> {
-        open_with_streams(command, size, blocking_streams)
+        open_with_streams(command, size, native_streams)
     }
 }
-/// For hosts that need to cancel a blocked input worker without relying on slave closure.
+/// Compatibility factory for hosts that require cancellable IO. Both Unix factories now share
+/// descriptor ownership, so explicit disconnect and waiter cleanup can cancel every stream.
 pub struct ResponsiveTerminalFactory;
 impl TerminalFactory<CommandBuilder> for ResponsiveTerminalFactory {
     fn open(
@@ -72,11 +73,11 @@ impl TerminalFactory<CommandBuilder> for ResponsiveTerminalFactory {
         command: CommandBuilder,
         size: TerminalSize,
     ) -> Result<StartedTerminal, TerminalError> {
-        open_with_streams(command, size, responsive_streams)
+        open_with_streams(command, size, native_streams)
     }
 }
 type Streams = (Box<dyn Read + Send>, Box<dyn Write + Send>);
-type OpenStreams = fn(&dyn MasterPty, Arc<AtomicBool>) -> Result<Streams, TerminalError>;
+type OpenStreams = fn(&dyn MasterPty) -> Result<Streams, TerminalError>;
 fn open_with_streams(
     command: CommandBuilder,
     size: TerminalSize,
@@ -102,23 +103,38 @@ fn open_with_streams(
         }),
         running: AtomicBool::new(true),
     });
-    let waiter = Waiter(group.clone());
     drop(pair.slave);
-    let closing = Arc::new(AtomicBool::new(false));
-    let (output, input) = streams(pair.master.as_ref(), closing.clone())?;
+    // Every operation under an IO lock must be nonblocking so disconnect can take and close all
+    // descriptors even while a host retains the reader, writer or control handle.
+    let result = nonblocking(pair.master.as_ref()).and_then(|()| streams(pair.master.as_ref()));
+    let (output, input) = match result {
+        Ok(streams) => streams,
+        Err(error) => {
+            drop(pair.master);
+            group.kill();
+            let _ = group.wait();
+            return Err(error);
+        }
+    };
+    let io = Arc::new(TerminalIo {
+        master: Mutex::new(Some(pair.master)),
+        reader: Mutex::new(Some(output)),
+        writer: Mutex::new(Some(input)),
+    });
     Ok(StartedTerminal {
-        input,
-        output,
+        input: Box::new(SharedWriter(io.clone())),
+        output: Box::new(SharedReader(io.clone())),
+        process: prometeu_core::process::ProcessHandle::new(group.clone()),
         control: Arc::new(Control {
-            master: Mutex::new(pair.master),
-            group,
-            closing,
+            io: io.clone(),
+            group: group.clone(),
+            closing: AtomicBool::new(false),
             program,
         }),
-        waiter: Box::new(waiter),
+        waiter: Box::new(Waiter { group, io }),
     })
 }
-fn blocking_streams(master: &dyn MasterPty, _: Arc<AtomicBool>) -> Result<Streams, TerminalError> {
+fn native_streams(master: &dyn MasterPty) -> Result<Streams, TerminalError> {
     let output = master
         .try_clone_reader()
         .map_err(|e| TerminalError::Reader(e.to_string()))?;
@@ -127,10 +143,7 @@ fn blocking_streams(master: &dyn MasterPty, _: Arc<AtomicBool>) -> Result<Stream
         .map_err(|e| TerminalError::Writer(e.to_string()))?;
     Ok((output, input))
 }
-fn responsive_streams(
-    master: &dyn MasterPty,
-    closing: Arc<AtomicBool>,
-) -> Result<Streams, TerminalError> {
+fn nonblocking(master: &dyn MasterPty) -> Result<(), TerminalError> {
     let fd = master
         .as_raw_fd()
         .ok_or_else(|| TerminalError::Writer("PTY descriptor unavailable".into()))?;
@@ -141,27 +154,32 @@ fn responsive_streams(
             io::Error::last_os_error().to_string(),
         ));
     }
-    let (reader, writer) = blocking_streams(master, closing.clone())?;
-    Ok((
-        Box::new(ResponsiveReader {
-            reader,
-            closing: closing.clone(),
-        }),
-        Box::new(ResponsiveWriter { writer, closing }),
-    ))
+    Ok(())
 }
-struct ResponsiveReader {
-    reader: Box<dyn Read + Send>,
-    closing: Arc<AtomicBool>,
+struct TerminalIo {
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    reader: Mutex<Option<Box<dyn Read + Send>>>,
+    writer: Mutex<Option<Box<dyn Write + Send>>>,
 }
-impl Read for ResponsiveReader {
+impl TerminalIo {
+    fn disconnect(&self) {
+        // Closing only the original master is insufficient: cloned descriptors keep the PTY
+        // alive, and on macOS can keep a signaled slave process in kernel exit indefinitely.
+        lock(&self.writer).take();
+        lock(&self.reader).take();
+        lock(&self.master).take();
+    }
+}
+struct SharedReader(Arc<TerminalIo>);
+impl Read for SharedReader {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         loop {
-            match self.reader.read(bytes) {
+            let result = match lock(&self.0.reader).as_mut() {
+                Some(reader) => reader.read(bytes),
+                None => return Ok(0),
+            };
+            match result {
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    if self.closing.load(Ordering::Acquire) {
-                        return Ok(0);
-                    }
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -170,20 +188,18 @@ impl Read for ResponsiveReader {
         }
     }
 }
-struct ResponsiveWriter {
-    writer: Box<dyn Write + Send>,
-    closing: Arc<AtomicBool>,
+struct SharedWriter(Arc<TerminalIo>);
+fn disconnected() -> io::Error {
+    io::Error::new(io::ErrorKind::BrokenPipe, "terminal disconnected")
 }
-impl Write for ResponsiveWriter {
+impl Write for SharedWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         loop {
-            if self.closing.load(Ordering::Acquire) {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "terminal input cancelled",
-                ));
-            }
-            match self.writer.write(bytes) {
+            let result = match lock(&self.0.writer).as_mut() {
+                Some(writer) => writer.write(bytes),
+                None => return Err(disconnected()),
+            };
+            match result {
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(10))
                 }
@@ -193,7 +209,10 @@ impl Write for ResponsiveWriter {
         }
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
+        lock(&self.0.writer)
+            .as_mut()
+            .ok_or_else(disconnected)?
+            .flush()
     }
 }
 
@@ -323,15 +342,17 @@ impl ProcessControl for Group {
     }
 }
 struct Control {
-    master: Mutex<Box<dyn MasterPty + Send>>,
+    io: Arc<TerminalIo>,
     group: Arc<Group>,
-    closing: Arc<AtomicBool>,
+    closing: AtomicBool,
     /// The file name of the program the terminal started, normally the person's shell.
     program: Option<OsString>,
 }
 impl TerminalControl for Control {
     fn resize(&self, size: TerminalSize) -> Result<(), String> {
-        lock(&self.master)
+        lock(&self.io.master)
+            .as_ref()
+            .ok_or_else(|| "terminal disconnected".to_owned())?
             .resize(native_size(size))
             .map_err(|e| e.to_string())
     }
@@ -343,7 +364,9 @@ impl TerminalControl for Control {
     /// the shell's process and group, so in its own group the shell waits for input only while its
     /// process is still a shell, as after `exec zsh`.
     fn running_command(&self) -> bool {
-        let leader = lock(&self.master).process_group_leader();
+        let leader = lock(&self.io.master)
+            .as_ref()
+            .and_then(|master| master.process_group_leader());
         match leader.and_then(|leader| u32::try_from(leader).ok()) {
             Some(leader) if leader == self.group.pid => {
                 process_name(leader).is_some_and(|name| !is_shell(&name, self.program.as_deref()))
@@ -355,25 +378,35 @@ impl TerminalControl for Control {
     fn system_id(&self) -> u32 {
         self.group.pid
     }
+    fn disconnect(&self) {
+        self.io.disconnect();
+    }
     fn close(&self) {
         if self.closing.swap(true, Ordering::Relaxed) {
             return;
         }
         self.group.signal(libc::SIGHUP);
+        self.disconnect();
         let group = self.group.clone();
         std::thread::spawn(move || ShutdownPolicy::TERMINAL.shutdown(group.as_ref()));
     }
 }
-struct Waiter(Arc<Group>);
+struct Waiter {
+    group: Arc<Group>,
+    io: Arc<TerminalIo>,
+}
 impl TerminalWait for Waiter {
     fn wait(&mut self) -> Result<u32, String> {
-        self.0.wait()
+        self.group.wait()
     }
 }
 impl Drop for Waiter {
     fn drop(&mut self) {
-        self.0.kill();
-        let _ = self.0.wait();
+        if self.group.running() {
+            self.io.disconnect();
+            self.group.kill();
+            let _ = self.group.wait();
+        }
     }
 }
 

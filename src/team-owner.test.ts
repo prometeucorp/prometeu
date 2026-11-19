@@ -285,6 +285,47 @@ it("lets shares from before rights only view and comment", async () => {
   await vi.waitFor(() => expect(socket.sent.some(frame => frame instanceof Uint8Array)).toBe(true));
 });
 
+it.each(["cursor", "antigravity"] as const)("keeps %s terminal decisions native even for authorized and legacy remote controllers", async agent => {
+  const work = workspace(null, true, { send: ["bob"], control: ["bob"] });
+  work.agent = agent;
+  work.tabs[0].conversation_mode = "terminal";
+  await upgradedFrom(work);
+  await settled(await write(devices[1], respond));
+  await settled(await write(devices[0], respond));
+  await settled(await write(devices[1], JSON.stringify({ type: "control_response", response: {
+    subtype: "success", request_id: "r1", response: { behavior: "allow" },
+  } })));
+  expect(controls()).toEqual([]);
+  await settled(await write(devices[1], interrupt));
+  expect(controls()).toEqual(["turn.interrupt"]);
+  work.tabs[0].conversation_mode = "chat";
+  owner.boardChanged(board(work));
+  await settled(await write(devices[1], respond));
+  expect(controls()).toEqual(["turn.interrupt", "request.respond"]);
+});
+
+it("rejects slash input from legacy peers before prefixing or queuing native conversation prompts", async () => {
+  const work = workspace(null, true, { send: ["bob"], control: ["bob"] }, true);
+  work.tabs[0].conversation_mode = "terminal";
+  await upgradedFrom(work);
+  for (const from of [devices[0], devices[1]]) {
+    for (const text of ["/compact", " /plugin:command argument", "/"]) await settled(await write(from, text));
+  }
+  expect(host.prompt).not.toHaveBeenCalled();
+  expect(owner.pendingIn("tab1")).toEqual([]);
+  await settled(await write(devices[0], "/Users/file"));
+  await settled(await write(devices[1], "Continue normally"));
+  await settled(await write(devices[1], respond));
+  expect(prompts()).toEqual(["/Users/file"]);
+  expect(owner.pendingIn("tab1")).toMatchObject([{ text: "Continue normally" }]);
+  expect(controls()).toEqual(["request.respond"]);
+  expect(JSON.stringify(socket.shares().slice(-1)[0])).not.toContain("conversation_mode");
+  work.tabs[0].conversation_mode = "chat";
+  owner.boardChanged(board(work));
+  await settled(await write(devices[0], "/compact"));
+  expect(prompts()).toEqual(["/Users/file", "/compact"]);
+});
+
 it("lets the owner's devices act through remote control without per-person rights", async () => {
   await upgradedFrom(workspace([], true));
   await settled(await write(devices[0], "Merge it"));

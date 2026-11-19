@@ -1,0 +1,12 @@
+{
+  "answeredThroughAttachedAdapter": true,
+  "engineAndTuiReaped": true,
+  "exactScratchFileWritten": true,
+  "finalText": "PROMETEU_TERMINAL_SMOKE",
+  "nativeCommandCompleted": true,
+  "nativeDecisionVisible": true,
+  "nativeResolutionObserved": true,
+  "oneNativeDecision": true,
+  "repeatedAnswerRejected": true,
+  "version": "codex-cli 0.169.0"
+}

@@ -34,7 +34,7 @@ impl TerminalEvents for DesktopTerminalEvents {
         let _ = self.app.emit("pty-closed", (&self.id, code));
     }
 }
-fn launch_error(error: TerminalError) -> String {
+pub(crate) fn launch_error(error: TerminalError) -> String {
     let (code, cause) = match error {
         TerminalError::Open(cause) => ("err.pty.openpty", cause),
         TerminalError::Spawn(cause) => ("err.pty.spawn", cause),
@@ -116,22 +116,46 @@ pub fn spawn(
     Ok(pty)
 }
 
-#[tauri::command]
-pub fn pty_write(state: State<AppState>, session: String, data: String) -> Result<(), String> {
+#[tauri::command(async)]
+pub fn pty_write(
+    state: State<AppState>,
+    session: String,
+    data: Option<String>,
+    bytes: Option<Vec<u8>>,
+    generation: Option<String>,
+) -> Result<(), String> {
+    let data = match (data, bytes) {
+        (Some(text), None) => text.into_bytes(),
+        (None, Some(bytes)) => bytes,
+        _ => return Err(i18n::t("err.terminalAgent.data")),
+    };
+    if let Some(terminal) = crate::chat::terminal::get(&state, &session) {
+        if !terminal.owns(generation.as_deref()) {
+            return Err(i18n::t("err.pty.gone"));
+        }
+        return terminal.write_user_bytes(&data);
+    }
     let mut ptys = lock(&state.ptys);
     ptys.get_mut(&session)
         .ok_or_else(|| i18n::t("err.pty.gone"))?
-        .write(&data)
+        .write_bytes(&data)
         .map_err(i18n::io)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_resize(
     state: State<AppState>,
     session: String,
     cols: u16,
     rows: u16,
+    generation: Option<String>,
 ) -> Result<(), String> {
+    if let Some(terminal) = crate::chat::terminal::get(&state, &session) {
+        if !terminal.owns(generation.as_deref()) {
+            return Err(i18n::t("err.pty.gone"));
+        }
+        return terminal.resize(cols, rows);
+    }
     let ptys = lock(&state.ptys);
     ptys.get(&session)
         .ok_or_else(|| i18n::t("err.pty.gone"))?

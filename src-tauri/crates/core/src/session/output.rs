@@ -1,6 +1,8 @@
 //! Ordered session observations around transcript delivery. The host supplies the capture gate.
 
-use crate::conversation::stream::{ConversationEvents, Delivery, Lines, TranscriptStore};
+use crate::conversation::stream::{
+    keep, public_text, CommitOutcome, ConversationEvents, Delivery, Lines, TranscriptStore,
+};
 use crate::lock::lock;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -67,18 +69,92 @@ impl SessionOutput {
     }
 
     pub fn record(&self, lines: &mut Lines, text: &str, frame: &Value) -> Option<Delivery> {
+        self.record_inner(lines, text, frame, false)
+    }
+
+    pub(crate) fn record_committed(
+        &self,
+        lines: &mut Lines,
+        text: &str,
+        frame: &Value,
+    ) -> Option<Delivery> {
+        self.record_inner(lines, text, frame, true)
+    }
+
+    /// A host may durably ingest a native occurrence before making any live observation. The
+    /// closure receives only the public line and absolute transcript line offset. Source keys,
+    /// filesystem paths, recovery and transaction policy remain at that host's edge.
+    pub fn receive_committed(
+        &self,
+        text: &str,
+        telemetry: &mut dyn SessionTelemetry,
+        commit: impl FnOnce(&str, u64) -> Result<CommitOutcome, String>,
+    ) -> Result<Option<(Value, Option<Delivery>)>, String> {
+        self.receive_observed_committed(text, telemetry, |line, offset| match line {
+            Some(line) => commit(line, offset),
+            None => Ok(CommitOutcome::Appended),
+        })
+    }
+
+    /// Source-backed observations require a receipt even for ephemeral events. `None` means
+    /// this event has no retained public line; capture and publication still follow the receipt.
+    pub fn receive_observed_committed(
+        &self,
+        text: &str,
+        telemetry: &mut dyn SessionTelemetry,
+        commit: impl FnOnce(Option<&str>, u64) -> Result<CommitOutcome, String>,
+    ) -> Result<Option<(Value, Option<Delivery>)>, String> {
+        if self.gone.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let text = text.trim_end();
+        let Ok(frame) = serde_json::from_str::<Value>(text) else {
+            return Ok(None);
+        };
+        let delivery = {
+            let mut lines = lock(&self.lines);
+            let public = keep(&frame).then(|| public_text(text, &frame));
+            if commit(public.as_deref(), lines.end())? == CommitOutcome::AlreadyCommitted {
+                return Ok(None);
+            }
+            self.record_inner(&mut lines, text, &frame, true)
+        };
+        if !self.gone.load(Ordering::Relaxed) {
+            telemetry.observe(&frame);
+        }
+        Ok(Some((frame, delivery)))
+    }
+
+    fn record_inner(
+        &self,
+        lines: &mut Lines,
+        text: &str,
+        frame: &Value,
+        committed: bool,
+    ) -> Option<Delivery> {
         if self.gone.load(Ordering::Relaxed) || frame["type"] == "telemetry.usage" {
             return None;
         }
         match frame["type"].as_str() {
             Some("turn.completed") => self.turn.store(false, Ordering::Relaxed),
+            Some("execution.observed") if frame["scope"] == "root" => {
+                match frame["state"].as_str() {
+                    Some("working" | "blocked") => self.turn.store(true, Ordering::Relaxed),
+                    Some("idle") => self.turn.store(false, Ordering::Relaxed),
+                    _ => {}
+                }
+            }
             Some("assistant.block" | "assistant.started") => {
                 self.turn.store(true, Ordering::Relaxed)
             }
             _ => {}
         }
         self.execution.observe(frame);
-        lines.record(text, frame, self.store.as_ref(), self.events.as_ref())
+        if committed {
+            lines.record_committed(text, frame, self.events.as_ref())
+        } else {
+            lines.record(text, frame, self.store.as_ref(), self.events.as_ref())
+        }
     }
 }
 
@@ -157,6 +233,27 @@ mod tests {
             },
             effects,
         )
+    }
+
+    #[test]
+    fn execution_observations_are_ordered_but_never_enter_transcript_or_claim_child_turns() {
+        let (output, effects) = fixture();
+        for (scope, state, active) in [
+            ("background", "working", false),
+            ("root", "working", true),
+            ("root", "unknown", true),
+            ("root", "idle", false),
+        ] {
+            let frame = json!({"v":1,"type":"execution.observed","scope":scope,"state":state});
+            assert!(output
+                .record(&mut lock(&output.lines), &frame.to_string(), &frame)
+                .is_some());
+            assert_eq!(output.turn.load(Ordering::Relaxed), active);
+        }
+        let lines = lock(&output.lines);
+        assert_eq!(lines.seq, 4);
+        assert_eq!(lines.end(), 0);
+        assert!(!lock(&effects.order).contains(&"store"));
     }
 
     #[test]

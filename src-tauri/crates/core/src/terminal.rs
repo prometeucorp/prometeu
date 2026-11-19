@@ -1,5 +1,6 @@
 //! Terminal byte retention and delivery. The execution host owns native PTYs and reader tasks.
 use crate::lock::lock;
+use crate::process::ProcessHandle;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,6 +30,9 @@ pub trait TerminalControl: Send + Sync {
         false
     }
     fn system_id(&self) -> u32;
+    /// Release terminal IO without starting a shutdown policy. Conversation hosts own escalation;
+    /// implementations must cancel held reader/writer handles without waiting for their release.
+    fn disconnect(&self) {}
     /// Request asynchronous hangup and escalation. Implementations serialize signals with reaping.
     fn close(&self);
 }
@@ -43,6 +47,9 @@ pub struct StartedTerminal {
     pub input: Box<dyn Write + Send>,
     pub output: Box<dyn Read + Send>,
     pub control: Arc<dyn TerminalControl>,
+    /// The same child, exposed to conversation lifecycle and resource accounting. The waiter
+    /// remains its single owner; this handle does not start another reaper or shutdown task.
+    pub process: ProcessHandle,
     pub waiter: Box<dyn TerminalWait>,
 }
 

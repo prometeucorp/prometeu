@@ -98,6 +98,7 @@ jobs:
 
       # The backend embeds the built frontend.
       - run: npm run build
+      - run: npm run terminal-state:check
       - run: npm run build:wsl
       - run: npm run test:rust
       - run: npm run lint:rust

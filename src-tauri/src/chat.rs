@@ -13,6 +13,7 @@ use crate::transcript_store::ProviderTranscriptStore;
 use crate::{accounts, conversation, paths, AppState};
 use prometeu_core::session::output::SessionOutput;
 mod host;
+pub(crate) mod terminal;
 use prometeu_core::conversation::stream::{ConversationEvents, ConversationInput, Presence};
 pub use prometeu_core::conversation::stream::{Lines, Snapshot};
 #[cfg(test)]
@@ -64,6 +65,7 @@ pub struct Chat {
     pub buffer: Arc<Mutex<Lines>>,
     /// The process is running. Stopped entries remain in the map for conversation replay.
     process: ProcessHandle,
+    terminal: Option<Arc<terminal::Transport>>,
 }
 
 impl Chat {
@@ -104,13 +106,21 @@ impl Chat {
     }
 
     fn waits_for_turn(&self) -> bool {
-        self.wire.requires_idle() && self.working()
+        self.terminal
+            .as_ref()
+            .is_some_and(|terminal| !terminal.ready())
+            || (self.wire.requires_idle() && self.working())
     }
 
     /// Work the conversation owes: its main turn, or the children that outlived one. Restarting the
     /// process or replacing credentials under either kills or corrupts work in flight.
     pub fn working(&self) -> bool {
-        self.pump.output.turn.load(Ordering::Relaxed) || self.context.busy()
+        self.pump.output.turn.load(Ordering::Relaxed)
+            || self.context.busy()
+            || self
+                .terminal
+                .as_ref()
+                .is_some_and(|terminal| terminal.busy())
     }
 
     /// The agent's process group leader; resource accounting includes its descendants.
@@ -125,6 +135,9 @@ impl prometeu_core::session::host::HostedConversation for Chat {
     }
     fn retire(&mut self) {
         self.pump.output.gone.store(true, Ordering::Relaxed);
+        if let Some(terminal) = &self.terminal {
+            terminal.retire();
+        }
     }
     fn alive(&self) -> bool {
         self.alive()
@@ -200,6 +213,47 @@ pub(crate) fn launch(
         translate,
     } = connect(input, handle.control.clone());
 
+    let (pump, context) = compose(app, id, profile, store);
+    let mut chat = Chat {
+        wire,
+        buffer: pump.output.lines.clone(),
+        process: handle,
+        pump: pump.clone(),
+        context: context.clone(),
+        terminal: None,
+    };
+    prometeu_core::session::workers::ConversationWorkers {
+        stdout,
+        stderr,
+        waiter,
+        identity: chat.process.identity.clone(),
+        translate,
+        stderr_line,
+    }
+    .start(&mut chat, pump, context.clone(), context.tasks.as_ref())
+    .map_err(|cause| i18n::ta(spawn_error, &[("cause", cause)]))?;
+
+    Ok(chat)
+}
+
+/// Both transports publish through the same ordered transcript, telemetry and session reactions.
+fn compose(
+    app: &AppHandle,
+    id: &str,
+    profile: accounts::Profile,
+    store: Arc<dyn prometeu_core::conversation::stream::TranscriptStore>,
+) -> (Pump, Arc<host::ConversationHost>) {
+    let lines = Lines::seeded(store.as_ref()).unwrap_or_default();
+    compose_seeded(app, id, profile, store, lines)
+}
+
+fn compose_seeded(
+    app: &AppHandle,
+    id: &str,
+    profile: accounts::Profile,
+    store: Arc<dyn prometeu_core::conversation::stream::TranscriptStore>,
+    lines: Lines,
+) -> (Pump, Arc<host::ConversationHost>) {
     let gone = Arc::new(AtomicBool::new(false));
     let events = Arc::new(DesktopConversationEvents {
         app: app.clone(),
@@ -212,7 +266,6 @@ pub(crate) fn launch(
         id: id.to_string(),
         profile,
     });
-    let lines = Lines::seeded(store.as_ref()).unwrap_or_default();
     remember_cut(app, id, lines.end());
     let pump = Pump::new(
         Arc::new(SessionOutput {
@@ -232,25 +285,7 @@ pub(crate) fn launch(
         context.clone(),
         context.clone(),
     );
-    let mut chat = Chat {
-        wire,
-        buffer: pump.output.lines.clone(),
-        process: handle,
-        pump: pump.clone(),
-        context: context.clone(),
-    };
-    prometeu_core::session::workers::ConversationWorkers {
-        stdout,
-        stderr,
-        waiter,
-        identity: chat.process.identity.clone(),
-        translate,
-        stderr_line,
-    }
-    .start(&mut chat, pump, context.clone(), context.tasks.as_ref())
-    .map_err(|cause| i18n::ta(spawn_error, &[("cause", cause)]))?;
-
-    Ok(chat)
+    (pump, context)
 }
 
 fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, tokens: Option<u64>) {
@@ -258,6 +293,11 @@ fn update(app: &AppHandle, session: &str, status: Option<Status>, note: Note, to
 }
 
 pub fn ready_now(app: &AppHandle, session: &str) {
+    if let Some(terminal) = terminal::get(&app.state::<AppState>(), session) {
+        if let Some(generation) = terminal.publish() {
+            let _ = app.emit("agent-terminal-started", (session, generation));
+        }
+    }
     host::with_sessions(app, |service| service.ready_now(session));
 }
 
@@ -285,12 +325,94 @@ fn write_mode(
     frame: &Value,
     idle_only: bool,
 ) -> Result<(), String> {
+    capture_input(state, session, frame, idle_only, None, None, None).map(|_| ())
+}
+
+pub(super) fn write_dispatch(
+    state: &AppState,
+    session: &str,
+    dispatch: &prometeu_core::board::NativeDispatch,
+) -> Result<prometeu_core::session::DispatchOutcome, String> {
+    capture_input(
+        state,
+        session,
+        &json!({"v":1,"type":"message.send","text":dispatch.text}),
+        false,
+        None,
+        None,
+        Some(&dispatch.id),
+    )
+    .map(|sent| {
+        if sent {
+            prometeu_core::session::DispatchOutcome::Sent
+        } else {
+            prometeu_core::session::DispatchOutcome::AlreadyAccepted
+        }
+    })
+}
+
+/// A native hook reports a prompt the CLI already accepted. Capture it in the same order and
+/// attribution path as app input without sending it to the terminal a second time.
+pub(crate) fn observe_native_input(
+    state: &AppState,
+    session: &str,
+    generation: &str,
+    text: &str,
+) -> Result<(), String> {
+    let gate = input_gate(state, session);
+    let _input = lock(&gate);
+    capture_input(
+        state,
+        session,
+        &json!({"v":1,"type":"message.send","text":text}),
+        false,
+        Some(generation),
+        None,
+        None,
+    )
+    .map(|_| ())
+}
+
+pub(crate) fn observe_native_record(
+    state: &AppState,
+    session: &str,
+    generation: &str,
+    record: &crate::terminal_agent_observation::NativeCapture,
+) -> Result<bool, String> {
+    let gate = input_gate(state, session);
+    let _input = lock(&gate);
+    capture_input(
+        state,
+        session,
+        &json!({"v":1,"type":"message.send"}),
+        false,
+        Some(generation),
+        Some(record),
+        None,
+    )
+}
+
+fn capture_input(
+    state: &AppState,
+    session: &str,
+    frame: &Value,
+    idle_only: bool,
+    observed_generation: Option<&str>,
+    native_record: Option<&crate::terminal_agent_observation::NativeCapture>,
+    submission_id: Option<&str>,
+) -> Result<bool, String> {
     let scope = (frame["type"] == "message.send")
         .then(|| crate::telemetry::conversation_scope(&lock(&state.board), session))
         .flatten();
-    let (pump, context) = lock(&state.sessions.conversations)
+    let (pump, context, native_transport) = lock(&state.sessions.conversations)
         .get(session)
-        .map(|chat| (chat.pump.clone(), chat.context.clone()))
+        .map(|chat| {
+            (
+                chat.pump.clone(),
+                chat.context.clone(),
+                chat.terminal.clone(),
+            )
+        })
         .ok_or_else(|| i18n::t("err.chat.gone"))?;
     if scope.is_some()
         && !lock(&pump.telemetry).initialized()
@@ -307,11 +429,65 @@ fn write_mode(
         true => crate::telemetry::conversation_attribution(&context.app, session),
         false => Default::default(),
     };
-    pump.capture((scope, relations, origin), || {
+    let journal = native_transport
+        .as_ref()
+        .and_then(|transport| transport.journal());
+    if let Some(id) = submission_id {
+        let journal = journal
+            .as_ref()
+            .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+        if journal
+            .accepted_submission(
+                id,
+                frame["text"]
+                    .as_str()
+                    .ok_or_else(|| i18n::t("err.terminalAgent.input"))?,
+            )
+            .map_err(|_| i18n::t("err.terminalAgent.history"))?
+        {
+            return Ok(false);
+        }
+    }
+    let submission = if observed_generation.is_none() && frame["type"] == "message.send" {
+        if let (Some(transport), Some(journal)) = (&native_transport, &journal) {
+            let id = submission_id
+                .map(str::to_owned)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let text = frame["text"]
+                .as_str()
+                .ok_or_else(|| i18n::t("err.terminalAgent.input"))?;
+            let normalized = transport.begin_submission(&id, text)?;
+            match journal.submission(&id, text, &normalized) {
+                Ok(submission) => Some(submission),
+                Err(_) => {
+                    transport.end_submission(&id);
+                    return Err(i18n::t("err.terminalAgent.history"));
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let mut committed = false;
+    let mut commit_failed = false;
+    let execute = || {
         let mut chats = lock(&state.sessions.conversations);
         let chat = chats
             .get_mut(session)
-            .filter(|c| c.alive())
+            .filter(|chat| match observed_generation {
+                // Native observations may drain after wait reaps the child, before its exit
+                // callback. Its identity must still own the session and must not be retired.
+                Some(generation) => {
+                    !chat.pump.output.gone.load(Ordering::Acquire)
+                        && chat
+                            .terminal
+                            .as_ref()
+                            .is_some_and(|terminal| terminal.owns(Some(generation)))
+                }
+                None => chat.alive(),
+            })
             .ok_or_else(|| i18n::t("err.chat.gone"))?;
         if !Arc::ptr_eq(&pump.telemetry, &chat.pump.telemetry) {
             return Err(i18n::t("err.chat.gone"));
@@ -319,8 +495,67 @@ fn write_mode(
         if idle_only && chat.working() {
             return Err("conversation_busy".into());
         }
-        pump.command(frame, chat)
-    })
+        let events = if let Some(record) = native_record {
+            let journal = journal
+                .as_ref()
+                .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+            let frame = record
+                .frame
+                .as_ref()
+                .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+            pump.accept_committed(frame, |line, offset| {
+                journal.commit_record(record, Some(line), offset)
+            })
+        } else if let Some(submission) = &submission {
+            let journal = journal
+                .as_ref()
+                .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+            pump.command_committed(frame, chat, |lines, offset| {
+                let result = journal.commit_submission(submission, lines, offset);
+                commit_failed = result.is_err();
+                result
+            })
+        } else if observed_generation.is_some() {
+            let mut accepted = |_: &Value, _: &str| Ok(vec![]);
+            pump.command(frame, &mut accepted)
+        } else {
+            pump.command(frame, chat)
+        }?;
+        committed = !events.is_empty();
+        Ok(events)
+    };
+    let result = if journal.is_some() {
+        pump.capture_committed((scope, relations, origin), execute)
+    } else {
+        pump.capture((scope, relations, origin), execute)
+    };
+    if let (Some(transport), Some(submission)) = (&native_transport, &submission) {
+        let uncertain = result.is_err() && transport.submission_write_started(&submission.id);
+        if commit_failed || uncertain {
+            transport.abort_submission(&submission.id);
+        } else {
+            if result.is_err() {
+                let cancelled = journal.as_ref().is_some_and(|journal| {
+                    journal.cancel_unwritten_submission(&submission.id).is_ok()
+                });
+                if !cancelled {
+                    transport.abort_submission(&submission.id);
+                }
+            }
+            transport.end_submission(&submission.id);
+        }
+    }
+    result?;
+    if observed_generation.is_some() && committed {
+        update(
+            &context.app,
+            session,
+            Some(Status::Rodando),
+            Note::Clear,
+            None,
+        );
+    }
+    Ok(committed)
 }
 
 /// Send input immediately when ready, or queue it and resume the existing transcript after process
@@ -345,6 +580,16 @@ pub(crate) fn send(
     text: String,
     idle_only: bool,
 ) -> Result<(), String> {
+    let mode = {
+        let state = app.state::<AppState>();
+        let board = lock(&state.board);
+        board
+            .workspace_of(&session)
+            .and_then(|workspace| workspace.tabs.iter().find(|tab| tab.id == session))
+            .map(|tab| tab.conversation_mode)
+            .unwrap_or_default()
+    };
+    terminal::validate_message(mode, &text)?;
     host::with_sessions(&app, |service| service.send(&session, &text, idle_only))
 }
 
@@ -581,15 +826,15 @@ pub(crate) fn canonical_history(text: &str) -> Vec<Value> {
         .collect()
 }
 
-/// Resolve the native Claude transcript or the app-managed Codex transcript for this conversation.
+/// Terminal conversations retain canonical history even when the provider rewrites native state.
+/// Existing Claude chat conversations keep their provider-owned transcript without migration.
 pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
-    match crate::session::workspace_launch_of(
-        ws,
-        session,
-        &crate::session::ResolvedTools::default(),
-    )
-    .agent
-    {
+    let launch =
+        crate::session::workspace_launch_of(ws, session, &crate::session::ResolvedTools::default());
+    if launch.conversation_mode == Some(crate::state::ConversationMode::Terminal) {
+        return paths::chat_log(session);
+    }
+    match launch.agent {
         crate::state::ProviderId::Codex
         | crate::state::ProviderId::Antigravity
         | crate::state::ProviderId::Cursor
@@ -630,6 +875,93 @@ pub(crate) fn contract_public_events(events: Vec<Value>) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transcript_routing_preserves_legacy_claude_chat_and_canonical_terminal_history() {
+        let mut workspace: Workspace = serde_json::from_value(json!({
+            "id":"workspace", "title":"Fixture", "repo":"", "repo_name":"", "branch":"",
+            "worktree":"/fixture/worktree", "stage":"working", "agent":"claude",
+            "tabs":[
+                {"id":"chat", "title":"", "status":"desligada"},
+                {"id":"terminal", "title":"", "status":"desligada", "conversation_mode":"terminal"}
+            ]
+        }))
+        .unwrap();
+        for provider in [
+            crate::state::ProviderId::Claude,
+            crate::state::ProviderId::Codex,
+            crate::state::ProviderId::Antigravity,
+            crate::state::ProviderId::Cursor,
+        ] {
+            workspace.agent = provider;
+            assert_eq!(
+                transcript_of(&workspace, "terminal"),
+                paths::chat_log("terminal")
+            );
+            let expected = if provider == crate::state::ProviderId::Claude {
+                paths::transcript("chat", Path::new(&workspace.worktree))
+            } else {
+                paths::chat_log("chat")
+            };
+            assert_eq!(transcript_of(&workspace, "chat"), expected);
+        }
+        workspace.agent = crate::state::ProviderId::Codex;
+        workspace.tabs[1].choice = Some(crate::state::Choice {
+            agent: crate::state::ProviderId::Claude,
+            ..Default::default()
+        });
+        assert_eq!(
+            transcript_of(&workspace, "terminal"),
+            paths::chat_log("terminal")
+        );
+    }
+
+    #[test]
+    fn terminal_canonical_replay_keeps_notices_and_usage_without_importing_native_rewrites() {
+        let directory = std::env::temp_dir().join(format!(
+            "prometeu-terminal-history-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let canonical = directory.join("canonical.jsonl");
+        let native = directory.join("native.jsonl");
+        let frames = vec![
+            conversation::event(
+                "user.message",
+                1,
+                json!({"content":[{"kind":"text","text":"Keep this history"}]}),
+            ),
+            conversation::event(
+                "system.notice",
+                2,
+                json!({"level":"info","code":"app.fixture","detail":"Application notice"}),
+            ),
+            conversation::event(
+                "assistant.block",
+                3,
+                json!({"messageId":"reply","index":0,"block":{"kind":"text","text":"Original answer"}}),
+            ),
+            conversation::event(
+                "turn.completed",
+                4,
+                json!({"outcome":"ok","message":"","messageId":"reply","durationMs":100,"costUsd":null,"usage":{
+                    "usageScope":"mainAgent","complete":true,"selectedModel":null,"observedModels":null,"usageByModel":null,
+                    "usage":{"inputTokens":10,"outputTokens":2,"cacheReadTokens":null,"cacheWriteTokens":null,"reasoningTokens":null,
+                        "contextUsed":null,"contextWindow":null,"peakContext":null,"modelCalls":null,"compactions":null,"cacheRebuilds":null,"costUsd":null}
+                }}),
+            ),
+        ];
+        let store = FileTranscriptStore::new(canonical.clone(), canonical.clone());
+        let mut lines = Lines::default();
+        for frame in &frames {
+            lines.record(&frame.to_string(), frame, &store, &|_: &str, _| Ok(()));
+        }
+        std::fs::write(&native, "native compacted replacement\n").unwrap();
+        let restored = Lines::seeded(&store).unwrap();
+        assert_eq!(canonical_history(&restored.text), frames);
+        assert_eq!(restored.end(), lines.end());
+        assert_eq!(restored.seq, 0);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn canonical_mcp_history_excludes_provider_child_transcripts() {
