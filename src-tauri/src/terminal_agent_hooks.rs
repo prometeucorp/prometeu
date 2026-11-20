@@ -2041,6 +2041,7 @@ mod tests {
         assert!(!supported_version(ProviderId::Cursor, "2026.11.12-example"));
         assert!(!supported_version(ProviderId::Cursor, "unrecognized"));
         assert!(supported_version(ProviderId::Codex, "codex-cli 0.169.0"));
+        assert!(supported_version(ProviderId::Codex, "codex-cli 0.171.0"));
         assert!(!supported_version(ProviderId::Codex, "codex-cli 0.168.0"));
         assert!(supported_version(ProviderId::Antigravity, "1.5.9"));
         assert!(!supported_version(ProviderId::Antigravity, "1.5.8"));

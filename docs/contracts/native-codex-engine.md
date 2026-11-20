@@ -7,7 +7,11 @@ status: stable
 
 # Native Codex engine
 
-The macOS terminal transport uses this private engine for `codex-cli 0.169.0`.
+The macOS terminal transport uses this private engine for `codex-cli 0.169.0`
+and newer. 0.169.0 is the verified version; the hook bridge rejects older
+releases. Newer releases are not pinned out because Codex ships often: the
+bootstrap below verifies the socket, peer, thread identity and worktree and
+fails closed if the private protocol changed.
 Terminal mode is selectable in Settings / General. Ask and Plan use verified
 native thread settings; bootstrap and consumer tests passed. Native CLI evidence
 below is separate from the verified macOS Tauri response, history, cold-resume
