@@ -17,14 +17,17 @@ impl NativeUiReadiness {
     /// UI structure is verified against real captures from these builds onward. Newer builds are
     /// trusted: the view parser still rejects any layout it does not recognize.
     pub fn verified(provider: ProviderId, version: &str) -> Option<Self> {
-        let min = match provider {
-            ProviderId::Claude => "2.1.326",
-            ProviderId::Codex => "0.169.0",
-            ProviderId::Antigravity => "1.5.10",
-            ProviderId::Cursor => "2026.11.13",
+        let (at_least, min): (fn(&str, &str) -> bool, _) = match provider {
+            ProviderId::Claude => (prometeu_protocols::cli_version::at_least, "2.1.326"),
+            ProviderId::Codex => (prometeu_protocols::cli_version::at_least, "0.169.0"),
+            ProviderId::Antigravity => (prometeu_protocols::cli_version::at_least, "1.5.10"),
+            ProviderId::Cursor => (
+                prometeu_protocols::cli_version::build_date_at_least,
+                "2026.11.13",
+            ),
             _ => return None,
         };
-        prometeu_protocols::cli_version::at_least(version, min).then_some(Self { provider })
+        at_least(version, min).then_some(Self { provider })
     }
 
     pub fn ready(&self, snapshot: &Snapshot) -> bool {

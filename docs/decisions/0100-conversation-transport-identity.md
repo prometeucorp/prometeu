@@ -175,7 +175,8 @@ boundary; the owner also rejects stale or legacy unsupported input.
 
 Native CLI versions are gated by a minimum, never an exact build. Each
 integration names the oldest build it was verified on and accepts every newer
-one through `prometeu_protocols::cli_version::at_least`. Provider CLIs ship
+one through `prometeu_protocols::cli_version`: semver CLIs order a prerelease of
+the floor before it, and Cursor's dated builds ignore their hash. Provider CLIs ship
 weekly; an exact pin broke terminal mode for everyone on each release and told
 people to "update" a CLI that was already newer. The trade-off is that a newer
 build can change a private format or layout. Readers of native stores, the

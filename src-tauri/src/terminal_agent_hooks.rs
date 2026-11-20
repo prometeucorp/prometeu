@@ -1094,14 +1094,17 @@ fn provider_key(provider: ProviderId) -> Result<&'static str, String> {
 }
 
 fn supported_version(provider: ProviderId, raw: &str) -> bool {
-    let min = match provider {
-        ProviderId::Claude => "2.1.326",
-        ProviderId::Antigravity => "1.5.9",
-        ProviderId::Codex => "0.169.0",
-        ProviderId::Cursor => "2026.11.13",
+    let (at_least, min): (fn(&str, &str) -> bool, _) = match provider {
+        ProviderId::Claude => (prometeu_protocols::cli_version::at_least, "2.1.326"),
+        ProviderId::Antigravity => (prometeu_protocols::cli_version::at_least, "1.5.9"),
+        ProviderId::Codex => (prometeu_protocols::cli_version::at_least, "0.169.0"),
+        ProviderId::Cursor => (
+            prometeu_protocols::cli_version::build_date_at_least,
+            "2026.11.13",
+        ),
         _ => return false,
     };
-    prometeu_protocols::cli_version::at_least(raw, min)
+    at_least(raw, min)
 }
 fn failure() -> String {
     i18n::t("err.terminalAgent.hooks")
@@ -2020,6 +2023,10 @@ mod tests {
         assert!(supported_version(ProviderId::Codex, "codex-cli 0.169.0"));
         assert!(supported_version(ProviderId::Codex, "codex-cli 0.171.0"));
         assert!(!supported_version(ProviderId::Codex, "codex-cli 0.168.0"));
+        assert!(!supported_version(
+            ProviderId::Codex,
+            "codex-cli 0.169.0-alpha.1"
+        ));
         assert!(supported_version(ProviderId::Antigravity, "1.5.9"));
         assert!(!supported_version(ProviderId::Antigravity, "1.5.8"));
     }
