@@ -1094,37 +1094,17 @@ fn provider_key(provider: ProviderId) -> Result<&'static str, String> {
 }
 
 fn supported_version(provider: ProviderId, raw: &str) -> bool {
-    let raw = if provider == ProviderId::Codex {
-        raw.strip_prefix("codex-cli ").unwrap_or("")
-    } else {
-        raw
+    let (at_least, min): (fn(&str, &str) -> bool, _) = match provider {
+        ProviderId::Claude => (prometeu_protocols::cli_version::at_least, "2.1.326"),
+        ProviderId::Antigravity => (prometeu_protocols::cli_version::at_least, "1.5.9"),
+        ProviderId::Codex => (prometeu_protocols::cli_version::at_least, "0.169.0"),
+        ProviderId::Cursor => (
+            prometeu_protocols::cli_version::build_date_at_least,
+            "2026.11.13",
+        ),
+        _ => return false,
     };
-    let version = raw
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim_start_matches('v');
-    match provider {
-        ProviderId::Claude => semver::Version::parse(version)
-            .is_ok_and(|version| version >= semver::Version::new(2, 1, 326)),
-        ProviderId::Antigravity => semver::Version::parse(version)
-            .is_ok_and(|version| version >= semver::Version::new(1, 5, 9)),
-        ProviderId::Codex => semver::Version::parse(version)
-            .is_ok_and(|version| version >= semver::Version::new(0, 169, 0)),
-        ProviderId::Cursor => {
-            let date = version
-                .split('-')
-                .next()
-                .unwrap_or("")
-                .split('.')
-                .map(str::parse::<u32>)
-                .collect::<Result<Vec<_>, _>>();
-            date.is_ok_and(|parts| {
-                parts.len() == 3 && parts.as_slice() >= [2026, 11, 13].as_slice()
-            })
-        }
-        _ => false,
-    }
+    at_least(raw, min)
 }
 fn failure() -> String {
     i18n::t("err.terminalAgent.hooks")
@@ -2041,7 +2021,12 @@ mod tests {
         assert!(!supported_version(ProviderId::Cursor, "2026.11.12-example"));
         assert!(!supported_version(ProviderId::Cursor, "unrecognized"));
         assert!(supported_version(ProviderId::Codex, "codex-cli 0.169.0"));
+        assert!(supported_version(ProviderId::Codex, "codex-cli 0.171.0"));
         assert!(!supported_version(ProviderId::Codex, "codex-cli 0.168.0"));
+        assert!(!supported_version(
+            ProviderId::Codex,
+            "codex-cli 0.169.0-alpha.1"
+        ));
         assert!(supported_version(ProviderId::Antigravity, "1.5.9"));
         assert!(!supported_version(ProviderId::Antigravity, "1.5.8"));
     }

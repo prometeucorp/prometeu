@@ -88,6 +88,12 @@ existing tabs or restart their processes. Terminal uses the installed native
 CLI for Claude, Codex, Antigravity and Cursor. Linux and WSL reject terminal
 mode with `err.terminalAgent.unsupported`; their control is hidden.
 
+Version gates are minimums ([ADR 0100](../decisions/0100-conversation-transport-identity.md)):
+launch requires Claude 2.1.326, Codex 0.169.0, Antigravity 1.5.9 or Cursor
+2026.11.13. Native stores, composer readiness, interruption controls and the
+completion fence accept their verified build and every newer one. Versions
+cited below record where each behavior was verified, not an upper bound.
+
 Each local tab renders only its saved mode: the native TUI or the structured
 Chat interface. Terminal tabs have no second transcript screen or editable
 product composer. The native terminal fills its area without floating controls

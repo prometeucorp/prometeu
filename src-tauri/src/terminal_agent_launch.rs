@@ -338,16 +338,9 @@ fn prepare_codex(
     profiles: &dyn ProfileBackend,
     tools: &dyn StartupTools,
 ) -> Result<PreparedTerminalAgent, String> {
+    // The hook bridge enforces the minimum version. Newer releases are allowed: the engine
+    // bootstrap verifies identity and fails closed if the private protocol changed.
     require_flags(&help("codex")?, &["--remote"])?;
-    let version = command_output(
-        &prometeu_process::query::UnixQueryLauncher,
-        Command::new("codex").arg("--version"),
-        Duration::from_secs(5),
-    )
-    .map_err(|_| i18n::t("err.terminalAgent.version"))?;
-    if version.trim() != crate::terminal_agent_codex::VERIFIED_VERSION {
-        return Err(i18n::t("err.terminalAgent.version"));
-    }
     let packages = request.settings.plugin_packages();
     let plugins = tools.codex_plugins(
         request

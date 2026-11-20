@@ -14,17 +14,20 @@ pub struct NativeUiReadiness {
 }
 
 impl NativeUiReadiness {
-    /// UI structure is verified against real captures from these exact installed builds. New
-    /// builds need conformance captures before they can admit queued input through this fallback.
+    /// UI structure is verified against real captures from these builds onward. Newer builds are
+    /// trusted: the view parser still rejects any layout it does not recognize.
     pub fn verified(provider: ProviderId, version: &str) -> Option<Self> {
-        let known = match provider {
-            ProviderId::Claude => version.trim() == "2.1.326 (Claude Code)",
-            ProviderId::Codex => version.trim() == "codex-cli 0.169.0",
-            ProviderId::Antigravity => version.trim() == "1.5.10",
-            ProviderId::Cursor => version.trim() == "2026.11.13-eacade1",
-            _ => false,
+        let (at_least, min): (fn(&str, &str) -> bool, _) = match provider {
+            ProviderId::Claude => (prometeu_protocols::cli_version::at_least, "2.1.326"),
+            ProviderId::Codex => (prometeu_protocols::cli_version::at_least, "0.169.0"),
+            ProviderId::Antigravity => (prometeu_protocols::cli_version::at_least, "1.5.10"),
+            ProviderId::Cursor => (
+                prometeu_protocols::cli_version::build_date_at_least,
+                "2026.11.13",
+            ),
+            _ => return None,
         };
-        known.then_some(Self { provider })
+        at_least(version, min).then_some(Self { provider })
     }
 
     pub fn ready(&self, snapshot: &Snapshot) -> bool {
@@ -843,9 +846,10 @@ mod tests {
             "native_ui_readiness/fixtures/antigravity-fresh-busy.json"
         ));
         assert!(!check.empty_view(&busy.view()));
-        for version in ["1.5.9", "1.5.11", "unverified-build"] {
+        for version in ["1.5.9", "unverified-build"] {
             assert!(NativeUiReadiness::verified(ProviderId::Antigravity, version).is_none());
         }
+        assert!(NativeUiReadiness::verified(ProviderId::Antigravity, "1.5.11").is_some());
     }
 
     #[test]
@@ -1097,7 +1101,8 @@ mod tests {
         let mut snapshot = original;
         snapshot.viewport_lines[row] = "» Ask Codex to do anything".into();
         assert!(readiness.empty_composer_verified(&snapshot));
-        assert!(NativeUiReadiness::verified(ProviderId::Codex, "codex-cli 0.170.0").is_none());
+        assert!(NativeUiReadiness::verified(ProviderId::Codex, "codex-cli 0.170.0").is_some());
+        assert!(NativeUiReadiness::verified(ProviderId::Codex, "codex-cli 0.168.0").is_none());
     }
 
     #[test]

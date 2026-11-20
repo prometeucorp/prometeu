@@ -1,5 +1,6 @@
 //! Provider protocol adapters shared by desktop and headless execution.
 pub mod antigravity_store;
+pub mod cli_version;
 pub mod codex;
 pub mod cursor;
 pub mod cursor_store;

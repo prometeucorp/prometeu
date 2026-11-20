@@ -20,14 +20,17 @@ pub enum Unavailable {
 
 impl NativeControls {
     pub fn verified(provider: ProviderId, version: &str) -> Result<Self, Unavailable> {
-        let known = match provider {
-            ProviderId::Claude => version.trim() == "2.1.326 (Claude Code)",
-            ProviderId::Codex => version.trim() == "codex-cli 0.169.0",
-            ProviderId::Antigravity => matches!(version.trim(), "1.5.9" | "1.5.10"),
-            ProviderId::Cursor => version.trim() == "2026.11.13-eacade1",
-            ProviderId::RetiredGemini => false,
+        let (at_least, min): (fn(&str, &str) -> bool, _) = match provider {
+            ProviderId::Claude => (prometeu_protocols::cli_version::at_least, "2.1.326"),
+            ProviderId::Codex => (prometeu_protocols::cli_version::at_least, "0.169.0"),
+            ProviderId::Antigravity => (prometeu_protocols::cli_version::at_least, "1.5.9"),
+            ProviderId::Cursor => (
+                prometeu_protocols::cli_version::build_date_at_least,
+                "2026.11.13",
+            ),
+            ProviderId::RetiredGemini => return Err(Unavailable::UnknownVersion),
         };
-        known
+        at_least(version, min)
             .then_some(Self { provider })
             .ok_or(Unavailable::UnknownVersion)
     }

@@ -14,7 +14,7 @@ separates verified Tauri flows from store tests, CLI smokes and remaining checks
 
 ## Source and identity
 
-AGY 1.5.10 persists its original trajectory in
+AGY 1.5.10 and newer persist the original trajectory in
 `<captured-home>/.gemini/antigravity-cli/conversations/<native-session>.db`.
 The captured account supplies this root; an authenticated root hook or the
 private journal supplies the exact native session. No directory enumeration or

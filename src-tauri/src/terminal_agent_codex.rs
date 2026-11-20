@@ -29,6 +29,8 @@ pub fn shutdown() {
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 const QUEUE_LIMIT: usize = 64;
 const QUEUE_BYTES: usize = 8 * 1024 * 1024;
+/// Version the ignored native smoke tests were last verified on; launch only enforces a minimum.
+#[cfg(test)]
 pub const VERIFIED_VERSION: &str = "codex-cli 0.169.0";
 
 /// Prepared configuration, not a running process. HookBridge must configure `command` first.
