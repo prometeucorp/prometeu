@@ -4,6 +4,14 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.42.1] - 2026-11-20
+
+### Fixes
+
+- **codex:** Stop rejecting newer codex versions in terminal mode
+- **terminal:** Keep terminal mode working on newer agent cli releases
+- **terminal:** Reject prereleases of the verified cli version
+
 ## [0.42.0] - 2026-11-19
 
 ### New
