@@ -1094,37 +1094,14 @@ fn provider_key(provider: ProviderId) -> Result<&'static str, String> {
 }
 
 fn supported_version(provider: ProviderId, raw: &str) -> bool {
-    let raw = if provider == ProviderId::Codex {
-        raw.strip_prefix("codex-cli ").unwrap_or("")
-    } else {
-        raw
+    let min = match provider {
+        ProviderId::Claude => "2.1.326",
+        ProviderId::Antigravity => "1.5.9",
+        ProviderId::Codex => "0.169.0",
+        ProviderId::Cursor => "2026.11.13",
+        _ => return false,
     };
-    let version = raw
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim_start_matches('v');
-    match provider {
-        ProviderId::Claude => semver::Version::parse(version)
-            .is_ok_and(|version| version >= semver::Version::new(2, 1, 326)),
-        ProviderId::Antigravity => semver::Version::parse(version)
-            .is_ok_and(|version| version >= semver::Version::new(1, 5, 9)),
-        ProviderId::Codex => semver::Version::parse(version)
-            .is_ok_and(|version| version >= semver::Version::new(0, 169, 0)),
-        ProviderId::Cursor => {
-            let date = version
-                .split('-')
-                .next()
-                .unwrap_or("")
-                .split('.')
-                .map(str::parse::<u32>)
-                .collect::<Result<Vec<_>, _>>();
-            date.is_ok_and(|parts| {
-                parts.len() == 3 && parts.as_slice() >= [2026, 11, 13].as_slice()
-            })
-        }
-        _ => false,
-    }
+    prometeu_protocols::cli_version::at_least(raw, min)
 }
 fn failure() -> String {
     i18n::t("err.terminalAgent.hooks")

@@ -173,6 +173,15 @@ Claude/Codex approval and question responses retain their integrated paths.
 Encrypted per-tab mode metadata lets shared viewers apply the same command
 boundary; the owner also rejects stale or legacy unsupported input.
 
+Native CLI versions are gated by a minimum, never an exact build. Each
+integration names the oldest build it was verified on and accepts every newer
+one through `prometeu_protocols::cli_version::at_least`. Provider CLIs ship
+weekly; an exact pin broke terminal mode for everyone on each release and told
+people to "update" a CLI that was already newer. The trade-off is that a newer
+build can change a private format or layout. Readers of native stores, the
+Codex engine bootstrap and the screen parsers still fail closed on content they
+do not recognize, and such a break is fixed forward with a new release.
+
 ## Consequences
 
 Existing boards and transcripts retain their meaning. Changing the

@@ -17,7 +17,8 @@ pub enum Schema {
 }
 impl Schema {
     pub fn for_version(version: &str) -> Option<Self> {
-        (version == "1.5.10").then_some(Self::Cli1510)
+        // Decoding fails closed on unknown payloads, so newer builds are read optimistically.
+        crate::cli_version::at_least(version, "1.5.10").then_some(Self::Cli1510)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

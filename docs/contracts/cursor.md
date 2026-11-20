@@ -294,8 +294,10 @@ opens require regular, singly linked files owned by the current user.
 staging directory, at most 4 MiB per poll, and rejects a copy if either source
 changes. SQLite opens only that copy. The original shared-memory file is never
 opened; `immutable` is not used to bypass the WAL. The copy is removed on drop.
-Source database `user_version: 1`, exact metadata `agentId`, and the pinned CLI
-decoder version are all required. Unknown versions fail explicitly.
+Source database `user_version: 1`, exact metadata `agentId`, and a CLI at or
+above the verified `2026.11.13` decoder floor are all required. Older or
+unparseable versions fail explicitly; newer ones are decoded with the same
+framing validation.
 
 `protocols::cursor_store` follows only root-referenced blobs and verifies their
 SHA-256 identities. Generated protobuf fields retain user message, request, run

@@ -69,8 +69,8 @@ impl NativeCompletionFence {
     /// Antigravity uses the persisted exact final step instead of assuming a global flush order.
     pub fn verified(provider: ProviderId, version: &str, process_nonce: &str) -> Option<Self> {
         let supported = match provider {
-            ProviderId::Claude => version == "2.1.326 (Claude Code)",
-            ProviderId::Antigravity => version == "1.5.10",
+            ProviderId::Claude => prometeu_protocols::cli_version::at_least(version, "2.1.326"),
+            ProviderId::Antigravity => prometeu_protocols::cli_version::at_least(version, "1.5.10"),
             _ => false,
         };
         (supported && !process_nonce.is_empty()).then(|| Self {

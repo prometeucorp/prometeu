@@ -19,7 +19,8 @@ pub enum CursorStoreSchema {
 }
 impl CursorStoreSchema {
     pub fn for_version(version: &str) -> Option<Self> {
-        (version == "2026.11.13-eacade1").then_some(Self::Cli20261113)
+        // Framing is validated before use, so newer builds are read optimistically.
+        crate::cli_version::at_least(version, "2026.11.13").then_some(Self::Cli20261113)
     }
 }
 

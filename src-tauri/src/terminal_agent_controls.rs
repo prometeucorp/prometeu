@@ -20,14 +20,14 @@ pub enum Unavailable {
 
 impl NativeControls {
     pub fn verified(provider: ProviderId, version: &str) -> Result<Self, Unavailable> {
-        let known = match provider {
-            ProviderId::Claude => version.trim() == "2.1.326 (Claude Code)",
-            ProviderId::Codex => version.trim() == "codex-cli 0.169.0",
-            ProviderId::Antigravity => matches!(version.trim(), "1.5.9" | "1.5.10"),
-            ProviderId::Cursor => version.trim() == "2026.11.13-eacade1",
-            ProviderId::RetiredGemini => false,
+        let min = match provider {
+            ProviderId::Claude => "2.1.326",
+            ProviderId::Codex => "0.169.0",
+            ProviderId::Antigravity => "1.5.9",
+            ProviderId::Cursor => "2026.11.13",
+            ProviderId::RetiredGemini => return Err(Unavailable::UnknownVersion),
         };
-        known
+        prometeu_protocols::cli_version::at_least(version, min)
             .then_some(Self { provider })
             .ok_or(Unavailable::UnknownVersion)
     }
