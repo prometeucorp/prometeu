@@ -5,7 +5,7 @@ export type Request = Envelope & (
   | { op: "create"; cols: number; rows: number; scrollback?: number }
   | { op: "write"; data: string; seq: number }
   | { op: "resize"; cols: number; rows: number; seq: number }
-  | { op: "snapshot" }
+  | { op: "snapshot"; view?: boolean }
   | { op: "dispose" }
 );
 

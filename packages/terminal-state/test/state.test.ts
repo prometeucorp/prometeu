@@ -54,7 +54,7 @@ async function compare(text: string, continuation = "", size = { cols: 12, rows:
 test("headless and serializer versions match the installed renderer", () => {
   const json = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
   assert.equal(json("../node_modules/@xterm/headless/package.json").version, json("../../../node_modules/@xterm/xterm/package.json").version);
-  assert.equal(json("../node_modules/@xterm/addon-serialize/package.json").version, "0.13.0");
+  assert.equal(json("../node_modules/@xterm/addon-serialize/package.json").version, "0.14.0");
 });
 
 test("normal screen, scrollback, ANSI attributes, wide text and live continuation round trip", async () => {
@@ -252,4 +252,20 @@ test("viewport style runs distinguish a dim placeholder from identical literal i
     for (let i = 1; i < row.length; i++) assert.equal(row[i].start, row[i - 1].end);
   }
   source.dispose();
+});
+
+test("a view snapshot matches the full snapshot without buffer ANSI or links", async () => {
+  const source = new Emulator("session", "generation", 20, 4, 100);
+  try {
+    const bytes = Buffer.from("one\r\n\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\\r\n\x1b[31mred\x1b[?1049h\x1b[2;3Halt\x1b[?2004h");
+    await source.write(bytes, bytes.length);
+    const full = source.snapshot();
+    const view = source.snapshot(true);
+    assert.ok(full.normal.ansi && full.alternate?.ansi && full.links.length);
+    assert.deepEqual(view, {
+      ...full, links: [],
+      normal: { ...full.normal, ansi: "" },
+      alternate: { ...full.alternate!, ansi: "" },
+    });
+  } finally { source.dispose(); }
 });

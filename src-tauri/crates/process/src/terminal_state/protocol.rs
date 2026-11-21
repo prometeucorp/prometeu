@@ -47,7 +47,10 @@ pub(super) enum Operation<'a> {
         size: Size,
         seq: u64,
     },
-    Snapshot,
+    Snapshot {
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        view: bool,
+    },
     Dispose,
 }
 

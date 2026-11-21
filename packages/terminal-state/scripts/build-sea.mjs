@@ -57,9 +57,7 @@ const config = join(dist, "sea-config.json");
 await writeFile(config, JSON.stringify({
   main: script, output: blob, disableExperimentalSEAWarning: true,
   useSnapshot: false, useCodeCache: false,
-  // xterm's parser needs no generated executable memory. This permits Tauri's existing
-  // hardened-runtime entitlements to remain unchanged for the app and its sidecar.
-  execArgv: ["--jitless"], execArgvExtension: "none",
+  execArgvExtension: "none",
 }));
 run(runtime, ["--experimental-sea-config", config]);
 await copyFile(runtime, temporaryBinary);
@@ -70,7 +68,10 @@ await postject.inject(temporaryBinary, "NODE_SEA_BLOB", await readFile(blob), {
   ...(process.platform === "darwin" ? { machoSegmentName: "NODE_SEA" } : {}),
 });
 if (process.platform === "darwin") {
-  run("codesign", ["--force", "--sign", "-", "--identifier", "co.prometeu.terminal-state", "--options", "runtime", temporaryBinary]);
+  // The release bundle re-signs the sidecar with the app's entitlements; sign the same way so
+  // V8 can JIT under the hardened runtime. --jitless made every snapshot about 3.5x slower.
+  const entitlements = join(root, "../../src-tauri/Entitlements.plist");
+  run("codesign", ["--force", "--sign", "-", "--identifier", "co.prometeu.terminal-state", "--options", "runtime", "--entitlements", entitlements, temporaryBinary]);
   run("codesign", ["--verify", "--strict", temporaryBinary]);
 }
 
@@ -86,6 +87,6 @@ await rename(temporaryBinary, binary);
 await writeFile(join(dist, "manifest.json"), JSON.stringify({
   v: 1, nodeVersion: NODE_VERSION, platform, target: target.triple,
   nodeArchiveSha256: target.sha256, binary: binary.slice(dirname(binary).length + 1),
-  binarySha256: hash(await readFile(binary)), jitless: true,
+  binarySha256: hash(await readFile(binary)),
 }, null, 2) + "\n");
 process.stdout.write(`${binary}\n`);

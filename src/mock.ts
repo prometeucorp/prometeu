@@ -2809,6 +2809,14 @@ w.mock = {
   preview: (workspace_id: string, conversation_id: string) => emit("workspace-preview", { workspace_id, conversation_id }),
   /// Inject a conversation line as if the process emitted it.
   line: (tab: string, o: unknown) => pushLine(tab, o),
+  /// End a native agent's process as if its CLI exited.
+  exitAgent: (tab: string) => {
+    const target = mockTab(tab);
+    const terminal = agentTerminals.get(tab);
+    if (target) target.status = "desligada";
+    emit("board", board);
+    if (terminal) emit("pty-closed", [tab, 0, terminal.generation]);
+  },
   /// Expose the number of tool-selection writes received by the mock.
   writes: () => writes,
   /// Expose team state for external UI assertions.
