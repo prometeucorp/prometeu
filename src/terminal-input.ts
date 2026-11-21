@@ -1,4 +1,4 @@
-/** xterm 5.5.0 marks keyboard, IME, paste and SGR mouse data at this synchronous boundary.
+/** xterm 6 marks keyboard, IME, paste and SGR mouse data at this synchronous boundary.
  * Keeping the origin on a stack also handles nested input without disabling user events while
  * asynchronous output parses. Focus reports are view events although xterm does not mark them.
  */

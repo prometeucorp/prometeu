@@ -39,7 +39,7 @@ export class ConversationView {
     host.append(this.root);
     this.chat.open(this.chatHost, {
       ...ctx,
-      nativeInput: () => this.native ? this.terminal?.inputTarget() ?? null : null,
+      nativeInput: () => this.nativeInput(),
       nativeToolsChanged: attention => {
         this.toolsAttention = attention;
         ctx.nativeToolsChanged?.(attention);
@@ -98,6 +98,9 @@ export class ConversationView {
   }
 
   current() { return this.key; }
+  nativeInput() { return this.native && !this.disposed ? this.terminal?.inputTarget() ?? null : null; }
+  /** The attached native process exited and is not being resumed. */
+  nativeStopped() { return this.native && !this.disposed && !!this.terminal && !this.terminal.busy() && !this.terminal.running(); }
   nativeToolsPending() { return !!this.key && this.native && this.toolsAttention; }
   showNativeTools() { if (this.native && this.key && !this.disposed) this.chat.showNativeTools(); }
 

@@ -4,5 +4,8 @@
 <dict>
   <key>com.apple.security.device.audio-input</key>
   <true/>
+  <!-- Tauri signs the terminal-state helper with these entitlements; its V8 needs MAP_JIT. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
 </dict>
 </plist>

@@ -13,9 +13,9 @@ enum State {
         client: Client,
         stream: Stream,
         chunk: u64,
-        /// Last helper snapshot. Only `write` and `resize` change the emulator, and both clear it,
-        /// so idle readiness polls reuse it instead of re-serializing the whole history.
-        cached: Option<Box<Snapshot>>,
+        /// Last helper snapshot and whether it is full. Only `write` and `resize` change the
+        /// emulator, and both clear it, so idle polls reuse it instead of asking the helper again.
+        cached: Option<(Box<Snapshot>, bool)>,
     },
     Frozen {
         chunk: u64,
@@ -116,7 +116,18 @@ impl Screen {
         Ok(())
     }
 
+    /// The full screen, with buffer ANSI, for restoring a view.
     pub fn snapshot(&self) -> Result<AppliedSnapshot, Error> {
+        self.read(true)
+    }
+
+    /// The screen without buffer ANSI or links. Readiness polls use it: serializing the whole
+    /// history holds this lock, and with it the PTY reader, for tens of milliseconds.
+    pub fn view(&self) -> Result<AppliedSnapshot, Error> {
+        self.read(false)
+    }
+
+    fn read(&self, full: bool) -> Result<AppliedSnapshot, Error> {
         match &mut *lock(&self.0) {
             State::Live {
                 client,
@@ -124,14 +135,21 @@ impl Screen {
                 chunk,
                 cached,
             } => {
-                if let Some(state) = cached {
+                if let Some((state, _)) = cached
+                    .as_ref()
+                    .filter(|(_, cached_full)| *cached_full || !full)
+                {
                     return Ok(AppliedSnapshot {
                         chunk_seq: *chunk,
                         state: state.as_ref().clone(),
                     });
                 }
-                let applied = stream.snapshot(client)?;
-                *cached = Some(Box::new(applied.state.clone()));
+                let applied = if full {
+                    stream.snapshot(client)?
+                } else {
+                    stream.view(client)?
+                };
+                *cached = Some((Box::new(applied.state.clone()), full));
                 Ok(applied)
             }
             State::Frozen { chunk, state } => Ok(AppliedSnapshot {
@@ -220,7 +238,18 @@ mod tests {
             .unwrap();
         assert_eq!(replies, vec![b"\x1b[2;9R".to_vec()]);
         screen.write(&[0xf0, 0x9f]).unwrap();
+        // A cached view never stands in for the full screen a restored view needs.
+        let view = screen.view().unwrap();
+        assert!(view.state.alternate.as_ref().unwrap().ansi.is_empty());
         let pending = screen.snapshot().unwrap();
+        assert!(pending
+            .state
+            .alternate
+            .as_ref()
+            .unwrap()
+            .ansi
+            .contains("native"));
+        assert_eq!(screen.view().unwrap().state, pending.state);
         assert_eq!(pending.chunk_seq, 2);
         assert_eq!(pending.state.pending_utf8, "8J8=");
         assert!(pending.state.modes.bracketed_paste_mode);

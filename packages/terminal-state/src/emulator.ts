@@ -47,7 +47,9 @@ export class Emulator {
     requireThat(seq === this.seq, "sequence");
     this.terminal.resize(cols, rows);
   }
-  snapshot(): Snapshot {
+  /** A view leaves buffer ANSI and links empty: readiness polls read only the viewport, cursor,
+   * modes and title, and serializing the whole history on every poll stalls PTY output. */
+  snapshot(view = false): Snapshot {
     const pendingEscape = this.escape.snapshot();
     const snapshot: Snapshot = {
       v: 1, session: this.session, generation: this.generation, seq: this.seq,
@@ -55,7 +57,7 @@ export class Emulator {
       ...viewport(this.terminal),
       viewportStyles: viewportStyles(this.terminal),
       appearance: this.colors.snapshot(),
-      ...serializeTerminal(this.terminal), title: this.title, titleTruncated: this.titleTruncated,
+      ...serializeTerminal(this.terminal, view), title: this.title, titleTruncated: this.titleTruncated,
       pendingEscape, pendingUtf8: this.utf8.tail(),
     };
     requireThat(Buffer.byteLength(JSON.stringify(snapshot)) <= LIMITS.snapshotBytes, "snapshot_unavailable");

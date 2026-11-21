@@ -5,6 +5,7 @@ import { terminalInputOrigin } from "./terminal-input";
 import { replayAnsi } from "../packages/terminal-state/src/replay";
 import { listen } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITerminalOptions } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
@@ -44,9 +45,18 @@ export function loneCompositionEnds() {
   };
 }
 
+/// xterm 6 sends plain Alt+arrow sequences that shells leave unbound. Keep the word jumps xterm 5
+/// produced: Option+←/→ on macOS like Terminal.app, Alt+←/→ as Ctrl+←/→ elsewhere.
+export function wordJump(event: Pick<KeyboardEvent, "type" | "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">, mac: boolean) {
+  if (event.type !== "keydown" || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (event.key === "ArrowLeft") return mac ? "\x1bb" : "\x1b[1;5D";
+  if (event.key === "ArrowRight") return mac ? "\x1bf" : "\x1b[1;5C";
+}
+
 export class Term {
   private term: Terminal;
   private fit = new FitAddon();
+  private gpu = false;
   private decoder = new TextDecoder("utf-8");
   private host!: HTMLElement;
   private pending = 0;
@@ -98,6 +108,15 @@ export class Term {
     this.sink = sink;
     this.term.loadAddon(this.fit);
     this.term.open(host);
+    this.accelerate();
+    const mac = navigator.platform.startsWith("Mac");
+    this.term.attachCustomKeyEventHandler(event => {
+      const jump = wordJump(event, mac);
+      if (!jump) return true;
+      event.preventDefault();
+      this.term.input(jump);
+      return false;
+    });
     if (this.term.textarea) this.term.textarea.dataset.track = "terminal.input";
     // Capture on the host so the check runs before xterm's listeners on its textarea.
     const lone = loneCompositionEnds();
@@ -142,6 +161,21 @@ export class Term {
     this.stopRecovery = onConnectionRestored(async () => {
       if (this.key) await this.attach(this.key, Promise.resolve(), true);
     });
+  }
+
+  /// xterm's default DOM renderer rebuilds row elements on every write and makes typing lag in
+  /// WebKit. WebGL draws from a glyph atlas; without WebGL2, or after a lost context, xterm keeps
+  /// or returns to the DOM renderer.
+  private accelerate() {
+    if (this.gpu) return;
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => { webgl.dispose(); this.gpu = false; });
+      this.term.loadAddon(webgl);
+      this.gpu = true;
+    } catch {
+      // DOM rendering still works.
+    }
   }
 
   /// Invalidate earlier opens before waiting for the process and its retained output.

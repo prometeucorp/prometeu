@@ -17,8 +17,8 @@ tests remain distinct from full Tauri app conformance. See
 [conversation transport identity](../decisions/0100-conversation-transport-identity.md)
 and [agent runtime](agent-runtime.md).
 
-The implementation pins `@xterm/headless` and the renderer package to `5.5.0`,
-with `@xterm/addon-serialize` `0.13.0` from the same upstream release. It uses the
+The implementation pins `@xterm/headless` and the renderer package to `6.0.0`,
+with `@xterm/addon-serialize` `0.14.0` from the same upstream release. It uses the
 same default Unicode provider. Version-specific buffer, hyperlink and mode
 access stays in `src/xterm-state.ts`; the rest of the host uses the protocol.
 
@@ -43,7 +43,7 @@ vocabulary is `invalid_request`, `limit`, `not_found`, `stale_generation`,
 | `create` | `cols`, `rows`, optional `scrollback` | `{seq:0}`; refuses an existing session, including a different generation |
 | `write` | canonical base64 `data`, `seq` | `{seq,replies:string[]}`; `seq` must equal previous seq plus decoded byte length |
 | `resize` | `cols`, `rows`, `seq` | `{seq}`; requires the current byte sequence and preserves pending decoder/parser state |
-| `snapshot` | none | the structured snapshot below, after preceding writes and resizes finish |
+| `snapshot` | optional boolean `view` | the structured snapshot below, after preceding writes and resizes finish; with `view: true`, buffer `ansi` is empty and `links` is `[]` |
 | `dispose` | none | `{seq}`; disposes only the matching generation |
 
 All operations share one ordered queue, including create/dispose, resize and
@@ -158,8 +158,8 @@ Native conversation presentation uses a neutral dark background (`#282c34`),
 white foreground and cursor, and a complete ANSI theme with blue selection
 (`#5a7898`). Its macOS font starts with SF Mono at 14 px, normal/bold weights
 500/700 and line height 1, with system monospace fallbacks. These are visual
-defaults over the pinned xterm 5.5.0 renderer; no engine or rendering addon is
-changed. Explicit native OSC color changes remain authoritative through replay.
+defaults over the pinned xterm 6.0.0 renderer, drawn by its WebGL addon with a
+DOM fallback. Explicit native OSC color changes remain authoritative through replay.
 A helper already running retains its current colors until its normal
 replacement; rebuilding the packaged executable does not rewrite live state or
 restart a provider to apply a theme.
@@ -180,7 +180,11 @@ live output parses would lose concurrent input.
 mutex outside the conversation capture/PTY output locks. Native resize runs
 inside that same boundary. Helpers consume byte offsets; the desktop wrapper
 also retains the corresponding complete PTY chunk sequence for IPC. The empty
-process-exit chunk consumes a chunk sequence too. After exit, the host freezes
+process-exit chunk consumes a chunk sequence too. Readiness and controls read
+view snapshots: serializing the whole history takes tens of milliseconds and
+holds the mutex the PTY reader needs, so only restoring a view and freezing ask
+for the full snapshot. A cached full snapshot also answers a view, never the
+reverse. After exit, the host freezes
 the last snapshot and disposes/reaps the helper, so closed conversation tabs
 do not retain one Node process each. A helper failure refuses restoration and
 stops that native process; it never presents the raw tail as a successfully
@@ -223,8 +227,12 @@ writes and admission limits. Provider differences remain in the
 Run `npm ci --prefix packages/terminal-state`, then the package's `test` and
 `typecheck` scripts. `build:sea` downloads and verifies the pinned Node 24.14.0
 archive, bundles the helper and dependencies, injects its SEA blob into that
-same runtime, and records archive/executable hashes. It uses `--jitless` to keep
-the current macOS signing entitlements; runtime argument extension is disabled.
+same runtime, and records archive/executable hashes. V8 keeps its JIT: every PTY
+chunk waits for the helper, and `--jitless` made writes and snapshots about 3.5x
+slower. On macOS the build signs it with `src-tauri/Entitlements.plist`, the same
+file Tauri applies when it re-signs the bundled sidecar, which grants
+`com.apple.security.cs.allow-jit` under the hardened runtime. Runtime argument
+extension is disabled.
 `test:sea` runs with an empty PATH and invalid injected Node options. Native
 macOS arm64 is locally verified; the Linux x64 recipe is not locally verified.
 

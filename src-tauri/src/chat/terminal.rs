@@ -734,7 +734,7 @@ impl Transport {
         };
         // Success additionally needs a current empty composer after its post-hooks source proof.
         screen
-            .snapshot()
+            .view()
             .is_ok_and(|snapshot| readiness.ready(&snapshot.state))
             .then_some(input)
     }
@@ -881,7 +881,7 @@ impl Transport {
         let composer_present = input.composer_seen
             || match (&self.ui_readiness, &self.screen) {
                 (Some(readiness), Some(screen)) => screen
-                    .snapshot()
+                    .view()
                     .is_ok_and(|snapshot| readiness.ready_with_native_idle(&snapshot.state)),
                 _ => self.ready.load(Ordering::Acquire),
             };
@@ -914,11 +914,7 @@ impl Transport {
 
     fn inspect_readiness(&self, context: &host::ConversationHost, pump: &super::Pump) {
         if self.provider == crate::state::ProviderId::Cursor {
-            if let Some(snapshot) = self
-                .screen
-                .as_ref()
-                .and_then(|screen| screen.snapshot().ok())
-            {
+            if let Some(snapshot) = self.screen.as_ref().and_then(|screen| screen.view().ok()) {
                 self.observe_cursor_activity(&snapshot.state, snapshot.chunk_seq, pump);
             }
         }
@@ -998,7 +994,7 @@ impl Transport {
             return false;
         }
         let previous = self.ready();
-        let Ok(snapshot) = screen.snapshot() else {
+        let Ok(snapshot) = screen.view() else {
             return false;
         };
         let psp = self.psp_seen.load(Ordering::Acquire);
@@ -1252,7 +1248,7 @@ impl Transport {
             let snapshot = self
                 .screen
                 .as_ref()
-                .and_then(|screen| screen.snapshot().ok())
+                .and_then(|screen| screen.view().ok())
                 .filter(|snapshot| self.ui_ready(readiness, &snapshot.state));
             if input.local_draft.is_some() || snapshot.is_none() {
                 if !self.psp_seen.load(Ordering::Acquire) {
@@ -1327,7 +1323,7 @@ impl Transport {
                 return Err(i18n::t("err.chat.gone"));
             }
             let snapshot = screen
-                .snapshot()
+                .view()
                 .map_err(|_| i18n::t("err.terminalAgent.screen"))?;
             if snapshot.chunk_seq > after && readiness.paste_applied(&snapshot.state, text) {
                 return Ok(());
@@ -1350,7 +1346,7 @@ impl Transport {
             return Err(i18n::t("err.terminalAgent.notReady"));
         }
         let snapshot = screen
-            .snapshot()
+            .view()
             .map_err(|_| i18n::t("err.terminalAgent.screen"))?;
         let bytes = controls
             .interrupt(&snapshot.state, self.busy())
