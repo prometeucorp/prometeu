@@ -4,6 +4,17 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.42.2] - 2026-11-21
+
+### Fixes
+
+- **terminal:** Open pr from a terminal tab instead of doing nothing
+- **terminal:** Resume an exited terminal agent when opening a pr
+
+### Performance
+
+- **terminal:** Make agent and shell terminals responsive
+
 ## [0.42.1] - 2026-11-20
 
 ### Fixes
