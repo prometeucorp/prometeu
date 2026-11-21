@@ -644,13 +644,15 @@ async function openPr() {
 
 /// A native terminal owns its composer: like the conversation composer, place the request in the
 /// agent's draft for the person to submit. Sending it would queue silently behind any pending
-/// prompt and could never interrupt a turn in progress.
+/// prompt and could never interrupt a turn in progress. An exited agent has no composer; sending
+/// resumes it and delivers the request once it is ready.
 async function draftNativePr(ws: Workspace, id: string, prompt: string, epoch: number) {
   if (id !== session.currentSession() && !(await session.attach(id))) return;
   if (!stillHere(epoch, ws.id)) return;
   showTerm();
   drawTabs(ws);
   const target = session.nativeInput();
+  if (!target && session.nativeStopped()) return void await invoke("chat_send", { session: id, text: prompt });
   if (!target) throw 'i18n:{"code":"err.terminalAgent.notReady"}';
   await target.paste(prompt);
   target.focus();

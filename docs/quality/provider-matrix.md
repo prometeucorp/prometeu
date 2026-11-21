@@ -40,7 +40,8 @@ tools dialog for explicit insertion; the CLI owns the only editable local
 message input. Failed insertion retains the original tab's draft without
 resuming a process or retargeting another tab. The default Open PR action also
 drafts its request into the native composer for the person to submit, instead of
-queueing it as app input (`e2e/composer.spec.ts`).
+queueing it as app input; an exited agent is resumed with the request queued
+(`e2e/composer.spec.ts`).
 Queued local prompts and staged context draw attention through a conditional
 indicator in the tab-bar action group or desk header, separate from agent status. Their preview is
 available through the tools dialog, shared across providers.

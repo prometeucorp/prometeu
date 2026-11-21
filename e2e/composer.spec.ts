@@ -2,7 +2,7 @@ import { expect, test, type Locator } from "./fixtures";
 import type { Board, Choice } from "../src/types";
 
 type ComposerWindow = Window & {
-  mock: { line: (tab: string, event: unknown) => void };
+  mock: { line: (tab: string, event: unknown) => void; exitAgent: (tab: string) => void };
   controls: unknown[];
   nativePastesUntilFailure?: number;
   __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
@@ -124,6 +124,29 @@ async function fits(composer: Locator) {
   expect(send!.width).toBe(28);
   expect(send!.height).toBe(28);
 }
+
+test("open pr resumes an exited native agent instead of drafting into it", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator('#tiles .tile[data-tab="t1"]')).toBeVisible();
+  await page.evaluate(async () => {
+    const w = window as ComposerWindow;
+    const { invoke } = w.__TAURI_INTERNALS__;
+    const board = await invoke("load_board") as Board;
+    board.workspaces[0].tabs[0].conversation_mode = "terminal";
+    w.controls = [];
+    w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if ((command === "pty_write" || command === "chat_send") && args?.session === "t1") w.controls.push({ command, ...args });
+      return invoke(command, args);
+    };
+    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+  });
+  await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
+  await expect(page.locator("#chatwrap .conversation-terminal .xterm-helper-textarea")).toBeFocused();
+  await page.evaluate(() => (window as ComposerWindow).mock.exitAgent("t1"));
+  const prompt = await page.evaluate(() => (window as ComposerWindow).__TAURI_INTERNALS__.invoke("pr_prompt", { id: "sessao-0929" })) as string;
+  await page.locator("#pr").click();
+  await expect.poll(() => page.evaluate(() => (window as ComposerWindow).controls)).toEqual([{ command: "chat_send", session: "t1", text: prompt }]);
+});
 
 test("conversation footer keeps controls accessible without overlap", { tag: "@webkit" }, async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
