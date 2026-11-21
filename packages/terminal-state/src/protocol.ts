@@ -51,5 +51,6 @@ export function parseRequest(input: unknown): Request {
     && (r.scrollback as number) >= 0 && (r.scrollback as number) <= LIMITS.scrollback), "limit");
   if (r.op === "write" || r.op === "resize") requireThat(Number.isSafeInteger(r.seq) && (r.seq as number) >= 0, "invalid_request");
   if (r.op === "write") decodeBase64(r.data);
+  if (r.op === "snapshot") requireThat(r.view === undefined || typeof r.view === "boolean", "invalid_request");
   return r as Request;
 }

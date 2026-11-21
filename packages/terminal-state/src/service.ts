@@ -52,7 +52,7 @@ export class TerminalStateService {
         this.capacity(existing.cells(request.cols, request.rows), existing);
         existing.resize(request.cols, request.rows, request.seq);
         return { seq: existing.seq };
-      case "snapshot": return existing.snapshot();
+      case "snapshot": return existing.snapshot(request.view === true);
       case "dispose":
         existing.dispose(); this.sessions.delete(request.session);
         return { seq: existing.seq };

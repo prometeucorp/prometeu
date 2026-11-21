@@ -10,7 +10,7 @@ export const { Terminal } = headless;
 const { SerializeAddon } = serialize;
 const ESC = "\x1b";
 
-/** All version-specific xterm internals live here. The package pins and tests both 5.5.0 builds. */
+/** All version-specific xterm internals live here. The package pins and tests the 6.0.0 builds. */
 type Attr = IBufferCell & { fg: number; extended?: { urlId?: number }; hasExtendedAttrs(): number };
 type CoreBuffer = {
   x: number; y: number; ybase: number; scrollTop: number; scrollBottom: number;
@@ -238,7 +238,17 @@ export function collectLinks(terminal: HeadlessTerminal): OscLink[] {
   return links;
 }
 
-export function serializeTerminal(terminal: HeadlessTerminal) {
+export function serializeTerminal(terminal: HeadlessTerminal, view = false) {
+  const modes = readModes(terminal);
+  const activeLink = linkOf(terminal, core(terminal)._inputHandler._curAttrData);
+  const rehydrate = modesAnsi(modes) + attributes(core(terminal)._inputHandler._curAttrData)
+    + (activeLink ? oscLink(activeLink.uri, activeLink.id) : oscLink(""));
+  const active = terminal.buffer.active.type;
+  if (view) return {
+    active, modes, rehydrate, links: [],
+    normal: screen(terminal, "normal", ""),
+    alternate: active === "alternate" ? screen(terminal, "alternate", "") : null,
+  };
   // OSC8 is emitted per linked cell. Refuse an oversized expansion before allocating it.
   let linkExpansionBytes = 0;
   const links = collectLinks(terminal);
@@ -249,20 +259,16 @@ export function serializeTerminal(terminal: HeadlessTerminal) {
   const addon = new SerializeAddon();
   addon.activate(linkedTerminal(terminal));
   const normal = addon.serialize({ excludeAltBuffer: true, excludeModes: true });
-  const active = terminal.buffer.active.type;
   const full = active === "alternate" ? addon.serialize({ excludeModes: true }) : normal;
   const separator = `${ESC}[?1049h${ESC}[H`;
   if (active === "alternate" && !full.slice(normal.length).startsWith(separator))
     throw new Error("Unsupported xterm serializer shape");
-  const modes = readModes(terminal);
-  const activeLink = linkOf(terminal, core(terminal)._inputHandler._curAttrData);
   return {
     active,
     normal: screen(terminal, "normal", normal),
     alternate: active === "alternate" ? screen(terminal, "alternate", full.slice(normal.length + separator.length)) : null,
     modes,
-    rehydrate: modesAnsi(modes) + attributes(core(terminal)._inputHandler._curAttrData)
-      + (activeLink ? oscLink(activeLink.uri, activeLink.id) : oscLink("")),
+    rehydrate,
     links,
   };
 }

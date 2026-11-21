@@ -189,6 +189,11 @@ fn real_helper_preserves_wire_snapshot_and_maps_byte_offsets_to_pty_chunks() {
     assert_eq!(state.state.active, protocol::BufferKind::Alternate);
     assert!(state.state.modes.bracketed_paste_mode);
     assert_eq!(state.state.links[0].uri, "https://example.test");
+    let view = stream.view(&mut helper).unwrap();
+    assert_eq!(view.chunk_seq, state.chunk_seq);
+    assert!(view.state.normal.ansi.is_empty() && view.state.links.is_empty());
+    assert_eq!(view.state.viewport_lines, state.state.viewport_lines);
+    assert_eq!(view.state.modes, state.state.modes);
     let bytes = serde_json::to_vec(&state.state).unwrap();
     assert_eq!(
         serde_json::from_slice::<Snapshot>(&bytes).unwrap(),

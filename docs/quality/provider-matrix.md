@@ -47,8 +47,8 @@ Native typography uses 14 px SF Mono on macOS with monospace fallbacks,
 text; shared helper defaults keep OSC reports and replay aligned. Existing
 native color changes survive restoration, and running helpers keep their current
 colors until normal replacement. The renderer/helper versions remain pinned to
-xterm 5.5.0; this visual change does not establish newer terminal protocol or GPU
-rendering conformance. Geometry and input coverage remain in
+xterm 6.0.0; the desktop view draws with the WebGL addon and falls back to DOM
+rendering, without automated GPU rendering conformance. Geometry and input coverage remain in
 `e2e/composer.spec.ts`, `src/term.test.ts` and the terminal-state replay/query tests;
 browser evidence remains distinct from native macOS app conformance.
 All four local terminal providers share automatic saved-session resume when a

@@ -7,6 +7,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use protocol::{Ack, Operation, Request, Response, WriteAck};
 pub use protocol::{Key, Rejection, Size, Snapshot};
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::process::CommandExt;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -165,9 +166,37 @@ impl Client {
                 {
                     return Err(Error::Closed);
                 }
-                std::thread::sleep(Duration::from_millis(2));
+                self.wait(sent < outgoing.len(), deadline);
             }
         }
+    }
+
+    /// Sleep until the helper can take more input or has output. Every PTY chunk waits on this
+    /// round trip, so a fixed sleep would add its whole length to terminal latency. The cap keeps
+    /// checking for a helper that exited without closing its pipes.
+    fn wait(&self, writing: bool, deadline: Instant) {
+        let input = match (&self.input, writing) {
+            (Some(input), true) => input.as_raw_fd(),
+            _ => -1,
+        };
+        let mut fds = [
+            libc::pollfd {
+                fd: self.output.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: input,
+                events: libc::POLLOUT,
+                revents: 0,
+            },
+        ];
+        let timeout = deadline
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(50))
+            .as_millis() as libc::c_int;
+        // SAFETY: both descriptors are owned by self for the call; poll ignores a negative fd.
+        unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout) };
     }
 
     fn request<T: serde::de::DeserializeOwned>(
@@ -218,7 +247,16 @@ impl Client {
     }
 
     pub fn snapshot(&mut self, key: &Key) -> Result<Snapshot, Error> {
-        let state: Snapshot = self.request(key, Operation::Snapshot)?;
+        self.read_screen(key, false)
+    }
+
+    /// The snapshot without buffer ANSI or links: enough for readiness, not for restoring a view.
+    pub fn view(&mut self, key: &Key) -> Result<Snapshot, Error> {
+        self.read_screen(key, true)
+    }
+
+    fn read_screen(&mut self, key: &Key, view: bool) -> Result<Snapshot, Error> {
+        let state: Snapshot = self.request(key, Operation::Snapshot { view })?;
         self.check(
             state.v == protocol::VERSION
                 && state.session == key.session
@@ -429,10 +467,19 @@ impl Stream {
     }
 
     pub fn snapshot(&mut self, client: &mut Client) -> Result<AppliedSnapshot, Error> {
+        self.read_screen(client, false)
+    }
+
+    /// See [`Client::view`].
+    pub fn view(&mut self, client: &mut Client) -> Result<AppliedSnapshot, Error> {
+        self.read_screen(client, true)
+    }
+
+    fn read_screen(&mut self, client: &mut Client, view: bool) -> Result<AppliedSnapshot, Error> {
         if !self.valid {
             return Err(Error::Closed);
         }
-        let state = client.snapshot(&self.key)?;
+        let state = client.read_screen(&self.key, view)?;
         if state.seq != self.bytes {
             self.valid = false;
             return Err(Error::Sequence);

@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => ({
 vi.mock("./ipc", () => ({ invoke: fake.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: fake.listen }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
+vi.mock("@xterm/addon-webgl", () => ({ WebglAddon: class { onContextLoss() {} dispose() {} } }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
@@ -27,6 +28,7 @@ vi.mock("@xterm/xterm", () => ({
     _core = { coreService: { triggerDataEvent: (data: string, _user = false) => this.input(data) } };
     constructor() { fake.terminals.push(this); }
     loadAddon() {}
+    attachCustomKeyEventHandler() {}
     open() {}
     onData(input: (text: string) => void) { this.input = input; return { dispose: () => { this.input = () => {}; } }; }
     onBinary(input: (text: string) => void) { this.binary = input; return { dispose: () => { this.binary = () => {}; } }; }
@@ -50,7 +52,7 @@ vi.mock("@xterm/xterm", () => ({
 }));
 
 import * as dock from "./dock";
-import { loneCompositionEnds, Term } from "./term";
+import { loneCompositionEnds, Term, wordJump } from "./term";
 import { useTerminalSnapshots, type TerminalOutput } from "./terminal-output";
 import { useConnectionRecovery } from "./connection";
 import { Recovery } from "./windows/recovery";
@@ -523,4 +525,15 @@ it.each(["replacement", "mode", "failure"])("rejects a queued paste after %s wit
   expect(sink).toHaveBeenCalledExactlyOnceWith("agent", "prefix", "first");
   expect(error).toHaveBeenCalledTimes(change === "failure" ? 1 : 0);
   term.dispose();
+});
+
+it("keeps Alt+arrow word jumps that xterm 6 no longer sends", () => {
+  const key = (key: string, extra: Partial<KeyboardEvent> = {}) => ({ type: "keydown", key, altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, ...extra });
+  expect(wordJump(key("ArrowLeft"), true)).toBe("\x1bb");
+  expect(wordJump(key("ArrowRight"), true)).toBe("\x1bf");
+  expect(wordJump(key("ArrowLeft"), false)).toBe("\x1b[1;5D");
+  expect(wordJump(key("ArrowRight"), false)).toBe("\x1b[1;5C");
+  expect(wordJump(key("ArrowLeft", { shiftKey: true }), true)).toBeUndefined();
+  expect(wordJump(key("ArrowLeft", { type: "keyup" }), true)).toBeUndefined();
+  expect(wordJump(key("ArrowUp"), true)).toBeUndefined();
 });
