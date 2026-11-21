@@ -53,5 +53,6 @@ export const contextTarget = () => view.contextTarget();
 export const quoteSelection = () => view.quoteSelection();
 export const focusAnchor = (anchor: string) => view.focusAnchor(anchor);
 export const nativeActions = () => view.nativeActions();
+export const nativeInput = () => view.nativeInput();
 export const nativeToolsPending = () => view.nativeToolsPending();
 export const showNativeTools = () => view.showNativeTools();

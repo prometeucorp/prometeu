@@ -25,7 +25,7 @@ test("native conversation keeps a full terminal and opens product tools on deman
         && args.data.startsWith("\x1b[200~") && w.nativePastesUntilFailure && --w.nativePastesUntilFailure === 0) {
         return Promise.reject('i18n:{"code":"err.terminalAgent.notReady"}');
       }
-      if ((command === "pty_write" || command === "pty_resize") && args?.session === "t1") w.controls.push({ command, ...args });
+      if ((command === "pty_write" || command === "pty_resize" || command === "chat_send") && args?.session === "t1") w.controls.push({ command, ...args });
       return invoke(command, args);
     };
     await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
@@ -40,6 +40,14 @@ test("native conversation keeps a full terminal and opens product tools on deman
   await page.keyboard.type("native input");
   await expect.poll(() => page.evaluate(() => (window as ComposerWindow).controls.filter(value => (value as { command: string }).command === "pty_write").length)).toBeGreaterThan(0);
   expect(await page.evaluate(() => (window as ComposerWindow).controls.every(value => typeof (value as { generation?: string }).generation === "string"))).toBe(true);
+
+  // Open PR drafts into the native composer instead of queueing behind pending input.
+  const prompt = await page.evaluate(() => (window as ComposerWindow).__TAURI_INTERNALS__.invoke("pr_prompt", { id: "sessao-0929" })) as string;
+  await page.locator("#pr").click();
+  await expect.poll(() => page.evaluate(text => (window as ComposerWindow).controls.some(value =>
+    (value as { command: string; data?: string }).command === "pty_write" && (value as { data?: string }).data === `\x1b[200~${text}\x1b[201~`), prompt)).toBe(true);
+  expect(await page.evaluate(() => (window as ComposerWindow).controls.some(value => (value as { command: string }).command === "chat_send"))).toBe(false);
+  await expect(input).toBeFocused();
 
   const conversation = page.locator("#chatwrap");
   await expect(conversation.getByRole("button", { name: "Transcript and controls", exact: true })).toHaveCount(0);
