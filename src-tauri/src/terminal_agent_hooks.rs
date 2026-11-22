@@ -1930,7 +1930,11 @@ mod tests {
         for _ in 0..QUEUE_LIMIT {
             events.recv_timeout(Duration::from_secs(1)).unwrap();
         }
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Disconnected)));
+        // The worker drops the sender after leaving its loop, so wait for the disconnect.
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(5)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        ));
     }
 
     #[test]
