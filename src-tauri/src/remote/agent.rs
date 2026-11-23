@@ -216,6 +216,13 @@ impl RemoteExecution {
     }
 }
 
+const REMOTE_PROFILE: &str = "remote:";
+
+/// Whether a conversation's profile stands for a machine's own Claude sign-in.
+pub fn is_remote_profile(profile: &prometeu_profiles::Profile) -> bool {
+    profile.id.starts_with(REMOTE_PROFILE)
+}
+
 /// Start or reattach the terminal agent of a conversation in a remote workspace.
 pub fn launch(
     app: &AppHandle,
@@ -260,7 +267,7 @@ pub fn launch(
     // Claude signs in on the machine (Settings > Remote machines), so this computer's account is
     // neither needed nor used; the launch only reads the provider.
     let profile = prometeu_profiles::Profile {
-        id: format!("remote:{machine}"),
+        id: format!("{REMOTE_PROFILE}{machine}"),
         provider: ProviderId::Claude,
         home: mirror_path(machine, &home),
         managed: false,
@@ -275,7 +282,21 @@ pub fn launch(
         },
     );
     crate::terminal_agent_launch::drop_claude_vars(&mut command);
-    let resumed = running || resume.is_some();
+    // An adopted process whose first hook never reached this app has no transcript binding yet:
+    // nothing was ingested and its first prompt may still be pending, so observe it as a fresh
+    // start; the queued SessionStart binds it.
+    let bound = || {
+        crate::chat::terminal::binding::Binding::load(
+            &crate::paths::root(),
+            &effective.session,
+            ProviderId::Claude,
+            resume.as_deref().unwrap_or(&effective.session),
+        )
+        .ok()
+        .flatten()
+        .is_some()
+    };
+    let resumed = resume.is_some() || (running && bound());
     let prepared = crate::terminal_agent_launch::PreparedTerminalAgent {
         command,
         engine: None,
@@ -451,6 +472,19 @@ mod journey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_machine_profiles_skip_the_local_account_check() {
+        let profile = |id: &str| prometeu_profiles::Profile {
+            id: id.into(),
+            provider: ProviderId::Claude,
+            home: PathBuf::from("/h"),
+            managed: false,
+            revision: 0,
+        };
+        assert!(is_remote_profile(&profile(&format!("{REMOTE_PROFILE}vps"))));
+        assert!(!is_remote_profile(&profile("claude-default")));
+    }
 
     #[test]
     fn hook_transcripts_point_at_the_mirror() {

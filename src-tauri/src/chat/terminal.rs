@@ -1,5 +1,5 @@
 //! Native terminal transport owned by an ordinary conversation, never by the dock registry.
-mod binding;
+pub(crate) mod binding;
 pub(crate) mod codex;
 pub(crate) mod ingestion;
 mod screen;

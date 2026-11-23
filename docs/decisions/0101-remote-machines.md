@@ -109,6 +109,13 @@ without root.
   transcripts and notifications therefore update when the laptop wakes or the app
   starts. A finished terminal is forgotten once its output, hooks and transcript
   have been collected, so the host does not keep its buffer.
+- A process adopted before its first hook reached this desktop (for example,
+  Claude still on its folder-trust question when the laptop slept) has no
+  transcript binding yet. It is observed as a fresh start, so its queued
+  `SessionStart` binds it and its first prompt is still delivered.
+- A remote conversation's profile names the machine (`remote:<machine>`). It never
+  matches this computer's selected account, so switching local accounts does not
+  restart remote conversations.
 - A terminal this desktop just opened delivers its first output live, even though
   it arrives through the attachment's replay: the program may still be waiting for
   answers to its startup queries.

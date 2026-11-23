@@ -93,6 +93,11 @@ impl Chat {
     }
 
     fn changing_account(&self) -> Result<bool, String> {
+        // A remote machine's Claude uses that machine's sign-in, which this computer's account
+        // choice never changes (ADR 0101).
+        if crate::remote::agent::is_remote_profile(&self.context.profile) {
+            return Ok(false);
+        }
         let selected = accounts::active(self.context.profile.provider)?;
         if accounts::logging_in(&selected.id) {
             return Err(i18n::t("err.account.busy"));

@@ -12,7 +12,7 @@ const LIMIT: u64 = 65_536;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct Binding {
+pub(crate) struct Binding {
     version: u8,
     session: String,
     provider: ProviderId,
