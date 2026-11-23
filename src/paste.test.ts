@@ -1,5 +1,7 @@
-import { expect, it, vi } from "vitest";
+import { expect, it, vi, type Mock } from "vitest";
 import { invoke } from "./ipc";
+// `vi.mocked(invoke)` makes the checker relate the whole IPC registry to the mock type, which costs minutes.
+const invokeMock = invoke as unknown as Mock;
 import { pasteFiles } from "./paste";
 
 vi.mock("./ipc", () => ({ invoke: vi.fn() }));
@@ -8,7 +10,7 @@ const event = (files: unknown[], types = files.length ? ["Files"] : ["text/plain
   ({ clipboardData: { files, types }, preventDefault: vi.fn() }) as unknown as ClipboardEvent & { preventDefault: ReturnType<typeof vi.fn> };
 
 it("attaches materialized paths and keeps the default paste for text", async () => {
-  vi.mocked(invoke).mockResolvedValue(["/private/attachments/pasted.png"]);
+  invokeMock.mockResolvedValue(["/private/attachments/pasted.png"]);
   const put = vi.fn();
   const fail = vi.fn();
 
@@ -25,7 +27,7 @@ it("attaches materialized paths and keeps the default paste for text", async () 
 });
 
 it("reports backend failures instead of attaching nothing silently", async () => {
-  vi.mocked(invoke).mockRejectedValue("chat.drop.failed");
+  invokeMock.mockRejectedValue("chat.drop.failed");
   const put = vi.fn();
   const fail = vi.fn();
 
@@ -35,7 +37,7 @@ it("reports backend failures instead of attaching nothing silently", async () =>
 });
 
 it("asks the backend when the webview hides the clipboard, as WebKitGTK does for images", async () => {
-  vi.mocked(invoke).mockResolvedValue(["/private/attachments/pasted.png"]);
+  invokeMock.mockResolvedValue(["/private/attachments/pasted.png"]);
   const put = vi.fn();
   const hidden = event([], []);
 

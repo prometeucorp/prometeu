@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 vi.mock("./ipc", () => ({ invoke: vi.fn() }));
 
 import { invoke } from "./ipc";
+// `vi.mocked(invoke)` makes the checker relate the whole IPC registry to the mock type, which costs minutes.
+const invokeMock = invoke as unknown as Mock;
 import { inheritedOf, loadInherited, onChange, toDraft, toServer, type Draft } from "./mcp";
 import type { McpServer } from "./types";
 
@@ -97,30 +99,30 @@ describe("inherited CLI configuration", () => {
   const metabase: McpServer = { id: "metabase", config: { type: "http", url: "https://x/mcp" }, note: "" };
 
   it("fetches once per workspace and notifies when the result arrives", async () => {
-    vi.mocked(invoke).mockResolvedValue([metabase]);
+    invokeMock.mockResolvedValue([metabase]);
     let painted = 0;
     const forget = onChange(() => painted++);
     expect(inheritedOf("ws-base")).toEqual([]);
     loadInherited("ws-base");
     loadInherited("ws-base");
     await vi.waitFor(() => expect(inheritedOf("ws-base")).toEqual([metabase]));
-    expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "ws-base", agent: undefined });
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("mcp_inherited", { id: "ws-base", agent: undefined });
     expect(painted).toBe(1);
     forget();
   });
 
   it("separates inherited configuration by provider in the same workspace", async () => {
-    vi.mocked(invoke).mockResolvedValueOnce([metabase]).mockResolvedValueOnce([]);
+    invokeMock.mockResolvedValueOnce([metabase]).mockResolvedValueOnce([]);
     loadInherited("mixed", "claude");
     loadInherited("mixed", "codex");
     await vi.waitFor(() => expect(inheritedOf("mixed", "claude")).toEqual([metabase]));
     expect(inheritedOf("mixed", "codex")).toEqual([]);
-    expect(vi.mocked(invoke)).toHaveBeenCalledWith("mcp_inherited", { id: "mixed", agent: "codex" });
+    expect(invokeMock).toHaveBeenCalledWith("mcp_inherited", { id: "mixed", agent: "codex" });
   });
 
   it("keeps the configuration empty and button hidden without a backend, then retries on the next paint", async () => {
-    vi.mocked(invoke).mockRejectedValue("mcp.inherited.failed");
+    invokeMock.mockRejectedValue("mcp.inherited.failed");
     let painted = 0;
     const forget = onChange(() => painted++);
     loadInherited("ws-failure");
@@ -128,7 +130,7 @@ describe("inherited CLI configuration", () => {
     await vi.waitFor(() => expect(painted).toBe(1));
     expect(inheritedOf("ws-failure")).toEqual([]);
     // The failure left no cache entry, so a later paint retries the discovery.
-    vi.mocked(invoke).mockResolvedValue([metabase]);
+    invokeMock.mockResolvedValue([metabase]);
     loadInherited("ws-failure");
     await vi.waitFor(() => expect(inheritedOf("ws-failure")).toEqual([metabase]));
     forget();
