@@ -1505,39 +1505,21 @@
       ]
     },
     {
-      "target": "launcher.remoteAdd",
-      "sources": [
-        "src/launcher.ts"
-      ]
-    },
-    {
-      "target": "launcher.remoteClone",
-      "sources": [
-        "src/launcher.ts"
-      ]
-    },
-    {
-      "target": "launcher.remoteCloneHere",
-      "sources": [
-        "src/launcher.ts"
-      ]
-    },
-    {
       "target": "launcher.remoteFolder",
       "sources": [
-        "src/launcher.ts"
+        "src/projects.ts"
       ]
     },
     {
       "target": "launcher.remotePick",
       "sources": [
-        "src/launcher.ts"
+        "src/projects.ts"
       ]
     },
     {
       "target": "launcher.remoteUp",
       "sources": [
-        "src/launcher.ts"
+        "src/projects.ts"
       ]
     },
     {
@@ -2282,6 +2264,25 @@
       ]
     },
     {
+      "target": "projects.clone",
+      "sources": [
+        "src/launcher.ts",
+        "src/projects.ts"
+      ]
+    },
+    {
+      "target": "projects.cloneDirectory",
+      "sources": [
+        "src/projects.ts"
+      ]
+    },
+    {
+      "target": "projects.cloneUrl",
+      "sources": [
+        "src/projects.ts"
+      ]
+    },
+    {
       "target": "projects.create",
       "sources": [
         "src/projects.ts"
@@ -2306,6 +2307,12 @@
       ]
     },
     {
+      "target": "projects.machine",
+      "sources": [
+        "src/projects.ts"
+      ]
+    },
+    {
       "target": "projects.name",
       "sources": [
         "src/projects.ts"
@@ -2313,6 +2320,19 @@
     },
     {
       "target": "projects.parent",
+      "sources": [
+        "src/projects.ts"
+      ]
+    },
+    {
+      "target": "projects.remoteFolder",
+      "sources": [
+        "src/launcher.ts",
+        "src/projects.ts"
+      ]
+    },
+    {
+      "target": "projects.retry",
       "sources": [
         "src/projects.ts"
       ]
@@ -4062,7 +4082,7 @@
     {
       "name": "settings_section_viewed",
       "properties": {
-        "section": "\"general\" | \"agents\" | \"resources\" | \"actions\" | \"work\" | \"analytics\""
+        "section": "\"general\" | \"agents\" | \"resources\" | \"actions\" | \"projects\" | \"work\" | \"analytics\""
       }
     },
     {

@@ -142,6 +142,18 @@ the bytes to `<root>/remote/<machine>/mirror/<absolute remote path>` (0700
 directories, 0600 files), and sends the mirror's sizes as offsets after every
 reattachment. The slug replaces every character outside `[A-Za-z0-9]` with `-`.
 
+## Desktop project selection
+
+Settings > Projects lists registered folders filtered by computer. The launcher
+uses the same exact `Project.host` filter; origin aliases only group the sidebar.
+Remote registration and cloning use the existing `remote_list_dir` and
+`remote_add_project` desktop commands in separate dialogs. They do not change
+the host protocol or persisted project IDs. Existing backend origin resolution
+remains compatible with callers that pass a local project ID.
+
+`src/machines.test.ts` covers local, selected-host, other-host and aliased clones.
+`src/settings-navigation.test.ts` preserves the saved `projects` destination.
+
 ## Compatibility
 
 A protocol change that older desktops or hosts cannot ignore bumps `PROTOCOL`,

@@ -7,11 +7,11 @@ describe("settings navigation compatibility", () => {
       contas: { page: "agentes", section: "accounts" }, padroes: { page: "agentes", section: "defaults" },
       notifications: { page: "geral", section: "notifications" }, app: { page: "geral", section: "app" },
       ferramentas: { page: "recursos", filter: "mcp" }, plugins: { page: "recursos", filter: "plugins" },
-      skills: { page: "recursos", filter: "skills" }, projects: { page: "trabalho", section: "projects" },
+      skills: { page: "recursos", filter: "skills" }, projects: { page: "projects" },
       time: { page: "trabalho", section: "team" }, integracoes: { page: "trabalho", section: "integrations" },
     };
     for (const [page, destination] of Object.entries(old)) expect(settingsDestination(page)).toEqual(destination);
-    for (const page of ["geral", "agentes", "recursos", "acoes", "trabalho", "analytics"]) expect(settingsDestination(page)).toEqual({ page });
+    for (const page of ["geral", "agentes", "recursos", "acoes", "trabalho", "projects", "analytics"]) expect(settingsDestination(page)).toEqual({ page });
     expect(settingsDestination(null)).toEqual({ page: "geral" });
     expect(settingsDestination("unknown")).toEqual({ page: "geral" });
   });

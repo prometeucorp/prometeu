@@ -63,14 +63,14 @@ export async function init(context: Ctx) {
     // Keep a machine form the person is typing in.
     const active = document.activeElement;
     if (active instanceof HTMLInputElement && active.closest(".machine-form, .machine-claude-login")) return;
-    refreshPages("trabalho");
+    refreshPages("trabalho", "projects");
   });
   skills.init(ctx.say, async () => {
     await plugins.refresh();
     await catalog.load();
   });
   skills.onChange(() => refreshPages("recursos", "agentes"));
-  actions.onChange(() => refreshPages("acoes", "trabalho"));
+  actions.onChange(() => refreshPages("acoes", "projects"));
   listen<LinearStatus>("linear", ({ payload }) => {
     status = payload;
     refreshPages("trabalho");
@@ -94,7 +94,7 @@ export async function init(context: Ctx) {
   catalog.init(async () => {
     await Promise.all([plugins.refresh(), mcp.refresh(), skills.refresh()]);
   });
-  catalog.onChange(() => refreshPages("recursos", "agentes", "trabalho"));
+  catalog.onChange(() => refreshPages("recursos", "agentes", "projects"));
   // Refresh presence without replacing an input the user is editing.
   team.onChange(() => {
     if ($("settingsView").hidden || open !== "trabalho") return;
@@ -135,9 +135,11 @@ const PAGES: Page[] = [
   { id: "acoes", title: "actions.title", description: "actions.intro", glyph: "list-tree", sections: [
     { id: "actions", title: "actions.title", rows: () => actionSettings.settingsRows(draw, ctx.say), keywords: ["actions.commands", "actions.profiles"] },
   ] },
+  { id: "projects", title: "projects.title", description: "projects.intro", glyph: "folder", sections: [
+    { id: "projects", title: "projects.title", rows: () => projects.settingsRows(actions.projects(), ctx.say, draw), keywords: ["projects.machine", "projects.remoteFolder", "projects.clone"] },
+  ] },
   { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
     { id: "team", title: "settings.team", rows: teamRows },
-    { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
     { id: "machines", title: "machines.title", rows: () => remoteMachines.settingsRows(ctx.say, draw), keywords: ["machines.intro", "machines.ssh", "machines.add"] },
     { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), githubRow(), ...typesafeRows(ctx.say, draw)] },
   ] },
@@ -178,7 +180,7 @@ export function draw() {
     historyObserver?.disconnect(); historyObserver = undefined;
     historyViewed = false;
     observedPage = open;
-    const sections = { geral: "general", agentes: "agents", recursos: "resources", acoes: "actions", trabalho: "work", analytics: "analytics" } as const;
+    const sections = { geral: "general", agentes: "agents", recursos: "resources", acoes: "actions", projects: "projects", trabalho: "work", analytics: "analytics" } as const;
     track({ name: "settings_section_viewed", section: sections[open] });
   }
   // Close snapshot menus before recording their restored trigger focus.
@@ -236,7 +238,7 @@ export function draw() {
       const title = h("h2", "", t(section.title)); title.id = `${group.id}-title`;
       group.setAttribute("aria-labelledby", title.id);
       const panel = h("div", "settings-panel"); panel.append(...section.rows());
-      if (page.id === "recursos" || page.id === "acoes" || section.id === "telemetry") { title.hidden = true; panel.classList.add("settings-unboxed"); }
+      if (page.id === "recursos" || page.id === "acoes" || page.id === "projects" || section.id === "telemetry") { title.hidden = true; panel.classList.add("settings-unboxed"); }
       group.append(title, panel); content.append(group);
     }
     const history = content.querySelector<HTMLElement>(".telemetry-settings");
@@ -283,15 +285,6 @@ export function draw() {
     next?.focus({ preventScroll: true });
     if (next instanceof HTMLInputElement && selection && selection[0] !== null) next.setSelectionRange(selection[0], selection[1]);
   }
-}
-
-function projectRows(): HTMLElement[] {
-  const rows = actions.projects().map(project => {
-    const row = template("div", "setrow", `<span class="glyph">${icon("folder", 18)}</span><div class="txt"><b></b><span></span></div>`);
-    row.querySelector("b")!.textContent = project.name; row.querySelector(".txt span")!.textContent = project.path;
-    return row;
-  });
-  return [...rows, ...projects.settingsRows(ctx.say)];
 }
 
 function appRows(): HTMLElement[] {

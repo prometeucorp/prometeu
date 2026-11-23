@@ -1,4 +1,4 @@
-export type SettingsPage = "geral" | "agentes" | "recursos" | "acoes" | "trabalho" | "analytics";
+export type SettingsPage = "geral" | "agentes" | "recursos" | "acoes" | "trabalho" | "projects" | "analytics";
 export type ResourceFilter = "all" | "plugins" | "mcp" | "skills";
 
 /** Old bookmarks keep reaching the same preferences after grouping the navigation. */
@@ -11,7 +11,7 @@ export function settingsDestination(saved: string | null): { page: SettingsPage;
     case "ferramentas": return { page: "recursos", filter: "mcp" };
     case "plugins": return { page: "recursos", filter: "plugins" };
     case "skills": return { page: "recursos", filter: "skills" };
-    case "projects": return { page: "trabalho", section: "projects" };
+    case "projects": return { page: "projects" };
     case "time": return { page: "trabalho", section: "team" };
     case "integracoes": return { page: "trabalho", section: "integrations" };
     case "agentes": case "recursos": case "acoes": case "trabalho": case "analytics": return { page: saved };

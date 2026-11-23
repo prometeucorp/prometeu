@@ -85,13 +85,19 @@ without root.
   collide with local folders.
 - A repository is one project wherever it runs. Projects record their normalized
   `origin`, and a machine's clone with the same origin as a local project appears
-  as that project, with its workspaces marked by the machine. Choosing a local
-  project for a machine uses its clone there, or clones its `origin` under
-  `~/code` while the workspace prepares. Matching by origin rather than by name
-  keeps two different repositories with the same folder name apart.
-- Repositories that exist only on the machine are added from the launcher by
-  browsing its folders and ticking them, several at once, or by cloning a URL
-  into the folder being browsed.
+  as that project, with its workspaces marked by the machine. Choosing a
+  project is separate from choosing its execution location: the launcher only
+  lists registered projects whose `host` matches the selected machine. A local
+  repository with an `origin` is not offered as an implicit remote clone. Matching
+  by origin still groups sidebar workspaces without hiding remote registrations.
+- Settings has a dedicated Projects page filtered by computer. It lists each
+  registered folder on that computer, including remote clones with a local
+  counterpart. Existing remote repositories are added through a folder dialog;
+  cloning is an explicit action with a URL and destination on the machine. The
+  launcher provides the same dialogs as shortcuts and keeps its task draft.
+  This separates installation from workspace creation and makes the selected
+  computer determine exactly which projects are offered. Existing backend
+  origin resolution remains for compatibility with older callers.
 - Workspace creation runs Git on the machine and puts new worktrees under the
   host root. The first conversation always uses terminal mode. Branch listing for
   remote projects also runs on the machine.
