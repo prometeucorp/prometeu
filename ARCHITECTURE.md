@@ -96,6 +96,18 @@ Windows boundary. Only Codex is registered there. See
 [Windows application contract](docs/contracts/windows-application.md) and the
 [WSL runtime protocol](docs/contracts/wsl-runtime.md).
 
+## Remote machines
+
+A workspace can run on another computer reached over SSH. `prometeu-host`
+(`src-tauri/crates/host/`) is a static Linux daemon installed by the desktop. It
+owns terminal agents in PTYs, queues their hooks while no desktop is attached,
+streams their transcript files and applies per-workspace systemd limits. The
+desktop (`src-tauri/src/remote/`) keeps the board, conversations, journal and
+interface. It reaches the host through the system `ssh`, reconnects after sleep
+or restarts, and reattaches from the last output sequence. See
+[ADR 0101](docs/decisions/0101-remote-machines.md) and the
+[remote host protocol](docs/contracts/remote-host.md).
+
 ## Shared interface
 
 The shared interface comes from `packages/design-system`: distributable DOM

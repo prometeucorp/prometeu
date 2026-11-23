@@ -40,6 +40,7 @@ import * as news from "./news";
 import * as rename from "./rename";
 import * as session from "./session";
 import * as settings from "./settings";
+import * as machines from "./machines";
 import * as statusbar from "./statusbar";
 import * as team from "./team";
 import * as terminals from "./terminals";
@@ -811,6 +812,9 @@ void mcp.load();
 // Load plugins during startup for the same shared picker behavior.
 plugins.init({ say });
 void plugins.load();
+// Remote machines feed Settings, the launcher and the badges on remote workspaces (ADR 0101).
+void machines.init();
+machines.onChange(() => draw());
 // Initialize Settings before Issues because it discovers the Linear connection.
 await settings.init({ say });
 issues.init({

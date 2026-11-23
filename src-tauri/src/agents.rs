@@ -50,11 +50,14 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
         // The app injects local file paths into messages. Both runtimes can read the same worktree;
         // no provider upload or binary payload is involved.
         attachments: true,
+        remote_machines: false,
     };
     match id {
         ProviderId::Claude => AgentCapabilities {
             initial_plan_mode: true,
             usage_cost: true,
+            // Remote machines host terminal agents with Claude's native hooks only.
+            remote_machines: true,
             ..common
         },
         ProviderId::Codex => common,

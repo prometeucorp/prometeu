@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, expect, it, vi, type Mock } from "vitest";
 import type { ConversationCommandV1 } from "./conversation";
 import type { AnalyticsEvent } from "./analytics";
 
@@ -10,6 +10,8 @@ vi.mock("./island-view", () => ({
   redraw() {}, islandView() {},
 }));
 import { invoke } from "./ipc";
+// `vi.mocked(invoke)` makes the checker relate the whole IPC registry to the mock type, which costs minutes.
+const invokeMock = invoke as unknown as Mock;
 
 beforeAll(async () => {
   vi.useFakeTimers();
@@ -17,10 +19,10 @@ beforeAll(async () => {
   vi.stubGlobal("ResizeObserver", class { observe() {} });
   await import("./notification-window");
 });
-beforeEach(() => vi.mocked(invoke).mockClear());
+beforeEach(() => invokeMock.mockClear());
 afterAll(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-const events = () => vi.mocked(invoke).mock.calls.flatMap(([command, args]) => command === "analytics_track" ? [(args as { event: AnalyticsEvent }).event] : []);
+const events = () => invokeMock.mock.calls.flatMap(([command, args]) => command === "analytics_track" ? [(args as { event: AnalyticsEvent }).event] : []);
 
 it.each([
   [{ outcome: "allow" }, { name: "approval_submitted", approved: true }],
@@ -32,7 +34,7 @@ it.each([
 });
 
 it("records neither request use nor notification success when control delivery fails", async () => {
-  vi.mocked(invoke).mockRejectedValueOnce(new Error("Control unavailable"));
+  invokeMock.mockRejectedValueOnce(new Error("Control unavailable"));
   await expect(panel.send!("session", { v: 1, type: "request.respond", requestId: "request", response: { outcome: "allow" } })).rejects.toThrow("Control unavailable");
   expect(events()).toEqual([]);
 });

@@ -1463,6 +1463,12 @@
       ]
     },
     {
+      "target": "launcher.machine",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
       "target": "launcher.mcp",
       "sources": [
         "src/launcher.ts"
@@ -1494,6 +1500,42 @@
     },
     {
       "target": "launcher.prompt",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
+      "target": "launcher.remoteAdd",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
+      "target": "launcher.remoteClone",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
+      "target": "launcher.remoteCloneHere",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
+      "target": "launcher.remoteFolder",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
+      "target": "launcher.remotePick",
+      "sources": [
+        "src/launcher.ts"
+      ]
+    },
+    {
+      "target": "launcher.remoteUp",
       "sources": [
         "src/launcher.ts"
       ]
@@ -1538,6 +1580,114 @@
       "target": "linear.disconnect",
       "sources": [
         "src/settings.ts"
+      ]
+    },
+    {
+      "target": "machines.add",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.cancel",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.claude.cancel",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.claude.check",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.claude.code",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.claude.open",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.claude.signIn",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.claude.submit",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.cpu",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.edit",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.install",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.memory",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.more",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.name",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.reconnect",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.remove",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.save",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.ssh",
+      "sources": [
+        "src/machines.ts"
       ]
     },
     {

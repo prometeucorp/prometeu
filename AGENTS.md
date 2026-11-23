@@ -74,6 +74,8 @@ The complete dependency rules are in
 - `src-tauri/src/accounts.rs` and `account_login.rs`: desktop account facade and
   native authentication.
 - `src-tauri/crates/runtime/`: Unix execution host used by Windows through WSL.
+- `src-tauri/crates/host/` and `src-tauri/src/remote/`: the SSH remote-machine
+  daemon and its desktop connection, installer and remote workspaces (ADR 0101).
 - `src-tauri/crates/bridge/`, `crates/wsl-desktop/` and `src/windows/`: native
   Windows shell that loads the existing interface over the WSL runtime (ADR 0084).
 - `src/team.ts`: the collaboration desktop shell (team.json, organizations,

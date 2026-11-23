@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 vi.mock("./ipc", () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 
 import { invoke } from "./ipc";
+// `vi.mocked(invoke)` makes the checker relate the whole IPC registry to the mock type, which costs minutes.
+const invokeMock = invoke as unknown as Mock;
 import { trackClicks, trackRequestResponse, unidentifiedControls, viewScreen, type ClickEvent } from "./analytics";
 
-beforeEach(() => vi.mocked(invoke).mockClear());
+beforeEach(() => invokeMock.mockClear());
 
 type Spec = { disabled?: boolean; ariaDisabled?: boolean; tag?: string; role?: string; type?: string; text?: string; t?: string; tTitle?: string; track?: string; trackArea?: string; trackDoubleClick?: string; trackContextMenu?: string };
 type TestElement = HTMLElement & { spec: Spec };
@@ -132,7 +134,7 @@ describe("authored click capture", () => {
 describe("screen views", () => {
   it("counts changes, not repeats", () => {
     viewScreen("desk"); viewScreen("desk"); viewScreen("workspace"); viewScreen("workspace"); viewScreen("desk");
-    const screens = vi.mocked(invoke).mock.calls.map(([, args]) => (args as { event: { screen: string } }).event.screen);
+    const screens = invokeMock.mock.calls.map(([, args]) => (args as { event: { screen: string } }).event.screen);
     expect(screens).toEqual(["desk", "workspace", "desk"]);
   });
 });

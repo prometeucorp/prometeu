@@ -2794,6 +2794,7 @@ dependencies = [
  "prometeu-core",
  "prometeu-files",
  "prometeu-git",
+ "prometeu-host",
  "prometeu-oauth",
  "prometeu-process",
  "prometeu-profiles",
@@ -2857,6 +2858,18 @@ version = "0.1.0"
 dependencies = [
  "prometeu-core",
  "uuid",
+]
+
+[[package]]
+name = "prometeu-host"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "portable-pty",
+ "prometeu-core",
+ "prometeu-process",
+ "serde_json",
 ]
 
 [[package]]

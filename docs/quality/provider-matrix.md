@@ -16,6 +16,22 @@ Chromium runs the retained scenarios; only cases explicitly tagged `@webkit`
 repeat in WebKit. References to both engines mean representative coverage, not
 every combination of providers, states, languages and screen sizes.
 
+## Remote machines
+
+Only Claude declares `remoteMachines` ([ADR 0101](../decisions/0101-remote-machines.md)):
+its native hooks are relayed by the remote host and its project transcripts are
+mirrored for the observer. Codex, Cursor and Antigravity are rejected for remote
+workspaces until their hooks, stores and engines run on the host. The remote
+Claude invocation is the local terminal one without account profile, MCP or
+plugin arguments: the machine's own Claude login and configuration apply.
+Settings signs Claude in on the machine with `claude auth login --claudeai`, the
+person's browser and a pasted code; the opt-in `vps_claude_login` test covers the
+link on Claude Code 2.1.330.
+
+Evidence: the host integration tests and the opt-in `vps_journey` cover
+transport, reattachment and limits. A live Claude response, completion and
+reattached status on a remote machine remain to be recorded here.
+
 ## Native conversation mode
 
 The optional conversation mode format is shared by Claude, Codex, Antigravity

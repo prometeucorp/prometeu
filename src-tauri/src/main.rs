@@ -65,6 +65,7 @@ mod platform;
 mod plugins;
 mod pty;
 mod recovery;
+mod remote;
 mod scripts;
 mod selection;
 mod session;
@@ -216,6 +217,8 @@ fn main() {
         .manage(background::State::default())
         .manage(usage::Service::new())
         .manage(machine::Service::new())
+        .manage(remote::Service::new())
+        .manage(remote::login::Logins::default())
         .invoke_handler(tauri::generate_handler![
             analytics::analytics_track,
             analytics::analytics_enabled,
@@ -413,6 +416,18 @@ fn main() {
             typesafe::typesafe_remove_key,
             typesafe::typesafe_set_enabled,
             typesafe::context_evaluate,
+            remote::machines,
+            remote::machine_save,
+            remote::machine_remove,
+            remote::machine_install,
+            remote::machine_connect,
+            remote::machine_stats,
+            remote::machine_claude_status,
+            remote::login::machine_claude_login,
+            remote::login::machine_claude_code,
+            remote::login::machine_claude_login_cancel,
+            remote::workspace::remote_add_project,
+            remote::workspace::remote_list_dir,
         ])
         .setup(|app| {
             if let Some(window) = tauri::Manager::get_window(app, "main") {
@@ -429,6 +444,7 @@ fn main() {
             file_drop::install(app.handle())?;
             machine::watch(app.handle().clone());
             usage::watch(app.handle().clone());
+            remote::start(app.handle());
             Ok(())
         })
         .on_webview_event(file_drop::on_webview_event)

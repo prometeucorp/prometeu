@@ -85,3 +85,26 @@
 .telemetry-status:empty { display: none; }
 .telemetry-status { margin-top: var(--space-3); }
 .telemetry-settings > .telemetry-actions { margin-top: var(--space-6); border-bottom: 0; }
+
+/* Remote machines. */
+.settings-panel > .setrow.machine-intro { min-height: 0; align-items: center; padding: 14px 18px; }
+.machine-claude-login > .ui-button { font-size: 12px; }
+.settings-panel > .setrow.machine-intro .txt > span { margin-top: 0; }
+.machine-row .txt > b { display: flex; align-items: center; gap: var(--space-2); }
+.machine-row .machine-where { font-family: var(--mono); font-size: 11px !important; color: var(--fg-3) !important; }
+.machine-row .txt > span.warn { color: var(--wait); }
+.machine-row .act { align-self: center; }
+.machine-status { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); font-size: 11px; font-weight: 400; line-height: 16px; }
+.machine-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); }
+.machine-status[data-phase="connected"]::before { background: var(--done); }
+.machine-status[data-phase="connecting"]::before, .machine-status[data-phase="not_installed"]::before { background: var(--wait); }
+.machine-status[data-phase="failed"]::before, .machine-status[data-phase="replaced"]::before { background: var(--err); }
+.settings-panel > .machine-note { margin: 0 18px 16px 64px; }
+.settings-panel > .machine-form { margin: 0; padding: 18px; display: grid; gap: var(--space-3); border-top: 1px solid var(--line); }
+.machine-limits { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.machine-actions { display: flex; gap: var(--space-2); }
+.settings-panel > .machine-claude-login { display: grid; gap: var(--space-2); margin: 0 18px 16px 64px; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-raised); }
+.machine-claude-login > .ui-hint { margin: 0; }
+.machine-claude-login > .ui-button { justify-self: start; }
+.machine-claude-entry { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-2); align-items: end; }
+@container (max-width: 560px) { .machine-claude-entry { grid-template-columns: 1fr; } .settings-panel > .machine-note, .settings-panel > .machine-claude-login { margin-left: 18px; } }

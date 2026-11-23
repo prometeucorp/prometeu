@@ -12,7 +12,8 @@ export type Pending = { conversations: number; preparing: number; terminals: num
 
 /// Count the tabs `Board::revive` marks interrupted after a restart and the workspaces whose preparation would fail. Shares of other people run on their owners' computers. Terminals come from the backend, which sees the commands they run.
 export function pending(board: Board, terminals: number): Pending {
-  const local = board.workspaces.filter((ws) => !ws.remote);
+  // Remote machines keep running their workspaces after the app quits (ADR 0101).
+  const local = board.workspaces.filter((ws) => !ws.remote && !ws.host);
   return {
     conversations: local.reduce((n, ws) => n + ws.tabs.filter((tab) => tab.status === "rodando" || tab.status === "querendo").length, 0),
     preparing: local.filter((ws) => ws.preparing).length,

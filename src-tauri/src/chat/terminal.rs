@@ -1,5 +1,5 @@
 //! Native terminal transport owned by an ordinary conversation, never by the dock registry.
-mod binding;
+pub(crate) mod binding;
 pub(crate) mod codex;
 pub(crate) mod ingestion;
 mod screen;
@@ -706,6 +706,9 @@ pub(crate) struct Transport {
     decisions: Option<Arc<crate::terminal_agent_decisions::Decisions>>,
     activity: Option<Arc<prometeu_core::session::output::SessionOutput>>,
     published: Arc<(Mutex<bool>, Condvar)>,
+    /// Set by a remote terminal while its reader handles bytes replayed after reattachment
+    /// (ADR 0101). Their terminal queries were answered, or abandoned, when first produced.
+    replaying: Option<Arc<AtomicBool>>,
 }
 
 impl Transport {
@@ -1515,6 +1518,13 @@ fn drain_native(
                 break;
             }
         }
+        if transport
+            .replaying
+            .as_ref()
+            .is_some_and(|replaying| replaying.load(Ordering::Acquire))
+        {
+            responses.clear();
+        }
         if !responses.is_empty() && replies.try_send(responses).is_err() {
             // Bounded backpressure must not silently discard a reply or block the PTY reader.
             fail_io(transport, &events, i18n::t("err.terminalAgent.screen"));
@@ -1547,13 +1557,75 @@ fn answer_queries(
     }
 }
 
+/// Where a terminal agent's process runs and where its hooks and transcripts are observed.
+/// `Local` is this computer; a remote machine provides its own (ADR 0101).
+pub(crate) trait Execution {
+    fn observation_roots(
+        &self,
+        prepared: &crate::terminal_agent_launch::PreparedTerminalAgent,
+    ) -> Result<Vec<std::path::PathBuf>, String>;
+    fn configure(
+        &self,
+        bridge: &HookBridge,
+        command: &mut Command,
+        probe: Option<&mut Command>,
+    ) -> Result<(), String>;
+    fn open(
+        &self,
+        app: &AppHandle,
+        command: &Command,
+        size: TerminalSize,
+    ) -> Result<prometeu_core::terminal::StartedTerminal, String>;
+    fn replaying(&self) -> Option<Arc<AtomicBool>> {
+        None
+    }
+}
+
+pub(crate) struct Local;
+impl Execution for Local {
+    fn observation_roots(
+        &self,
+        prepared: &crate::terminal_agent_launch::PreparedTerminalAgent,
+    ) -> Result<Vec<std::path::PathBuf>, String> {
+        prepared.observation_roots()
+    }
+    fn configure(
+        &self,
+        bridge: &HookBridge,
+        command: &mut Command,
+        probe: Option<&mut Command>,
+    ) -> Result<(), String> {
+        bridge.configure(command, probe)
+    }
+    fn open(
+        &self,
+        app: &AppHandle,
+        command: &Command,
+        size: TerminalSize,
+    ) -> Result<prometeu_core::terminal::StartedTerminal, String> {
+        app.state::<AppState>()
+            .terminal_factory
+            .open(pty_command(command), size)
+            .map_err(crate::pty::launch_error)
+    }
+}
+
 pub(crate) fn launch(
     app: &AppHandle,
     request: &LaunchRequest,
     prepared: crate::terminal_agent_launch::PreparedTerminalAgent,
 ) -> Result<Chat, String> {
+    launch_on(app, request, prepared, &Local)
+}
+
+pub(crate) fn launch_on(
+    app: &AppHandle,
+    request: &LaunchRequest,
+    prepared: crate::terminal_agent_launch::PreparedTerminalAgent,
+    execution: &dyn Execution,
+) -> Result<Chat, String> {
     let provider = prepared.profile.provider;
-    let authorized_roots = prepared.observation_roots()?;
+    let authorized_roots = execution.observation_roots(&prepared)?;
     let cursor_store_root = prepared.cursor_store_root();
     let antigravity_store_root = prepared.antigravity_store_root();
     let crate::terminal_agent_launch::PreparedTerminalAgent {
@@ -1581,9 +1653,9 @@ pub(crate) fn launch(
         .then(|| bridge.enable_claude_decisions())
         .transpose()?;
     if let Some(engine) = engine.as_mut() {
-        bridge.configure(&mut engine.command, hook_probe.as_mut())?;
+        execution.configure(&bridge, &mut engine.command, hook_probe.as_mut())?;
     } else {
-        bridge.configure(&mut command, hook_probe.as_mut())?;
+        execution.configure(&bridge, &mut command, hook_probe.as_mut())?;
     }
     let engine = engine.map(|plan| plan.start(&mut command)).transpose()?;
     if let Some(engine) = &engine {
@@ -1729,10 +1801,7 @@ pub(crate) fn launch(
     )
     .map_err(|_| i18n::t("err.terminalAgent.screen"))?;
     let state = app.state::<AppState>();
-    let started = state
-        .terminal_factory
-        .open(pty_command(&command), TerminalSize { cols: 80, rows: 24 })
-        .map_err(crate::pty::launch_error)?;
+    let started = execution.open(app, &command, TerminalSize { cols: 80, rows: 24 })?;
     let (pump, context) = super::compose_seeded(app, &request.session, profile, store, lines);
     let pump = pump.with_commit(journal.clone());
     let published = Arc::new((Mutex::new(false), Condvar::new()));
@@ -1777,6 +1846,7 @@ pub(crate) fn launch(
         decisions,
         activity: Some(pump.output.clone()),
         published,
+        replaying: execution.replaying(),
     });
     let chat = Chat {
         wire: Box::new(NativeInput(transport.clone())),
@@ -2114,6 +2184,7 @@ mod tests {
                 cursor_interrupted_requests: Mutex::new(BTreeSet::new()),
                 activity: None,
                 published: Arc::new((Mutex::new(false), Condvar::new())),
+                replaying: None,
             }),
             bytes,
         )

@@ -575,6 +575,7 @@ fn in_place(
     provider: ProviderId,
 ) -> Workspace {
     Workspace {
+        host: None,
         id: id.clone(),
         title,
         project: project.id.clone(),
@@ -667,10 +668,12 @@ mod tests {
                 return Err("workspace_folder_invalid".into());
             }
             Ok(Project {
+                host: None,
                 id: path.into(),
                 path: path.into(),
                 name: "Project".into(),
                 group: None,
+                origin: None,
             })
         }
     }

@@ -1,4 +1,5 @@
 import { avatar, avatars, brand, icon, stageIcon, wave } from "./icons";
+import { aliases, badge as machineBadge } from "./machines";
 import { stage as stageName, t, tn } from "./i18n";
 import * as menu from "./menu";
 import { keys } from "./platform";
@@ -333,10 +334,15 @@ function renderRail(board: Board, hooks: Hooks) {
   rail.append(notifications);
   rail.append(document.createElement("hr"));
 
+  // A machine's clone of a local repository is that project, so it is listed once (ADR 0101).
+  const alias = aliases(board.projects);
+  const home = (id: string) => alias.get(id) ?? id;
+  const projects = board.projects.filter((p) => !alias.has(p.id));
+
   // Pinned workspaces move to the top instead of appearing twice.
   const pinned = live.filter((w) => w.pinned || hierarchy.children.get(w.id)?.some(child => child.pinned));
   const shownPinned = pinned.filter(w => projectMatches(
-    board.projects.find(p => p.id === w.project) ?? { id: "", name: repoLabel(w), path: "" },
+    board.projects.find(p => p.id === home(w.project)) ?? { id: "", name: repoLabel(w), path: "" },
     familyOf([w]), query,
   ));
   if (shownPinned.length) {
@@ -369,8 +375,8 @@ function renderRail(board: Board, hooks: Hooks) {
       {
         label: t("rail.folder.newWith"), track: "rail.folder.newWith",
         glyph: icon("folder"),
-        disabled: !board.projects.length,
-        sub: board.projects.map((p) => ({ label: p.name, track: "project.folder.create", glyph: avatar(p.name), run: () => start(p.id) })),
+        disabled: !projects.length,
+        sub: projects.map((p) => ({ label: p.name, track: "project.folder.create", glyph: avatar(p.name), run: () => start(p.id) })),
       },
     ]);
   });
@@ -393,8 +399,8 @@ function renderRail(board: Board, hooks: Hooks) {
   const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
   // Workspaces spanning repositories belong to collection groups.
   const single = live.filter((w) => !pinned.includes(w) && w.repos.length < 2);
-  const mineOf = (id: string) => single.filter((w) => w.project === id);
-  const shown = board.projects.filter((p) => projectMatches(p, familyOf(mineOf(p.id)), query));
+  const mineOf = (id: string) => single.filter((w) => home(w.project) === id);
+  const shown = projects.filter((p) => projectMatches(p, familyOf(mineOf(p.id)), query));
   // Group multi-repository workspaces by repository set. These transient collections have split avatars but no project creation/menu controls.
   const sets = new Map<string, Workspace[]>();
   for (const w of live) {
@@ -403,8 +409,8 @@ function renderRail(board: Board, hooks: Hooks) {
     sets.set(repoLabel(w), [...(sets.get(repoLabel(w)) ?? []), w]);
   }
   if (query && !shown.length && !sets.size && !shownPinned.length) rail.append(h("div", "railhint", t("rail.filter.none")));
-  const order = board.projects.map((p) => p.id);
-  const folders = [...new Set(board.projects.flatMap((p) => (p.group ? [p.group] : [])))].sort((a, b) => a.localeCompare(b));
+  const order = projects.map((p) => p.id);
+  const folders = [...new Set(projects.flatMap((p) => (p.group ? [p.group] : [])))].sort((a, b) => a.localeCompare(b));
 
   const projectBox = (project: Project) => {
     const mine = mineOf(project.id);
@@ -457,9 +463,11 @@ function renderRail(board: Board, hooks: Hooks) {
     // Wrap each project so dragging its heading moves the workspaces along with it.
     const box = h("div", "railproject");
     box.dataset.project = project.id;
+    const where = machineBadge(project.host, true);
     const head = renderGroup(box, board, hooks, project.name, avatar(project.name), mine, `@proj:${project.id}`, {
-      extra: [more, plus],
-      open: () => hooks.openProject(project.id),
+      extra: [...(where ? [where] : []), more, plus],
+      // A remote clone has no local folder to browse: its heading starts a workspace there instead.
+      open: () => (project.host ? hooks.newWorkspace(project.id) : hooks.openProject(project.id)),
       searching: !!query,
       on: openId === project.id,
     });
@@ -473,7 +481,7 @@ function renderRail(board: Board, hooks: Hooks) {
   for (const name of folders) {
     const members = shown.filter((p) => p.group === name);
     if (!members.length) continue;
-    const ids = board.projects.filter((p) => p.group === name).map((p) => p.id);
+    const ids = projects.filter((p) => p.group === name).map((p) => p.id);
     const key = `@folder:${name}`;
     // A search shows every match, so folders open while it is active.
     const shut = !query && folded(key);
@@ -491,7 +499,7 @@ function renderRail(board: Board, hooks: Hooks) {
     head.children[2].textContent = String(members.length);
     // A collapsed folder still reports agents that need attention or are working.
     if (shut) {
-      const statuses = familyOf(single.filter((w) => ids.includes(w.project))).map(statusOf);
+      const statuses = familyOf(single.filter((w) => ids.includes(home(w.project)))).map(statusOf);
       const urgent = (["querendo", "rodando"] as const).find((s) => statuses.includes(s));
       if (urgent) head.children[2].before(statusDot(urgent));
     }
@@ -662,6 +670,8 @@ function renderGroup(
     b.dataset.track = "rail.workspace";
     b.addEventListener("click", () => hooks.open(ws, compact ? ws.tabs[0]?.id : undefined));
     if (!compact && (owner || opts.avatars)) b.children[0].after(template("span", "av", owner ? avatar(owner) : avatars(ws.repos.map((r) => r.name))));
+    const where = machineBadge(ws.host, true);
+    if (where) b.querySelector(".wsidentity")!.after(where);
     if (ws.remote && !ws.remote.online) card.classList.add("off");
     if (!ws.remote) attachMenu(b, ws, board, hooks, title, "sub");
     else attachLeave(b, ws, owner!);

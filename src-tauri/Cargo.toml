@@ -8,7 +8,7 @@ rust-version = "1.88"
 default-run = "Prometeu"
 
 [workspace]
-members = ["crates/oauth", "crates/git", "crates/files", "crates/core", "crates/process", "crates/profiles", "crates/tools", "crates/protocols", "crates/runtime", "crates/bridge", "crates/wsl-desktop"]
+members = ["crates/oauth", "crates/git", "crates/files", "crates/core", "crates/process", "crates/profiles", "crates/tools", "crates/protocols", "crates/runtime", "crates/bridge", "crates/wsl-desktop", "crates/host"]
 resolver = "2"
 
 [[bin]]
@@ -24,6 +24,7 @@ prometeu-git = { path = "crates/git" }
 prometeu-core = { path = "crates/core" }
 prometeu-files = { path = "crates/files" }
 prometeu-protocols = { path = "crates/protocols" }
+prometeu-host = { path = "crates/host" }
 # The unstable feature enables child webviews (Window::add_child). The browser tab
 # overlays a system webview on the window center; see browser.rs.
 tauri = { version = "2", features = ["unstable"] }

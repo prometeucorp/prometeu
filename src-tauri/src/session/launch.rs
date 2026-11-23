@@ -99,7 +99,7 @@ impl ResumePreparation for Desktop<'_> {
         if ws.cleaned {
             return Err(i18n::t("err.session.cleaned"));
         }
-        if !Path::new(&ws.worktree).exists() {
+        if ws.host.is_none() && !Path::new(&ws.worktree).exists() {
             return Err(i18n::ta("err.session.noWorktree", &[("path", ws.worktree)]));
         }
         Ok(PreparedResume {
@@ -137,6 +137,14 @@ impl LaunchEffects<chat::Chat> for Desktop<'_> {
 
 impl ConversationLauncher<chat::Chat> for Desktop<'_> {
     fn launch(&self, request: &LaunchRequest) -> Result<Launched<chat::Chat>, String> {
+        let host = lock(&self.state.board)
+            .workspaces
+            .iter()
+            .find(|ws| ws.id == request.workspace)
+            .and_then(|ws| ws.host.clone());
+        if let Some(machine) = host {
+            return crate::remote::agent::launch(self.app, request, &machine);
+        }
         if request.settings.conversation_mode == Some(crate::state::ConversationMode::Terminal) {
             if !chat::terminal::ENABLED {
                 return Err(i18n::t("err.terminalAgent.unsupported"));

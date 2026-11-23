@@ -189,6 +189,14 @@ pub struct Project {
     /// Sidebar folder chosen by the person. Projects without one sit at the top level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// The remote machine that holds this clone (ADR 0101); `None` is this computer. `path` then
+    /// names a folder on that machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// The clone's `origin` remote, normalized (`github.com/owner/repo`). A remote clone with the
+    /// same origin as a local project appears as that project (ADR 0101).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// A local shell owned by the app rather than by a workspace or project (ADR 0096). Only this
@@ -347,6 +355,11 @@ pub struct Workspace {
     pub tabs: Vec<Tab>,
     #[serde(default)]
     pub active: Option<String>,
+    /// The remote machine that owns this workspace's checkout and processes (ADR 0101); `None` is
+    /// this computer. `worktree` and `repos` then name paths on that machine, and its terminal
+    /// agents keep running there while this computer sleeps or the app is closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 fn confirm_by_default() -> bool {
@@ -592,10 +605,12 @@ impl Board {
             .iter()
             .filter(|ws| ws.project.is_empty())
             .map(|ws| Project {
+                host: None,
                 id: ws.repo.clone(),
                 name: ws.repo_name.clone(),
                 path: ws.repo.clone(),
                 group: None,
+                origin: None,
             })
             .collect();
         for ws in &mut self.workspaces {
@@ -958,6 +973,28 @@ mod tests {
     }
 
     /// Existing legacy sessions still receive their migrated tab.
+    /// Local workspaces and projects never write `host`, so older apps read the board unchanged;
+    /// a remote workspace keeps its machine across a save (ADR 0101).
+    #[test]
+    fn remote_hosts_round_trip_and_local_entries_omit_them() {
+        let local = board_json("");
+        let saved = serde_json::to_value(&local).unwrap();
+        assert!(saved["workspaces"][0].get("host").is_none());
+        let remote = board_json(r#","host":"vps""#);
+        assert_eq!(remote.workspaces[0].host.as_deref(), Some("vps"));
+        let saved = serde_json::to_value(&remote).unwrap();
+        assert_eq!(saved["workspaces"][0]["host"], "vps");
+        let project: Project = serde_json::from_str(
+            r#"{"id":"remote:vps:/r","name":"r","path":"/r","host":"vps","origin":"github.com/o/r"}"#,
+        )
+        .unwrap();
+        assert_eq!(project.host.as_deref(), Some("vps"));
+        assert_eq!(project.origin.as_deref(), Some("github.com/o/r"));
+        let local: Project = serde_json::from_str(r#"{"id":"/r","name":"r","path":"/r"}"#).unwrap();
+        let saved = serde_json::to_value(&local).unwrap();
+        assert!(saved.get("host").is_none() && saved.get("origin").is_none());
+    }
+
     #[test]
     fn legacy_boards_without_tabs_still_receive_one() {
         let mut board = board_json("");

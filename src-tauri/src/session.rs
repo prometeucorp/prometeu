@@ -98,6 +98,7 @@ pub fn add_project(
     let path = PathBuf::from(expand(&path));
     let project = register_local_project(&state.board, &path, ProjectAction::Add);
     publish(&app);
+    std::thread::spawn(move || crate::remote::fill_origins(&app, None));
     Ok(project)
 }
 
@@ -128,6 +129,7 @@ pub fn create_project(
 pub(crate) fn register_project(board: &mut Board, path: &Path, action: ProjectAction) -> Project {
     let id = path.display().to_string();
     let project = Project {
+        host: None,
         id: id.clone(),
         name: path
             .file_name()
@@ -136,6 +138,7 @@ pub(crate) fn register_project(board: &mut Board, path: &Path, action: ProjectAc
             .into(),
         path: id,
         group: None,
+        origin: None,
     };
     let added = !board
         .projects
@@ -868,7 +871,7 @@ use prometeu_core::workspace_lifecycle::{self, has_worktree, Change};
 /// sessions in the original clone, and measure independent worktrees in parallel because each git
 /// status and du call traverses its own tree.
 #[tauri::command(async)]
-pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
+pub fn cleanup_list(app: AppHandle, state: State<AppState>) -> Vec<Cleanable> {
     let mine: Vec<Workspace> = lock(&state.board)
         .workspaces
         .iter()
@@ -877,13 +880,39 @@ pub fn cleanup_list(state: State<AppState>) -> Vec<Cleanable> {
         .collect();
 
     let cleanup = &state.worktree_cleanup;
+    let service = app.state::<crate::remote::Service>();
+    let service = &*service;
     std::thread::scope(|scope| {
         let handles: Vec<_> = mine
             .into_iter()
-            .map(|ws| scope.spawn(move || cleanup.inspect(&ws)))
+            .map(|ws| {
+                scope.spawn(move || match ws.host.as_deref() {
+                    // Remote checkouts are measured by Git on their machine (ADR 0101).
+                    Some(machine) => remote_cleanable(service, machine, &ws),
+                    None => cleanup.inspect(&ws),
+                })
+            })
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok()).collect()
     })
+}
+
+fn remote_cleanable(service: &crate::remote::Service, machine: &str, ws: &Workspace) -> Cleanable {
+    let (size_kb, verdict) = match service.connected(machine) {
+        Ok(connection) => crate::remote::workspace::inspect(&connection, ws)
+            .unwrap_or_else(|error| (0, Err(error))),
+        Err(error) => (0, Err(error)),
+    };
+    Cleanable {
+        id: ws.id.clone(),
+        title: ws.title.clone(),
+        repo_name: ws.repo_name.clone(),
+        branch: ws.branch.clone(),
+        worktree: ws.worktree.clone(),
+        size_kb,
+        pr: ws.prs().next().map(|(_, p)| p.number),
+        blocked: verdict.err(),
+    }
 }
 
 /// Permanently remove the worktree and local branch while retaining the card. Force permits
@@ -904,9 +933,16 @@ pub fn cleanup_worktree(
     if ws.cleaned {
         return Ok(());
     }
-    state.worktree_cleanup.check(&ws, force)?;
-    if ws.multi() {
-        validate_multi_root(&ws)?;
+    let remote = match ws.host.as_deref() {
+        Some(machine) => Some(app.state::<crate::remote::Service>().connected(machine)?),
+        None => None,
+    };
+    // Remote cleanup checks the checkout on its machine before removing it.
+    if remote.is_none() {
+        state.worktree_cleanup.check(&ws, force)?;
+        if ws.multi() {
+            validate_multi_root(&ws)?;
+        }
     }
 
     // Stop agents and docks before removing their directories. The archive script already ran
@@ -918,13 +954,16 @@ pub fn cleanup_worktree(
         .unwrap_or_default();
     stop(&state, &dead);
 
-    state.worktree_cleanup.remove(&ws)?;
+    match &remote {
+        Some(connection) => crate::remote::workspace::cleanup(connection, &ws, force)?,
+        None => state.worktree_cleanup.remove(&ws)?,
+    }
     analytics::track(Event::WorkspaceActionUsed {
         action: WorkspaceAction::Cleanup,
     });
     // Remove the application-owned directory that grouped the worktrees after its children are
     // gone.
-    if ws.multi() {
+    if ws.multi() && remote.is_none() {
         let _ = std::fs::remove_dir_all(&ws.worktree);
     }
     crate::plugins::forget_codex_workspace(&id);
@@ -1183,6 +1222,12 @@ pub(crate) fn create_workspace_owned(
     rows: u16,
     delegation: Option<crate::delegation::Delegation>,
 ) -> Result<Workspace, String> {
+    if let Some(machine) = draft.host.clone() {
+        if delegation.is_some() {
+            return Err(i18n::t("err.remote.delegation"));
+        }
+        return crate::remote::workspace::create(app, state, draft, &machine);
+    }
     let mode = draft
         .launch
         .conversation_mode
@@ -1314,6 +1359,7 @@ pub(crate) fn create_workspace_owned(
     let preserve_branches = branches_to_preserve(&repos, &branch, draft.worktree, draft.new_branch);
 
     let mut ws = Workspace {
+        host: None,
         id: uuid::Uuid::new_v4().to_string(),
         title: if draft.title.trim().is_empty() {
             branch.clone()
@@ -1596,6 +1642,55 @@ fn build(
     Ok(())
 }
 
+/// Start the first conversation of a remote workspace once its checkout exists on the machine
+/// (ADR 0101). Tool selection, setup scripts and kickoff skills are local-only and are skipped.
+pub(crate) fn start_remote_conversation(
+    app: &AppHandle,
+    id: &str,
+    draft: &Draft,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    let mut launch = draft.launch.clone();
+    launch.conversation_mode = Some(ConversationMode::Terminal);
+    launch.mcp = None;
+    launch.plugins = None;
+    launch.skills = None;
+    let gate = state.workspace_lifecycle.workspace(id);
+    let _admission = launch::admit(&gate, &state.board, id)?;
+    let tab = spawn_tab_with_id(
+        app,
+        &state,
+        id,
+        "",
+        first_message(None, &draft.prompt, &draft.inject),
+        &launch,
+        None,
+        None,
+    )?;
+    let tab_id = tab.id.clone();
+    {
+        let mut board = lock(&state.board);
+        let Some(ws) = board.workspace_mut(id) else {
+            drop(board);
+            chat::kill(&state, &tab_id);
+            return Ok(());
+        };
+        ws.preparing = false;
+        ws.active = Some(tab_id.clone());
+        ws.tabs.push(tab);
+    }
+    publish(app);
+    chat::ready_now(app, &tab_id);
+    Ok(())
+}
+
+/// Resume or reattach one conversation without the interface asking, as after a remote machine
+/// reconnects with the conversation's process still running.
+pub(crate) fn resume_conversation(app: &AppHandle, session: &str) -> Result<bool, String> {
+    let state = app.state::<AppState>();
+    launch::resume(app, &state, session)
+}
+
 /* ---------- tabs ---------- */
 
 /// Open another conversation in the same worktree. An explicit choice comes from the new-tab model
@@ -1769,16 +1864,18 @@ fn spawn_tab_with_id(
 ) -> Result<Tab, String> {
     let (worktree, conversation_mode) = {
         let board = lock(&state.board);
-        let worktree = board
+        let ws = board
             .workspaces
             .iter()
             .find(|candidate| candidate.id == workspace)
-            .map(|workspace| PathBuf::from(&workspace.worktree))
             .ok_or_else(|| i18n::t("err.session.noWorkspace"))?;
-        (
-            worktree,
-            launch.conversation_mode.unwrap_or(board.conversation_mode),
-        )
+        // Remote machines run native terminals only (ADR 0101).
+        let mode = if ws.host.is_some() {
+            ConversationMode::Terminal
+        } else {
+            launch.conversation_mode.unwrap_or(board.conversation_mode)
+        };
+        (PathBuf::from(&ws.worktree), mode)
     };
     let mut launch = launch.clone();
     launch.conversation_mode = Some(conversation_mode);
@@ -2199,15 +2296,58 @@ fn describe_root(root: &Path, repos: &[Repo], branch: &str) {
 /// Choose the clone's origin/HEAD, then conventional default names, then its current branch. The
 /// launcher uses the same default.
 fn default_base(repo: &Path) -> String {
-    list_branches(repo.display().to_string()).default
+    local_branches(repo).default
+}
+
+fn local_branches(repo: &Path) -> Branches {
+    prometeu_core::repository::branches(|args| git(repo, args), repo.join(".git").exists())
 }
 
 pub use prometeu_core::repository::Branches;
 /// List repository branches using the shared launcher's reference selection policy.
 #[tauri::command(async)]
-pub fn list_branches(project: String) -> Branches {
-    let repo = PathBuf::from(expand(&project));
-    prometeu_core::repository::branches(|args| git(&repo, args), repo.join(".git").exists())
+pub fn list_branches(
+    app: AppHandle,
+    state: State<AppState>,
+    project: String,
+    host: Option<String>,
+) -> Branches {
+    // A local project opened for a machine lists the branches of its clone there, when one exists.
+    let remote = {
+        let board = lock(&state.board);
+        let chosen = board.projects.iter().find(|p| p.id == project);
+        match (chosen, host) {
+            (Some(p), _) if p.host.is_some() => p.host.clone().map(|h| (h, p.path.clone())),
+            (Some(p), Some(host)) => p.origin.as_ref().and_then(|origin| {
+                board
+                    .projects
+                    .iter()
+                    .find(|r| {
+                        r.host.as_deref() == Some(host.as_str())
+                            && r.origin.as_ref() == Some(origin)
+                    })
+                    .map(|r| (host.clone(), r.path.clone()))
+            }),
+            _ => None,
+        }
+    };
+    if let Some((machine, path)) = remote {
+        // Git runs on the machine that holds the clone (ADR 0101).
+        let Ok(connection) = app.state::<crate::remote::Service>().connected(&machine) else {
+            return prometeu_core::repository::branches(|_| String::new(), false);
+        };
+        let query = |args: &[&str]| {
+            let mut argv = vec!["git", "-C", path.as_str()];
+            argv.extend_from_slice(args);
+            connection
+                .exec(&argv, None, std::time::Duration::from_secs(30))
+                .map(|e| e.stdout)
+                .unwrap_or_default()
+        };
+        let is_git = !query(&["rev-parse", "--git-dir"]).trim().is_empty();
+        return prometeu_core::repository::branches(query, is_git);
+    }
+    local_branches(&PathBuf::from(expand(&project)))
 }
 
 #[cfg(test)]
@@ -2565,6 +2705,7 @@ mod tests {
         .unwrap();
 
         let mut ws = super::Workspace {
+            host: None,
             id: "w".into(),
             title: "work".into(),
             project: local.display().to_string(),
@@ -2839,6 +2980,7 @@ mod tests {
     /// A minimal workspace for tests that do not need disk access.
     fn bare() -> Workspace {
         Workspace {
+            host: None,
             id: "w".into(),
             title: "w".into(),
             project: String::new(),
@@ -3927,7 +4069,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             String::from_utf8_lossy(&out.stderr)
         );
 
-        let branches = super::list_branches(local.display().to_string());
+        let branches = super::local_branches(&local);
         assert_eq!(branches.default, "origin/main");
         assert_eq!(branches.all.first().unwrap(), "origin/main");
         assert!(branches.local.contains(&"main".to_string()));
@@ -4221,6 +4363,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             mk("front", "echo \"$PROMETEU_ROOT_PATH:$PORT\" > output.txt"),
         ];
         let ws = super::Workspace {
+            host: None,
             id: "w".into(),
             title: "t".into(),
             project: repos[0].path.clone(),

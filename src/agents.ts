@@ -21,6 +21,8 @@ export type AgentCapabilities = {
   approvals: boolean;
   userQuestions: boolean;
   attachments: boolean;
+  /// Terminal conversations on a remote machine (ADR 0101).
+  remoteMachines: boolean;
 };
 
 export type AuthMethod = { id: string; kind: "browser" | "external"; label: string };
@@ -60,6 +62,7 @@ const NO_CAPABILITIES: AgentCapabilities = {
   approvals: false,
   userQuestions: false,
   attachments: false,
+  remoteMachines: false,
 };
 
 /// Explicit bootstrap and failure states allow Claude startup without advertising unconfirmed optional capabilities.

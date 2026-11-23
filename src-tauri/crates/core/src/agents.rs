@@ -30,6 +30,8 @@ pub struct AgentCapabilities {
     pub approvals: bool,
     pub user_questions: bool,
     pub attachments: bool,
+    /// Terminal conversations on a remote machine (ADR 0101).
+    pub remote_machines: bool,
 }
 
 /// Return every supported provider even when its installation is unavailable.
