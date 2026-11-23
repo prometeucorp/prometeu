@@ -717,7 +717,9 @@ fn veto(lines: &[String]) -> bool {
         {
             return true;
         }
-        let lower = line.to_lowercase();
+        // Claude's permission-mode indicator ("⏵⏵ bypass permissions on") is a status line, not
+        // a dialog; it stays under an idle composer whenever the app runs Claude in bypass mode.
+        let lower = line.to_lowercase().replace("bypass permissions on", "");
         [
             "esc to interrupt",
             "ctrl+c to stop",
@@ -1207,6 +1209,19 @@ mod tests {
         assert!(cursor_paste_applied(&pasted.view(), text));
         pasted.lines[13].push_str(" (shift+tab)");
         assert!(!cursor_paste_applied(&pasted.view(), text));
+    }
+
+    #[test]
+    fn claude_bypass_mode_indicator_does_not_hide_an_idle_composer() {
+        let mut ready = capture(include_str!(
+            "native_ui_readiness/fixtures/claude-fresh-initial-ready.json"
+        ));
+        let footer = usize::from(ready.cursor.y) + 3;
+        ready.lines[footer] = "  ⏵⏵ bypass permissions on (shift+tab to cycle)".into();
+        assert!(ready.ready(ProviderId::Claude));
+        // A real permission prompt below the composer still blocks input.
+        ready.lines[footer] = "  Do you want to grant this permission?".into();
+        assert!(!ready.ready(ProviderId::Claude));
     }
 
     #[test]

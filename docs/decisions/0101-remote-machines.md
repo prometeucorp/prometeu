@@ -112,7 +112,9 @@ without root.
 - A process adopted before its first hook reached this desktop (for example,
   Claude still on its folder-trust question when the laptop slept) has no
   transcript binding yet. It is observed as a fresh start, so its queued
-  `SessionStart` binds it and its first prompt is still delivered.
+  `SessionStart` binds it and its first prompt is still delivered. Before adopting,
+  the desktop flushes the transcript mirror, so turns written while it was away
+  are read from where it stopped.
 - A remote conversation's profile names the machine (`remote:<machine>`). It never
   matches this computer's selected account, so switching local accounts does not
   restart remote conversations.
@@ -170,3 +172,9 @@ machine.
   the workspace slice's applied `memory.max` and `cpu.max`.
 - `remote_hosts_round_trip_and_local_entries_omit_them` in
   `crates/core/src/board.rs`: boards without remote entries save unchanged.
+- Manual run against a real machine (2026-11-23): a workspace created from a local
+  project on the machine received its prompt and started a 90-second task. The
+  desktop process was then stopped with `SIGSTOP` and its SSH connection killed.
+  The task finished on the machine. After `SIGCONT` the desktop reconnected,
+  and within 8 seconds the conversation showed the tool results, the final reply
+  and the completed turn.

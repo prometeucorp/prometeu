@@ -129,16 +129,8 @@ impl Execution for RemoteExecution {
             .to_string();
         // Mirror this working directory's transcripts, including subagent files, before any hook
         // can name them.
-        let slug = prometeu_host::claude_project_slug(&cwd);
-        let remote = format!("{}/{slug}", self.projects());
-        let watch = format!("claude-{:016x}", crate::paths::fnv1a(&remote));
+        let watch = mirror_transcripts(&self.connection, &self.machine, &self.home, &cwd)?;
         self.remote.mirrored_by(&watch);
-        self.connection.mirror(Mirror {
-            id: watch,
-            local: mirror_path(&self.machine, &remote),
-            remote,
-            depth: 3,
-        })?;
         self.connection.on_hook(
             &self.session,
             Arc::new(Relay {
@@ -216,6 +208,27 @@ impl RemoteExecution {
     }
 }
 
+/// Mirror the transcripts of conversations working in `cwd` on the machine; returns the watch.
+fn mirror_transcripts(
+    connection: &Connection,
+    machine: &str,
+    home: &str,
+    cwd: &str,
+) -> Result<String, String> {
+    let remote = format!(
+        "{home}/.claude/projects/{}",
+        prometeu_host::claude_project_slug(cwd)
+    );
+    let watch = format!("claude-{:016x}", crate::paths::fnv1a(&remote));
+    connection.mirror(Mirror {
+        id: watch.clone(),
+        local: mirror_path(machine, &remote),
+        remote,
+        depth: 3,
+    })?;
+    Ok(watch)
+}
+
 const REMOTE_PROFILE: &str = "remote:";
 
 /// Whether a conversation's profile stands for a machine's own Claude sign-in.
@@ -282,10 +295,19 @@ pub fn launch(
         },
     );
     crate::terminal_agent_launch::drop_claude_vars(&mut command);
-    // An adopted process whose first hook never reached this app has no transcript binding yet:
-    // nothing was ingested and its first prompt may still be pending, so observe it as a fresh
-    // start; the queued SessionStart binds it.
+    // An adopted process resumes observation from its transcript binding. Without one (its first
+    // hook never reached this app) nothing was ingested and its first prompt is still pending:
+    // observe it as a fresh start, and the queued SessionStart binds it. The mirror is brought up
+    // to date first, so a transcript written while this app was away is read from its end.
     let bound = || {
+        let Ok(watch) = mirror_transcripts(&connection, machine, &home, &cwd) else {
+            return false;
+        };
+        let _ = connection.request_timeout(
+            "watch_flush",
+            json!({"id": watch}),
+            Duration::from_secs(10),
+        );
         crate::chat::terminal::binding::Binding::load(
             &crate::paths::root(),
             &effective.session,
