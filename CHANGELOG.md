@@ -4,6 +4,18 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.43.0] - 2026-11-23
+
+### New
+
+- **remote:** Run workspaces on your own machines over ssh
+
+### Fixes
+
+- **remote:** Keep the end of remote work and start it without local claude
+- **remote:** Deliver prompts and reattach before claude's first hook
+- **terminal:** Send prompts to claude running with bypassed permissions
+
 ## [0.42.2] - 2026-11-21
 
 ### Fixes
