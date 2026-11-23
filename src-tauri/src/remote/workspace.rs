@@ -152,6 +152,14 @@ fn resolve(
     }
     let name = basename(&local.path);
     let path = format!("{home}/code/{name}");
+    // A missing destination is the first workspace for this repository on the machine.
+    if connection.exec(&["test", "-e", &path], None, GIT)?.code != Some(0) {
+        return Ok(Target {
+            path,
+            clone: Some(url),
+            origin: Some(origin),
+        });
+    }
     match toplevel(connection, &path)? {
         Some(top)
             if top == path
@@ -163,15 +171,7 @@ fn resolve(
                 origin: Some(origin),
             })
         }
-        Some(_) => Err(crate::i18n::ta("err.remote.cloneTaken", &[("path", path)])),
-        None if connection.exec(&["test", "-e", &path], None, GIT)?.code == Some(0) => {
-            Err(crate::i18n::ta("err.remote.cloneTaken", &[("path", path)]))
-        }
-        None => Ok(Target {
-            path,
-            clone: Some(url),
-            origin: Some(origin),
-        }),
+        _ => Err(crate::i18n::ta("err.remote.cloneTaken", &[("path", path)])),
     }
 }
 

@@ -262,6 +262,9 @@ export function openLauncher(board: Board, opts: Open) {
     if (!draft.host) return "";
     if (!remoteMachines.online(draft.host)) return t("launcher.remoteOffline", { name: remoteMachines.machineName(draft.host) });
     if (!capabilitiesOf(draft.agent).remoteMachines) return t("err.remote.provider");
+    const claude = remoteMachines.machineOf(draft.host)?.claude;
+    if (claude && !claude.installed) return t("machines.claude.missing");
+    if (claude && !claude.loggedIn) return t("launcher.remoteSignIn", { name: remoteMachines.machineName(draft.host) });
     if (!draft.project) return t("launcher.remoteNone", { name: remoteMachines.machineName(draft.host) });
     return "";
   };
@@ -269,7 +272,8 @@ export function openLauncher(board: Board, opts: Open) {
     const remote = remoteProblem();
     if (remote) return remote;
     if (needsChoice) return t("models.choose");
-    if (!descriptor(draft.agent).installed) return t("models.unavailable");
+    // On a machine, Claude runs there: this computer may lack it, and then its catalog cannot judge the choice.
+    if (!descriptor(draft.agent).installed) return draft.host ? "" : t("models.unavailable");
     const pending = ["idle", "loading"].includes(catalogOf(draft.agent).status);
     if (draft.model && !isKnownModel(draft.agent, draft.model)) return t(pending ? "models.loading" : "models.unavailable");
     if (draft.effort && !effortsOf(draft.agent, draft.model).includes(nativeEffort(draft.agent, draft.effort))) {
@@ -419,6 +423,16 @@ export function openLauncher(board: Board, opts: Open) {
   accountField.append(accountMeta);
   $("d-account-field").append(accountField);
   const drawAccount = () => {
+    accountButton.disabled = !!draft.host;
+    // A machine runs Claude with its own sign-in (Settings > Remote machines), not this computer's account.
+    if (draft.host) {
+      const claude = remoteMachines.machineOf(draft.host)?.claude;
+      accountName.textContent = claude?.loggedIn ? claude.email ?? t("machines.claude.signedIn") : t("machines.claude.signedOut");
+      accountMeta.textContent = t("launcher.account.onMachine", { name: remoteMachines.machineName(draft.host) });
+      accountMeta.hidden = false;
+      accountButton.title = "";
+      return;
+    }
     const account = accounts.selected(draft.agent);
     accountName.textContent = account ? accounts.accountName(account) : t("launcher.account.select");
     accountMeta.textContent = account ? [account.plan, t("launcher.account.active")].filter(Boolean).join(" · ") : "";
@@ -887,13 +901,14 @@ export function openLauncher(board: Board, opts: Open) {
       draft.project = first;
       drawProjectLabel();
       drawMachine();
+      drawAccount();
       drawMcp(); drawPlugins();
       if (first) loadBranches();
       drawExtras();
       drawHint();
     },
   );
-  const forgetMachines = remoteMachines.onChange(() => { drawHint(); if (draft.host && !browse.listing && !browse.busy) { browse.error = ""; drawMachine(); } });
+  const forgetMachines = remoteMachines.onChange(() => { drawHint(); drawAccount(); if (draft.host && !browse.listing && !browse.busy) { browse.error = ""; drawMachine(); } });
 
   // Changing projects refreshes the branch base and conflict labels.
   drawProjectLabel = dropdown(
@@ -997,7 +1012,7 @@ export function openLauncher(board: Board, opts: Open) {
   });
   const submit = () => {
     if (taken || receiving || choiceProblem()) return;
-    if (!accounts.selected(draft.agent)) { accounts.openPicker(draft.agent); return; }
+    if (!draft.host && !accounts.selected(draft.agent)) { accounts.openPicker(draft.agent); return; }
     // An empty branch tells the backend to use the repository's current checkout.
     if (!draft.newBranch && !draft.worktree) draft.branch = "";
     if (!draft.newBranch && draft.worktree && !draft.branch) return;

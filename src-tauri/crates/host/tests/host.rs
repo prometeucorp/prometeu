@@ -256,6 +256,20 @@ fn watches_stream_appends_from_the_client_offsets() {
     assert_eq!(appended["offset"], 4);
     assert_eq!(decode(&appended["data"]), "two\n");
 
+    // A flush answers only after the bytes written before it are on the stream.
+    file.write_all(b"three\n").unwrap();
+    let flush = client.send("watch_flush", json!({"id": "w1"}));
+    let mut flushed = String::new();
+    loop {
+        let frame = client.until(|f| f["id"] == flush || f["event"] == "file");
+        if frame["id"] == flush {
+            assert!(frame.get("error").is_none(), "{frame}");
+            break;
+        }
+        flushed.push_str(&decode(&frame["data"]));
+    }
+    assert_eq!(flushed, "three\n");
+
     let ran = client.call(
         "exec",
         json!({"argv": ["/bin/sh", "-c", "printf %s \"$X\"; exit 3"], "env": {"X": "y"}}),
@@ -298,6 +312,33 @@ fn requests_keep_their_order_without_waiting_for_replies() {
     let attached = client.until(|f| f["id"] == attach);
     assert!(attached.get("error").is_none(), "{attached}");
     client.call("terminal_signal", json!({"id": "o1", "signal": "kill"}));
+    client.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn a_terminal_reports_its_last_output_before_its_exit() {
+    let root = root();
+    let mut client = Attached::new(&root);
+    let cwd = std::env::temp_dir();
+    // Attach first, so every byte arrives as a live frame racing the exit.
+    // Several megabytes keep the PTY buffer full up to the moment the process exits.
+    let script = r"sleep 0.3; head -c 1000000 /dev/zero | tr '\0' x; echo; echo the-end";
+    client.call(
+        "terminal_open",
+        json!({"id": "t3", "argv": ["/bin/sh", "-c", script], "cwd": cwd, "cols": 80, "rows": 24}),
+    );
+    let attached = client.call("terminal_attach", json!({"id": "t3", "seq": 0}));
+    let mut text = decode(&attached["data"]);
+    loop {
+        let frame =
+            client.until(|f| f["id"] == "t3" && (f["event"] == "output" || f["event"] == "exit"));
+        if frame["event"] == "exit" {
+            break;
+        }
+        text.push_str(&decode(&frame["data"]));
+    }
+    assert!(text.contains("the-end"), "output after exit was lost");
     client.detach();
     shutdown(&root);
 }

@@ -6,6 +6,7 @@ use crate::chat::terminal::Execution;
 use crate::state::ProviderId;
 use crate::terminal_agent_hooks::{HookBridge, RelayTarget};
 use base64::{engine::general_purpose::STANDARD, Engine};
+use prometeu_core::lock::lock;
 use prometeu_core::session::launch::{LaunchRequest, StartMode};
 use prometeu_core::terminal::{StartedTerminal, TerminalSize};
 use serde_json::{json, Map, Value};
@@ -130,8 +131,10 @@ impl Execution for RemoteExecution {
         // can name them.
         let slug = prometeu_host::claude_project_slug(&cwd);
         let remote = format!("{}/{slug}", self.projects());
+        let watch = format!("claude-{:016x}", crate::paths::fnv1a(&remote));
+        self.remote.mirrored_by(&watch);
         self.connection.mirror(Mirror {
-            id: format!("claude-{:016x}", crate::paths::fnv1a(&remote)),
+            id: watch,
             local: mirror_path(&self.machine, &remote),
             remote,
             depth: 3,
@@ -205,6 +208,7 @@ impl RemoteExecution {
                     "limits": self.limits.to_wire(),
                 }),
             )?;
+            self.remote.opened();
         }
         self.connection
             .subscribe(&self.session, self.remote.clone());
@@ -229,13 +233,14 @@ pub fn launch(
     let binary =
         super::install::local_binary().ok_or_else(|| crate::i18n::t("err.remote.noBuild"))?;
     let root = format!("{home}/{}", super::install::remote_root());
-    let running = connection
-        .request("terminal_list", json!({}))?
+    let listed = connection.request("terminal_list", json!({}))?;
+    let terminal = listed
         .as_array()
-        .is_some_and(|list| {
-            list.iter()
-                .any(|t| t["id"] == json!(request.session) && t["running"] == json!(true))
-        });
+        .and_then(|list| list.iter().find(|t| t["id"] == json!(request.session)));
+    // A running process is adopted; so is one that finished while no desktop was attached, when
+    // reattachment recovers it, so its last output and transcript arrive without a new Claude.
+    let recovering = terminal.is_some() && lock(&service.recovering).contains(&request.session);
+    let running = terminal.is_some_and(|t| t["running"] == json!(true)) || recovering;
     let effective =
         crate::chat::terminal::ingestion::resume_request(&crate::paths::root(), request)
             .map_err(|_| crate::i18n::t("err.terminalAgent.history"))?;
@@ -252,10 +257,14 @@ pub fn launch(
         (matches!(effective.mode, StartMode::Resume { .. }) && transcript.exists())
             .then(|| effective.session.clone())
     });
-    let profile = {
-        use prometeu_profiles::ProfileBackend;
-        crate::account_profiles::native()
-            .resolve(&crate::accounts::selected(ProviderId::Claude)?)?
+    // Claude signs in on the machine (Settings > Remote machines), so this computer's account is
+    // neither needed nor used; the launch only reads the provider.
+    let profile = prometeu_profiles::Profile {
+        id: format!("remote:{machine}"),
+        provider: ProviderId::Claude,
+        home: mirror_path(machine, &home),
+        managed: false,
+        revision: 0,
     };
     let mut command = crate::terminal_agent_launch::claude_command(
         &effective,

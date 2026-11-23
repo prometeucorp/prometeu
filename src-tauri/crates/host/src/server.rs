@@ -24,6 +24,8 @@ const RETAINED: usize = 2 * 1_048_576;
 /// Hooks queued per terminal while no desktop is attached; the oldest are dropped first.
 const QUEUED_HOOKS: usize = 512;
 const DECISION_WAIT: Duration = Duration::from_secs(300);
+/// How long `exit` waits for the PTY to drain after the process ends.
+const DRAIN_WAIT: Duration = Duration::from_secs(2);
 const EXEC_OUTPUT: usize = 4 * 1_048_576;
 const WATCH_CHUNK: usize = 1_048_576;
 const WATCH_FILE_LIMIT: u64 = 256 * 1_048_576;
@@ -216,6 +218,11 @@ pub fn serve(root: &Path) -> Result<(), String> {
         return Ok(());
     }
     adopt_login_path();
+    // A new host owns no terminal yet, so no hook settings are live. Dropping them lets updates
+    // remove the builds they named.
+    // ponytail: assumes one protocol per root; a future protocol bump running two hosts side by
+    // side would need per-protocol session folders.
+    let _ = std::fs::remove_dir_all(root.join("sessions"));
     let path = root.join(socket_name());
     let _ = std::fs::remove_file(&path);
     let listener = UnixListener::bind(&path).map_err(|e| e.to_string())?;
@@ -321,6 +328,7 @@ fn serve_client(
         out: out.clone(),
         alive: alive.clone(),
         generation,
+        watches: Arc::default(),
     };
     while alive.load(Ordering::Acquire) {
         let line = match read_line(&mut reader) {
@@ -375,6 +383,9 @@ struct Conn {
     out: mpsc::Sender<String>,
     alive: Arc<AtomicBool>,
     generation: u64,
+    /// Each watch of this attachment, by ID: a request to scan now, answered once its file
+    /// frames are on the stream.
+    watches: Arc<Mutex<HashMap<String, mpsc::Sender<mpsc::Sender<()>>>>>,
 }
 impl Conn {
     fn reply(&self, id: &Value, result: Result<Value, String>) {
@@ -458,6 +469,8 @@ fn dispatch(
                 return Err("terminal_running".into());
             }
             terminals.remove(&id);
+            // The conversation's hook settings name a build; dropping them lets updates remove it.
+            let _ = std::fs::remove_dir_all(host.root.join("sessions").join(&id));
             json!({})
         }
         "terminal_list" => {
@@ -482,6 +495,19 @@ fn dispatch(
         }
         "watch" => {
             watch(conn, params)?;
+            json!({})
+        }
+        "watch_flush" => {
+            let id = terminal_id(params)?;
+            let flush = lock(&conn.watches)
+                .get(&id)
+                .cloned()
+                .ok_or("unknown_watch")?;
+            let (done, flushed) = mpsc::channel();
+            flush.send(done).map_err(|_| "unknown_watch")?;
+            flushed
+                .recv_timeout(Duration::from_secs(10))
+                .map_err(|_| "flush_timeout")?;
             json!({})
         }
         "hook_reply" => {
@@ -669,7 +695,10 @@ fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let mut output = started.output;
     let reader_host = host.clone();
     let reader_term = term.clone();
+    // The reader reports when the PTY is drained, so `exit` follows the terminal's last bytes.
+    let (drained, output_done) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
+        let _drained = drained;
         let mut buffer = [0u8; 16384];
         loop {
             let count = match output.read(&mut buffer) {
@@ -691,6 +720,8 @@ fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let exit_term = term.clone();
     std::thread::spawn(move || {
         let code = waiter.wait().ok();
+        // A background process that inherited the PTY can keep it open; do not wait for it forever.
+        let _ = output_done.recv_timeout(DRAIN_WAIT);
         let mut ring = lock(&exit_term.ring);
         ring.running = false;
         ring.code = code;
@@ -954,11 +985,15 @@ fn watch(conn: &Conn, params: &Value) -> Result<(), String> {
                 .collect()
         })
         .unwrap_or_default();
+    let (flush, flushes) = mpsc::channel::<mpsc::Sender<()>>();
+    lock(&conn.watches).insert(id.clone(), flush);
     let conn = conn.clone();
     std::thread::spawn(move || {
-        while conn.alive.load(Ordering::Acquire) {
+        // One pass sends at most one chunk per file; false when nothing was new.
+        let scan = |offsets: &mut HashMap<String, u64>| -> Option<bool> {
             let mut files = Vec::new();
             walk(&dir, &dir, depth, &mut files);
+            let mut sent = false;
             for (relative, size) in files {
                 if size > WATCH_FILE_LIMIT {
                     continue;
@@ -985,11 +1020,32 @@ fn watch(conn: &Conn, params: &Value) -> Result<(), String> {
                     "reset": reset, "data": STANDARD.encode(&data),
                 });
                 if !send(&conn.out, &frame) {
-                    return;
+                    return None;
                 }
+                sent = true;
                 offsets.insert(relative, start + data.len() as u64);
             }
-            std::thread::sleep(Duration::from_millis(250));
+            Some(sent)
+        };
+        while conn.alive.load(Ordering::Acquire) {
+            if scan(&mut offsets).is_none() {
+                return;
+            }
+            match flushes.recv_timeout(Duration::from_millis(250)) {
+                Ok(done) => {
+                    // Send everything written so far before answering.
+                    loop {
+                        match scan(&mut offsets) {
+                            None => return,
+                            Some(true) => continue,
+                            Some(false) => break,
+                        }
+                    }
+                    let _ = done.send(());
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
         }
     });
     Ok(())

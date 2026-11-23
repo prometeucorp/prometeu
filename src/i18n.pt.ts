@@ -2086,6 +2086,8 @@ export const PT = {
   "machines.phase.error": "Erro",
   "launcher.machine": "Onde rodar",
   "launcher.remoteBrowse": "Adicionar projetos em {name}",
+  "launcher.remoteSignIn": "Entre no Claude em {name} em Configurações > Máquinas remotas.",
+  "launcher.account.onMachine": "Conectado em {name}",
   "launcher.remoteClone": "Clonar um repositório nesta pasta",
   "launcher.remoteCloneHere": "Clonar aqui",
   "launcher.remoteAdd": "Adicionar projetos",

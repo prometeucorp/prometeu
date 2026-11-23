@@ -2040,6 +2040,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "machines.phase.error": "Error",
   "launcher.machine": "Run on",
   "launcher.remoteBrowse": "Add projects on {name}",
+  "launcher.remoteSignIn": "Sign in to Claude on {name} in Settings > Remote machines.",
+  "launcher.account.onMachine": "Signed in on {name}",
   "launcher.remoteClone": "Clone a repository into this folder",
   "launcher.remoteCloneHere": "Clone here",
   "launcher.remoteAdd": "Add projects",

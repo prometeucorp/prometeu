@@ -39,6 +39,11 @@ pub struct Remote {
     /// attachment: the native reader must not answer terminal queries that were already
     /// answered, or that the program stopped waiting for.
     pub replaying: Arc<AtomicBool>,
+    /// Set when this app opened the terminal: its first attachment carries output nobody has
+    /// seen, including startup queries the program still waits on, so it is live, not replay.
+    fresh: AtomicBool,
+    /// The watch that mirrors this conversation's transcripts.
+    mirror: Mutex<Option<String>>,
 }
 
 impl Remote {
@@ -51,7 +56,33 @@ impl Remote {
             seq: AtomicU64::new(0),
             running: AtomicBool::new(true),
             replaying: Arc::new(AtomicBool::new(false)),
+            fresh: AtomicBool::new(false),
+            mirror: Mutex::new(None),
         })
+    }
+
+    pub fn mirrored_by(&self, watch: &str) {
+        *lock(&self.mirror) = Some(watch.into());
+    }
+
+    /// After the process exits: bring the transcript mirror up to date, so the conversation reads
+    /// its last turn before it stops, then let the host drop the terminal, its retained output
+    /// and its hook settings.
+    fn settle(&self) {
+        if let Some(watch) = lock(&self.mirror).clone() {
+            let _ = self.connection.request_timeout(
+                "watch_flush",
+                json!({"id": watch}),
+                Duration::from_secs(10),
+            );
+        }
+        self.connection
+            .notify("terminal_forget", json!({"id": self.id}));
+    }
+
+    /// The terminal was just opened by this app rather than adopted from the host.
+    pub fn opened(&self) {
+        self.fresh.store(true, Ordering::Release);
     }
 
     fn push(&self, bytes: Vec<u8>, replay: bool) {
@@ -101,7 +132,8 @@ impl TerminalSink for Remote {
         };
         bytes.extend(data);
         self.seq.store(seq, Ordering::Release);
-        self.push(bytes, true);
+        let live = self.fresh.swap(false, Ordering::AcqRel);
+        self.push(bytes, !live);
     }
 
     fn output(&self, seq: u64, data: Vec<u8>) {
@@ -251,7 +283,11 @@ impl TerminalWait for Waiter {
         let mut stream = lock(&self.0.stream);
         loop {
             match stream.exit {
-                Some(Some(code)) => return Ok(code),
+                Some(Some(code)) => {
+                    drop(stream);
+                    self.0.settle();
+                    return Ok(code);
+                }
                 Some(None) => return Err("remote terminal lost".into()),
                 None if stream.disconnected => return Err("detached".into()),
                 None => {
@@ -301,6 +337,24 @@ mod tests {
         assert!(!remote.replaying.load(Ordering::Acquire));
         remote.exit(Some(0));
         assert_eq!(output.read(&mut buffer).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_terminal_this_app_opened_answers_its_first_output() {
+        let remote = remote();
+        remote.opened();
+        let mut output = remote.started().output;
+        let mut buffer = [0u8; 16];
+        // Startup queries produced before the first attachment still wait for their replies.
+        remote.replay(b"query".to_vec(), false, 1);
+        let count = output.read(&mut buffer).unwrap();
+        assert_eq!(&buffer[..count], b"query");
+        assert!(!remote.replaying.load(Ordering::Acquire));
+        // A later reattachment replays output that was already handled.
+        remote.replay(b"again".to_vec(), false, 2);
+        let count = output.read(&mut buffer).unwrap();
+        assert_eq!(&buffer[..count], b"again");
+        assert!(remote.replaying.load(Ordering::Acquire));
     }
 
     #[test]

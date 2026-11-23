@@ -104,16 +104,22 @@ without root.
   that outlives an app restart still reports to the new bridge.
 - The connection reconnects with backoff (1–30 s) and reattaches every terminal
   and mirror. After each attachment the desktop resumes, without being asked,
-  the conversations whose processes the host still runs. Their status,
+  the conversations whose processes the host still runs, and adopts the ones that
+  finished while it was away without starting Claude again. Their status,
   transcripts and notifications therefore update when the laptop wakes or the app
-  starts.
+  starts. A finished terminal is forgotten once its output, hooks and transcript
+  have been collected, so the host does not keep its buffer.
+- A terminal this desktop just opened delivers its first output live, even though
+  it arrives through the attachment's replay: the program may still be waiting for
+  answers to its startup queries.
 - Bytes replayed after reattachment never answer terminal queries. Those queries
   were answered when first produced, or the program stopped waiting for them.
 - Claude signs in on the machine, as in Orca. Settings runs `claude auth login
   --claudeai` in one of the host's terminals, opens the authorization link in
   this computer's browser, and writes the code Claude shows back to that
   terminal. The credential is created and kept on the machine; this computer's
-  Claude account never leaves it. Sending the local credential (Claude Desktop's
+  Claude account never leaves it, and remote work does not need Claude installed
+  or signed in here. Sending the local credential (Claude Desktop's
   approach) was rejected, because anyone using the same Unix account on the
   machine could read it. Each attachment refreshes `claude auth status`, so the
   machine row shows whether its workspaces can start.

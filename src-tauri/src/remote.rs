@@ -93,6 +93,10 @@ pub struct Service {
     app: Mutex<Option<AppHandle>>,
     /// The last `claude auth status` seen on each machine.
     claude: Mutex<HashMap<String, login::ClaudeStatus>>,
+    /// Conversations whose process ended while no desktop was attached: their next launch adopts
+    /// the finished terminal to collect its output, hooks and transcript, instead of starting
+    /// Claude again.
+    pub(crate) recovering: Mutex<std::collections::HashSet<String>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -244,31 +248,39 @@ fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
     let Ok(list) = connection.request("terminal_list", json!({})) else {
         return;
     };
-    let running: Vec<String> = list
+    let terminals: Vec<(String, bool)> = list
         .as_array()
         .map(|list| {
             list.iter()
-                .filter(|t| t["running"] == json!(true))
-                .filter_map(|t| t["id"].as_str().map(str::to_owned))
+                .filter_map(|t| Some((t["id"].as_str()?.to_owned(), t["running"] == json!(true))))
                 .collect()
         })
         .unwrap_or_default();
     let state = app.state::<AppState>();
-    let sessions: Vec<String> = {
-        let board = lock(&state.board);
-        board
-            .workspaces
-            .iter()
-            .filter(|ws| ws.host.as_deref() == Some(connection.id.as_str()) && !ws.archived)
-            .flat_map(|ws| ws.tabs.iter().map(|t| t.id.clone()))
-            .filter(|id| running.contains(id))
-            .collect()
-    };
-    for session in sessions {
+    let tabs: Vec<String> = lock(&state.board)
+        .workspaces
+        .iter()
+        .filter(|ws| ws.host.as_deref() == Some(connection.id.as_str()) && !ws.archived)
+        .flat_map(|ws| ws.tabs.iter().map(|t| t.id.clone()))
+        .collect();
+    let service = app.state::<Service>();
+    for (session, running) in terminals {
+        if !tabs.contains(&session) {
+            // A finished terminal no conversation will read again (an archived workspace, a
+            // closed tab, the sign-in) only holds memory on the host.
+            if !running {
+                connection.notify("terminal_forget", json!({"id": session}));
+            }
+            continue;
+        }
         if lock(&state.sessions.conversations).contains_key(&session) {
             continue;
         }
+        if !running {
+            lock(&service.recovering).insert(session.clone());
+        }
         let _ = crate::session::resume_conversation(app, &session);
+        lock(&service.recovering).remove(&session);
     }
 }
 

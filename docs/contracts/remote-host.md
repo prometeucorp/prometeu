@@ -31,8 +31,11 @@ Its install directory is the first 16 hex digits of its SHA-256.
 
 Installation checks that `uname -sm` is `Linux x86_64`, streams the build over
 SSH stdin to a temporary file, and verifies its SHA-256 before the rename. It
-then updates `current` and `previous`, removes every other build, and tries
-`loginctl enable-linger`.
+then updates `current` and `previous`, and removes every other build that no host
+process runs and no `sessions/*/settings.json` names (running conversations call
+the hook helper of the build that launched them). It then tries
+`loginctl enable-linger`. A host deletes `sessions/` when it starts, since it owns
+no terminal yet.
 
 ## Attachment
 
@@ -67,7 +70,7 @@ unknown outcome.
 | `ready` | `protocol`, `version`, `executable`, `pid`, `home`, `user`, `root`, `os`, `arch`, `linger`, `scopes` | first frame of every attachment |
 | `replaced` | none | another desktop attached; this one is detached |
 | `output` | `id`, `seq`, `data` (base64) | terminal output after the attachment's replay |
-| `exit` | `id`, `code`, `seq` | terminal exited; also sent at attachment for an exited terminal |
+| `exit` | `id`, `code`, `seq` | terminal exited, after its output was drained (up to 2 s, in case a background process keeps the PTY open); also sent at attachment for an exited terminal |
 | `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | a native hook invocation for the terminal `session` |
 | `file` | `watch`, `path`, `offset`, `reset`, `data` (base64) | bytes of a watched file from `offset`; `reset` restarts it from zero |
 
@@ -84,9 +87,10 @@ unknown outcome.
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |
 | `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}` |
-| `terminal_forget` | `id` | `{}`; rejects a running terminal |
+| `terminal_forget` | `id` | `{}`; drops an exited terminal and `sessions/<id>`; rejects a running terminal |
 | `terminal_list` | none | `[{ id, workspace, pid, unit, started, running, code, seq }]` |
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`; streams `file` events every 250 ms while this attachment lives |
+| `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
 | `hook_reply` | `hook`, `stdout` (base64) | `{}` |
 | `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
 | `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs |
@@ -124,6 +128,13 @@ nonce with its own, and returns any decision the local bridge produced. A failin
 hook command prints nothing and exits 0.
 
 ## Transcript mirror
+
+After a terminal exits, the desktop calls `watch_flush` on its conversation's
+watch, so the conversation reads its last turn before it stops, and then
+`terminal_forget`. When it reattaches and finds a finished terminal that belongs
+to a conversation on the board, it adopts that terminal without starting Claude,
+collects its output, queued hooks and transcript the same way, and forgets it.
+Finished terminals that no conversation will read again are forgotten at once.
 
 For a conversation in `<cwd>`, the desktop watches
 `<home>/.claude/projects/<slug>` (depth 3, which includes subagents). It writes

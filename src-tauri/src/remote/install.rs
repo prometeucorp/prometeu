@@ -199,8 +199,13 @@ if [ -L "$root/current" ]; then
 fi
 ln -sfn "$dir" "$root/current"
 keep_previous=$(readlink "$root/previous" 2>/dev/null || true)
+# A build stays while a host runs it or a conversation's hook settings still name it.
+in_use() {{
+  pgrep -f "$1/prometeu-host" >/dev/null 2>&1 && return 0
+  grep -qsF "$1/prometeu-host" "$root"/sessions/*/settings.json
+}}
 for old in "$root"/host/*; do
-  [ "$old" = "$dir" ] || [ "$old" = "$keep_previous" ] || rm -rf "$old"
+  [ "$old" = "$dir" ] || [ "$old" = "$keep_previous" ] || in_use "$old" || rm -rf "$old"
 done
 loginctl enable-linger >/dev/null 2>&1 || true
 "#,
