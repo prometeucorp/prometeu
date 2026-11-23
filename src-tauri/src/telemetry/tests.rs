@@ -975,10 +975,12 @@ fn malformed_measurements_and_payload_fields_are_rejected() {
 fn legacy_board_identities_are_opaque_stable_and_distinct_from_paths() {
     let mut board = crate::state::Board::default();
     board.projects.push(crate::state::Project {
+        host: None,
         id: "/private/repo".into(),
         path: "/private/repo".into(),
         name: "secret".into(),
         group: None,
+        origin: None,
     });
     board.prepare_telemetry_ids();
     let before = board.telemetry_ids.get("project", "/private/repo").unwrap();

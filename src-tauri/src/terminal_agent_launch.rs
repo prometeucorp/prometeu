@@ -224,7 +224,7 @@ pub fn prepare(
     Ok(prepared)
 }
 
-fn previous(request: &LaunchRequest) -> Option<String> {
+pub(crate) fn previous(request: &LaunchRequest) -> Option<String> {
     match &request.mode {
         StartMode::Fresh => None,
         StartMode::Resume { provider_session } => provider_session.clone(),
@@ -289,7 +289,7 @@ fn prepare_claude(
     })
 }
 
-fn claude_command(
+pub(crate) fn claude_command(
     request: &LaunchRequest,
     resume: Option<&str>,
     selected: prometeu_tools::ClaudeTools,
@@ -769,7 +769,7 @@ fn instructions(request: &LaunchRequest) -> Option<String> {
     (!request.settings.instructions.is_empty()).then(|| request.settings.instructions.clone())
 }
 
-fn drop_claude_vars(command: &mut Command) {
+pub(crate) fn drop_claude_vars(command: &mut Command) {
     let explicit = command
         .get_envs()
         .map(|(key, _)| key.to_os_string())

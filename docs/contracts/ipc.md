@@ -528,6 +528,39 @@ same rules in memory; the Windows runtime rejects the commands and its entry
 point hides every way to reach them. Tests: `src-tauri/src/terminal_sessions.rs`,
 `src/terminals.test.ts` and `fixtures/backend-contract.json`.
 
+## Remote machines
+
+Remote machines ([ADR 0101](../decisions/0101-remote-machines.md)) are kept by
+`remote.rs`. The `machines` event carries the full list after every connection
+change.
+
+| Command | Arguments | Effect |
+| --- | --- | --- |
+| `machines` | none | `[{ id, name, ssh, limits, phase, detail, host, update_pending }]`; `phase` is `offline`, `connecting`, `connected`, `not_installed`, `replaced` or `failed`; `host` is the host's ready frame |
+| `machine_save` | `machine: { id?, name, ssh, limits }` | adds or edits a machine and reconnects; rejects an `ssh` that is not one argument (`err.remote.destination`) or limits outside systemd syntax (`err.remote.limits`) |
+| `machine_remove` | `id` | forgets the machine and its projects; refused with `err.remote.inUse` while a workspace runs there |
+| `machine_install` | `id` | installs or replaces the host build, then waits up to 20 s for the connection |
+| `machine_connect` | `id` | retries the connection now |
+| `machine_stats` | `id` | the host's `stats` for that machine's workspaces |
+| `machine_claude_status` | `id` | `{ installed, loggedIn, email, method }` from `claude auth status` on the machine; also refreshed after every attachment and carried as `claude` in `machines` |
+| `machine_claude_login` | `id` | runs `claude auth login --claudeai` in a host terminal and returns its authorization link (`claude.ai`/`claude.com`, `/oauth/authorize`) once printed in full, within 30 s |
+| `machine_claude_code` | `id`, `code` | writes the code to that login, waits up to 90 s for it to exit and returns the new status; `err.remote.loginExpired` without a login in progress |
+| `machine_claude_login_cancel` | `id` | ends the login in progress |
+| `remote_add_project` | `machine`, `path` (absolute), `url?` | clones `url` into `path` when given, registers the repository root as a project with `host`, and returns it |
+| `remote_list_dir` | `machine`, `path?` | `{ path, home, entries: [{ name, git }] }`: the folder's visible subfolders (the home folder without `path`), with `git` set on repositories; the launcher browses with it and registers the ticked repositories one by one |
+
+`create_workspace` with `draft.host` creates the workspace on that machine and
+forces terminal mode. Its `draft.project` may be a remote project ID, or a local
+project ID: the workspace then uses the machine's clone with the same origin, or
+preparation clones the local project's `origin` into `~/code/<folder>` first
+(`err.remote.noOrigin` without an origin, `err.remote.cloneTaken` when that folder
+holds something else). `list_branches` takes an optional `host` and runs Git on
+the machine for a remote project ID, or for the machine's clone of a local project.
+Agents without the `remoteMachines` capability, extra repositories and delegated
+creation are rejected. Remote workspaces have no file, Git, diff, dock or script
+commands yet; the interface hides those panels. The browser mock implements every
+command in memory.
+
 ## Ending the app
 
 `running_terminals` takes no arguments and returns how many terminals quitting

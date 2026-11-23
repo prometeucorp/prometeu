@@ -19,6 +19,7 @@ import * as menu from "./menu";
 import * as voice from "./voice";
 import * as plugins from "./plugins";
 import * as projects from "./projects";
+import * as remoteMachines from "./machines";
 import * as news from "./news";
 import * as notifications from "./notification-settings";
 import * as team from "./team";
@@ -58,6 +59,12 @@ export async function init(context: Ctx) {
   void invoke("load_board").then(modeChanged).catch(() => {});
   onCatalogChange(() => { if (!$("settingsView").hidden) { paintDefaultModel(); paintDefaultEffort(); } });
   accountUI.onChange(() => refreshPages("agentes"));
+  remoteMachines.onChange(() => {
+    // Keep a machine form the person is typing in.
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement && active.closest(".machine-form, .machine-claude-login")) return;
+    refreshPages("trabalho");
+  });
   skills.init(ctx.say, async () => {
     await plugins.refresh();
     await catalog.load();
@@ -131,6 +138,7 @@ const PAGES: Page[] = [
   { id: "trabalho", title: "settings.work", description: "settings.work.intro", glyph: "users", sections: [
     { id: "team", title: "settings.team", rows: teamRows },
     { id: "projects", title: "settings.localProjects", rows: projectRows, keywords: ["projects.title"] },
+    { id: "machines", title: "machines.title", rows: () => remoteMachines.settingsRows(ctx.say, draw), keywords: ["machines.intro", "machines.ssh", "machines.add"] },
     { id: "integrations", title: "settings.integrations", rows: () => [linearRow(), githubRow(), ...typesafeRows(ctx.say, draw)] },
   ] },
   { id: "analytics", title: "settings.analytics", description: "settings.analytics.intro", glyph: "signal", sections: [

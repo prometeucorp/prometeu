@@ -36,6 +36,7 @@ env:
 jobs:
   build:
     name: Build and sign macOS
+    needs: remote-host
     runs-on: macos-latest
     environment: release
     outputs:
@@ -135,6 +136,17 @@ jobs:
           echo "APPLE_BUILD_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "APPLE_KEYCHAIN_LIST=$KEYCHAIN_LIST_PATH" >> "$GITHUB_ENV"
 
+      # The Linux host that remote machines run (ADR 0101), from the same commit.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: remote-host
+          path: src-tauri/remote-host
+
+      - name: Prepare bundled remote host
+        run: |
+          mv src-tauri/remote-host/prometeu-host src-tauri/remote-host/prometeu-host-x86_64-linux
+          chmod 755 src-tauri/remote-host/prometeu-host-x86_64-linux
+
       # npm run check already produced and validated dist; keep the local Tauri hook unchanged.
       - name: Build signed macOS packages
         env:
@@ -149,10 +161,13 @@ jobs:
           CI: "true"
           TAURI_BUNDLER_DMG_IGNORE_CI: "false"
         run: |
-          npm run build:app -- --verbose --config '{"build":{"beforeBuildCommand":""}}'
+          npm run build:app -- --verbose --config '{"build":{"beforeBuildCommand":""},"bundle":{"resources":{"remote-host/prometeu-host-x86_64-linux":"remote-host/prometeu-host-x86_64-linux"}}}'
 
       - name: Verify packaged terminal helper and notices
         run: node scripts/terminal-state.mjs verify-bundle "src-tauri/target/release/bundle/macos/Prometeu.app"
+
+      - name: Verify packaged remote host
+        run: test -s "src-tauri/target/release/bundle/macos/Prometeu.app/Contents/Resources/remote-host/prometeu-host-x86_64-linux"
 
       - name: notarizar DMG final
         env:
@@ -273,6 +288,32 @@ jobs:
           overwrite: true
           if-no-files-found: error
           retention-days: 7
+
+  remote-host:
+    name: Build remote machine host
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+          shared-key: remote-host
+
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --manifest-path src-tauri/Cargo.toml --locked -p prometeu-host --release --target x86_64-unknown-linux-musl
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remote-host
+          path: src-tauri/target/x86_64-unknown-linux-musl/release/prometeu-host
+          if-no-files-found: error
+          retention-days: 1
 
   windows-runtime:
     name: Build matching WSL runtime

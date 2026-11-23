@@ -53,7 +53,8 @@ export type Tab = {
 export type Choice = { agent: ProviderId; model: string; effort: string };
 
 /// `group` is the sidebar folder the person chose; absent means the project is not in a folder.
-export type Project = { id: string; name: string; path: string; group?: string };
+/// `host` names the remote machine that holds the clone (ADR 0101); absent means this computer.
+export type Project = { id: string; name: string; path: string; group?: string; host?: string; origin?: string };
 
 /// A local shell owned by the app, not by a workspace or project (ADR 0096). `name` is the one the person set; without it the folder's name shows.
 export type TerminalSession = { id: string; folder: string; name?: string };
@@ -254,6 +255,9 @@ export type Workspace = {
   remote?: Remote | null;
   tabs: Tab[];
   active: string | null;
+  /// The remote machine that owns the checkout and processes (ADR 0101); absent means this computer. Paths name
+  /// folders on that machine, and its terminal agents keep running there while this app is closed.
+  host?: string;
 };
 
 export type Remote = { owner: string; online: boolean };

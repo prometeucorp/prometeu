@@ -71,10 +71,12 @@ impl WorkspaceFolders for LinuxFolders {
             .unwrap_or(&text)
             .to_owned();
         Ok(Project {
+            host: None,
             id: text.clone(),
             path: text,
             name,
             group: None,
+            origin: None,
         })
     }
 }

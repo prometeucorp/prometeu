@@ -63,7 +63,7 @@ pub(crate) fn prometheus_multi_dir(names: &[String], branch: &str) -> PathBuf {
 /// Flatten branch slashes for readable directory names, adding a stable suffix when flattening
 /// would collide with an already flattened branch. Names without slashes remain unchanged for
 /// compatibility.
-fn dir_name(branch: &str) -> String {
+pub(crate) fn dir_name(branch: &str) -> String {
     let flat = branch.replace('/', "-");
     match flat == branch {
         true => flat,

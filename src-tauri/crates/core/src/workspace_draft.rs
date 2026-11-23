@@ -32,6 +32,10 @@ pub struct Draft {
     /// omit it (ADR 0057).
     #[serde(default)]
     pub kickoff: String,
+    /// The remote machine that creates and runs the workspace (ADR 0101); `None` is this computer.
+    /// `project` is then a folder on that machine.
+    #[serde(default)]
+    pub host: Option<String>,
     /// Model and effort persist on the workspace. Plan mode applies only to the initial
     /// conversation.
     #[serde(flatten)]

@@ -117,6 +117,24 @@ struct Identity {
     nonce: String,
 }
 
+/// What a remote hook needs to reach this app's bridge (ADR 0101). It holds the bridge
+/// credential, so it never leaves this process.
+#[derive(Clone)]
+pub(crate) struct RelayTarget {
+    socket: String,
+    token: String,
+    nonce: String,
+}
+
+#[cfg(test)]
+pub(crate) fn test_relay_target() -> RelayTarget {
+    RelayTarget {
+        socket: "/tmp/prometeu-test-socket".into(),
+        token: "token".into(),
+        nonce: "nonce".into(),
+    }
+}
+
 /// Keep this guard alive for exactly one agent process. Dropping it invalidates old hooks, stops
 /// the listener and removes its socket and configuration, including after a failed spawn.
 pub struct HookBridge {
@@ -297,6 +315,52 @@ impl HookBridge {
             configure_codex_hooks(command, hook_probe.ok_or_else(failure)?, &helper)?;
         }
         self.configure_with_executable(command, executable)
+    }
+
+    /// Configure a CLI that runs on a remote machine (ADR 0101): `helper` is the hook command on
+    /// that machine and `socket` is where it reaches the machine's host. Returns the Claude
+    /// invocation settings, which the caller writes on the machine and passes with `--settings`.
+    /// Only Claude is supported remotely.
+    pub(crate) fn configure_remote(
+        &self,
+        command: &mut Command,
+        version: &str,
+        helper: &str,
+    ) -> Result<Value, String> {
+        if self.identity.provider != ProviderId::Claude
+            || !supported_version(self.identity.provider, version)
+        {
+            return Err(i18n::t("err.terminalAgent.version"));
+        }
+        let _ = self.native_version.set(version.trim().to_owned());
+        command
+            .env(TOKEN_ENV, &self.token)
+            .env(SESSION_ENV, &self.identity.session)
+            .env(NONCE_ENV, &self.identity.nonce)
+            .env(PROVIDER_ENV, provider_key(self.identity.provider)?);
+        Ok(claude_config(helper))
+    }
+
+    pub(crate) fn relay_target(&self) -> Result<RelayTarget, String> {
+        Ok(RelayTarget {
+            socket: self
+                .directory
+                .join("socket")
+                .to_str()
+                .ok_or_else(failure)?
+                .to_owned(),
+            token: self.token.clone(),
+            nonce: self.identity.nonce.clone(),
+        })
+    }
+
+    /// Record the native version of a remote CLI this bridge observes without starting it.
+    pub(crate) fn adopt_remote(&self, version: &str) -> Result<(), String> {
+        if !supported_version(self.identity.provider, version) {
+            return Err(i18n::t("err.terminalAgent.version"));
+        }
+        let _ = self.native_version.set(version.trim().to_owned());
+        Ok(())
     }
 
     /// Install persistent invocation instructions where native discovery loads them before any
@@ -601,8 +665,53 @@ pub fn run() -> Result<(), String> {
 fn run_observer(antigravity_event: Option<&str>) -> Result<(), String> {
     let deadline = Instant::now() + DEADLINE;
     let bytes = read_fd(libc::STDIN_FILENO, INPUT_LIMIT, deadline, None, false)?;
-    let mut payload: Value = serde_json::from_slice(&bytes).map_err(|_| failure())?;
-    let provider = match std::env::var(PROVIDER_ENV).ok().as_deref() {
+    observe(
+        &|key: &str| std::env::var(key).ok(),
+        antigravity_event,
+        &bytes,
+        &mut |decision: &[u8]| {
+            io::stdout().write_all(decision).map_err(|_| failure())?;
+            io::stdout().flush().map_err(|_| failure())
+        },
+    )
+}
+
+/// Forward one hook that ran on a remote machine (ADR 0101) to the bridge of the conversation
+/// that owns it, as if its helper had run here. `variables` are the hook process's
+/// `PROMETEU_TERMINAL_HOOK_*` values; the bridge's own socket, credential and process nonce
+/// replace the remote ones, since this app's bridge outlives no app restart while the remote
+/// process does. Returns what the remote helper must print: a decision, or nothing.
+pub(crate) fn relay(
+    target: &RelayTarget,
+    variables: &std::collections::HashMap<String, String>,
+    payload: &[u8],
+) -> Result<Vec<u8>, String> {
+    let environment = |key: &str| match key {
+        SOCKET_ENV => Some(target.socket.clone()),
+        TOKEN_ENV => Some(target.token.clone()),
+        NONCE_ENV => Some(target.nonce.clone()),
+        _ => variables.get(key).cloned(),
+    };
+    let mut decision = Vec::new();
+    observe(&environment, None, payload, &mut |bytes: &[u8]| {
+        decision.extend_from_slice(bytes);
+        Ok(())
+    })?;
+    Ok(decision)
+}
+
+type Environment<'a> = &'a dyn Fn(&str) -> Option<String>;
+
+fn observe(
+    environment: Environment<'_>,
+    antigravity_event: Option<&str>,
+    bytes: &[u8],
+    emit: &mut dyn FnMut(&[u8]) -> Result<(), String>,
+) -> Result<(), String> {
+    let deadline = Instant::now() + DEADLINE;
+    let variable = |key: &str| environment(key).ok_or_else(failure);
+    let mut payload: Value = serde_json::from_slice(bytes).map_err(|_| failure())?;
+    let provider = match environment(PROVIDER_ENV).as_deref() {
         Some("claude") => ProviderId::Claude,
         Some("codex") => ProviderId::Codex,
         Some("cursor") => ProviderId::Cursor,
@@ -611,13 +720,13 @@ fn run_observer(antigravity_event: Option<&str>) -> Result<(), String> {
     };
     let identity = Identity {
         provider,
-        session: environment(SESSION_ENV)?,
-        nonce: environment(NONCE_ENV)?,
+        session: variable(SESSION_ENV)?,
+        nonce: variable(NONCE_ENV)?,
     };
     if provider == ProviderId::Antigravity {
         // A resumed CLI may retain an older added root. Its command carries its original nonce,
         // so even inherited credentials from the new process cannot reactivate a stale observer.
-        if environment(EXPECTED_NONCE_ENV)? != identity.nonce {
+        if variable(EXPECTED_NONCE_ENV)? != identity.nonce {
             return Err(failure());
         }
         let event = antigravity_event.ok_or_else(failure)?;
@@ -632,12 +741,10 @@ fn run_observer(antigravity_event: Option<&str>) -> Result<(), String> {
         provider == ProviderId::Claude && event.kind == NativeHookKind::PermissionRequested;
     let envelope = Envelope {
         version: 1,
-        token: environment(TOKEN_ENV)?,
+        token: variable(TOKEN_ENV)?,
         event,
     };
-    let socket = std::env::var_os(SOCKET_ENV)
-        .map(PathBuf::from)
-        .ok_or_else(failure)?;
+    let socket = PathBuf::from(variable(SOCKET_ENV)?);
     let mut stream = connect(&socket, deadline)?;
     let mut body = serde_json::to_vec(&envelope).map_err(|_| failure())?;
     body.push(b'\n');
@@ -666,8 +773,7 @@ fn run_observer(antigravity_event: Option<&str>) -> Result<(), String> {
         {
             return Err(failure());
         }
-        io::stdout().write_all(&response).map_err(|_| failure())?;
-        io::stdout().flush().map_err(|_| failure())?;
+        emit(&response)?;
         write_until(&mut stream, b"written\n", Instant::now() + DEADLINE)?;
         return Ok(());
     }

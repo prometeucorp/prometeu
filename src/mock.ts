@@ -1084,6 +1084,8 @@ const mockGitHubFeed: import("./types").GitHubNotification[] = [
   { id: "4", kind: "ci_failed", repository: "prometeucorp/prometeu", number: 436, subject: "pr", actor: "mock-user", target: "workflow_run", target_id: "79", url: "https://github.com/prometeucorp/prometeu/actions/runs/79", created_at: "2026-10-05T10:20:00Z" },
 ];
 
+let mockMachines: import("./machines").MachineView[] = [];
+
 const mockCommands: IpcHandlers = {
   github_status() { return mockGitHubStatus(); },
   github_connect() {
@@ -1964,6 +1966,7 @@ const mockCommands: IpcHandlers = {
             approvals: true,
             userQuestions: true,
             attachments: true,
+            remoteMachines: true,
           },
         },
         {
@@ -1989,6 +1992,7 @@ const mockCommands: IpcHandlers = {
             approvals: true,
             userQuestions: true,
             attachments: true,
+            remoteMachines: false,
           },
         },
         {
@@ -1997,7 +2001,7 @@ const mockCommands: IpcHandlers = {
           accountNotice: t("account.cursor.notice"), models: [],
           capabilities: { initialPlanMode: true, resume: true, approvals: true, attachments: true,
             usageTokens: false, usageCost: false, contextWindow: false,
-            workspaceMcpSelection: true, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: true },
+            workspaceMcpSelection: true, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: true, remoteMachines: false },
         },
         {
           id: "antigravity", label: "Antigravity", installed: localStorage.getItem("mock:antigravityMissing") !== "1",
@@ -2006,7 +2010,7 @@ const mockCommands: IpcHandlers = {
           models: [],
           capabilities: { initialPlanMode: false, resume: true, approvals: false, attachments: true,
             usageTokens: true, usageCost: false, contextWindow: false,
-            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false },
+            workspaceMcpSelection: false, workspacePluginSelection: false, compact: false, contextReport: false, userQuestions: false, remoteMachines: false },
         },
       ],
     };
@@ -2356,6 +2360,7 @@ const mockCommands: IpcHandlers = {
     const repo = String(draft.project).split("/").pop() ?? "repo";
     const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
     fresh.branch = draft.branch || "main";
+    if (draft.host) fresh.host = draft.host;
     if (!draft.worktree) {
       fresh.repo = fresh.worktree = board.projects.find(project => project.id === draft.project)?.path ?? draft.project;
       fresh.repos = [{ path: fresh.repo, name: repo, worktree: fresh.worktree, base: draft.base, pr: null }];
@@ -2629,6 +2634,59 @@ const mockCommands: IpcHandlers = {
     linear = { connected: false, can_assign: false, who: null, busy: false };
     emit("linear", linear);
     return linear;
+  },
+  machines() { return mockMachines; },
+  machine_save({ machine }) {
+    const id = machine.id || machine.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "machine";
+    const view: import("./machines").MachineView = { id, name: machine.name || machine.ssh, ssh: machine.ssh, limits: machine.limits, phase: "not_installed", detail: null, host: null, update_pending: false };
+    mockMachines = [...mockMachines.filter(m => m.id !== id), view];
+    emit("machines", mockMachines);
+    return view;
+  },
+  machine_remove({ id }) {
+    if (board.workspaces.some(ws => ws.host === id)) throw 'i18n:{"code":"err.remote.inUse"}';
+    mockMachines = mockMachines.filter(m => m.id !== id);
+    emit("machines", mockMachines);
+  },
+  machine_install({ id }) {
+    const machine = mockMachines.find(m => m.id === id);
+    if (!machine) throw 'i18n:{"code":"err.remote.unknown"}';
+    Object.assign(machine, { phase: "connected", claude: { installed: true, loggedIn: false, email: null, method: null }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null } });
+    emit("machines", mockMachines);
+    return machine;
+  },
+  machine_connect() {},
+  machine_claude_status({ id }) {
+    const machine = mockMachines.find(m => m.id === id);
+    return machine?.claude ?? { installed: true, loggedIn: false, email: null, method: null };
+  },
+  machine_claude_login() { return "https://claude.ai/oauth/authorize?mock"; },
+  machine_claude_code({ id, code }) {
+    if (code.trim() !== "mock-code") throw 'i18n:{"code":"err.remote.login","args":{"detail":"Invalid code"}}';
+    const machine = mockMachines.find(m => m.id === id);
+    const claude = { installed: true, loggedIn: true, email: "me@example.com", method: "claude.ai" };
+    if (machine) machine.claude = claude;
+    emit("machines", mockMachines);
+    return claude;
+  },
+  machine_claude_login_cancel() {},
+  machine_stats() { return { workspaces: {}, memory_total: 16e9, memory_available: 12e9, load: 0.3, cpus: 4, terminals: 0 }; },
+  remote_add_project({ machine, path }) {
+    const id = `remote:${machine}:${path}`;
+    const existing = board.projects.find(project => project.id === id);
+    if (existing) return existing;
+    const project = { id, name: path.split("/").pop() ?? path, path, host: machine };
+    board.projects.push(project);
+    emit("board", board);
+    return project;
+  },
+  remote_list_dir({ path }) {
+    const at = path || "/home/me";
+    const tree: Record<string, { name: string; git: boolean }[]> = {
+      "/home/me": [{ name: "code", git: false }, { name: "notes", git: false }],
+      "/home/me/code": [{ name: "api", git: true }, { name: "app", git: true }, { name: "sandbox", git: false }],
+    };
+    return { path: at, home: "/home/me", entries: tree[at] ?? [] };
   },
   add_project(args) {
     const existing = board.projects.find(project => project.path === args.path);

@@ -340,6 +340,27 @@ These suites run without Tauri, GUI libraries, installed agent CLIs or network;
   under `/tmp` because of Unix socket limits; native XDG trash recovery runs only
   on Linux.
 
+## Remote machine host
+
+Remote machines ([ADR 0101](../decisions/0101-remote-machines.md)) need the
+Linux build of `prometeu-host`. Debug apps read it from
+`src-tauri/target/x86_64-unknown-linux-musl/release/prometeu-host`; build it on
+macOS with Zig:
+
+```sh
+brew install zig cargo-zigbuild
+rustup target add x86_64-unknown-linux-musl
+cd src-tauri && cargo zigbuild -p prometeu-host --release --target x86_64-unknown-linux-musl
+```
+
+`PROMETEU_REMOTE_HOST` points the app at another build. `cargo test -p
+prometeu-host` runs the host against local attachments. The opt-in journey
+installs the build on a real machine and drops SSH mid-output:
+
+```sh
+PROMETEU_REMOTE_TEST_SSH=<ssh destination> cargo test --bin Prometeu vps_journey -- --ignored --nocapture
+```
+
 ## Native Windows/WSL integration
 
 Build and run the WSL runtime alone (Linux, WSL or macOS):

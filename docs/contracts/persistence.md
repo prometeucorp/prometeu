@@ -53,6 +53,8 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
+| remote machines | `<root>/machines.json` | `remote.rs`; private `{ v: 1, machines: [{ id, name, ssh, limits: { memory_max, cpu_quota } }] }`, no credentials; see [ADR 0101](../decisions/0101-remote-machines.md) |
+| remote transcript mirror | `<root>/remote/<machine>/mirror/<remote path>` | `remote/connection.rs`; private append-only copies of a machine's Claude project files, rebuilt from offset zero when missing; see the [remote host protocol](remote-host.md#transcript-mirror) |
 | derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
 
 Catalog project installation reuses board Project records and stores local paths
@@ -719,6 +721,27 @@ them ([ADR 0090](../decisions/0090-approved-remote-input.md)). Only
 keeps only this choice: waiting messages live in the frontend's memory and are
 never persisted. Tests: `share_tests` and `fixtures/backend-contract.json`,
 which carries a workspace saved with the option off and one from before it.
+
+## Remote machines
+
+`Workspace.host` and `Project.host` name the machine from `machines.json` that
+holds the clone and runs the workspace ([ADR 0101](../decisions/0101-remote-machines.md)).
+Their paths are paths on that machine, and remote project IDs are
+`remote:<machine>:<path>`. Both fields are written only when set, so boards
+without remote entries load and save unchanged, and an older version ignores
+them. A remote workspace has no reserved `port`. Its tabs always store terminal
+mode. Removing a machine drops its projects from the board and is refused while a
+workspace still names it.
+
+`Project.origin` is the clone's `origin` remote normalized to `host/owner/repo`
+in lowercase, so every URL spelling of one repository compares equal. The app
+fills it in for local projects at start and when one is added, and for a
+machine's projects each time the machine attaches. A remote project whose origin
+equals a local project's is shown as that project: the sidebar lists its
+workspaces under the local one, and the launcher offers only the local one. It is
+written only when known. Tests: `remote_hosts_round_trip_and_local_entries_omit_them`
+in `crates/core/src/board.rs`, `every_spelling_of_one_remote_normalizes_alike` in
+`src-tauri/src/remote/workspace.rs` and `src/machines.test.ts`.
 
 ## Terminal sessions
 

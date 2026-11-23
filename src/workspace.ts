@@ -1,4 +1,5 @@
 import { isDelegatedWorkspace, workspaceHierarchy } from "./workspace-hierarchy";
+import { badge as machineBadge } from "./machines";
 import { button } from "./ui";
 import { track } from "./analytics";
 import { attachReview } from "./chat";
@@ -238,6 +239,12 @@ export async function open(ws: Workspace, tab?: string) {
   if (first && !(await session.attach(first.id))) return;
   if (!stillHere(epoch, ws.id)) return;
   if (tab && first) invoke("focus_tab", { workspace: ws.id, tab: first.id });
+  // Remote workspaces show their conversations only (ADR 0101).
+  if (ws.host) {
+    showTerm();
+    ctx.redraw();
+    return;
+  }
   // Restore the previously selected file or diff view.
   const fs = files(ws.id);
   // A shell selected while the transcript was loading already owns the center and focus.
@@ -314,6 +321,10 @@ export function draw() {
       `<span class="sep">${icon("chevron-right", 12)}</span><span class="nm"></span>` +
       `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
   }
+  // Name the machine that runs a remote workspace next to its repository.
+  crumb.querySelector(".machine-badge")?.remove();
+  const where = machineBadge(ws.host);
+  if (where) crumb.querySelector(".nm")!.after(where);
   // Use a repository count and picker instead of crowding the header with every name.
   const many = !owner && ws.repos.length > 1;
   const who = crumb.querySelector<HTMLElement>(".who")!;
@@ -377,6 +388,19 @@ export function draw() {
     $("offbody").hidden = !ws.failed;
     if (ws.failed) $("offbody").textContent = fromBack(ws.failed);
     $("offpath").textContent = ws.worktree;
+    return;
+  }
+
+  // A remote machine owns the checkout (ADR 0101): its conversations run there, while this computer has no files,
+  // Git panel or docks for it yet.
+  if (ws.host) {
+    paintBranchName(ws.branch);
+    layout({ tabs: !ws.cleaned });
+    $("offline").hidden = !ws.cleaned;
+    $("offwave").hidden = true;
+    $("offbody").hidden = false;
+    $("offtitle").textContent = t("gone.title");
+    $("offbody").textContent = t("gone.body");
     return;
   }
 
@@ -692,7 +716,7 @@ const askBranch = debounce(400, async (id: string) => {
 });
 
 /// Diff and PR creation require a prepared local worktree, excluding remote, cleaned, and preparing workspaces.
-const diffable = (ws: Workspace) => !ws.remote && !ws.cleaned && !pending(ws);
+const diffable = (ws: Workspace) => !ws.remote && !ws.host && !ws.cleaned && !pending(ws);
 const hasDiff = () => {
   const ws = current();
   return !!ws && ws.id === openWs && diffable(ws);

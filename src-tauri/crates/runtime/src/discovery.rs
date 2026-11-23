@@ -192,6 +192,7 @@ impl ProviderDiscovery for CodexDiscovery {
                 approvals: true,
                 user_questions: true,
                 attachments: true,
+                remote_machines: false,
             },
         }
     }
