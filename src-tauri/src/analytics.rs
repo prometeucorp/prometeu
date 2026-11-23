@@ -169,6 +169,7 @@ pub enum SettingsSection {
     Agents,
     Resources,
     Actions,
+    Projects,
     Work,
     Analytics,
 }
@@ -1078,6 +1079,7 @@ mod tests {
             "agents",
             "resources",
             "actions",
+            "projects",
             "work",
             "analytics",
         ] {

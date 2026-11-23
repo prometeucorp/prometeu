@@ -39,6 +39,10 @@ export function onChange(fn: () => void) { listeners.add(fn); return () => liste
 export const machineName = (id: string) => machineOf(id)?.name ?? id;
 export const online = (id: string | undefined) => machineOf(id)?.phase === "connected";
 
+/** Only registered folders on the selected machine can be chosen for a new workspace. */
+export function projectsOn(projects: Project[], host?: string): Project[] {
+  return projects.filter(project => (project.host ?? "") === (host ?? ""));
+}
 
 /// A machine's clone of a repository that is also a project on this computer is shown as that project (ADR 0101):
 /// remote project ID → local project ID, matched by normalized `origin`.

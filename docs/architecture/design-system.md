@@ -169,7 +169,7 @@ across Settings redraws; query invalidation and erasure remain in that host.
 The component consumes formatted snapshots without IPC or provider imports.
 
 `src/settings.ts` groups preferences into General, Agents, Resources, Actions,
-Work and team, and Analytics. Navigation keeps the compact, neutral sidebar; settings
+Projects, Work and team, and Analytics. Navigation keeps the compact, neutral sidebar; settings
 search sits in the content header. `src/settings.css` defines composition and
 overrides some control dimensions; base Settings styles also remain in
 `src/style.css`. Shared primitives coexist with legacy controls; Actions keeps
@@ -178,6 +178,10 @@ shared button classes when adding local styles. The resource library uses
 Hubs project typed data and callbacks, preserving validation and busy state. Item
 operations live in an overflow menu; the Add resource menu retains all existing
 creation and import paths. A registered resource is not automatically enabled.
+
+Projects uses the shared toolbar, item rows and empty state, filtered by computer.
+Remote folder registration and cloning use form dialogs shared with the launcher;
+the launcher no longer embeds a folder browser.
 
 General keeps the notification master switch and native permission warning
 visible while its details expand in place. Agents shows defaults followed by

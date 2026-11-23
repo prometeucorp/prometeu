@@ -183,3 +183,16 @@ The request card's `allowAlways` callback is optional. Hosts that cannot change
 permission policy omit it; the card then omits permanent approval and plan-bypass
 actions while retaining one-request approval, denial and question responses.
 Existing Desktop consumers supply the callback and retain their behavior.
+
+## Project management
+
+Settings > Projects composes shared toolbar, item rows and empty state from the
+registered board projects. Selecting a computer filters by `Project.host`,
+without merging origin aliases. The saved `projects` destination opens this page.
+Machine setup and Claude login remain in Work and team > Remote machines.
+
+Remote folder registration and cloning use shared form dialogs from
+`src/projects.ts`, also opened by the launcher without discarding its task draft.
+Registration preserves completed additions after a partial failure; cloning
+preserves the URL and destination after failure. Dialog submission blocks closing
+while the write is pending. No persisted or IPC format changes are needed.

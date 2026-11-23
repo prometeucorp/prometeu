@@ -1,5 +1,6 @@
 import { track } from "./analytics";
 import * as remoteMachines from "./machines";
+import { openRemoteProjects, openRemoteClone } from "./projects";
 import * as accounts from "./accounts";
 import { button, checkbox, dropdown, field, input } from "./ui";
 export type { Group } from "./ui";
@@ -9,7 +10,7 @@ import { choiceLabel, defaultChoice, defaultEffort, effortStep, fitsEffort } fro
 import { openModelPicker, openEffortPicker } from "./model-picker";
 import { freshBranch } from "./branch";
 import { avatar, icon } from "./icons";
-import { fromBack, paint, t, tn } from "./i18n";
+import { paint, t } from "./i18n";
 import * as issues from "./issues";
 import * as kickoff from "./kickoff";
 import * as skills from "./skills";
@@ -247,30 +248,21 @@ export function openLauncher(board: Board, opts: Open) {
 
   const nameOf = (id: string) => board.projects.find((p) => p.id === id)?.name ?? "";
   const projectName = () => nameOf(draft.project);
-  // On a machine, this computer's projects with a remote are offered too: the workspace uses their clone there, or
-  // clones them (ADR 0101). The machine's own clones of those repositories are the same projects, so they are not
-  // listed again.
-  const onMachine = () => {
-    if (!draft.host) return board.projects.filter((p) => !p.host);
-    const alias = remoteMachines.aliases(board.projects);
-    return [
-      ...board.projects.filter((p) => !p.host && p.origin),
-      ...board.projects.filter((p) => p.host === draft.host && !alias.has(p.id)),
-    ];
-  };
+  const onMachine = () => remoteMachines.projectsOn(board.projects, draft.host);
   const remoteProblem = () => {
     if (!draft.host) return "";
     if (!remoteMachines.online(draft.host)) return t("launcher.remoteOffline", { name: remoteMachines.machineName(draft.host) });
+    if (!draft.project) return t("launcher.remoteNone", { name: remoteMachines.machineName(draft.host) });
     if (!capabilitiesOf(draft.agent).remoteMachines) return t("err.remote.provider");
     const claude = remoteMachines.machineOf(draft.host)?.claude;
     if (claude && !claude.installed) return t("machines.claude.missing");
     if (claude && !claude.loggedIn) return t("launcher.remoteSignIn", { name: remoteMachines.machineName(draft.host) });
-    if (!draft.project) return t("launcher.remoteNone", { name: remoteMachines.machineName(draft.host) });
     return "";
   };
   const choiceProblem = () => {
     const remote = remoteProblem();
     if (remote) return remote;
+    if (!draft.project) return t("projects.none");
     if (needsChoice) return t("models.choose");
     // On a machine, Claude runs there: this computer may lack it, and then its catalog cannot judge the choice.
     if (!descriptor(draft.agent).installed) return draft.host ? "" : t("models.unavailable");
@@ -771,113 +763,26 @@ export function openLauncher(board: Board, opts: Open) {
     if (issuePick.isOpen()) void issues.load().then(() => issuePick.isOpen() && issuePick.draw());
   });
 
-  // The machine decides which projects are offered. Remote ones are registered by browsing the machine's folders
-  // and ticking repositories, or by cloning a URL into the folder being browsed.
+  // Project installation has its own dialog, shared with Settings > Projects.
   const remoteBox = $("d-remote");
-  const browse = { machine: "", path: "", listing: null as remoteMachines.RemoteListing | null, picked: new Set<string>(), busy: false, error: "", open: undefined as boolean | undefined };
-  const known = (path: string) => board.projects.some((p) => p.host === draft.host && p.path === path);
-  const join = (dir: string, name: string) => `${dir.replace(/\/+$/, "")}/${name}`;
-  const openFolder = (path: string) => {
-    const machine = draft.host!;
-    browse.busy = true;
-    browse.error = "";
-    drawMachine();
-    void invoke("remote_list_dir", { machine, path: path || null })
-      .then((listing) => {
-        if (browse.machine !== machine) return;
-        browse.listing = listing;
-        browse.path = listing.path;
-        browse.picked.clear();
-      })
-      .catch((error) => { if (browse.machine === machine) browse.error = fromBack(error); })
-      .finally(() => { if (browse.machine === machine) { browse.busy = false; drawMachine(); } });
-  };
-  const addProjects = async (paths: string[], url: string | null) => {
-    const machine = draft.host!;
-    browse.busy = true;
-    browse.error = "";
-    drawMachine();
-    let last = "";
-    for (const path of paths) {
-      try {
-        const created = await invoke("remote_add_project", { machine, path, url });
-        if (!board.projects.some((p) => p.id === created.id)) board.projects.push(created);
-        last = remoteMachines.aliases(board.projects).get(created.id) ?? created.id;
-      } catch (error) {
-        browse.error = fromBack(error);
-        break;
-      }
-    }
-    browse.busy = false;
-    browse.picked.clear();
-    if (last && draft.host === machine) selectProject(last);
-    else drawMachine();
+  const addedProject = (project: import("./types").Project) => {
+    if (!board.projects.some(existing => existing.id === project.id)) board.projects.push(project);
+    if (draft.host === project.host) selectProject(project.id);
   };
   const drawMachine = () => {
     machineButton.querySelector("span")!.textContent = draft.host ? remoteMachines.machineName(draft.host) : t("machines.local");
-    $("d-project").closest<HTMLElement>(".ui-field")!.hidden = !onMachine().length;
+    projectField.hidden = !onMachine().length;
+    branchField.hidden = !draft.project;
     remoteBox.hidden = !draft.host;
+    remoteBox.replaceChildren();
     if (!draft.host) return;
-    if (browse.machine !== draft.host) {
-      Object.assign(browse, { machine: draft.host, path: "", listing: null, error: "", open: undefined });
-      browse.picked.clear();
-    }
-    // Opens the home folder first, and again when an offline machine comes back.
-    if (!browse.listing && !browse.busy && !browse.error && remoteMachines.online(draft.host)) { openFolder(browse.path); return; }
-    const listing = browse.listing;
-    const head = h("div", "launcher-browse-head");
-    const up = button("", () => openFolder(browse.path.replace(/\/[^/]*\/?$/, "") || "/"), "ghost", "launcher.remoteUp");
-    up.insertAdjacentHTML("afterbegin", icon("arrow-up", 14));
-    up.setAttribute("aria-label", t("launcher.remoteUp"));
-    up.title = t("launcher.remoteUp");
-    up.disabled = browse.busy || !listing || browse.path === "/";
-    head.append(up, h("span", "launcher-browse-path", listing ? browse.path : t("launcher.remoteLoading")));
-    const rows = h("div", "launcher-browse-list");
-    for (const entry of listing?.entries ?? []) {
-      if (entry.name.startsWith(".")) continue;
-      const path = join(browse.path, entry.name);
-      if (entry.git) {
-        const added = known(path);
-        const pick = checkbox(added ? `${entry.name} · ${t("launcher.remoteAdded")}` : entry.name, added || browse.picked.has(path), "launcher.remotePick");
-        pick.control.disabled = added || browse.busy;
-        pick.control.onchange = () => {
-          if (pick.control.checked) browse.picked.add(path); else browse.picked.delete(path);
-          drawMachine();
-        };
-        pick.label.classList.add("launcher-browse-repo");
-        rows.append(pick.label);
-      } else {
-        const folder = button(entry.name, () => openFolder(path), "ghost", "launcher.remoteFolder");
-        folder.insertAdjacentHTML("afterbegin", icon("folder", 14));
-        folder.classList.add("launcher-browse-folder");
-        folder.disabled = browse.busy;
-        rows.append(folder);
-      }
-    }
-    if (listing && !rows.childElementCount) rows.append(h("span", "launcher-browse-empty", t("launcher.remoteEmpty")));
-    const count = browse.picked.size;
-    const add = button(count ? tn(count, "launcher.remoteAddMany") : t("launcher.remoteAdd"), () => void addProjects([...browse.picked], null), "pri", "launcher.remoteAdd");
-    add.disabled = browse.busy || !count;
-    const url = input("", false, "launcher.remoteClone");
-    url.placeholder = "git@github.com:org/app.git";
-    url.spellcheck = false;
-    const clone = button(t("launcher.remoteCloneHere"), () => {
-      const name = url.value.trim().replace(/\/+$/, "").replace(/\.git$/, "").split(/[/:]/).pop();
-      if (!name) { url.focus(); return; }
-      void addProjects([join(browse.path, name)], url.value.trim());
-    }, "outline", "launcher.remoteCloneHere");
-    clone.disabled = browse.busy || !listing;
-    const cloneRow = h("div", "launcher-remote-row");
-    cloneRow.append(field(t("launcher.remoteClone"), url), clone);
-    // Folded once the machine has projects, so picking one of them stays short.
-    const panel = h("details", "launcher-browse") as HTMLDetailsElement;
-    panel.open = browse.open ?? !onMachine().length;
-    panel.ontoggle = () => { browse.open = panel.open; };
-    const body = h("div", "launcher-browse-body");
-    body.append(head, rows, add, cloneRow);
-    if (browse.error) body.append(h("span", "ui-hint bad", browse.error));
-    panel.append(h("summary", "", t("launcher.remoteBrowse", { name: remoteMachines.machineName(draft.host) })), body);
-    remoteBox.replaceChildren(panel);
+    const machine = draft.host;
+    const add = button(t("projects.remoteFolder"), () => openRemoteProjects(machine, board.projects, addedProject), "ghost", "projects.remoteFolder");
+    const clone = button(t("projects.clone"), () => openRemoteClone(machine, addedProject), "ghost", "projects.clone");
+    add.dataset.focus = "launcher-add-project";
+    clone.dataset.focus = "launcher-clone-project";
+    add.disabled = clone.disabled = !remoteMachines.online(machine);
+    remoteBox.append(add, clone);
   };
   const selectProject = (id: string) => {
     draft.project = id;
@@ -908,7 +813,7 @@ export function openLauncher(board: Board, opts: Open) {
       drawHint();
     },
   );
-  const forgetMachines = remoteMachines.onChange(() => { drawHint(); drawAccount(); if (draft.host && !browse.listing && !browse.busy) { browse.error = ""; drawMachine(); } });
+  const forgetMachines = remoteMachines.onChange(() => { drawHint(); drawAccount(); drawMachine(); });
 
   // Changing projects refreshes the branch base and conflict labels.
   drawProjectLabel = dropdown(

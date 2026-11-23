@@ -28,6 +28,14 @@ Settings signs Claude in on the machine with `claude auth login --claudeai`, the
 person's browser and a pasted code; the opt-in `vps_claude_login` test covers the
 link on Claude Code 2.1.330.
 
+Project registration is managed in Settings > Projects, filtered by computer.
+The launcher lists only registrations on the selected machine; local origin
+aliases do not hide remote clones or cause implicit installation. This selection
+rule is covered by `src/machines.test.ts`; navigation compatibility by
+`src/settings-navigation.test.ts`. `e2e/projects.spec.ts` covers the browser
+journey through machine selection and nested registration without losing the
+workspace prompt. Remote execution remains Claude-only.
+
 Evidence: the host integration tests and the opt-in `vps_journey` cover
 transport, reattachment and limits. A live Claude response, completion and
 reattached status on a remote machine remain to be recorded here.
