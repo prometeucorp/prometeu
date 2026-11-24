@@ -50,6 +50,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | V1 transcript for Codex, Antigravity, Cursor and every terminal-mode provider | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
 | native terminal transcript binding | `<root>/terminal-bindings/<tab>.json` | `chat/terminal/binding.rs`; private versioned identity and exact path, without conversation content |
 | native terminal ingestion journal | `<root>/terminal-ingestion/<tab>.sqlite3` | `terminal_agent_journal.rs` and `chat/terminal/ingestion.rs`; private source provenance and durable canonical append |
+| app diagnostic log | `<root>/logs/prometeu.log` (previous: `prometeu.log.1`) | `main.rs`; private `0600` stderr when the app is not attached to a terminal, rotated at startup above 5 MiB; terminal-host lines are `<ms> <tab or generation> terminal.<code>` with identifiers and step names only |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
@@ -686,6 +687,11 @@ Prompts, outputs, tool results and credentials may contain secrets. Do not send
 transcripts to telemetry and do not print complete tokens/configurations in
 logs. Errors may record the path and the cause, but never content or a
 credential.
+
+A terminal tab that fails with `err.terminalAgent.history` writes the failing
+step to the diagnostic log as `terminal.history.<step>`, and every forced stop of
+its agent process writes `terminal.abort.<reason>`. A `terminal.launch` line maps
+the generation that prefixes later lines to its tab.
 
 ## Sharing scope
 

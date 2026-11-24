@@ -151,7 +151,7 @@ impl ConversationLauncher<chat::Chat> for Desktop<'_> {
             }
             let effective =
                 chat::terminal::ingestion::resume_request(&crate::paths::root(), request)
-                    .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                    .map_err(|_| chat::terminal::history(&request.session, "resume_request"))?;
             let prepared = self.state.terminal_providers.prepare(&effective)?;
             let resumed = prepared.resumed;
             return Ok(Launched {
