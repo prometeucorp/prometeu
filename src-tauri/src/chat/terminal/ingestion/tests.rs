@@ -19,12 +19,15 @@ impl Fixture {
         }
     }
     fn open(&self, native: Option<&str>, fresh: bool) -> Arc<JournalStore> {
+        self.open_as("cursor", native, fresh)
+    }
+    fn open_as(&self, provider: &str, native: Option<&str>, fresh: bool) -> Arc<JournalStore> {
         JournalStore::open(
             &self.root.join("canonical.jsonl"),
             &journal_path(&self.root, "app").unwrap(),
             JournalBinding {
                 app_session: "app".into(),
-                provider: "cursor".into(),
+                provider: provider.into(),
                 native_session: native.map(str::to_owned),
             },
             fresh,
@@ -1626,9 +1629,14 @@ fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
     let (transport, _) = super::super::tests::fixture();
     let normalized = transport.begin_submission("attachment", original).unwrap();
     transport.end_submission("attachment");
-    assert_eq!(normalized, echo);
+    let native = crate::terminal_agent_observation::claude_live_user_capture(
+        json!({"uuid":"prompt","type":"user","message":{"role":"user","content":echo}}),
+        &normalized,
+        "attachment",
+    );
+    assert_eq!(native.input_binding.as_deref(), Some("attachment"));
     let fixture = Fixture::new();
-    let store = fixture.open(None, true);
+    let store = fixture.open_as("claude", None, true);
     let (live, _) = pump(&store);
     let submission = store
         .submission("attachment", original, &normalized)
@@ -1642,8 +1650,7 @@ fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
         )
     })
     .unwrap();
-    store.bind_native("native").unwrap();
-    let native = user("attachment", echo);
+    store.bind_native("session").unwrap();
     assert_eq!(store.disposition(&native).unwrap(), NativeDisposition::User);
     assert!(live
         .accept_committed(native.frame.as_ref().unwrap(), |line, offset| {
@@ -1651,5 +1658,10 @@ fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
         })
         .unwrap()
         .is_empty());
-    assert_eq!(store.load().unwrap().matches("user.message").count(), 1);
+    let saved = store.load().unwrap();
+    assert_eq!(saved.matches("user.message").count(), 1);
+    assert!(
+        saved.contains("a\u{300}s 15.04.png"),
+        "keeps the original spelling"
+    );
 }
