@@ -2234,10 +2234,17 @@ mod tests {
         );
 
         // A stalled writer never drains: the quit still proceeds at the deadline.
-        let stalled = std::sync::atomic::AtomicUsize::new(1);
-        let started = Instant::now();
-        wait_drained(&stalled, Duration::from_millis(50));
-        assert!(started.elapsed() >= Duration::from_millis(50));
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let stalled = std::sync::atomic::AtomicUsize::new(1);
+            let started = Instant::now();
+            wait_drained(&stalled, Duration::from_millis(50));
+            let _ = sender.send(started.elapsed());
+        });
+        let waited = receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a stalled writer must not hold the wait open");
+        assert!(waited >= Duration::from_millis(50));
     }
 
     struct Memory(Arc<Mutex<Vec<u8>>>);
