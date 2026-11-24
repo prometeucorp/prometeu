@@ -22,6 +22,13 @@ always send an empty string; viewers do not project it into workspace state.
 Removing that wire field would break deployed relays without providing user value.
 Git staging and observed conversation status remain independent features.
 
+An upgraded Windows shell can remain attached to an old, busy resident. Creation
+requires `application.stageless-workspaces.v1`; without it, the bridge explains
+that running conversations and terminals must finish before reconnecting to apply
+the update. This avoids restoring retired domain data or sending invalid drafts
+while keeping existing sessions available.
+
 Core board compatibility tests verify legacy fields disappear on serialization.
 Existing lifecycle tests verify archive and finish behavior, and encrypted channel
-tests cover the v4 compatibility field.
+tests cover the v4 compatibility field, including an actual owner announcement
+decrypted and parsed by a viewer.

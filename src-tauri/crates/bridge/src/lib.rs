@@ -288,6 +288,7 @@ struct Client {
     workspaces_supported: bool,
     worktrees_supported: bool,
     application_supported: bool,
+    stageless_workspaces_supported: bool,
     operations_supported: bool,
     initialization_supported: bool,
     archive_supported: bool,
@@ -314,6 +315,7 @@ impl Client {
             workspaces_supported: false,
             worktrees_supported: false,
             application_supported: false,
+            stageless_workspaces_supported: false,
             operations_supported: false,
             initialization_supported: false,
             archive_supported: false,
@@ -368,6 +370,9 @@ impl Client {
                     .iter()
                     .any(|c| c == "application.operations.v1");
                 client.application_supported = capabilities.iter().any(|c| c == "application.v1");
+                client.stageless_workspaces_supported = capabilities
+                    .iter()
+                    .any(|c| c == "application.stageless-workspaces.v1");
                 client.worktrees_supported = capabilities.iter().any(|c| c == "worktrees.v1");
                 client.workspaces_supported = capabilities.iter().any(|c| c == "workspaces.v1");
                 Ok(client)
@@ -492,6 +497,15 @@ impl ApplicationClient for Client {
     fn application(&mut self, command: String, args: Value) -> Result<Value, String> {
         if !self.application_supported {
             return Err("application_unsupported".into());
+        }
+        // Old residents can remain attached while their conversations or shells are running.
+        // Check both synchronous creation and the deferred operation envelope before sending.
+        if !self.stageless_workspaces_supported
+            && (command == "create_workspace"
+                || command == "application_operation_start"
+                    && args["command"] == "create_workspace")
+        {
+            return Err(prometeu_core::error::code("err.windows.runtimeUpgrade"));
         }
         self.request(json!({"method":"application","command":command,"args":args}))
     }
@@ -640,6 +654,66 @@ fn read_frame(reader: &mut impl BufRead) -> Reply {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn workspace_creation_requires_stageless_capability_before_sending() {
+        struct Events;
+        impl RuntimeEvents for Events {
+            fn publish(&self, _: Value) {}
+        }
+        for current in [false, true] {
+            let child = Command::new("python3")
+                .args([
+                    "-u",
+                    "-c",
+                    r#"
+import json, sys
+current = sys.argv[1] == 'true'
+caps = ['application.v1', 'application.operations.v1']
+if current: caps.append('application.stageless-workspaces.v1')
+print(json.dumps({'v':1, 'lifecycle':'ready', 'provider':'codex', 'capabilities':caps}))
+for line in sys.stdin:
+    request = json.loads(line)
+    action = request['action']
+    command = action.get('command')
+    assert current or command == 'load_board', 'legacy runtime received creation'
+    args = action['args'] or {}
+    if command == 'application_operation_start': args = args['args']
+    assert 'stage' not in args.get('draft', {}), 'retired stage leaked into creation'
+    print(json.dumps({'v':1, 'id':request['id'], 'result':{}}))
+"#,
+                    if current { "true" } else { "false" },
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut client = Client::open(child, Arc::new(Events)).unwrap();
+            for (command, args) in [
+                ("create_workspace", json!({"draft":{"title":"New"}})),
+                (
+                    "application_operation_start",
+                    json!({"command":"create_workspace", "args":{"draft":{"title":"New"}}}),
+                ),
+            ] {
+                let result = client.application(command.into(), args);
+                if current {
+                    assert_eq!(result, Ok(json!({})));
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(prometeu_core::error::code("err.windows.runtimeUpgrade"))
+                    );
+                }
+            }
+            assert_eq!(
+                client.application("load_board".into(), Value::Null),
+                Ok(json!({}))
+            );
+        }
+    }
+
     #[test]
     fn wsl_arguments_preserve_linux_paths_and_never_use_a_shell() {
         let target = Target {

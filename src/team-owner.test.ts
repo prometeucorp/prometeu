@@ -123,6 +123,25 @@ async function upgradedFrom(work: Workspace) {
   await connect(work);
 }
 
+it("delivers an owner announcement without workspace stages to an encrypted viewer", async () => {
+  const { TeamChannel } = await import("./team-channel");
+  const { TeamSecurity } = await import("./team-security");
+  const security = await TeamSecurity.load("viewer", async () => null, async () => {});
+  devices[1] = { ...devices[1], identity: security.identity };
+  const work = workspace(["bob"]);
+  expect(work).not.toHaveProperty("stage");
+  await connect(work);
+  const viewer = new TeamChannel(security, SCOPE, "bob");
+  const members = [{ id: "alice", name: "Alice", online: true, key: socket.key }, ...roster()];
+  await viewer.incoming({ t: "welcome", comments: 1, e2ee: 1, challenge: "challenge", you: "bob",
+    members, shares: [], inbox: [], watching: {} });
+  await viewer.incoming({ t: "presence", members });
+  const wire = socket.shares().slice(-1)[0].share;
+  expect(wire.encrypted?.boxes.bob).toBeDefined();
+  await viewer.incoming({ t: "share", share: { ...wire, owner: "alice", online: true } });
+  expect(viewer.shares.get(work.id)).toMatchObject({ title: work.title, branch: work.branch, stage: "" });
+});
+
 it("keeps teammates and devices pinned before the upgrade able to send input", async () => {
   await upgradedFrom(workspace(null, true, send("bob")));
   await settled(await write(devices[1], "Merge it"));

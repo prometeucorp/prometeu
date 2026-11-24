@@ -30,6 +30,13 @@ transport command: `ApplicationClient` sends
 `{ method: "application", command, args }` through the runtime envelope and
 requires `application.v1`. Unknown or unimplemented commands reject without
 mutation, and older runtimes reject at the capability check before sending.
+Workspace creation also requires `application.stageless-workspaces.v1`.
+An old resident retained during an upgrade can still serve existing work, but
+both direct and deferred creation are refused by the bridge before transmission,
+with a translated explanation to finish running conversations and terminals and
+reconnect so the runtime can update. No legacy stage is reintroduced into drafts.
+The bridge capability test covers old and current handshakes and both envelopes.
+
 Host-only commands outside the shared registry are `application_open`,
 `application_reconnect` and `application_paths`.
 
