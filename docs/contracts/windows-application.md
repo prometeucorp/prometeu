@@ -33,9 +33,13 @@ mutation, and older runtimes reject at the capability check before sending.
 Workspace creation also requires `application.stageless-workspaces.v1`.
 An old resident retained during an upgrade can still serve existing work, but
 both direct and deferred creation are refused by the bridge before transmission,
-with a translated explanation to stop running conversations and terminals, then
-quit and reopen Prometeu so the runtime can update. A healthy connection is not
-replaced by `application_reconnect`. No legacy stage is reintroduced into drafts.
+with a translated explanation to disable automatic worktree cleanup before
+archiving WSL workspaces, keep their worktrees when prompted, quit and reopen
+Prometeu, then unarchive those workspaces. Archiving stops retained Codex processes
+and workspace terminals; the chat's Stop button only interrupts a turn and leaves
+the runtime busy even when Codex is idle. Keeping worktrees preserves files for
+unarchiving. A healthy connection is not replaced by `application_reconnect`.
+No legacy stage is reintroduced into drafts.
 The bridge capability test covers old and current handshakes and both envelopes.
 
 Host-only commands outside the shared registry are `application_open`,

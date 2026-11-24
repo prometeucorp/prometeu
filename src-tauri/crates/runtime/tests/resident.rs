@@ -348,21 +348,25 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
     assert!(snapshot["seq"].is_u64());
     client.disconnect().unwrap();
     assert_eq!(executable(&target), first.to_str().unwrap());
-    let mut client = connector.connect(&target, events().0).unwrap();
+    let (sink, rx) = events();
+    let mut client = connector.connect(&target, sink).unwrap();
+    client.start().unwrap();
+    until(&rx, "session.identity");
+    // The upgrade instructions use Archive to release both idle Codex and the dock.
     client
         .application(
-            "close_dock".into(),
-            serde_json::json!({"id":workspace,"kind":"terminal"}),
+            "archive_workspace".into(),
+            serde_json::json!({"id":workspace,"archived":true}),
         )
         .unwrap();
     client.disconnect().unwrap();
     let mut client = connector.connect(&target, events().0).unwrap();
-    assert_eq!(
-        client
-            .application("load_board".into(), Value::Null)
-            .unwrap()["workspaces"][0]["id"],
-        workspace
-    );
+    let board = client
+        .application("load_board".into(), Value::Null)
+        .unwrap();
+    assert_eq!(board["workspaces"][0]["id"], workspace);
+    assert_eq!(board["workspaces"][0]["archived"], true);
+    assert!(workdir.is_dir());
     assert!(!client.snapshot().unwrap().running.unwrap());
     client.disconnect().unwrap();
     assert_eq!(executable(&target), next.to_str().unwrap());
@@ -374,6 +378,18 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
         )
         .unwrap()
         .is_null());
+    client
+        .application(
+            "archive_workspace".into(),
+            serde_json::json!({"id":workspace,"archived":false}),
+        )
+        .unwrap();
+    assert_eq!(
+        client
+            .application("load_board".into(), Value::Null)
+            .unwrap()["workspaces"][0]["archived"],
+        false
+    );
     client.shutdown().unwrap();
     cleanup.armed = false;
     std::fs::remove_dir_all(base).unwrap();
