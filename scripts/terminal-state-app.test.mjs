@@ -22,7 +22,6 @@ test("a macOS build cannot silently omit a failed helper preparation", () => {
 test("other platform builds retain their current arguments and environment", () => {
   const args = ["build", "--bundles", "appimage"];
   const env = { PROMETEU_ROOT: "/tmp/state" };
-  for (const platform of ["linux", "win32"])
-    assert.deepEqual(terminalAppPlan(args, env, platform), { args, env });
+  assert.deepEqual(terminalAppPlan(args, env, "linux"), { args, env });
   assert.throws(() => terminalAppPlan(["signer"], {}, "linux"), /Expected Tauri/);
 });

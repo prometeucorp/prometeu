@@ -1,8 +1,5 @@
 //! Provider-neutral discovery contracts shared by application hosts.
-use crate::{
-    accounts::{Account, Identity},
-    board::ProviderId,
-};
+use crate::board::ProviderId;
 /// A model as exposed to the launcher.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Model {
@@ -77,10 +74,4 @@ impl CatalogError {
 pub struct ModelCatalog {
     pub models: Vec<Model>,
     pub fetched_at: u64,
-}
-
-pub trait ProviderDiscovery: Send + Sync {
-    fn descriptor(&self) -> AgentDescriptor;
-    fn models(&self, account: &Account) -> Result<ModelCatalog, CatalogError>;
-    fn identity(&self, account: &Account) -> Result<Identity, String>;
 }

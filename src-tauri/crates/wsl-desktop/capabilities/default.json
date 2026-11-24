@@ -1,6 +1,0 @@
-{
-  "identifier": "default",
-  "description": "Native desktop with WSL execution",
-  "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
-}

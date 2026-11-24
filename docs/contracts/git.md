@@ -8,16 +8,12 @@ status: stable
 # Workspace Git
 
 Implemented. Desktop Git runs on the machine that owns the workspace.
-The native Windows application runs the same `prometeu-git` implementation in
-WSL; its worktree creation and cleanup are described in the
-[WSL runtime](wsl-runtime.md#workspace-methods) and
-[Windows](windows-application.md#workspace-lifecycle) contracts.
 
 ## Responsibilities
 
 `src/workspace-changes.ts` controls selection, drafts and presentation. The
-desktop facade `src-tauri/src/session/git.rs` and the WSL application host resolve
-repositories using shared core admission rules. Both receive `RepositoryGit`;
+desktop facade `src-tauri/src/session/git.rs` resolves repositories using shared
+core admission rules and receives `RepositoryGit`;
 `prometeu-git::NativeGit` runs the existing native operations with separate arguments,
 without a shell. Core owns the unchanged IPC model types and the running-agent
 check for pull/discard. Caches, mutation serialization and filesystem/Git effects
@@ -289,14 +285,11 @@ agents before the hook, then stops the final tab set before completing. New
 and resumed launches reject while the hook runs; archived workspaces require
 explicit restoration before launching again. This gate is memory-only and
 also prevents manual cleanup from racing a repeated archive hook. Other
-workspaces remain usable. Desktop runs the hook on its command worker. WSL stops
-agents and docks before dispatching the hook through its deferred-operation
-worker; its owner loop remains responsive and commits the archive after the
-hook exits. Both paths wait for the foreground hook before completing cleanup
-eligibility, so automatic deletion cannot race the hook's
-remaining worktree reads. Hooks must not detach resource teardown; no timeout
-is imposed on the hook, and existing nonzero-exit handling is unchanged; the WSL
-bridge retains its existing ten-minute deferred-result polling deadline. By default,
+workspaces remain usable. Desktop runs the hook on its command worker and waits
+for the foreground hook before completing cleanup eligibility, so automatic
+deletion cannot race the hook's remaining worktree reads. Hooks must not detach
+resource teardown; no timeout is imposed on the hook, and existing nonzero-exit
+handling is unchanged. By default,
 the scoped dialog asks whether to clean up; canceling keeps the worktree, local
 branch, transcript and archived card.
 
@@ -345,9 +338,7 @@ protocol migration.
 - `src-tauri/src/session.rs::tests::archive_stops_all_agents_before_the_hook_reads_resources`:
   desktop shutdown order before foreground teardown; adjacent admission tests
   cover restart rejection and launch/publication races.
-- `src-tauri/crates/bridge/src/operations.rs`: archive capability negotiation.
-- `src-tauri/crates/process/src/archive.rs` and
-  `src-tauri/crates/runtime/tests/lifecycle.rs`: foreground hook completion before
+- `src-tauri/crates/process/src/archive.rs`: foreground hook completion before
   archive/finish replies permit cleanup.
 - `src/cleanup.test.ts`: preference compatibility, opt-in persistence, scoped
   automatic cleanup, blocked and missing rows, and scan/deletion failures.
@@ -362,11 +353,3 @@ error code and now kills/reaps the owned group. Other repository Git commands
 retain their existing adapters. Real-repository preparation tests and injected
 `fetch_port_tests` in `session.rs` cover this boundary; see
 [bounded commands](application-core.md#processes-terminals-and-commands).
-
-## Windows application verification
-
-`runtime/tests/resident.rs` runs status, commit and base reads over the application
-transport, including deferred execution with real hooks, while `crates/git` covers
-the commands themselves; the opt-in native journey stages and commits through the
-original Changes panel. Git keeps its original process lifetime, without a new
-timeout or hook cancellation.

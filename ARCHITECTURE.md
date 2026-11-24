@@ -81,21 +81,6 @@ and the capabilities from ADR 0003 are implemented as well.
 
 See [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-flow.md).
 
-## Windows and WSL execution
-
-On Windows, a native Tauri shell (`crates/wsl-desktop`, `src/windows/`) loads
-the existing `index.html` and `src/main.ts` with an injected IPC transport.
-Commands run in `prometeu-runtime`, a Tauri-free Unix host inside the default
-WSL distribution that composes the same core services and native adapters as
-the desktop. The runtime stays resident across window closure and owns its own
-private root and workspace catalog; it never adopts the desktop's data.
-`prometeu-bridge` carries typed requests and injects WSL paths, Explorer,
-clipboard, browser consent, runtime installation and connection recovery at the
-Windows boundary. Only Codex is registered there. See
-[ADR 0084](docs/decisions/0084-shared-windows-desktop.md), the
-[Windows application contract](docs/contracts/windows-application.md) and the
-[WSL runtime protocol](docs/contracts/wsl-runtime.md).
-
 ## Remote machines
 
 A workspace can run on another computer reached over SSH. `prometeu-host`
@@ -344,9 +329,7 @@ explicit send to the draft. See the
   some payloads for compatibility, even though the type is already `ProviderId`.
 - IPC types and conversation events can still diverge between Rust and TS.
 - Native feature composition (`chat/host.rs`, `session.rs`) still lives in
-  the desktop crate, and the Windows composition implements desktop commands one
-  at a time; gaps are listed in the
-  [Windows contract](docs/contracts/windows-application.md).
+  the desktop crate.
 
 These points do not authorize a mass reorganization. The accepted sequence is:
 document, introduce tested contracts and only then move implementations.

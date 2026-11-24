@@ -55,8 +55,6 @@ export type Hooks = {
 
 /// Terminal sessions are shells owned by the app, listed apart from projects and workspaces (ADR 0096).
 export type TerminalHooks = {
-  /// False where the host has no terminal sessions, which hides the group.
-  available: () => boolean;
   /// Whether the session's shell is running.
   live: (id: string) => boolean;
   open: (id: string) => void;
@@ -355,7 +353,7 @@ function renderRail(board: Board, hooks: Hooks) {
     renderGroup(rail, board, hooks, t("rail.team"), icon("users", 14), shared, "@time", { avatars: true });
   }
 
-  if (hooks.terminals.available()) renderTerminals(rail, board.terminals ?? [], hooks.terminals);
+  renderTerminals(rail, board.terminals ?? [], hooks.terminals);
 
   const sect = template("div", "sect", `<span></span>`);
   sect.children[0].textContent = t("rail.projects");

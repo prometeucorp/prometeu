@@ -1,4 +1,4 @@
-//! Foreground archive hooks shared by desktop and WSL lifecycle commands.
+//! Foreground archive hooks for desktop lifecycle commands.
 use std::{
     path::Path,
     process::{Command, ExitStatus, Stdio},

@@ -9,4 +9,3 @@ publish = false
 base64 = "0.22"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
-serde = { version = "1", features = ["derive"] }

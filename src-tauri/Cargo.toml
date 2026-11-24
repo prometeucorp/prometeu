@@ -8,7 +8,7 @@ rust-version = "1.88"
 default-run = "Prometeu"
 
 [workspace]
-members = ["crates/oauth", "crates/git", "crates/files", "crates/core", "crates/process", "crates/profiles", "crates/tools", "crates/protocols", "crates/runtime", "crates/bridge", "crates/wsl-desktop", "crates/host"]
+members = ["crates/oauth", "crates/git", "crates/files", "crates/core", "crates/process", "crates/profiles", "crates/tools", "crates/protocols", "crates/host"]
 resolver = "2"
 
 [[bin]]
@@ -25,6 +25,9 @@ prometeu-core = { path = "crates/core" }
 prometeu-files = { path = "crates/files" }
 prometeu-protocols = { path = "crates/protocols" }
 prometeu-host = { path = "crates/host" }
+prometeu-process = { path = "crates/process" }
+prometeu-profiles = { path = "crates/profiles" }
+prometeu-tools = { path = "crates/tools" }
 # The unstable feature enables child webviews (Window::add_child). The browser tab
 # overlays a system webview on the window center; see browser.rs.
 tauri = { version = "2", features = ["unstable"] }
@@ -77,8 +80,3 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 png = "0.17"
-
-[target.'cfg(unix)'.dependencies]
-prometeu-process = { path = "crates/process" }
-prometeu-profiles = { path = "crates/profiles" }
-prometeu-tools = { path = "crates/tools" }

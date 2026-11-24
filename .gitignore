@@ -11,6 +11,4 @@ prototypes/
 dist-mobile/
 
 /dist-feedback/
-dist-wsl/
-src-tauri/crates/wsl-desktop/gen/
 /src-tauri/remote-host/

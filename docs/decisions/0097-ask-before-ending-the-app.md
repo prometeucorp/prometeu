@@ -10,9 +10,8 @@ status: stable
 Date: 2026-10-27
 
 Builds on the interrupted turns of
-[the conversation flow](../architecture/conversation-flow.md), the window policy
-of [ADR 0089](0089-notch-island.md) and the resident Windows runtime of
-[ADR 0082](0082-resident-wsl-attachments.md).
+[the conversation flow](../architecture/conversation-flow.md) and the window policy
+of [ADR 0089](0089-notch-island.md).
 
 ## Context
 
@@ -78,9 +77,6 @@ Option 3. Option 4 stays open as a later addition to the same question.
   focused first, so a minimized window cannot hide the question. One question
   is open at a time: a request made meanwhile is refused and the open question
   decides. If asking fails, the app ends, as it did before.
-- **Windows.** The resident runtime keeps every agent and terminal after the
-  window closes. `src/windows/main.ts` switches the question off, and the
-  runtime does not implement `running_terminals`.
 
 ## Consequences
 
@@ -102,7 +98,7 @@ Option 3. Option 4 stays open as a later addition to the same question.
 ## Evidence
 
 - `src/quit.test.ts`: what counts, the joined counts, the answer deciding, one
-  question at a time, failing open and Windows never asking.
+  question at a time and failing open.
 - `src/update.test.ts` and `src/update-init.test.ts`: restarting waits for the
   answer and a refusal keeps the update ready.
 - `src/appmenu.test.ts`: the Mac quits through the app's own item.

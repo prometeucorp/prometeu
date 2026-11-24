@@ -63,7 +63,6 @@ struct Pending {
     expires: Instant,
 }
 pub trait Authorization: Send + Sync {
-    fn pending(&self) -> bool;
     fn logged_in(&self) -> Vec<String>;
     fn forget(&self, id: &str) -> Result<(), String>;
     fn bearer(&self, id: &str) -> Option<String>;
@@ -92,14 +91,6 @@ impl McpAuthorization {
     }
 }
 impl Authorization for McpAuthorization {
-    fn pending(&self) -> bool {
-        self.pending
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .any(|p| p.expires > Instant::now())
-    }
-
     fn logged_in(&self) -> Vec<String> {
         let _gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
         let mut ids: Vec<_> = self.storage.load().into_keys().collect();
@@ -170,11 +161,7 @@ impl Authorization for McpAuthorization {
                 expires: Instant::now() + WAIT,
             },
         );
-        Ok(oauth::ConsentRequest {
-            authorize,
-            state,
-            language: String::new(),
-        })
+        Ok(oauth::ConsentRequest { authorize, state })
     }
     fn finish(&self, state: &str, code: &str) -> Result<(), String> {
         let _gate = self.gate.lock().unwrap_or_else(|e| e.into_inner());
@@ -574,10 +561,9 @@ mod storage_tests {
             .unwrap()
             .insert("state".into(), pending(String::new()));
         assert!(service.finish("wrong", "code").is_err());
-        assert!(service.pending());
         assert!(service.pending.lock().unwrap().contains_key("state"));
         service.cancel("state");
-        assert!(!service.pending());
+        assert!(!service.pending.lock().unwrap().contains_key("state"));
         assert!(service.finish("state", "code").is_err());
         let mut expired = pending(String::new());
         expired.expires = Instant::now();
@@ -586,7 +572,6 @@ mod storage_tests {
             .lock()
             .unwrap()
             .insert("expired".into(), expired);
-        assert!(!service.pending());
         assert!(service.finish("expired", "code").is_err());
         service
             .pending

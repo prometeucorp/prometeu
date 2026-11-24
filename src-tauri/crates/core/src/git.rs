@@ -122,7 +122,7 @@ pub trait RepositoryGit: Send + Sync {
     fn restore(&self, root: &Path, repos: &[PathBuf], rel: &str) -> Result<(), String>;
     fn invalidate(&self, path: &Path);
 }
-/// Keep workspace admission identical at both host boundaries.
+/// Workspace admission for Git mutations.
 pub fn workspace_repos<'a>(board: &'a Board, id: &str) -> Result<&'a [Repo], String> {
     board
         .workspaces

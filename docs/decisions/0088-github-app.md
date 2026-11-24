@@ -140,8 +140,7 @@ forks and protect local branches, at the cost of not following later pushes.
 - People who relied on `gh` must connect once through the device flow; the
   retired `github-issues.json` is ignored.
 - Webhook development needs a tunnel to the local Cloud.
-- The desktop and the browser mock implement the commands. This decision does
-  not expand the separate Windows/WSL runtime's supported command set.
+- The desktop and the browser mock implement the commands.
 
 ## Evidence
 

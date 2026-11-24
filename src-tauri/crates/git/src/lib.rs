@@ -1037,7 +1037,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
         }
 }
 
-/// Native Git, shared by the original desktop and the WSL runtime. All process/file effects stay
+/// Native Git for the desktop. All process/file effects stay
 /// behind the repository port; caches retain their canonical-worktree keys and mutation lock.
 pub struct NativeGit;
 impl RepositoryGit for NativeGit {

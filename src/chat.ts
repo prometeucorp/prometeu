@@ -14,7 +14,6 @@ import { pendingCard } from "./components/chat/pending";
 import * as actions from "./actions";
 import * as background from "./background";
 import { invoke } from "./ipc";
-import { onConnectionRestored } from "./connection";
 import { listen } from "@tauri-apps/api/event";
 import { pickAttachments } from "./file-input";
 import { capabilitiesOf, onCatalogChange } from "./agents";
@@ -217,9 +216,6 @@ export class ChatView {
       for (const at of this.tl.clearRestoredUsage()) this.dirty.add(at);
       this.composerDirty ||= context !== this.tl.context;
       if ((this.dirty.size || this.composerDirty) && !this.nativeHidden()) this.flush();
-    }));
-    this.cleanup.push(onConnectionRestored(async () => {
-      if (this.key && !this.remote && !this.disposed) await this.attach(this.key);
     }));
     this.cleanup.push(background.subscribe((context) => {
       if (this.disposed || !context.visible) return;

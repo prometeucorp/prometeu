@@ -1,4 +1,4 @@
-//! Native project file adapter shared by the desktop and WSL runtime.
+//! Native project file adapter used by the desktop.
 pub mod accounts;
 mod bytes;
 pub mod entries;
@@ -8,7 +8,7 @@ pub mod search;
 pub mod settings;
 use prometeu_core::{
     error::{code, with_args},
-    files::{Entry, FileBlock, FileLocation, ProjectFiles},
+    files::{Entry, ProjectFiles},
 };
 use std::path::{Path, PathBuf};
 fn io(cause: impl ToString) -> String {
@@ -47,25 +47,6 @@ impl ProjectFiles<Path> for NativeFiles {
     fn bytes(&self, root: &Path, rel: &str) -> Result<Vec<u8>, String> {
         bytes::read(root, rel)
     }
-    fn block(
-        &self,
-        root: &Path,
-        rel: &str,
-        offset: u64,
-        stamp: Option<&str>,
-    ) -> Result<FileBlock, String> {
-        bytes::block(root, rel, offset, stamp)
-    }
-    fn location(&self, root: &Path, rel: &str) -> Result<FileLocation, String> {
-        let path = inside(root, rel)?;
-        Ok(FileLocation {
-            dir: std::fs::metadata(&path).map_err(io)?.is_dir(),
-            path: path
-                .to_str()
-                .ok_or_else(|| io("Path is not valid UTF-8"))?
-                .into(),
-        })
-    }
     fn list(&self, root: &Path, rel: &str) -> Vec<Entry> {
         let Ok(dir) = inside(root, rel) else {
             return Vec::new();
@@ -98,9 +79,6 @@ impl ProjectFiles<Path> for NativeFiles {
         let file = open(root, rel, u64::MAX)?;
         let meta = std::fs::metadata(file).map_err(io)?;
         Ok(bytes::stamp(&meta))
-    }
-    fn write(&self, root: &Path, rel: &str, text: &str, was: &str) -> Result<(), String> {
-        save(&inside(root, rel)?, text, was)
     }
 }
 

@@ -62,8 +62,8 @@ retry in Chromium, plus a representative layout and focus check in WebKit.
 
 The same Projects dialog also creates a local project without a Cloud account.
 It accepts a name and parent directory, initializes a new empty Git repository
-through the shared native Git adapter, and reuses board registration. Desktop
-and WSL expose the additive `create_project` command described in the
+through the shared native Git adapter, and reuses board registration. The
+desktop exposes the additive `create_project` command described in the
 [IPC contract](../contracts/ipc.md). Existing registration and catalog formats
 are unchanged.
 
@@ -80,9 +80,7 @@ the saved worktree preference for subsequent launches. No setup, remote,
 dependencies or provider process starts during project creation.
 
 Tests in `crates/git/src/tests.rs` cover empty initialization, invalid names,
-existing paths and symlinks. The resident runtime test covers registration,
-rejection without a board change and restart persistence; the bridge test checks
-Windows parent-path conversion. `e2e/projects.spec.ts` adds the project-to-first-
+existing paths and symlinks. `e2e/projects.spec.ts` adds the project-to-first-
 conversation journey, including focus and retention of typed input after a
 creation failure. Existing clone scenarios do not exercise this nested dialog or
 its launcher integration; native tests cannot prove browser focus behavior.

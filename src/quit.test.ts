@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   }),
 }));
 
-import { allow, init, pending, request, summarize, useQuitGuard } from "./quit";
+import { allow, init, pending, request, summarize } from "./quit";
 
 // Assertions read the joined English sentence; translations are not under test.
 use("en");
@@ -64,7 +64,6 @@ describe("asking before the app ends", () => {
   let current: Board;
   beforeEach(() => {
     vi.clearAllMocks();
-    useQuitGuard(true);
     current = board(workspace([tab("pronta")]));
     host.invoke.mockResolvedValue(0);
     init({ board: () => current });
@@ -126,14 +125,6 @@ describe("asking before the app ends", () => {
     current = board(workspace([tab("rodando")]));
     host.confirm.mockRejectedValue(new Error("no dialog"));
     expect(await allow({ kind: "quit" })).toBe(true);
-  });
-
-  it("never asks where agents outlive the window", async () => {
-    current = board(workspace([tab("rodando")]));
-    useQuitGuard(false);
-    expect(await allow({ kind: "quit" })).toBe(true);
-    expect(host.invoke).not.toHaveBeenCalled();
-    expect(host.confirm).not.toHaveBeenCalled();
   });
 
   it("quits from the menu only once allowed", async () => {

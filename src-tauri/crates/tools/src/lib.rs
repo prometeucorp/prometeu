@@ -1,5 +1,4 @@
 //! Native Unix tool artifacts and startup ports, independent of desktop composition.
-#![cfg(unix)]
 use prometeu_profiles::Profile;
 use std::path::{Path, PathBuf};
 
@@ -55,7 +54,7 @@ pub trait StartupTools: Send + Sync {
     ) -> Result<Option<mcp::AcpMcp>, String>;
 }
 
-/// Both execution hosts compose the same startup implementation with their catalogs and files.
+/// Startup tools composed with the host's catalogs and files.
 pub struct NativeTools {
     pub packages: std::sync::Arc<dyn packages::PackageBackend>,
     pub sources: std::sync::Arc<dyn mcp::McpSources>,

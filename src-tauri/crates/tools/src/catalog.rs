@@ -61,24 +61,13 @@ pub struct CatalogProject {
     pub local_path: Option<String>,
 }
 
-pub trait CatalogSource: Send + Sync {
-    fn state(&self) -> Result<CatalogState, String>;
-}
-/// Explicit local-only composition. Cloud publication is not an available service here.
-pub struct LocalCatalog;
-impl CatalogSource for LocalCatalog {
-    fn state(&self) -> Result<CatalogState, String> {
-        Ok(CatalogState::default())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn disconnected_state_keeps_the_existing_desktop_wire_shape() {
         assert_eq!(
-            serde_json::to_value(LocalCatalog.state().unwrap()).unwrap(),
+            serde_json::to_value(CatalogState::default()).unwrap(),
             serde_json::json!({
                 "connected":false,"revision":null,"plugins":[],"projects":[],"mcp":[],"skills":[],"shared":{},"organization_items":[]
             })

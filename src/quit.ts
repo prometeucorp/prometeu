@@ -34,19 +34,12 @@ export function summarize(work: Pending): string {
 
 export type Leaving = { kind: "quit" } | { kind: "restart"; version: string };
 
-let enabled = true;
-/// The Windows runtime keeps its agents and terminals after the window closes (ADR 0082); its entry point switches the question off before the app starts.
-export function useQuitGuard(on: boolean) {
-  enabled = on;
-}
-
 let board: () => Board = () => ({ stages: [], projects: [], workspaces: [] });
 /// One question at a time: a request made while it is open is refused, and the open question decides.
 let asking = false;
 
 /// Resolve whether the app may end now, asking only when local work would be cut off.
 export async function allow(leaving: Leaving): Promise<boolean> {
-  if (!enabled) return true;
   if (asking) return false;
   asking = true;
   try {
@@ -80,7 +73,6 @@ export async function request() {
 /// Closing the main window quits the app (ADR 0089). While a close listener exists, Tauri holds every close until it answers.
 export function init(context: { board: () => Board }) {
   board = context.board;
-  if (!enabled) return;
   void getCurrentWindow().onCloseRequested(async (event) => {
     if (!(await allow({ kind: "quit" }))) event.preventDefault();
   });

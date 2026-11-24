@@ -48,7 +48,7 @@ control identities. Repeated items share an authored action token.
 | Cloud/organizations/devices | Explicit login/organization/companion settings; no automatic-reconnect count |
 | Delegation MCP | Successful authorized tool calls, with internal/external category; these can be automation and retries |
 | Preferences/updates/support | Preference changes, explicit update/release-note/feedback actions; recovery controls are named |
-| Companion/Windows surfaces | Existing UI reuse; **no product transport** in these shells, so absence is not non-use |
+| Companion surfaces | Existing UI reuse; **no product transport** in these shells, so absence is not non-use |
 | Resource inheritance/trust | Defaults/global/workspace selection and explicit project trust decisions; no provider invocation inference |
 | Machine status/power | Opening machine/quota panels; named keep-awake controls; background sampling excluded |
 | Local history | Visible panel exposure, explicit refresh/filter, export and clear; all history content stays local |

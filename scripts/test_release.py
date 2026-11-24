@@ -19,7 +19,7 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("verify_release", SCRIPTS / "verify-release.py")
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
-ASSETS = ["Prometeu_aarch64.dmg", "Prometeu_x64-setup.exe", "latest.json"] + [
+ASSETS = ["Prometeu_aarch64.dmg", "latest.json"] + [
     name + suffix for name in release.PACKAGES.values() for suffix in ("", ".sig")
 ]
 
@@ -29,7 +29,6 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "Prometeu_aarch64.dmg").write_text("notarized dmg")
-            (directory / "Prometeu_x64-setup.exe").write_text("unsigned Windows installer")
             for platform, name in release.PACKAGES.items():
                 (directory / name).write_text(f"final {platform} package")
                 (directory / f"{name}.sig").write_text(base64.b64encode(platform.encode()).decode())

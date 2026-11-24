@@ -1,19 +1,6 @@
-//! Native workspace preparation shared by desktop and WSL hosts.
+//! Native workspace preparation for desktop hosts.
 use crate::settings::safe;
 use std::path::Path;
-pub trait WorkspacePreparation: Send + Sync {
-    fn hydrate(&self, worktree: &Path, repo: &Path, list: &[String]) -> Vec<Copied>;
-    fn allocate_port(&self, worktree: &Path, taken: &[u16]) -> Option<u16>;
-}
-pub struct NativePreparation;
-impl WorkspacePreparation for NativePreparation {
-    fn hydrate(&self, worktree: &Path, repo: &Path, list: &[String]) -> Vec<Copied> {
-        hydrate(worktree, repo, list)
-    }
-    fn allocate_port(&self, worktree: &Path, taken: &[u16]) -> Option<u16> {
-        alloc_port(worktree, taken)
-    }
-}
 /* Worktree hydration */
 
 /// Report each copy result in the Setup header so missing or failed preparation remains visible.

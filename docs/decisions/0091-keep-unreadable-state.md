@@ -50,8 +50,6 @@ removes it.
   restoring them is manual, from the copies.
 - A recovery folder that cannot be written leaves the app running with an
   unsaved board until the cause is fixed. The dialog says so.
-- The WSL runtime keeps its own rule: an invalid catalog is an error and is
-  never replaced by an empty one.
 - No persisted format changes.
 
 ## Evidence

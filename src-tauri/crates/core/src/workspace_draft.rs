@@ -1,4 +1,4 @@
-//! Existing desktop launcher input shared with other application hosts.
+//! Existing desktop launcher input.
 use crate::session::launch::Launch;
 /// Keep launcher inputs together so adding an option does not expand the command's parameter list.
 #[derive(Clone, serde::Deserialize)]

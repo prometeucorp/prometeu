@@ -5,16 +5,15 @@ Run Claude Code, Codex, Cursor CLI and Antigravity agents in parallel — each i
   <a href="https://github.com/prometeucorp/prometeu/releases/latest"><img src="https://img.shields.io/github/v/release/prometeucorp/prometeu" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/prometeucorp/prometeu" alt="MIT license"></a>
   <a href="https://github.com/prometeucorp/prometeu/releases"><img src="https://img.shields.io/github/downloads/prometeucorp/prometeu/total" alt="Total downloads"></a>
-  <a href="#install"><img src="https://img.shields.io/badge/platforms-macOS%20%2F%20Linux%20%2F%20Windows-blue" alt="macOS / Linux / Windows"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platforms-macOS%20%2F%20Linux-blue" alt="macOS / Linux"></a>
 </p>
 
 <p align="center"><img src="docs/demo.gif" width="880" alt="Prometeu UI demo with simulated agents: Claude Code and Codex work side by side in separate worktrees; open a conversation, send a follow-up and return to the desk."></p>
 
 <p align="center">
   <strong><a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_aarch64.dmg">Download for macOS (.dmg)</a> ·
-  <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x86_64.AppImage">Linux (.AppImage)</a> ·
-  <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe">Windows (.exe)</a></strong><br>
-  macOS Apple Silicon · Linux x86_64 · Windows x64: experimental, Codex through WSL<br>
+  <a href="https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x86_64.AppImage">Linux (.AppImage)</a></strong><br>
+  macOS Apple Silicon · Linux x86_64<br>
   ⭐ <a href="https://github.com/prometeucorp/prometeu">Star the repo if it saves you time</a>
 </p>
 
@@ -64,18 +63,6 @@ The AppImage adds a launcher to your application menu and supports in-app update
 See the [Linux guide](docs/operations/linux.md) for runtime requirements, source
 packages, ARM64 builds and platform differences.
 
-### Windows — x64, experimental
-
-Install WSL with a default Linux distribution, Git and an authenticated Codex CLI
-inside that distribution. Download and run
-[Prometeu_x64-setup.exe](https://github.com/prometeucorp/prometeu/releases/latest/download/Prometeu_x64-setup.exe),
-then open Prometeu from the Start menu.
-
-Windows currently supports **Codex only**. The installer is unsigned; updates
-require installing the next version manually. Managed login and Cloud
-synchronization are unavailable. Conversations and files stay in WSL after
-updating or uninstalling. See [Windows coverage](docs/contracts/windows-application.md).
-
 ### Cursor CLI
 
 Cursor CLI is supported on macOS and Linux since v0.35.0. Install a Cursor CLI
@@ -87,7 +74,7 @@ plugins, skills and per-turn token/cost meters are unavailable. See the
 
 ## Quick start
 
-1. **Connect an agent.** Install and authenticate Claude Code, Codex, Cursor CLI or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex`, `cursor-agent` or `agy` available in your shell. Cursor and Antigravity use their CLI login. Windows uses Codex in WSL.
+1. **Connect an agent.** Install and authenticate Claude Code, Codex, Cursor CLI or Antigravity CLI (agy 1.2.7 or newer). Make `claude`, `codex`, `cursor-agent` or `agy` available in your shell. Cursor and Antigravity use their CLI login.
 2. **Add your project.** Open Prometeu and add a local Git repository or folder. No Prometeu account is required for local work.
 3. **Run your first task.** Create a workspace, choose a model, keep the new-worktree option enabled for isolation, and send a task. Open another workspace for a parallel task, then review changes in the Git view before committing.
 
@@ -121,7 +108,7 @@ The provider's own input remains the place to edit and submit the message.
 The macOS Tauri app has verified native responses, canonical history and cold
 resume for all four providers. Provider-specific limits and remaining checks
 are tracked in the [provider matrix](docs/quality/provider-matrix.md).
-Linux and Windows/WSL retain Chat mode.
+Linux retains Chat mode.
 
 ## Privacy
 

@@ -183,7 +183,7 @@ fn run(case: Case) {
         1000,
     )
     .unwrap();
-    let started = prometeu_process::terminal::ResponsiveTerminalFactory
+    let started = prometeu_process::terminal::UnixTerminalFactory
         .open(
             pty_command(&tui),
             TerminalSize {

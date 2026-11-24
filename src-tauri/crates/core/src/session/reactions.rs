@@ -140,7 +140,7 @@ impl SessionReactions<'_> {
 /// The status a canonical event moves its tab to, after `work` observed it; `None` leaves the
 /// status as it is. `waited` tells whether a request was open before the event. While one is open
 /// the tab waits for its person, whatever else the agent streams, and the answer to the last one
-/// lets the agent run again. The desktop reactions and the WSL runtime both derive status here.
+/// lets the agent run again. The desktop reactions derive status here.
 pub fn next_status(event: &Value, settled: bool, waited: bool, work: &Work) -> Option<Status> {
     let moved = match event["type"].as_str() {
         Some("execution.observed") => match event["state"].as_str() {

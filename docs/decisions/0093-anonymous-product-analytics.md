@@ -74,8 +74,8 @@ IP data. This is pseudonymous metadata, not an identified-user dataset.
 Tracking is fire-and-forget and cannot fail a feature. One thread collects
 five-second batches; failed requests and pending shutdown batches are dropped.
 There is no retry or offline queue. Only opted-in builds compiled with a nonempty
-`PROMETEU_POSTHOG_KEY` send events. Windows/WSL, mobile and the browser mock do not
-have a product-event transport in this delivery.
+`PROMETEU_POSTHOG_KEY` send events. Mobile and the browser mock do not have a
+product-event transport in this delivery.
 
 Version 2 adds explicit feature events, fixed `analytics_version: 2`, and a
 monotonic top-level `offset` so PostHog preserves spacing within a batch without

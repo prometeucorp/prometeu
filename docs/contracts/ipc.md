@@ -20,8 +20,6 @@ general IPC to the inspected page.
   `invoke` infers the result from the command and checks its arguments. Callers
   cannot supply an arbitrary result generic. `IpcArgs`, `IpcArguments`,
   `IpcResult`, `IpcCall`, and `IpcHandlers` support typed consumers and wrappers.
-  `IpcTransport` is selected by bootstrap; Windows injects the WSL transport while
-  the existing desktop keeps Tauri. See the [Windows contract](windows-application.md).
   Command unions must travel with their corresponding arguments as an `IpcCall`
   tuple; widening the command generic cannot bypass required arguments.
 - `src/mock.ts` implements `IpcHandlers`. TypeScript checks every command's
@@ -48,8 +46,8 @@ new conversations and publishes the existing `board` event; it returns no
 value. It does not modify saved tabs or restart processes. Unknown mode values
 fail deserialization. The browser mock preserves the same default and applies
 it to new tabs, workspace conversations and actions. The macOS desktop accepts
-both modes and exposes the preference in Settings / General. Linux and WSL
-accept `chat` and reject `terminal` with `err.terminalAgent.unsupported` before
+both modes and exposes the preference in Settings / General. Linux accepts
+`chat` and rejects `terminal` with `err.terminalAgent.unsupported` before
 saving or preparing a process; their preference control stays hidden. Desktop
 workspace creation resolves and validates the mode before publishing its
 preparing card or changing the filesystem. Persistence defaults are defined in
@@ -75,8 +73,8 @@ Failures leave a manual retry instead of an automatic retry loop. Tests in
 navigation/disposal results. A retained native process has a generation even after exit; no process
 has none. Agent `pty` events add that generation as a fourth tuple member, and
 `pty-closed` adds it as a third member. Native `pty_write` and `pty_resize`
-require the matching optional `generation` argument. Existing dock and WSL
-terminal tuples and callers omit it. The frontend rejects delayed output and
+require the matching optional `generation` argument. Existing dock terminal
+tuples and callers omit it. The frontend rejects delayed output and
 exit from a replaced process; the backend rejects its stale input and resize.
 `pty_write` accepts exactly one of `data: string` and `bytes: number[]`; binary
 input preserves bytes rather than UTF-8 encoding the xterm `onBinary` string.
@@ -136,7 +134,7 @@ remote workspaces. No backend field or persisted format is added.
 
 `create_project` receives `{ directory: string, name: string }` and returns the
 existing `Project` shape. The parent must be an existing absolute directory
-(desktop expands `~/`; Windows converts the selected parent to a WSL path).
+(desktop expands `~/`).
 The trimmed name must be one directory component: empty names, `.`, `..`, `.git`
 (case-insensitive), slashes, backslashes and control characters are rejected.
 The native Git adapter canonicalizes the parent and exclusively creates the child,
@@ -148,9 +146,7 @@ On Git failure, registration does not occur; cleanup removes only an empty child
 preserving any partial Git state or concurrently written files for inspection.
 If later registration fails, the initialized directory remains available for
 **Add local folder**. Existing `add_project` behavior and persisted formats stay
-unchanged. Native tests are in `crates/git/src/tests.rs`; runtime registration,
-failure and restart coverage is in `crates/runtime/tests/resident.rs`, and Windows
-argument conversion is in `crates/bridge/src/application.rs`.
+unchanged. Native tests are in `crates/git/src/tests.rs`.
 
 `reorder_projects` receives `{ ids: string[] }`, returns empty and reorders the
 board's `projects` to match. Projects absent from `ids` keep their relative
@@ -290,9 +286,7 @@ A clipboard with neither a file nor an image returns an empty list. AppKit
 reads synchronously on the main thread. GTK requests the image asynchronously
 on the main thread; a worker converts and writes it. Linux rejects images above
 64 MiB of pixel data or PNG output and fails after 5 seconds if the clipboard
-owner does not respond. Windows returns WSL paths with the same shape (see
-[host effects](windows-application.md#paths-and-host-effects)). Elsewhere, it
-returns an empty list.
+owner does not respond. Elsewhere, it returns an empty list.
 
 `src/paste.ts` calls it when the paste event carries files, and also when the
 event carries no type at all: WebKitGTK hides a pasted image from the page that
@@ -417,8 +411,7 @@ behaviour; an older frontend that never sends it is unaffected, and
 `crates/files/src/search.rs` tests that directories cannot crowd out files.
 
 `read_bytes` returns an `ArrayBuffer` with the complete regular file, up to
-100 MiB, and never a partial buffer. Windows assembles it from bounded WSL blocks
-([limits](windows-application.md#deadlines-and-transport-limits)).
+100 MiB, and never a partial buffer.
 
 `reveal_path` requires `rel`: an empty string opens the root, while a nonempty
 path shows one entry of the tree or, from the Changes panel, a changed file,
@@ -428,8 +421,7 @@ for both uses. Finder selects a file with `-R`; systems served by `xdg-open` hav
 selection flag, so a file there opens the folder holding it rather than the file,
 which would launch another application over it. Resolution canonicalizes the
 root, so a symlinked root opens its target and a missing root fails before the
-file manager starts. On Windows the same checks run in WSL and Explorer reveals
-the translated path; see [host effects](windows-application.md#paths-and-host-effects).
+file manager starts.
 
 ### File tree actions
 
@@ -452,8 +444,8 @@ through symlinks and must stay inside the root; the entry itself is not
 followed, so renaming or trashing a symlink acts on the link.
 
 A case change of the same name in the same folder is the only rename allowed
-onto a name that answers as existing. On a case-insensitive disk, the macOS and
-Windows default, the new spelling finds the source itself; the rename is
+onto a name that answers as existing. On a case-insensitive disk, the macOS
+default, the new spelling finds the source itself; the rename is
 allowed when the folder lists no entry spelled exactly that way, so a second,
 distinct entry (two symlinks to one file included) is still refused. Such a
 rename goes through a random temporary name in the same folder, since some file
@@ -524,8 +516,7 @@ exists, instead of letting the native PTY start in the home folder.
 The frontend ends a session when `pty-closed` arrives for its key, so `exit`
 closes it as × does. The desktop emits no `pty-closed` for a shell it killed, and
 quitting emits nothing, so sessions outlive a quit. The browser mock keeps the
-same rules in memory; the Windows runtime rejects the commands and its entry
-point hides every way to reach them. Tests: `src-tauri/src/terminal_sessions.rs`,
+same rules in memory. Tests: `src-tauri/src/terminal_sessions.rs`,
 `src/terminals.test.ts` and `fixtures/backend-contract.json`.
 
 ## Remote machines
@@ -569,8 +560,7 @@ or terminal session while it runs a command, as a foreground job or in place of
 the shell through `exec`. A shell waiting at its prompt does not count. The interface adds the board's working and waiting
 conversations and the workspaces being prepared before asking
 ([ADR 0097](../decisions/0097-ask-before-ending-the-app.md)). The browser mock
-counts live Setup and Run docks; the Windows runtime does not implement the
-command, and its entry point never asks. Tests: `src-tauri/src/dock.rs`,
+counts live Setup and Run docks. Tests: `src-tauri/src/dock.rs`,
 `crates/process/src/terminal/tests.rs` and `src/quit.test.ts`.
 
 ## Tool selection
@@ -746,9 +736,8 @@ report and nothing leaves the machine.
 the private recovery folder once it holds copies of the unreadable files, and
 `error` is the cause while copying fails and saves stay blocked.
 `board_recovery_open` opens that fixed folder in the system file manager and
-returns an `err.session.openFailed` error when it cannot. Both are local-only;
-the WSL runtime does not implement them, and the interface treats its
-`application_command_unsupported` answer as nothing to report. The browser mock
+returns an `err.session.openFailed` error when it cannot. Both are local-only.
+The browser mock
 returns the value stored in `localStorage["mock:boardRecovery"]`. See
 [unreadable state](persistence.md#unreadable-state).
 
@@ -797,30 +786,6 @@ mutex. Workspace consumers coalesce invalidations and query their current scope.
 It is not a relay event and does not carry records or identifiers. Turn capture
 commits before its existing board publication; refresh does not depend on a
 visible status change.
-
-## Windows composition
-
-The native Windows shell carries the commands of this registry unchanged to the
-WSL runtime; no shared command, argument, result or mock entry is added for it.
-Coverage, private transport extensions (deferred operations, binary blocks, the
-optional `pty_buffer` snapshot) and limits are in the
-[Windows contract](windows-application.md). Relevant to this registry:
-
-- The transport decodes the runtime's reserved `application-error:<JSON>` string
-  back into the structured rejection screens already handle; other strings pass
-  through unchanged.
-- `pty_write` calls are serialized per terminal; a failed write rejects its
-  queued suffix without replay. Both are covered in `src/windows/transport.test.ts`.
-- Folder selections are converted to Linux paths before `add_project` or `create_project`; other
-  distributions reject before registration.
-- Host-only commands typed in `src/windows/host.ts`, outside this registry and
-  the mock: `application_open({ previous })` discovers the default WSL, installs
-  the bundled runtime, attaches and returns the `Target`;
-  `application_reconnect()` replaces only a failed attachment to the captured
-  target; `application_paths` translates picker and drop paths.
-- `wsl_connect`, `wsl_disconnect` and `wsl_shutdown` exist only for
-  `scripts/test-windows-application.mjs`, which swaps the startup connection for
-  a fixture target. They are not part of the product interface.
 
 ## Delegated conversation admission
 

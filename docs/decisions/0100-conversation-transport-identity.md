@@ -158,8 +158,8 @@ Stop callback or an early empty composer as the end of the turn.
 
 The macOS execution host enables native terminal conversations for all four
 providers. Settings / General exposes Chat or Terminal as the default for new
-tabs, including action tabs. Existing tabs keep their saved mode. Linux and WSL
-retain Chat and reject `terminal` explicitly. The native transport includes
+tabs, including action tabs. Existing tabs keep their saved mode. Linux retains
+Chat and rejects `terminal` explicitly. The native transport includes
 canonical source ingestion, durable input, explicit decision channels where
 supported, shared transcript consumption and restorable screen snapshots.
 The [provider matrix](../quality/provider-matrix.md) distinguishes verified macOS
