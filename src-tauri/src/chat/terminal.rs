@@ -130,8 +130,12 @@ pub(crate) fn diagnose(scope: &str, code: &str) {
 /// Gives queued diagnostics a short deadline to reach the log before the app exits; a
 /// stalled inherited stderr must not hold the quit.
 pub(crate) fn flush_diagnostics() {
-    let deadline = Instant::now() + Duration::from_millis(500);
-    while DIAGNOSTICS_PENDING.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+    wait_drained(&DIAGNOSTICS_PENDING, Duration::from_millis(500));
+}
+
+fn wait_drained(pending: &std::sync::atomic::AtomicUsize, limit: Duration) {
+    let deadline = Instant::now() + limit;
+    while pending.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -2210,12 +2214,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flush_waits_for_queued_diagnostics() {
-        for _ in 0..50 {
-            diagnose("test", "flush");
-        }
-        flush_diagnostics();
-        assert_eq!(DIAGNOSTICS_PENDING.load(Ordering::SeqCst), 0);
+    fn flush_waits_for_queued_diagnostics_until_the_deadline() {
+        let pending = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let writer = Arc::clone(&pending);
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            writer.store(0, Ordering::SeqCst);
+        });
+        wait_drained(&pending, Duration::from_secs(5));
+        let waited = started.elapsed();
+        assert!(
+            waited >= Duration::from_millis(100),
+            "returned before the line was written"
+        );
+        assert!(
+            waited < Duration::from_secs(5),
+            "waited past a drained queue"
+        );
+
+        // A stalled writer never drains: the quit still proceeds at the deadline.
+        let stalled = std::sync::atomic::AtomicUsize::new(1);
+        let started = Instant::now();
+        wait_drained(&stalled, Duration::from_millis(50));
+        assert!(started.elapsed() >= Duration::from_millis(50));
     }
 
     struct Memory(Arc<Mutex<Vec<u8>>>);
