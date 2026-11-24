@@ -16,10 +16,6 @@
         "path": "/contract/repo"
       }
     ],
-    "stages": [
-      "Working",
-      "Done"
-    ],
     "telemetry_ids": {},
     "terminals": [
       {
@@ -99,7 +95,6 @@
         "share_team": "team",
         "shared": true,
         "skills": null,
-        "stage": "Working",
         "tabs": [
           {
             "agent_session": null,
@@ -204,7 +199,6 @@
         "share_team": null,
         "shared": false,
         "skills": null,
-        "stage": "Working",
         "tabs": [],
         "title": "Empty",
         "unread": false,

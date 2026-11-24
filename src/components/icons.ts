@@ -2,28 +2,6 @@ import { icon } from "../../packages/design-system/src/icons";
 export { icon, iconNames, mark, wave, type IconName } from "../../packages/design-system/src/icons";
 const CLAUDE_MARK = new URL("../claude.svg", import.meta.url).href;
 
-/* Stage icons. */
-
-/// Derive the progress ring from stage position: dashed initially, partially filled between stages, and a check at the end. No stage-name mapping is required.
-export function stageIcon(at: number, total: number, size = 16): string {
-  const svg = (inner: string, color = "currentColor") =>
-    `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" ` +
-    `stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
-    inner +
-    "</svg>";
-
-  const ring = '<circle cx="12" cy="12" r="9"/>';
-  if (at <= 0) return svg('<circle cx="12" cy="12" r="9" stroke-dasharray="2.6 2.6"/>');
-  if (at >= total - 1) return svg(`${ring}<path d="m8.5 12 2.5 2.5 4.5-5"/>`, "var(--done)");
-
-  // Use a radius-4 circle with circumference about 25.1 for the filled arc. Butt line caps prevent the thick stroke from exaggerating partial progress.
-  const fill = (25.1 * at) / (total - 1);
-  return svg(
-    `${ring}<circle cx="12" cy="12" r="4" stroke-width="8" stroke-linecap="butt" ` +
-      `stroke-dasharray="${fill.toFixed(1)} 25.1" transform="rotate(-90 12 12)"/>`,
-  );
-}
-
 /// An initial in a square with a stable name-derived color.
 const HUES = ["#6525c9", "#c9552a", "#2a7fc9", "#2a9d6e", "#c9a02a", "#c92a6a"];
 export function avatar(name: string): string {

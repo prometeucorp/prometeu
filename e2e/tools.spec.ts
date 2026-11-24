@@ -106,7 +106,7 @@ test("tools: the CLI base follows the tab’s provider, scrolls when long and bu
     const invoke = window.toolTestInvoke!;
     const board = await invoke("load_board") as Board;
     board.workspaces[0].tabs[1].choice = { agent: "codex", model: "gpt-5.6-sol", effort: "high" };
-    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+    await invoke("set_unread", { id: "sessao-0929", unread: false });
   });
   await longBase(page);
   await openWorkspace(page, "sessao-0929");

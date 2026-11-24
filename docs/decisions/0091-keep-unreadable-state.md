@@ -46,7 +46,7 @@ removes it.
 
 ## Consequences
 
-- A downgrade or a corrupted file no longer destroys workspaces, stages and tabs;
+- A downgrade or a corrupted file no longer destroys workspaces and tabs;
   restoring them is manual, from the copies.
 - A recovery folder that cannot be written leaves the app running with an
   unsaved board until the cause is fixed. The dialog says so.

@@ -510,9 +510,6 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
         client.snapshot().unwrap().generation.as_deref(),
         Some(second_generation.as_str())
     );
-    client
-        .workspace_stage("primary".into(), "Feito".into())
-        .unwrap();
     client.workspace_select("primary".into()).unwrap();
     let first_snapshot = client.snapshot().unwrap();
     assert_eq!(
@@ -544,10 +541,6 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
     drop(client);
     let (sink, rx) = events();
     let mut restarted = connector.connect(&target, sink).unwrap();
-    assert_eq!(
-        restarted.workspace_list().unwrap().board.workspaces[0].stage,
-        "Feito"
-    );
     let restored = restarted.workspace_list().unwrap();
     assert_eq!(restored.board.workspaces[2].branch, "feature/runtime");
     assert_eq!(restored.board.workspaces[2].worktree, isolated.worktree);

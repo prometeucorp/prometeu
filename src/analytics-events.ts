@@ -45,7 +45,7 @@ export type FeatureEvent =
   | { name: "machine_panel_opened" }
   | { name: "quota_viewed" }
   | { name: "project_action_used"; action: "add" | "create" | "remove" | "reorder" | "group" | "configure" }
-  | { name: "workspace_action_used"; action: "rename" | "pin" | "unpin" | "stage" | "finish" | "archive" | "restore" | "remove" | "cleanup" | "mark_read" | "mark_unread" }
+  | { name: "workspace_action_used"; action: "rename" | "pin" | "unpin" | "finish" | "archive" | "restore" | "remove" | "cleanup" | "mark_read" | "mark_unread" }
   | { name: "file_operation_completed"; operation: "save" | "create_file" | "create_folder" | "rename" | "move" | "trash" | "restore" }
   | { name: "git_operation_completed"; operation: "stage" | "unstage" | "commit" | "fetch" | "pull" | "push" | "publish" | "discard" | "resolve" }
   | { name: "terminal_opened" }

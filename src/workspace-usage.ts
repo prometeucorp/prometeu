@@ -20,7 +20,7 @@ export class WorkspaceUsage {
   readonly root = button(t("usage.title"), () => this.open(), "ghost", "usage.summary");
   private label = h("span", "workspace-usage-label", t("usage.title"));
   private workspace: Workspace | null = null;
-  private board: Board = { stages: [], projects: [], workspaces: [] };
+  private board: Board = { projects: [], workspaces: [] };
   private revision = 0;
   private signature = "";
   private timer = 0;

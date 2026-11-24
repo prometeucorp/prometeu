@@ -57,12 +57,12 @@ const roster = (): Member[] => devices.map(d => ({ id: d.id, name: d.name, onlin
 const workspace = (audience: string[] | null, remoteControl = false, rights: ShareRights | null = { send: [], control: [] },
   confirm = false): Workspace => ({
   id: "ws1", title: "Work", project: "p", repo: "/r", repo_name: "repo", branch: "main", worktree: "/w/ws1", repos: [],
-  stage: "", archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "", mcp: null, plugins: null,
+  archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "", mcp: null, plugins: null,
   skills: null, port: null, issue: null, cleaned: false, shared: true, share_team: membership.shareScope, audience,
   remote_control: remoteControl, rights, confirm_messages: confirm, preparing: false, failed: null, remote: null, active: "tab1",
   tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }],
 } as Workspace);
-const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
+const board = (work: Workspace): Board => ({ workspaces: [work], projects: [] });
 
 async function connect(work: Workspace, announced = true, using = membership) {
   const sockets: Socket[] = [];
@@ -469,7 +469,7 @@ it("reports a failed send like the composer, without holding the message again",
 it.each([
   ["its conversation closes", (w: Workspace): Board => board({ ...w, tabs: [{ ...w.tabs[0], id: "tab2" }], active: "tab2" })],
   ["its workspace is archived", (w: Workspace): Board => board({ ...w, archived: true })],
-  ["its workspace is removed", (): Board => ({ workspaces: [], projects: [], stages: [] })],
+  ["its workspace is removed", (): Board => ({ workspaces: [], projects: [] })],
   ["sharing stops", (w: Workspace): Board => board({ ...w, shared: false, audience: null, remote_control: false, rights: null })],
   ["the sender loses Send messages", (w: Workspace): Board => board({ ...w, rights: { send: [], control: ["bob"] } })],
 ])("drops a held message when %s", async (_, change) => {

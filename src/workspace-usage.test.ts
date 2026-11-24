@@ -23,7 +23,7 @@ vi.mock("./menu", () => ({ close: vi.fn() }));
 vi.mock("./components/chat/usage", () => ({ openUsagePanel: vi.fn(), usagePanel: vi.fn() }));
 
 const workspace = (id: string) => ({ id, title: id, repos: [], tabs: [] }) as unknown as Workspace;
-const board: Board = { workspaces: [], stages: [], projects: [], telemetry_ids: {
+const board: Board = { workspaces: [], projects: [], telemetry_ids: {
   "workspace:first": "first-measurements", "workspace:second": "second-measurements",
 } };
 function insights(inputTokens: number): TelemetryInsights {

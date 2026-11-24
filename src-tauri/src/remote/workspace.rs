@@ -385,7 +385,6 @@ pub fn create(
             base: draft.base.clone(),
             pr: None,
         }],
-        stage: draft.stage.clone(),
         archived: false,
         pinned: false,
         unread: false,

@@ -37,7 +37,7 @@ Host-only commands outside the shared registry are `application_open`,
 | --- | --- |
 | Discovery and accounts | `agents`, `agent_models`, `accounts`, `account_select`, `account_remove`, external `account_login` |
 | Launcher | `create_workspace` with an existing folder or a new-branch worktree |
-| Board and session | `load_board`, `set_stage`, `focus_tab`, `look_at`, `set_lang`, `rename_workspace`, `rename_tab`, `pin_workspace`, `set_unread`, `set_tab_choice` |
+| Board and session | `load_board`, `focus_tab`, `look_at`, `set_lang`, `rename_workspace`, `rename_tab`, `pin_workspace`, `set_unread`, `set_tab_choice` |
 | Workspace lifecycle | `archive_workspace`, `finish_workspace`, `remove_workspace`, `cleanup_list`, `cleanup_worktree` |
 | Conversation | `chat_snapshot`, `chat_send`, `chat_control`, `new_tab`, `close_tab` |
 | Projects | `create_project`, `add_project`, `remove_project`, `reorder_projects`, `group_projects` |
@@ -53,7 +53,7 @@ Host-only commands outside the shared registry are `application_open`,
 Requests identify their own session; the runtime never switches a shared
 selection first. Events reuse the desktop `board`, `chat`, `chat-closed`, `pty`,
 `pty-closed` and `accounts` contracts, and the native shell forwards only those
-names. Observed statuses overlay the saved board; work stage stays independent.
+names. Observed statuses overlay the saved board.
 
 ## Deadlines and transport limits
 
@@ -148,7 +148,7 @@ and `create_workspace`. `application.initialization.v1` adds deferred
 `agent_models`, `accounts` refresh and `open_dock` with `kind: "setup"`.
 `application.archive.v1` adds deferred `archive_workspace` and `finish_workspace`:
 agents and docks stop on the owner loop, the hook runs on a worker, then the
-owner commits the archive/stage change before completing the job. Other requests
+owner commits the archive change before completing the job. Other requests
 and polling remain responsive while the hook runs. The bridge negotiates this
 capability separately so older residents keep their synchronous path. The native
 `ApplicationConnection` forwards this capability only from its captured active
@@ -165,7 +165,7 @@ only the native adapter selects this path.
 - Jobs and pending consent are memory-only. Window closure does not stop accepted
   work; runtime death loses results, while checkout or commit effects may remain.
 - Only the owner loop commits catalog changes, against the current catalog,
-  including while detached. Capacity and stage are revalidated before saving.
+  including while detached. Capacity is revalidated before saving.
 - Without the capability the adapter sends the synchronous command. A failed start
   or poll never falls back or replays. Old residents reject MCP operations.
 - Shutdown and retirement refuse running or unclaimed jobs. Archive, remove and
@@ -180,7 +180,7 @@ a live Setup reuses it.
 ## Launcher and execution identity
 
 The launcher sends the core `Draft`. Admission checks provider, account,
-model/effort, stage and options before checkout effects; existing-branch,
+model/effort and options before checkout effects; existing-branch,
 multi-repository, plan and custom-instruction options reject. Application
 sessions store the launcher's unattended policy as `Auto`; additional tabs
 inherit it. The first message uses the shared `first_message` formatter.

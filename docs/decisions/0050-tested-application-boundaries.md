@@ -52,7 +52,7 @@ and preserve the distinction between an absent argument and explicit null.
 The same boundary applies to finish/archive/restore in `workspace_lifecycle.rs`:
 it receives a mutable board and returns stop IDs and the archive transition
 flag. It does not execute scripts or stop processes. `session.rs` preserves the
-existing sequence: finish chooses the final stage, archive scripts run before
+existing sequence: archive scripts run before
 the archive mutation, processes stop outside the board lock, then publication
 and transition telemetry run. Repeated archive still requests shutdown without
 emitting another transition fact; restore leaves sessions stopped.

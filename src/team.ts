@@ -335,7 +335,6 @@ export function remotes(): Workspace[] {
     branch: s.branch,
     worktree: "",
     repos: [],
-    stage: s.stage,
     archived: false,
     pinned: false,
     unread: false,

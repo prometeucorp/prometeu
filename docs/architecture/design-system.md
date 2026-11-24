@@ -28,7 +28,7 @@ rendering, behavior, styles and Rails adaptation.
   local implementation of `button`, `input`, `field`, `checkbox`, `select`,
   `dropdown`, `disclosure` or `formDialog`.
 - [`src/menu.ts`](../../src/menu.ts) and [`src/icons.ts`](../../src/icons.ts):
-  re-export the package's generic menus and icons. Icons for stages, files and
+  re-export the package's generic menus and icons. Icons for files and
   providers stay in the desktop's presentation adapter.
 
 Components receive already-translated text and callbacks. They do not import

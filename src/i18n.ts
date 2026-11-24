@@ -107,12 +107,6 @@ export function tn(n: number, stem: PluralKey, params?: Params): string {
   return t(`${stem}.${n === 1 ? "one" : "other"}` as Key, { n, ...params });
 }
 
-/// Translate only built-in stage labels. Persisted names are board identities; custom stages remain unchanged.
-export function stage(name: string): string {
-  const key = `stage.${name}` as Key;
-  return key in PT ? t(key) : name;
-}
-
 /// Translate index.html nodes marked data-t and tooltips marked data-t-title without moving their markup into main.ts.
 export function paint(root: ParentNode = document) {
   for (const el of root.querySelectorAll<HTMLElement>("[data-t]")) {

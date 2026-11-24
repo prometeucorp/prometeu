@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fromBack, match, stage, t, tn, use } from "./i18n";
+import { fromBack, match, t, tn, use } from "./i18n";
 
 beforeEach(() => use("en"));
 
@@ -42,12 +42,6 @@ describe("tn", () => {
   });
 });
 
-describe("stage", () => {
-  it("resolves persisted built-in stages and preserves custom names", () => {
-    expect(stage("Fazendo")).toBe(t("stage.Fazendo"));
-    expect(stage("Waiting for review")).toBe("Waiting for review");
-  });
-});
 
 describe("fromBack", () => {
   it("decodes structured backend errors and interpolates their arguments", () => {

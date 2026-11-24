@@ -90,7 +90,8 @@ and `src/team-channel.test.ts`.
 
 In the outer frame:
 
-- `share`: titles, repository, branch and stage empty; issue null; tab text and
+- `share`: titles, repository and branch empty; the retired `stage` field stays
+  empty solely for compatibility with deployed v4 relays and older clients; issue null; tab text and
   tokens null/empty and a constant status. IDs, the active tab, dimensions and
   the explicit audience stay visible. `audience: null` is expanded to members
   with an available key before encrypting.

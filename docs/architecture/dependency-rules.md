@@ -63,7 +63,7 @@ sibling tabs without `AppHandle`, `AppState`, a saver or a provider process.
 See [ADR 0050](../decisions/0050-tested-application-boundaries.md).
 
 `prometeu-core::workspace_lifecycle` receives a mutable board for finish/archive/restore.
-It preserves the person's stage on archive, returns the tab IDs to stop, and
+It returns the tab IDs to stop on archive and
 reports whether the archived flag changed. `session.rs` still runs archive
 scripts before mutation, stops processes after releasing the board lock, and
 owns publication and telemetry. Restoring never starts a process. These rules

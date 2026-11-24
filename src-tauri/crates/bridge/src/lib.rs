@@ -526,12 +526,6 @@ impl WorkspaceClient for Client {
         serde_json::from_value(self.request(json!({"method":"workspace_select","id":id}))?)
             .map_err(|e| e.to_string())
     }
-    fn workspace_stage(&mut self, id: String, stage: String) -> Result<Catalog, String> {
-        serde_json::from_value(
-            self.request(json!({"method":"workspace_stage","id":id,"stage":stage}))?,
-        )
-        .map_err(|e| e.to_string())
-    }
 }
 impl Client {
     fn terminal_request(&mut self, action: Value) -> Reply {

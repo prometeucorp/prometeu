@@ -337,7 +337,7 @@ test("the sidebar lists agents by workspace, tracks status and opens the selecte
     const { invoke } = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
     const board = await invoke("load_board") as Board;
     board.workspaces[0].tabs[1].choice = { agent: "codex", model: "gpt-5.6-sol", effort: "high" };
-    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+    await invoke("set_unread", { id: "sessao-0929", unread: false });
   });
   const card = page.locator('.railworkspace[data-workspace="sessao-0929"]');
   const first = card.locator('.railagent[data-tab="t1"]');
@@ -360,7 +360,7 @@ test("the sidebar lists agents by workspace, tracks status and opens the selecte
       const board = await invoke("load_board") as Board;
       const workspace = board.workspaces[0];
       workspace.tabs[0].status = status;
-      await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+      await invoke("set_unread", { id: workspace.id, unread: false });
     }, status);
     await expect(first.locator(".rail-status")).toHaveAttribute("data-status", status);
     await expect(first.locator(".rail-status")).toHaveCSS("animation-name", status === "rodando" ? "spin" : "none");
@@ -417,7 +417,7 @@ test("the sidebar lists agents by workspace, tracks status and opens the selecte
     workspace.tabs = [];
     workspace.active = null;
     workspace.preparing = true;
-    await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+    await invoke("set_unread", { id: workspace.id, unread: false });
   });
   await expect(card.locator(".railagents-toggle")).toHaveCount(0);
   await expect(card.locator(".rail-status")).toHaveAttribute("aria-label", "preparing");
@@ -822,7 +822,7 @@ test("file edits survive board redraws and save", async ({ page }) => {
     page.evaluate(async () => {
       type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
       const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__.invoke;
-      await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+      await invoke("set_unread", { id: "sessao-0929", unread: false });
     });
 
   await board();
@@ -1022,7 +1022,7 @@ test("tools: saving choices preserves a sibling tab with a queued message", asyn
     const sibling = workspace.tabs.find(tab => tab.id === "t2")!;
     sibling.status = "pronta";
     sibling.pending_prompt = "queued prompt";
-    await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+    await invoke("set_unread", { id: workspace.id, unread: false });
     return workspace;
   });
   const current = () => page.evaluate(async () => {

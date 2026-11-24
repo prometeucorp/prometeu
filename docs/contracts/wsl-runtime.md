@@ -119,7 +119,6 @@ live process, observed identity and no latched fault. Application events use
 | `workspace_create` | `title`, `path` | catalog; selection unchanged |
 | `workspace_worktree` | `request: { title, path, branch, base }` | catalog; selection unchanged |
 | `workspace_select` | `id` | catalog after the context is prepared |
-| `workspace_stage` | `id`, `stage` | catalog; execution unchanged |
 
 The catalog is `{ v: 1, active, board }` using the portable board models, with at
 most 64 workspaces and 32 tabs per workspace. Stored IDs are `primary` or UUIDs;

@@ -264,7 +264,7 @@ pub fn tools() -> Vec<Value> {
             }), &["request_key","title","task","provider"], false),
         tool("list_delegations", "List only agents created by this client, including preparation, execution and background status.",
             json!({"offset":index,"limit":{"type":"integer","minimum":1,"maximum":100}}), &[], true),
-        tool("get_delegation", "Inspect an owned agent, including setup/run state, exit codes, configured run names, port and preview URL. Running does not prove HTTP readiness. Workspace stage, conversation status, executions and provider background tasks are separate. Null background means unknown. Pending questions require the person in Prometeu.",
+        tool("get_delegation", "Inspect an owned agent, including setup/run state, exit codes, configured run names, port and preview URL. Running does not prove HTTP readiness. Conversation status, executions and provider background tasks are separate. Null background means unknown. Pending questions require the person in Prometeu.",
             json!({"agent_id":text}), &["agent_id"], true),
         tool("get_execution", "Read the state of a specific execution of an owned agent. Completion of a turn does not imply that background tasks have stopped.",
             json!({"agent_id":text,"execution_id":text}), &["agent_id","execution_id"], true),

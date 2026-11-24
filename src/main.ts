@@ -66,7 +66,7 @@ background.subscribe((context) => {
   if (background.foreground(context)) void invoke("usage_refresh", {}).catch(() => {});
 });
 
-let state: Board = { stages: [], projects: [], workspaces: [] };
+let state: Board = { projects: [], workspaces: [] };
 
 /// Render local board state plus frontend-only remote shares. Backend commands use the local state alone.
 const view = (): Board => {
@@ -90,7 +90,6 @@ function say(text: string, isError = false) {
 const hooks: sidebar.Hooks = {
   open: (w, tab) => openWorkspace(w, true, tab),
   activeTab: session.currentSession,
-  setStage: ws.setStage,
   drop: (id) => {
     if (ws.id() === id) showDesk();
     invoke("remove_workspace", { id });

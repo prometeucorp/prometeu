@@ -24,7 +24,7 @@ The same state identifiers are stable navigation keys and machine-readable data.
 | Family | Source | Production adoption |
 | --- | --- | --- |
 | Buttons, fields, selection, dialogs, notices | `primitives.ts`, `menu.ts` | Existing Desktop imports route through `src/ui.ts` and `src/menu.ts` |
-| Icons, file icons, stages, provider marks, avatars | `icons.ts`, `icon-button.ts` | Existing `src/icons.ts` facade, chat composer, Git toolbar |
+| Icons, file icons, provider marks, avatars | `icons.ts`, `icon-button.ts` | Existing `src/icons.ts` facade, chat composer, Git toolbar |
 | Headers, toolbars, rows, list states | `compositions.ts` | Resources and Actions |
 | Resource library | `resource-view.ts` | Settings Resources |
 | Local usage and session details | `usage-history.ts` | Settings Analytics |

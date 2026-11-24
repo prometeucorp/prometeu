@@ -22,7 +22,6 @@ pub struct Draft {
     /// Create the branch in a separate worktree when enabled; otherwise switch the original clone.
     pub worktree: bool,
     pub title: String,
-    pub stage: String,
     pub prompt: String,
     pub inject: Vec<String>,
     /// The Linear issue that opened the launcher, when present.

@@ -49,13 +49,17 @@ fn removing_a_session_keeps_the_others() {
 }
 
 /// A board.json written by v0.29.0, before terminal sessions, loads with none and saves back in
-/// the same shape; a board with sessions keeps them across a save.
+/// the same shape except retired workspace stages; a board with sessions keeps them across a save.
 #[test]
-fn boards_from_v0_29_0_load_unchanged() {
-    let written: serde_json::Value =
+fn boards_from_v0_29_0_preserve_sessions_without_retired_stages() {
+    let mut written: serde_json::Value =
         serde_json::from_str(include_str!("board-v0.29.0.json")).unwrap();
     let mut board: Board = serde_json::from_value(written.clone()).unwrap();
     assert!(board.terminals.is_empty());
+    written.as_object_mut().unwrap().remove("stages");
+    for workspace in written["workspaces"].as_array_mut().unwrap() {
+        workspace.as_object_mut().unwrap().remove("stage");
+    }
     assert_eq!(serde_json::to_value(&board).unwrap(), written);
 
     let session = create(&mut board, "/Users/me");

@@ -6,7 +6,7 @@ import type { Board } from "./types";
 const usage = (values: Partial<TelemetryUsage> = {}): TelemetryUsage => ({ inputTokens: null, outputTokens: null, cacheReadTokens: null,
   cacheWriteTokens: null, reasoningTokens: null, contextUsed: null, contextWindow: null, peakContext: null, modelCalls: null,
   compactions: null, cacheRebuilds: null, costUsd: null, ...values });
-const board: Board = { stages: [], projects: [], workspaces: [] };
+const board: Board = { projects: [], workspaces: [] };
 const snapshot = (): TelemetryInsights => ({ summary: { firstRecordedAt: null, lastRecordedAt: null, events: 0, turns: 3, completedTurns: 2,
   partialTurns: 1, measuredTurns: 1, inputTokens: 100, outputTokens: 20, costUsd: null, incompleteExecutions: 0, completeExecutions: 0, clockAnomalies: 0,
   executionSumMs: null, activeAgentMs: null, respondedWaits: 0, cancelledWaits: 0, incompleteWaits: 0, humanWaitMs: null, workspaceIds: [],

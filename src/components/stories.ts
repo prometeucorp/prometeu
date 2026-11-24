@@ -3,7 +3,7 @@ import { reviewNote, reviewEditor } from "./git/review-note";
 import { reviewSummary } from "./git/review-summary";
 import { anchorSelection, type ReviewNote } from "../review-comments";
 import * as ui from "./primitives";
-import { icon, iconNames, fileIcon, stageIcon, brand, avatar, avatars } from "./icons";
+import { icon, iconNames, fileIcon, brand, avatar, avatars } from "./icons";
 import { iconButton } from "./icon-button";
 import { conversationBlock, workCard, errorCard, noticeCard } from "./chat/blocks";
 import { requestCard } from "./chat/requests";
@@ -161,7 +161,6 @@ export const stories: Record<string, Factory> = {
   },
   icons(state) {
     const samples: [string, string][] = state === "files" ? ["index.ts", "main.rs", "README.md", "package.json", "photo.png"].map(name => [name, fileIcon(name)])
-      : state === "stages" ? Array.from({ length: 4 }, (_, i) => [`stageIcon(${i}, 4)`, stageIcon(i, 4)])
       : state === "providers" ? ["claude", "codex", "antigravity"].map(name => [name, brand(name)])
       : iconNames.map(name => [name, icon(name)]);
     if (state === "default") samples.push(["avatar", avatar("Example")], ["avatars", avatars(["One", "Two"])]);
