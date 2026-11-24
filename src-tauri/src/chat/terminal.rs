@@ -99,7 +99,13 @@ struct Submission {
 
 /// One line in the private app log (stderr). Codes and identifiers only, never transcript content.
 pub(crate) fn diagnose(scope: &str, code: &str) {
-    eprintln!("{} {scope} terminal.{code}", conversation::now());
+    use std::io::Write;
+    // A full disk must not panic before the caller stops the agent or closes its tab.
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "{} {scope} terminal.{code}",
+        conversation::now()
+    );
 }
 
 /// Every unverifiable-history failure shares one user message; the log keeps the failing step.
@@ -520,7 +526,10 @@ impl Observations {
                     transport.observe_hook(&event, pump);
                 }
                 Observation::Hook(_) => {}
-                Observation::Warning(code) => diagnose(&transport.generation, code),
+                Observation::Warning(code) => diagnose(
+                    &transport.generation,
+                    code.strip_prefix("terminal.").unwrap_or(code),
+                ),
             }
             if transport
                 .journal()
@@ -1517,8 +1526,10 @@ fn pty_command(command: &Command) -> CommandBuilder {
     terminal
 }
 
-fn fail_io(transport: &Transport, events: &mpsc::Sender<ReadEvent>, error: String) {
+fn fail_io(transport: &Transport, events: &mpsc::Sender<ReadEvent>, reason: &str, error: String) {
     if !transport.gone.load(Ordering::Acquire) {
+        // Logged here because the Failed event is only projected once the tab is published.
+        diagnose(&transport.generation, &format!("abort.{reason}"));
         let _ = events.send(ReadEvent::Failed(error));
         transport.control.disconnect();
         transport.process.kill();
@@ -1556,7 +1567,7 @@ fn drain_native(
         match transport.output(&bytes[..count]) {
             Ok(native_replies) => responses.extend(native_replies),
             Err(error) => {
-                fail_io(transport, &events, error);
+                fail_io(transport, &events, "screen_output", error);
                 break;
             }
         }
@@ -1569,7 +1580,12 @@ fn drain_native(
         }
         if !responses.is_empty() && replies.try_send(responses).is_err() {
             // Bounded backpressure must not silently discard a reply or block the PTY reader.
-            fail_io(transport, &events, i18n::t("err.terminalAgent.screen"));
+            fail_io(
+                transport,
+                &events,
+                "reply_queue",
+                i18n::t("err.terminalAgent.screen"),
+            );
             break;
         }
         status.retain(|event| matches!(event, ProgramStatusEvent::Report(_)));
@@ -1592,7 +1608,7 @@ fn answer_queries(
                 return;
             }
             if let Err(error) = transport.write_bytes(&reply) {
-                fail_io(transport, &events, error);
+                fail_io(transport, &events, "reply_write", error);
                 return;
             }
         }
@@ -1781,7 +1797,9 @@ pub(crate) fn launch_on(
         bridge.native_version(),
     )?;
     if let (Some(codex), Some(engine)) = (&codex, &engine) {
-        codex.replay(engine.history(), journal.as_ref())?;
+        codex
+            .replay(engine.history(), journal.as_ref())
+            .inspect_err(|_| diagnose(&request.session, "history.codex_replay"))?;
     }
     if resumed && engine.is_none() {
         let native = provider_session
@@ -1994,7 +2012,6 @@ pub(crate) fn launch_on(
                         observations.poll(&transport, &hooks, &pump, &context);
                     }
                     Ok(ReadEvent::Failed(error)) if published => {
-                        diagnose(&transport.generation, "screen.failed");
                         pump.feed(
                             &conversation::event(
                                 "system.notice",

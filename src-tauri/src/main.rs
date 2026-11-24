@@ -149,11 +149,26 @@ fn install_crypto() {
 }
 
 /// A Finder launch inherits /dev/null as stderr, which discards the diagnostic codes printed by
-/// the terminal host. Keep them in a private log under the app root instead.
+/// the terminal host. Keep them in a private log under the app root instead. A stderr the caller
+/// chose (terminal, `2>file`, pipe) is left alone.
 fn persist_stderr() {
-    use std::io::IsTerminal;
-    use std::os::unix::{fs::OpenOptionsExt, io::AsRawFd};
-    if std::io::stderr().is_terminal() {
+    use std::os::{
+        fd::AsFd,
+        unix::{
+            fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+            io::AsRawFd,
+        },
+    };
+    // A closed stderr counts as discarded too.
+    let discarded = std::io::stderr()
+        .as_fd()
+        .try_clone_to_owned()
+        .and_then(|fd| std::fs::File::from(fd).metadata())
+        .map_or(true, |stderr| {
+            std::fs::metadata("/dev/null")
+                .is_ok_and(|null| null.dev() == stderr.dev() && null.ino() == stderr.ino())
+        });
+    if !discarded {
         return;
     }
     let dir = paths::root().join("logs");
@@ -172,6 +187,8 @@ fn persist_stderr() {
         .custom_flags(libc::O_NOFOLLOW)
         .open(&path)
     {
+        // `mode` applies only on creation; a restored or older log may be wider.
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
         // SAFETY: both descriptors are valid; dup2 keeps stderr open after `file` drops.
         unsafe { libc::dup2(file.as_raw_fd(), libc::STDERR_FILENO) };
     }

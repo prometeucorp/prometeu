@@ -50,7 +50,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | V1 transcript for Codex, Antigravity, Cursor and every terminal-mode provider | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
 | native terminal transcript binding | `<root>/terminal-bindings/<tab>.json` | `chat/terminal/binding.rs`; private versioned identity and exact path, without conversation content |
 | native terminal ingestion journal | `<root>/terminal-ingestion/<tab>.sqlite3` | `terminal_agent_journal.rs` and `chat/terminal/ingestion.rs`; private source provenance and durable canonical append |
-| app diagnostic log | `<root>/logs/prometeu.log` (previous: `prometeu.log.1`) | `main.rs`; private `0600` stderr when the app is not attached to a terminal, rotated at startup above 5 MiB; terminal-host lines are `<ms> <tab or generation> terminal.<code>` with identifiers and step names only |
+| app diagnostic log | `<root>/logs/prometeu.log` (previous: `prometeu.log.1`) | `main.rs`; private `0600` stderr when the app inherits a discarded stderr (`/dev/null` or closed, as in a Finder launch), rotated at startup above 5 MiB; terminal-host lines are `<ms> <tab or generation> terminal.<code>` with identifiers and step names only |
 | files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
 | image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
