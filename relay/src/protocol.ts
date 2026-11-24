@@ -104,6 +104,7 @@ export type Share = {
   title: string;
   repo_name: string;
   branch: string;
+  // Legacy v4 compatibility field; workspace stages no longer exist.
   stage: string;
   issue: { identifier: string; title: string; url: string } | null;
   active: string | null;

@@ -103,6 +103,10 @@ test("design system opens confirmations without highlighting actions and keeps k
     const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
     await expect(cancel).toBeFocused();
     await expect(cancel).toHaveCSS("outline-style", "solid");
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(cancel).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(trigger).toBeFocused();
   }

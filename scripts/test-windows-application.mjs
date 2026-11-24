@@ -639,10 +639,9 @@ pathlib.Path(sys.argv[2],'release-recovery').touch()`, target.root, target.workd
   await cleanupDialog.locator(".cleanrow input").check();
   await cleanupDialog.locator("#c-go").click();
   await expect(cleanupDialog).toHaveCount(0);
-  const cleaned = await page.evaluate(id => window.__TAURI_INTERNALS__.invoke("application_request", { command: "load_board", args: null }).then(board => ({ workspace: board.workspaces.find(w => w.id === id), finalStage: board.stages.at(-1) })), created.id);
+  const cleaned = await page.evaluate(id => window.__TAURI_INTERNALS__.invoke("application_request", { command: "load_board", args: null }).then(board => ({ workspace: board.workspaces.find(w => w.id === id) })), created.id);
   expect(cleaned.workspace.archived).toBe(true);
   expect(cleaned.workspace.cleaned).toBe(true);
-  expect(cleaned.workspace.stage).toBe(cleaned.finalStage);
   expect(await linux("import pathlib,sys; print(pathlib.Path(sys.argv[1]).exists())", created.worktree)).toBe("False");
   const retained = await page.evaluate(session => window.__TAURI_INTERNALS__.invoke("application_request", { command: "chat_snapshot", args: { session } }), created.tabs[0].id);
   expect(retained.text).toContain("turn.completed");

@@ -1,4 +1,4 @@
-//! `prometeu-host mcp`: a stdio MCP server for bot platforms on the machine (ADR 0102). Each tool
+//! `prometeu-host mcp`: a stdio MCP server for bot platforms on the machine (ADR 0103). Each tool
 //! is one agent-socket method; the host does the work and enforces the token.
 use crate::agents::AGENT_PROTOCOL;
 use serde_json::{json, Value};

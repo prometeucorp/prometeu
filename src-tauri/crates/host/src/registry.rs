@@ -1,4 +1,4 @@
-//! The machine's own record of its projects and workspaces (ADR 0102). Only the host writes it,
+//! The machine's own record of its projects and workspaces (ADR 0103). Only the host writes it,
 //! so the desktop and agent clients never race on the file; each change is one locked
 //! read-modify-write followed by an atomic rename.
 use serde::{Deserialize, Serialize};

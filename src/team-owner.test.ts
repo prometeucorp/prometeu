@@ -57,12 +57,12 @@ const roster = (): Member[] => devices.map(d => ({ id: d.id, name: d.name, onlin
 const workspace = (audience: string[] | null, remoteControl = false, rights: ShareRights | null = { send: [], control: [] },
   confirm = false): Workspace => ({
   id: "ws1", title: "Work", project: "p", repo: "/r", repo_name: "repo", branch: "main", worktree: "/w/ws1", repos: [],
-  stage: "", archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "", mcp: null, plugins: null,
+  archived: false, pinned: false, unread: false, agent: "claude", model: "", effort: "", mcp: null, plugins: null,
   skills: null, port: null, issue: null, cleaned: false, shared: true, share_team: membership.shareScope, audience,
   remote_control: remoteControl, rights, confirm_messages: confirm, preparing: false, failed: null, remote: null, active: "tab1",
   tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }],
 } as Workspace);
-const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
+const board = (work: Workspace): Board => ({ workspaces: [work], projects: [] });
 
 async function connect(work: Workspace, announced = true, using = membership) {
   const sockets: Socket[] = [];
@@ -122,6 +122,25 @@ async function upgradedFrom(work: Workspace) {
   member.reset();
   await connect(work);
 }
+
+it("delivers an owner announcement without workspace stages to an encrypted viewer", async () => {
+  const { TeamChannel } = await import("./team-channel");
+  const { TeamSecurity } = await import("./team-security");
+  const security = await TeamSecurity.load("viewer", async () => null, async () => {});
+  devices[1] = { ...devices[1], identity: security.identity };
+  const work = workspace(["bob"]);
+  expect(work).not.toHaveProperty("stage");
+  await connect(work);
+  const viewer = new TeamChannel(security, SCOPE, "bob");
+  const members = [{ id: "alice", name: "Alice", online: true, key: socket.key }, ...roster()];
+  await viewer.incoming({ t: "welcome", comments: 1, e2ee: 1, challenge: "challenge", you: "bob",
+    members, shares: [], inbox: [], watching: {} });
+  await viewer.incoming({ t: "presence", members });
+  const wire = socket.shares().slice(-1)[0].share;
+  expect(wire.encrypted?.boxes.bob).toBeDefined();
+  await viewer.incoming({ t: "share", share: { ...wire, owner: "alice", online: true } });
+  expect(viewer.shares.get(work.id)).toMatchObject({ title: work.title, branch: work.branch, stage: "" });
+});
 
 it("keeps teammates and devices pinned before the upgrade able to send input", async () => {
   await upgradedFrom(workspace(null, true, send("bob")));
@@ -469,7 +488,7 @@ it("reports a failed send like the composer, without holding the message again",
 it.each([
   ["its conversation closes", (w: Workspace): Board => board({ ...w, tabs: [{ ...w.tabs[0], id: "tab2" }], active: "tab2" })],
   ["its workspace is archived", (w: Workspace): Board => board({ ...w, archived: true })],
-  ["its workspace is removed", (): Board => ({ workspaces: [], projects: [], stages: [] })],
+  ["its workspace is removed", (): Board => ({ workspaces: [], projects: [] })],
   ["sharing stops", (w: Workspace): Board => board({ ...w, shared: false, audience: null, remote_control: false, rights: null })],
   ["the sender loses Send messages", (w: Workspace): Board => board({ ...w, rights: { send: [], control: ["bob"] } })],
 ])("drops a held message when %s", async (_, change) => {

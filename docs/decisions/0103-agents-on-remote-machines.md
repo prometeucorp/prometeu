@@ -1,11 +1,11 @@
 ---
 type: Decision
-title: "ADR 0102 — Agents on a remote machine drive workspaces through its host"
+title: "ADR 0103 — Agents on a remote machine drive workspaces through its host"
 description: "The machine's host keeps its own registry of projects and workspaces, launches Claude without a desktop, and serves a token-authorized agent socket and MCP server."
 status: draft
 ---
 
-# ADR 0102 — Agents on a remote machine drive workspaces through its host
+# ADR 0103 — Agents on a remote machine drive workspaces through its host
 
 Date: 2026-11-24
 
@@ -66,7 +66,7 @@ The host owns `<root>/registry.json` (0600, atomic rename, `version: 1`):
 
 Only the host writes the file. Every change is made through a host method, so
 two clients never race on it. The desktop board stays authoritative for
-everything it already owns: stage, pinning, ordering, unread state and the
+everything it already owns: pinning, ordering, unread state and the
 conversation journal. The registry records only what exists on the machine.
 
 ### Launching without a desktop

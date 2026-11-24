@@ -68,7 +68,7 @@ pub const DECISION_WAIT_SECS: u64 = 300;
 
 /// Claude's settings layer that routes every observed hook to `helper`. The desktop and the host
 /// both launch Claude on a machine, and they must configure it identically so either can observe
-/// a conversation the other started (ADR 0102).
+/// a conversation the other started (ADR 0103).
 pub fn claude_hook_settings(helper: &str) -> serde_json::Value {
     let hooks = [
         "SessionStart",

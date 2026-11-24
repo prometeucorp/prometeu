@@ -289,12 +289,11 @@ fn input_gates_serialize_one_session_without_blocking_others() {
 }
 
 #[test]
-fn immediate_input_uses_idle_admission_and_preserves_the_workspace_stage_and_siblings() {
+fn immediate_input_uses_idle_admission_and_preserves_the_workspace_and_siblings() {
     let f = Fixture::new();
     f.service().send("s", "  hello  ", true).unwrap();
     assert_eq!(*lock(&f.effects), ["send:true:hello", "publish"]);
     let board = lock(&f.board);
-    assert_eq!(board.workspaces[0].stage, "review");
     assert!(matches!(
         board.workspaces[0].tabs[0].status,
         Status::Rodando

@@ -244,24 +244,6 @@ fn sort_projects(projects: &mut [Project], ids: &[String]) {
 
 /* ---------- workspaces ---------- */
 
-/// The workspace owns its stage, regardless of whether the menu, header, or drag gesture changes
-/// it.
-#[tauri::command]
-pub fn set_stage(app: AppHandle, state: State<AppState>, id: String, stage: String) {
-    {
-        let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&id) {
-            if ws.stage != stage {
-                ws.stage = stage;
-                analytics::track(Event::WorkspaceActionUsed {
-                    action: WorkspaceAction::Stage,
-                });
-            }
-        }
-    }
-    publish(&app);
-}
-
 /// Archiving preserves the transcript and initially keeps the worktree and branch. The interface
 /// offers their explicit cleanup after this command succeeds. Stop hidden processes so their
 /// requests do not wait for an absent reader.
@@ -270,21 +252,14 @@ pub fn archive_workspace(app: AppHandle, state: State<AppState>, id: String, arc
     archive(&app, &state, &id, archived);
 }
 
-/// Finishing moves the workspace to the final stage and archives it. Archiving stops agents, docks,
+/// Finishing archives the workspace. Archiving stops agents, docks,
 /// and resources handled by the archive script. The interface then offers worktree cleanup as a
 /// separate, confirmed decision.
 #[tauri::command(async)]
 pub fn finish_workspace(app: AppHandle, state: State<AppState>, id: String) {
-    let changed = {
-        let mut board = lock(&state.board);
-        let before = board
-            .workspace_mut(&id)
-            .map(|ws| (ws.stage.clone(), ws.archived));
-        crate::workspace_lifecycle::finish(&mut board, &id);
-        before.is_some_and(|(stage, archived)| {
-            !archived || board.workspace_mut(&id).is_some_and(|ws| ws.stage != stage)
-        })
-    };
+    let changed = lock(&state.board)
+        .workspace_mut(&id)
+        .is_some_and(|ws| !ws.archived);
     archive(&app, &state, &id, true);
     if changed {
         analytics::track(Event::WorkspaceActionUsed {
@@ -377,7 +352,7 @@ pub fn rename_workspace(app: AppHandle, state: State<AppState>, id: String, titl
     publish(&app);
 }
 
-/// Pinning moves the workspace to the top without changing its stage.
+/// Pinning moves the workspace to the top.
 #[tauri::command]
 pub fn pin_workspace(app: AppHandle, state: State<AppState>, id: String, pinned: bool) {
     {
@@ -1373,7 +1348,6 @@ pub(crate) fn create_workspace_owned(
         branch,
         worktree: root.display().to_string(),
         repos,
-        stage: draft.stage.clone(),
         archived: false,
         pinned: false,
         unread: false,
@@ -2720,7 +2694,6 @@ mod tests {
                 base: String::new(),
                 pr: None,
             }],
-            stage: "Feito".into(),
             agent: ProviderId::Claude,
             archived: true,
             pinned: false,
@@ -2989,7 +2962,6 @@ mod tests {
             branch: String::new(),
             worktree: String::new(),
             repos: Vec::new(),
-            stage: String::new(),
             archived: false,
             pinned: false,
             unread: false,
@@ -4372,7 +4344,6 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
             branch: "b".into(),
             worktree: root.join("ws").display().to_string(),
             repos: repos.clone(),
-            stage: "Fazendo".into(),
             agent: ProviderId::Claude,
             archived: false,
             pinned: false,

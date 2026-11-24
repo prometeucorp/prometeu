@@ -127,7 +127,8 @@ function toShare(w: Workspace): Share {
     title: w.title,
     repo_name: w.repo_name,
     branch: w.branch,
-    stage: w.stage,
+    // Legacy v4 compatibility field; workspace stages no longer exist.
+    stage: "",
     issue: w.issue ? { identifier: w.issue.identifier, title: w.issue.title, url: w.issue.url } : null,
     active: w.active,
     tabs: w.tabs.map((tab) => ({ id: tab.id, title: tab.title, status: tab.status, note: tab.note, tokens: tab.tokens,

@@ -46,10 +46,10 @@ class Socket {
 let team: typeof import("./team");
 let sockets: Socket[];
 let urls: string[];
-const workspace = (scope?: string): Workspace => ({ id: "workspace1", title: "Work", repo_name: "repo", branch: "main", stage: "", issue: null,
+const workspace = (scope?: string): Workspace => ({ id: "workspace1", title: "Work", repo_name: "repo", branch: "main", issue: null,
   active: "tab1", tabs: [{ id: "tab1", title: "Chat", status: "pronta", note: null, tokens: null }], shared: true,
   share_team: scope, audience: null, remote_control: false, remote: null, archived: false, cleaned: false } as Workspace);
-const board = (work: Workspace): Board => ({ workspaces: [work], projects: [], stages: [] });
+const board = (work: Workspace): Board => ({ workspaces: [work], projects: [] });
 
 beforeEach(async () => {
   vi.useFakeTimers(); vi.resetModules(); fake.config = null; fake.security = null; sockets = []; urls = [];

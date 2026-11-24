@@ -495,10 +495,6 @@ pub(crate) enum Request {
         session: String,
         frame: Value,
     },
-    SetStage {
-        id: String,
-        stage: String,
-    },
     FocusTab {
         workspace: String,
         tab: String,
@@ -1014,11 +1010,6 @@ impl Host {
                     self.services.discovery.accounts.active(workspace.agent)?;
                 }
                 self.session_context(&session)?.runtime.command(&frame)?;
-                Ok(Value::Null)
-            }
-            Request::SetStage { id, stage } => {
-                let catalog = self.catalog.stage(&id, &stage)?;
-                self.application_events.publish_board(catalog.board)?;
                 Ok(Value::Null)
             }
             Request::FocusTab { workspace, tab } => {

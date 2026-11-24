@@ -535,7 +535,7 @@ export const PT = {
   "actions.running": "Tarefa em execução",
   "actions.deliveryName": "Responsável pela PR",
   "actions.deliveryStart": "Conduza a entrega das alterações deste workspace.",
-  "actions.deliveryPrompt": "Cuide da entrega deste workspace. Primeiro revise as alterações contra a base, respeite as instruções do repositório, corrija problemas encontrados e execute as verificações relevantes. Abra ou atualize a PR somente após verificar o código que será publicado. Use a skill de PR do projeto quando existir. Considere cada repositório do workspace; não abra PR em repositório sem alterações. Não faça merge nem altere a etapa do workspace.",
+  "actions.deliveryPrompt": "Cuide da entrega deste workspace. Primeiro revise as alterações contra a base, respeite as instruções do repositório, corrija problemas encontrados e execute as verificações relevantes. Abra ou atualize a PR somente após verificar o código que será publicado. Use a skill de PR do projeto quando existir. Considere cada repositório do workspace; não abra PR em repositório sem alterações. Não faça merge.",
   "err.actions.active": "Esta tarefa já está em andamento. Envie o contexto na aba dela.",
   "err.actions.invalid": "Revise a configuração: nomes únicos, prompt, agente e limites válidos são necessários.",
   "err.actions.missing": "Comando ou agente não encontrado.",
@@ -561,6 +561,8 @@ export const PT = {
   "err.antigravity.auth": "Autentique sua conta executando agy e tente novamente.",
   "err.gemini.start": "A integra\u00e7\u00e3o com Gemini CLI foi removida.",
   "err.provider.retired": "A integração com Gemini CLI foi removida. O histórico está preservado; inicie uma nova conversa com Antigravity.",
+  "err.windows.runtimeUpgrade": "Criar workspaces exige o runtime WSL atualizado. Primeiro desative ‘Limpar worktrees arquivados automaticamente’ nas Configurações. Arquive seus workspaces WSL e escolha ‘Manter worktree’ quando solicitado. Feche também todas as abas de terminal dos projetos. Saia do Prometeu e abra-o novamente, depois desarquive esses workspaces. O botão Parar da conversa não libera o runtime.",
+  "launcher.failed": "Não foi possível criar o workspace",
   "err.windows.workspaceOptions": "Esta opção de trabalho ainda não está integrada ao WSL.",
   "windows.reconnecting": "Restabelecendo a conexão com o WSL…",
   "err.windows.distribution": "Não foi possível identificar a distribuição WSL padrão.",
@@ -737,14 +739,6 @@ export const PT = {
   "status.pronta": "pronta",
   "status.desligada": "desligada",
 
-  /* Default stages created on first launch. */
-
-  "stage.Preparando": "Preparando",
-  "stage.Fazendo": "Fazendo",
-  "stage.Code review": "Code review",
-  "stage.Travado": "Travado",
-  "stage.Feito": "Feito",
-
   /* Sidebar and navigation. */
 
   "rail.resize": "Redimensionar barra lateral",
@@ -851,7 +845,7 @@ export const PT = {
   "top.pr.update": "Pedir à conversa ativa que atualize o PR",
   "top.pr.go": "Nada para mandar — abrir o PR no navegador",
   "top.pr.links": "Os PRs desta branch, um por repositório",
-  "top.finish": "O PR entrou: pôr na última etapa e arquivar  ⌘⇧D",
+  "top.finish": "O PR entrou: arquivar  ⌘⇧D",
   "top.side": "Painel lateral",
 
   /* Preparation state and history. */
@@ -866,7 +860,6 @@ export const PT = {
   "ws.menu.unread": "Marcar como não lido",
   "ws.menu.unpin": "Desafixar",
   "ws.menu.pin": "Fixar no topo",
-  "ws.menu.stage": "Definir etapa",
   "ws.menu.rename": "Renomear",
   "ws.menu.copyPath": "Copiar caminho",
   "ws.menu.reveal": "Abrir no Finder",
@@ -1327,7 +1320,7 @@ export const PT = {
   "project.newWorkspace": "Workspace novo",
 
   "gone.body":
-    "A pasta do worktree saiu do disco. Uma branch existente fica; uma branch criada para este workspace foi apagada. O card, a etapa e o PR ficam.",
+    "A pasta do worktree saiu do disco. Uma branch existente fica; uma branch criada para este workspace foi apagada. O card e o PR ficam.",
 
   /* Disk cleanup. */
 

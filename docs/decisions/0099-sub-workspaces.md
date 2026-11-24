@@ -46,7 +46,7 @@ navigation: show the workspaces independently rather than hiding them.
 
 A family follows its main workspace's project, including cross-project workers.
 Pinning any member puts the whole family in Pinned; member pin flags are retained.
-Project search includes sub-workspace titles. Stages, archives, worktrees and
+Project search includes sub-workspace titles. Archives, worktrees and
 processes remain independently controlled; grouping adds no cascading operations.
 
 ## Compatibility and consequences

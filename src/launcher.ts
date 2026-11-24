@@ -35,7 +35,6 @@ export type Draft = {
   /// Selected local or remote ref when using an existing branch.
   source?: string;
   title: string;
-  stage: string;
   prompt: string;
   inject: string[];
   /// An originating issue or PR supplies the workspace title and initial prompt.
@@ -75,7 +74,7 @@ const PLUGIN_KEY = "prometeu:plugins";
 let takeFiles: { put: (paths: string[]) => void; wait: () => () => void } | null = null;
 export const fileDropTarget = () => takeFiles;
 
-/// Create from the prompt and project selection, deriving title, a readable branch name, and initial stage. Enter submits. A Linear seed supplies its branch and title and prepends the full issue to any extra instructions.
+/// Create from the prompt and project selection, deriving a title and readable branch name for the workspace. Enter submits. A Linear seed supplies its branch and title and prepends the full issue to any extra instructions.
 export type Open = {
   /// Preselect the active workspace's project or the sidebar creation target.
   preset?: string;
@@ -106,7 +105,6 @@ export function openLauncher(board: Board, opts: Open) {
     newBranch: git?.source ? false : !!git || localStorage.getItem(BRANCH_KEY) !== "0",
     source: git?.source,
     title: seed ? `${seed.identifier} · ${seed.title}` : "",
-    stage: board.stages[1] ?? board.stages[0],
     prompt: "",
     inject: [],
     issue: seed ? { id: seed.id, identifier: seed.identifier, title: seed.title, url: seed.url } : null,

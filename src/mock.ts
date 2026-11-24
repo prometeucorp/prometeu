@@ -108,7 +108,6 @@ const ws = (
   project: string,
   repo: string,
   title: string,
-  stage: string,
   tabs: Workspace["tabs"],
 ): Workspace => ({
   id,
@@ -119,7 +118,6 @@ const ws = (
   branch: `prometeu/${id}`,
   worktree: `~/prometeu/worktrees/${repo}/prometeu-${id}`,
   repos: [{ path: `/Users/gustavo/dev/${repo}`, name: repo, worktree: `~/prometeu/worktrees/${repo}/prometeu-${id}`, base: "origin/main", pr: null }],
-  stage,
   archived: false,
   pinned: false,
   unread: false,
@@ -149,23 +147,22 @@ const emptyProjects = new Set<string>();
 const board: Board = {
   conversation_mode: localStorage.getItem("mock:conversationMode") === "terminal" ? "terminal" : "chat",
   actions: initializeDefaults(JSON.parse(localStorage.getItem("mock:actions") ?? "null") ?? emptyCatalog()),
-  stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"],
   projects: [
     { id: "p1", name: "njord", path: "/Users/gustavo/dev/njord" },
     { id: "p2", name: "prometeu", path: "/Users/gustavo/dev/prometeu" },
   ],
   workspaces: [
-    ws("sessao-0929", "p1", "njord", "Hello", "Fazendo", [
+    ws("sessao-0929", "p1", "njord", "Hello", [
       { id: "t1", title: "", status: "pronta", note: null, tokens: 57_000 },
       // This tab overrides the workspace model so its footer differs from sibling tabs.
       { id: "t2", title: "", status: "pronta", note: null, tokens: 112_400, pending_prompt: "What is interesting about this project?", choice: { agent: "claude", model: "sonnet", effort: "medium" } },
     ]),
-    ws("ui-2231", "p2", "prometeu", "Polish the chat screen", "Fazendo", [
+    ws("ui-2231", "p2", "prometeu", "Polish the chat screen", [
       { id: "t3", title: "", status: "rodando", note: "Edit src/style.css", tokens: 23_800 },
     ]),
     // Two repositories on one branch exercise separate change sections.
     Object.assign(
-      ws("portal-1217", "p2", "prometeu", "Hiring through the portal", "Fazendo", [
+      ws("portal-1217", "p2", "prometeu", "Hiring through the portal", [
         { id: "t9", title: "", status: "rodando", note: "Edit app/models/entry.rb", tokens: 31_000 },
       ]),
       {
@@ -191,34 +188,34 @@ const board: Board = {
     ),
     // An unanswered question marks this conversation unread.
     Object.assign(
-      ws("icone-2140", "p2", "prometeu", "App icon", "Code review", [
+      ws("icone-2140", "p2", "prometeu", "App icon", [
         { id: "t4", title: "", status: "querendo", note: "What icon size do you want to generate?", tokens: 8_100 },
       ]),
       { unread: true, pr: { number: 42, title: "feat(board): app icon", isDraft: false, state: "OPEN", checks: "FAILURE" } },
     ),
     // A merged PR exposes the card badge and completion action.
     Object.assign(
-      ws("dock-1130", "p2", "prometeu", "Dock port per worktree", "Code review", [
+      ws("dock-1130", "p2", "prometeu", "Dock port per worktree", [
         { id: "t5", title: "", status: "pronta", note: null, tokens: 44_200 },
       ]),
       { pr: { number: 40, title: "feat(dock): port per worktree", isDraft: false, state: "MERGED" } },
     ),
     // This archived workspace still occupies disk space and appears in cleanup.
     Object.assign(
-      ws("linear-0912", "p1", "njord", "Connect Linear", "Feito", [
+      ws("linear-0912", "p1", "njord", "Connect Linear", [
         { id: "t7", title: "", status: "desligada", note: null, tokens: 66_000 },
       ]),
       { archived: true, pr: { number: 8, title: "feat: connect Linear", isDraft: false, state: "MERGED" } },
     ),
     Object.assign(
-      ws("porta-1751", "p1", "njord", "Port in use during setup", "Travado", [
+      ws("porta-1751", "p1", "njord", "Port in use during setup", [
         { id: "t8", title: "", status: "desligada", note: null, tokens: 12_000 },
       ]),
       { archived: true },
     ),
     // Keep the completed workspace card after its worktree is removed.
     Object.assign(
-      ws("idioma-1348", "p2", "prometeu", "The app speaks English", "Feito", [
+      ws("idioma-1348", "p2", "prometeu", "The app speaks English", [
         { id: "t6", title: "", status: "desligada", note: null, tokens: 91_000 },
       ]),
       {
@@ -725,7 +722,7 @@ const TODO: [string, string, string] = ["Todo", "unstarted", "#e2e2e2"];
 const BACKLOG: [string, string, string] = ["Backlog", "backlog", "#bec2c8"];
 const ISSUES: Issue[] = [
   issue("MOA-142", "Connect Linear to Prometeu", 2, DOING, "Integrations", 1, "Show issues and create a workspace from one."),
-  issue("MOA-137", "[Board] Dragging a card loses its stage when dropped outside a column (drop + reorder)", 1, DOING, "Board", 5),
+  issue("MOA-137", "[Sidebar] Dragging a workspace loses its position outside a project", 1, DOING, "Board", 5),
   issue("MOA-151", "Show context tokens on the card", 3, TODO, "Board", 26),
   issue("MOA-149", "⌘, shortcut for settings", 4, TODO, null, 30),
   issue("MOA-120", "Explore Notion sync", 0, BACKLOG, "Integrations", 240),
@@ -1885,12 +1882,6 @@ const mockCommands: IpcHandlers = {
     const target = board.workspaces.find((x) => x.id === args.id);
     return target && !target.cleaned ? target.branch : null;
   },
-  set_stage(args) {
-    const target = board.workspaces.find((x) => x.id === args.id);
-    if (target) target.stage = args.stage;
-    emit("board", board);
-    return;
-  },
   set_shared(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
     if (target) {
@@ -2358,7 +2349,7 @@ const mockCommands: IpcHandlers = {
     mockKickoff(draft.kickoff, draft.agent);
     const id = `nova-${nextId++}`;
     const repo = String(draft.project).split("/").pop() ?? "repo";
-    const fresh = ws(id, draft.project, repo, draft.title || draft.branch, draft.stage, []);
+    const fresh = ws(id, draft.project, repo, draft.title || draft.branch, []);
     fresh.branch = draft.branch || "main";
     if (draft.host) fresh.host = draft.host;
     if (!draft.worktree) {
@@ -2505,7 +2496,6 @@ const mockCommands: IpcHandlers = {
   finish_workspace(args) {
     const target = board.workspaces.find((x) => x.id === args.id);
     if (target) {
-      target.stage = board.stages[board.stages.length - 1];
       target.archived = true;
       target.tabs.forEach((t) => (t.status = "desligada"));
     }
@@ -2810,7 +2800,7 @@ const marcusShare = (): Share => ({
   title: "Archive completed todos",
   repo_name: "capim-backend",
   branch: "fix/archive-completed-todos",
-  stage: "Fazendo",
+  stage: "",
   issue: { identifier: "CAP-218", title: "Weekly digest clears completed todos", url: "https://linear.app/x/issue/CAP-218" },
   active: "mt1",
   tabs: [

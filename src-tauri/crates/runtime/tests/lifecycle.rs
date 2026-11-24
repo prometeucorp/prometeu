@@ -519,10 +519,6 @@ fn application_lifecycle_preserves_transcripts_and_stops_only_owned_execution() 
     assert_eq!(ws["archived"], true);
     assert_eq!(ws["pinned"], true);
     assert_eq!(ws["unread"], true);
-    assert_eq!(
-        ws["stage"],
-        *board["stages"].as_array().unwrap().last().unwrap()
-    );
     assert!(ws["tabs"]
         .as_array()
         .unwrap()

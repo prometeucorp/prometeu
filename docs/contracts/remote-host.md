@@ -8,7 +8,7 @@ status: stable
 # Remote host protocol
 
 Decisions: [ADR 0101](../decisions/0101-remote-machines.md) and, for the registry
-and agent clients, the proposed [ADR 0102](../decisions/0102-agents-on-remote-machines.md).
+and agent clients, the proposed [ADR 0103](../decisions/0103-agents-on-remote-machines.md).
 Implementation: `src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
 
 ## Installation

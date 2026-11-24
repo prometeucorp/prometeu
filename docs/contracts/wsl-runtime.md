@@ -119,7 +119,10 @@ live process, observed identity and no latched fault. Application events use
 | `workspace_create` | `title`, `path` | catalog; selection unchanged |
 | `workspace_worktree` | `request: { title, path, branch, base }` | catalog; selection unchanged |
 | `workspace_select` | `id` | catalog after the context is prepared |
-| `workspace_stage` | `id`, `stage` | catalog; execution unchanged |
+
+`application.stageless-workspaces.v1` advertises workspace creation without the
+retired stage field in both stdio and resident handshakes; newer bridges refuse
+creation on older residents while allowing existing-workspace operations.
 
 The catalog is `{ v: 1, active, board }` using the portable board models, with at
 most 64 workspaces and 32 tabs per workspace. Stored IDs are `primary` or UUIDs;

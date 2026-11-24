@@ -6,7 +6,7 @@
 //! - `hook` is the command native CLI hooks run. It forwards the hook payload to the host and
 //!   prints whatever decision the desktop returns.
 //! - `agents setup [--socket PATH] [--rotate]` enables agent clients: it writes the agent socket's
-//!   path and the token they must present, and prints an MCP configuration (ADR 0102).
+//!   path and the token they must present, and prints an MCP configuration (ADR 0103).
 //! - `mcp [--socket PATH]` is a stdio MCP server over the agent socket, for bot platforms.
 #[cfg(unix)]
 mod agents;

@@ -144,7 +144,7 @@ try {
       const board = await invoke("load_board");
       const workspace = board.workspaces.find(w => w.active === `demo-${tab}`);
       workspace.tabs[0].status = busy ? "rodando" : "pronta";
-      await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+      await invoke("set_unread", { id: workspace.id, unread: false });
     }, { tab, busy });
   };
   const leftStream = "- One clear next step\n- Keyboard-friendly forms\n- Helpful empty states";

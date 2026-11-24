@@ -1,4 +1,4 @@
-//! Agent clients on the machine (ADR 0102). They use Prometeu as a person would: register
+//! Agent clients on the machine (ADR 0103). They use Prometeu as a person would: register
 //! projects, open workspaces, read and answer conversations, close workspaces. They reach the host
 //! through a second socket that offers only those operations and requires a token, never through
 //! the desktop socket, whose `exec` and file methods amount to a shell.

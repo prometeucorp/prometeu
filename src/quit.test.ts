@@ -31,7 +31,7 @@ use("en");
 
 const tab = (status: Tab["status"]) => ({ id: status, status }) as Tab;
 const workspace = (tabs: Tab[], extra: Partial<Workspace> = {}) => ({ id: "w", tabs, preparing: false, ...extra }) as Workspace;
-const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: [], workspaces });
+const board = (...workspaces: Workspace[]): Board => ({ projects: [], workspaces });
 
 describe("pending", () => {
   it("counts the conversations a restart would mark interrupted", () => {

@@ -13,7 +13,7 @@ impl BoardStore for Store {
     }
 
     fn save(&self, board: &Board) -> Result<(), String> {
-        lock(&self.written).push(board.stages[0].clone());
+        lock(&self.written).push(board.projects[0].name.clone());
         if self.fail.load(Ordering::SeqCst) {
             return Err("disk unavailable".into());
         }
@@ -29,9 +29,12 @@ impl<F: Fn(&Board) -> Result<(), String>> BoardEvents for Events<F> {
     }
 }
 
-fn current(stage: &str) -> Mutex<Board> {
+fn current(name: &str) -> Mutex<Board> {
     Mutex::new(Board {
-        stages: vec![stage.into()],
+        projects: vec![serde_json::from_value(
+            serde_json::json!({"id":"p", "name":name, "path":"/repo"}),
+        )
+        .unwrap()],
         ..Board::default()
     })
 }
@@ -58,14 +61,14 @@ fn concurrent_publications_keep_snapshot_and_emission_order() {
                             current.try_lock().is_ok(),
                             "delivery must release the board"
                         );
-                        lock(emitted).push(board.stages[0].clone());
+                        lock(emitted).push(board.projects[0].name.clone());
                         Ok(())
                     }),
                 )
                 .unwrap();
         });
         captured_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        lock(current).stages[0] = "new".into();
+        lock(current).projects[0].name = "new".into();
         scope.spawn(move || {
             assert!(publisher.publication.try_lock().is_err());
             competing.send(()).unwrap();
@@ -73,7 +76,7 @@ fn concurrent_publications_keep_snapshot_and_emission_order() {
                 .publish(
                     current,
                     &Events(|board: &Board| {
-                        lock(emitted).push(board.stages[0].clone());
+                        lock(emitted).push(board.projects[0].name.clone());
                         Ok(())
                     }),
                 )
@@ -95,16 +98,16 @@ fn durable_barrier_supersedes_pending_snapshots_and_keeps_worker_available() {
     publisher
         .publish(&current, &Events(|_: &Board| Ok(())))
         .unwrap();
-    lock(&current).stages[0] = "durable".into();
+    lock(&current).projects[0].name = "durable".into();
     publisher.persist(&current).unwrap();
     assert_eq!(
         lock(&store.written).last().map(String::as_str),
         Some("durable")
     );
-    lock(&current).stages[0] = "later".into();
+    lock(&current).projects[0].name = "later".into();
     publisher.persist(&current).unwrap();
     let written = lock(&store.written);
-    let durable = written.iter().position(|stage| stage == "durable").unwrap();
+    let durable = written.iter().position(|name| name == "durable").unwrap();
     assert_eq!(&written[durable..], ["durable", "later"]);
 }
 

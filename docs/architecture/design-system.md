@@ -28,7 +28,7 @@ rendering, behavior, styles and Rails adaptation.
   local implementation of `button`, `input`, `field`, `checkbox`, `select`,
   `dropdown`, `disclosure` or `formDialog`.
 - [`src/menu.ts`](../../src/menu.ts) and [`src/icons.ts`](../../src/icons.ts):
-  re-export the package's generic menus and icons. Icons for stages, files and
+  re-export the package's generic menus and icons. Icons for files and
   providers stay in the desktop's presentation adapter.
 
 Components receive already-translated text and callbacks. They do not import
@@ -61,7 +61,8 @@ window has no room, so they never cover the menu that opened them.
 
 `formDialog` uses `dialog.showModal()`: content behind it becomes inert, focus
 returns on close and Tab/Shift+Tab cycle within the form. The body scrolls and
-the footer stays visible. Saving respects HTML validation, prevents double
+the footer stays visible. Footer buttons have an explicit tab stop so WebKit
+does not skip them during keyboard navigation. Saving respects HTML validation, prevents double
 submission, signals `aria-busy` and presents failures in `role="alert"` without
 losing the typed text. Menus opened in the dialog join the same layer. Escape
 closes the menu first; another Escape closes the dialog. Global shortcuts do

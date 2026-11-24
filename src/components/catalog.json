@@ -138,13 +138,12 @@
   },
   {
     "id": "icons",
-    "name": "icon · fileIcon · stageIcon · brand · avatar",
+    "name": "icon · fileIcon · brand · avatar",
     "source": "src/components/icons.ts",
     "exports": [
       "icon",
       "iconNames",
       "fileIcon",
-      "stageIcon",
       "brand",
       "avatar",
       "avatars",
@@ -158,7 +157,6 @@
     "states": [
       "default",
       "files",
-      "stages",
       "providers"
     ]
   },
