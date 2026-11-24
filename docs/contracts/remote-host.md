@@ -7,8 +7,9 @@ status: stable
 
 # Remote host protocol
 
-Decision: [ADR 0101](../decisions/0101-remote-machines.md). Implementation:
-`src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
+Decisions: [ADR 0101](../decisions/0101-remote-machines.md) and, for the registry
+and agent clients, the proposed [ADR 0102](../decisions/0102-agents-on-remote-machines.md).
+Implementation: `src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
 
 ## Installation
 
@@ -26,7 +27,11 @@ Its install directory is the first 16 hex digits of its SHA-256.
   host-v1.lock                 flock held by the serving host
   host.log                     host stderr
   sessions/<tab>/settings.json Claude hook settings, 0600
-  worktrees/<repo>/<branch>/   worktrees created by the desktop
+  worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
+  registry.json                the machine's projects and workspaces, 0600
+  agents.json                  optional `{ "socket": "<absolute path>" }`, 0600
+  agents/token                 agent token, 0600
+  agents/agents-v1.sock        default agent socket, 0666 in a 0700 directory
 ```
 
 Installation checks that `uname -sm` is `Linux x86_64`, streams the build over
@@ -92,6 +97,9 @@ unknown outcome.
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`; streams `file` events every 250 ms while this attachment lives |
 | `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
 | `hook_reply` | `hook`, `stdout` (base64) | `{}` |
+| `registry_list` | none | the registry, with each conversation's `state`, `state_at` and `notification` |
+| `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path, inserts or replaces a workspace by ID |
+| `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
 | `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
 | `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs |
 
@@ -154,8 +162,115 @@ remains compatible with callers that pass a local project ID.
 `src/machines.test.ts` covers local, selected-host, other-host and aliased clones.
 `src/settings-navigation.test.ts` preserves the saved `projects` destination.
 
+## Registry
+
+`registry.json` is `{ version: 1, projects, workspaces }`; only the host writes
+it, with an atomic rename. Records:
+
+- project: `{ path, name, origin?, added_at, added_by }`;
+- workspace: `{ id, project, title, branch, base, worktree, created_at,
+  created_by, closed, keep_branch, conversations }`;
+- conversation: `{ id, title, created_at, permission }`, where `id` is the tab,
+  Claude session and terminal ID and `permission` is `auto` or `ask`;
+- creator: `{ kind: "desktop" | "agent", name? }`.
+
+Unknown fields are ignored. Times are Unix seconds.
+
+## Observed state
+
+The host reads the event name of every hook it serves and keeps, per
+conversation, `state` and `state_at`: `idle` after `SessionStart`, `Stop` or
+`StopFailure`; `working` after `UserPromptSubmit` or a tool hook; `permission`
+after `PermissionRequest`. `Notification` records its `message` as
+`notification` until the next working hook. A conversation whose terminal is
+not running reports `ended`; a running one with no hook yet reports `starting`.
+
+## Agent socket
+
+Agents connect to the path in `agents.json`, or `<root>/agents/agents-v1.sock`.
+The host checks that path every 3 seconds and rebinds it, so `prometeu-host
+agents setup [--socket PATH] [--rotate]` applies without a restart. That command
+creates or rotates the token and prints an MCP configuration.
+
+The first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
+The token is read from `agents/token` on every connection and compared in
+constant time. A mismatch answers `{"event":"error","error":"unauthorized"}`,
+an unknown protocol `"protocol"`, and the connection closes. Otherwise the
+host answers `{"event":"ready","protocol":1,"version"}` and serves `{ id,
+method, params }` requests in order with `{ id, result }` or `{ id, error }`.
+`client` (at most 64 characters) is recorded as the creator's `name`.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `projects_list` | none | projects |
+| `project_add` | `path` (absolute, inside a Git repository) | the project registered at the repository's top level |
+| `project_clone` | `url`, `path?` (default `~/code/<name>`) | the cloned project |
+| `workspace_create` | `project` (path or name), `prompt`, `title?`, `branch?`, `base?` | the workspace with its first conversation |
+| `workspace_list` | `all?` | open workspaces, or all of them |
+| `workspace_get` | `id` | the workspace |
+| `conversation_open` | `workspace`, `prompt` | the conversation and its `workspace` |
+| `conversation_read` | `id`, `cursor?`, `limit?` (1–200, default 50) | `{ messages, cursor, more, status }` |
+| `conversation_send` | `id`, `text` | `{ resumed }` |
+| `conversation_interrupt` | `id` | `{}`; sends Escape |
+| `workspace_close` | `id`, `force?` | `{}` |
+
+Workspaces and conversations carry the observed state fields above.
+
+`workspace_create` fetches `origin` (best effort) and picks a fresh
+`prometeu/<noun>-<adjective>-<NNNN>` branch when none is given. The base is
+`origin/HEAD`, or else `HEAD`. It then adds the worktree under
+`<root>/worktrees/<project name>/<flattened branch>` and marks that exact folder
+trusted in `~/.claude.json` (`projects[<path>].hasTrustDialogAccepted`). Claude
+asks about folder trust even without permission prompts, and a trusted parent
+does not count. Finally it records the workspace and launches:
+
+```text
+claude --session-id|--resume <id> --dangerously-skip-permissions \
+  --settings <root>/sessions/<id>/settings.json <prompt>
+```
+
+The terminal is 120×40 with the workspace slice and no limits. Its hook
+environment names the session and `claude`, with placeholder token and nonce
+that a desktop relay replaces. Variables a parent Claude exports to its children
+are unset. `--resume` is used when the transcript already exists. `PROMETEU_HOST_CLAUDE`
+replaces the `claude` program, for tests.
+
+`conversation_read` parses `~/.claude/projects/<slug>/<id>.jsonl`. A message is
+`{ role, kind: text | tool_use | tool_result, text, tool?, error?, at }`. Tool
+text is cut to 2,000 characters and message text to 20,000. Meta and subagent
+lines are skipped. Without a cursor, it returns the last `limit` messages from
+the last 8 MiB of the file. With a cursor, it returns the messages after that
+byte offset. The reply's `cursor` always ends at a line boundary.
+
+`conversation_send` writes the text as a bracketed paste and, 150 ms later,
+Enter. It relaunches an ended conversation with the text as its prompt.
+
+`workspace_close` refuses `git status --porcelain` output with
+`uncommitted_changes` unless `force`. It then ends and forgets the conversations'
+terminals, removes the worktree and, unless `keep_branch`, deletes the branch.
+Finally it marks the workspace closed.
+
+### MCP server
+
+`prometeu-host mcp [--socket PATH]` speaks MCP over stdio, newline-delimited
+JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.
+Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
+label, `PROMETEU_AGENT_NAME`, and connects lazily, reconnecting once after a
+lost connection. Tools map one to one to the agent methods: `list_projects`,
+`add_project`, `clone_project`, `create_workspace`, `list_workspaces`,
+`get_workspace`, `open_conversation`, `read_conversation`, `send_message`,
+`interrupt_conversation` and `close_workspace`. Results are pretty-printed
+JSON text, and host errors set `isError`.
+
+Tests: `src-tauri/crates/host/tests/agents.rs` drives the agent socket and the
+MCP server against the real binary with a stand-in Claude, and the unit tests in
+`agents.rs`, `registry.rs`, `transcript.rs`, `naming.rs` and `mcp.rs` cover the
+rest.
+
 ## Compatibility
 
 A protocol change that older desktops or hosts cannot ignore bumps `PROTOCOL`,
-which renames the socket. Fields are additive within a protocol. Tests:
+which renames the socket. Fields are additive within a protocol. The agent socket
+has its own `AGENT_PROTOCOL`, carried in its hello frame. The registry carries its
+own `version`. Tests:
 `src-tauri/crates/host/tests/host.rs` and the `remote` unit tests.

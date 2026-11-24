@@ -86,12 +86,17 @@ claude --session-id <id> --dangerously-skip-permissions \
   desktop writes them. The bridge variables that a desktop would supply (socket,
   token, nonce) are placeholders: the desktop's relay already replaces them with
   its own when it delivers a hook.
+- Claude asks whether to trust every new folder, even without permission
+  prompts, and an unwatched conversation would wait on that question forever.
+  The host marks each worktree it creates as trusted in `~/.claude.json`. Only
+  the exact folder counts; a trusted parent was verified not to.
 - Conversations created by an agent run **without permission prompts**. Nobody
   could answer them while the desktop is away, and the person chose this mode for
   agent work. The registry records `permission: "auto"`, and the desktop shows the
   adopted tab in that mode.
-- The workspace's slice and the machine's limits apply as they do for desktop
-  terminals.
+- The terminal runs in the workspace's slice. The machine's memory and CPU
+  limits live in the desktop's `machines.json`, so they apply only to terminals
+  the desktop opens.
 
 ### Observed state
 
@@ -175,6 +180,19 @@ Multi-repository workspaces stay desktop-only.
 
 ## Evidence
 
-Pending implementation: host tests for the registry, the authorization handshake
-and agent-launched terminals; desktop tests for registry adoption; a manual run
-with OpenBot on the VPS while the desktop is closed.
+Implemented on the host. The desktop adoption and the OpenBot run are still
+pending, so this decision stays a proposal.
+
+- [Remote host protocol](../contracts/remote-host.md): registry, observed state,
+  agent socket and MCP server.
+- `src-tauri/crates/host/tests/agents.rs`: an agent registers a project, opens a
+  workspace and reads, answers and closes it, with no desktop attached and a
+  stand-in Claude. The test also covers the token refusal, folder trust, launch
+  arguments, hook-derived state, cursors, the dirty-worktree refusal, and the
+  registry as the desktop socket returns it. The MCP server lists tools and relays
+  calls.
+- Manual run on the VPS (2026-11-24) with Claude Code 2.1.331 and a test root.
+  Through the agent socket, a workspace was created in a registered project.
+  Claude wrote the requested file and answered, a multi-line follow-up typed
+  into its running terminal was answered, and the workspace was refused while
+  dirty, then closed with its worktree and branch removed.

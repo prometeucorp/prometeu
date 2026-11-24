@@ -2869,6 +2869,7 @@ dependencies = [
  "portable-pty",
  "prometeu-core",
  "prometeu-process",
+ "serde",
  "serde_json",
 ]
 

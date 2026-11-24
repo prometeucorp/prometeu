@@ -72,15 +72,15 @@ impl Ring {
     }
 }
 
-struct Term {
-    id: String,
+pub(crate) struct Term {
+    pub(crate) id: String,
     workspace: Option<String>,
     pid: u32,
     started: u64,
     unit: Option<String>,
-    input: Mutex<Box<dyn Write + Send>>,
+    pub(crate) input: Mutex<Box<dyn Write + Send>>,
     control: Arc<dyn TerminalControl>,
-    process: ProcessHandle,
+    pub(crate) process: ProcessHandle,
     ring: Mutex<Ring>,
     hooks: Mutex<VecDeque<Value>>,
 }
@@ -92,8 +92,16 @@ struct Client {
     subscribed: HashSet<String>,
 }
 
-struct Host {
-    root: PathBuf,
+/// What a conversation's hooks last said, for clients that cannot read its screen.
+#[derive(Clone, Default)]
+pub(crate) struct Activity {
+    pub(crate) state: &'static str,
+    pub(crate) at: u64,
+    pub(crate) notification: Option<String>,
+}
+
+pub(crate) struct Host {
+    pub(crate) root: PathBuf,
     ready: Value,
     scopes: bool,
     terminals: Mutex<HashMap<String, Arc<Term>>>,
@@ -102,9 +110,11 @@ struct Host {
     hooks: AtomicU64,
     decisions: Mutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>,
     units: AtomicU64,
+    pub(crate) registry: crate::registry::Store,
+    activity: Mutex<HashMap<String, Activity>>,
 }
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -123,6 +133,57 @@ impl Host {
             Some(client) if client.subscribed.contains(id) => send(&client.out, frame),
             _ => false,
         }
+    }
+
+    /// Whether a terminal with this ID is running now.
+    pub(crate) fn is_running(&self, id: &str) -> bool {
+        lock(&self.terminals)
+            .get(id)
+            .is_some_and(|t| lock(&t.ring).running)
+    }
+
+    /// A conversation's observed state: its hooks' account while its terminal runs, `ended`
+    /// otherwise.
+    pub(crate) fn activity(&self, id: &str) -> Activity {
+        let mut activity = lock(&self.activity).get(id).cloned().unwrap_or_default();
+        if !self.is_running(id) {
+            activity.state = "ended";
+        } else if activity.state.is_empty() {
+            activity.state = "starting";
+        }
+        activity
+    }
+
+    /// Write raw input to a running terminal.
+    pub(crate) fn write(&self, id: &str, data: &[u8]) -> Result<(), String> {
+        let term = find(self, id)?;
+        let mut input = lock(&term.input);
+        input.write_all(data).map_err(|e| e.to_string())?;
+        input.flush().map_err(|e| e.to_string())
+    }
+
+    /// Terminate a terminal and wait briefly for it to exit, then kill it.
+    pub(crate) fn end(&self, id: &str) {
+        let Ok(term) = find(self, id) else { return };
+        term.process.control.terminate();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while lock(&term.ring).running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if lock(&term.ring).running {
+            term.process.control.kill();
+        }
+    }
+
+    /// Drop an exited terminal and its hook settings.
+    pub(crate) fn forget(&self, id: &str) {
+        let mut terminals = lock(&self.terminals);
+        if terminals.get(id).is_some_and(|t| lock(&t.ring).running) {
+            return;
+        }
+        terminals.remove(id);
+        lock(&self.activity).remove(id);
+        let _ = std::fs::remove_dir_all(self.root.join("sessions").join(id));
     }
 
     fn running(&self) -> usize {
@@ -240,7 +301,10 @@ pub fn serve(root: &Path) -> Result<(), String> {
         hooks: AtomicU64::new(0),
         decisions: Mutex::new(HashMap::new()),
         units: AtomicU64::new(0),
+        registry: crate::registry::Store::new(root),
+        activity: Mutex::new(HashMap::new()),
     });
+    crate::agents::listen(host.clone());
     eprintln!(
         "prometeu-host {} serving {} (scopes: {scopes})",
         env!("CARGO_PKG_VERSION"),
@@ -257,7 +321,7 @@ pub fn serve(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn read_line(reader: &mut impl BufRead) -> Result<Option<String>, String> {
+pub(crate) fn read_line(reader: &mut impl BufRead) -> Result<Option<String>, String> {
     let mut line = Vec::new();
     let read = reader
         .take(LINE_LIMIT as u64 + 1)
@@ -417,7 +481,7 @@ fn bytes(params: &Value, key: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())
 }
 
-fn find(host: &Host, id: &str) -> Result<Arc<Term>, String> {
+pub(crate) fn find(host: &Host, id: &str) -> Result<Arc<Term>, String> {
     lock(&host.terminals)
         .get(id)
         .cloned()
@@ -522,6 +586,9 @@ fn dispatch(
             json!({})
         }
         "stats" => stats(host, params),
+        "registry_list" => crate::agents::registry_view(host)?,
+        "registry_put" => crate::agents::registry_put(host, params)?,
+        "registry_close" => crate::agents::registry_close(host, params)?,
         "shutdown" => {
             let force = params.get("force").and_then(Value::as_bool) == Some(true);
             if !force && host.running() > 0 {
@@ -607,7 +674,7 @@ fn limit_slice(slice: String, limits: Map<String, Value>) {
     });
 }
 
-fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
+pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let id = terminal_id(params)?;
     let argv = string_list(params, "argv");
     if argv.is_empty() {
@@ -775,6 +842,7 @@ fn serve_hook(host: &Arc<Host>, mut stream: UnixStream, hook: &Value) -> Result<
         .unwrap_or_default()
         .to_string();
     let permission = hook.get("permission").and_then(Value::as_bool) == Some(true);
+    observe(host, &session, hook);
     let number = host.hooks.fetch_add(1, Ordering::Relaxed) + 1;
     let frame = json!({
         "event": "hook", "hook": number, "session": session, "permission": permission,
@@ -803,6 +871,40 @@ fn serve_hook(host: &Arc<Host>, mut stream: UnixStream, hook: &Value) -> Result<
     }
     let _ = writeln!(stream, "{}", json!({"stdout": STANDARD.encode(&stdout)}));
     Ok(())
+}
+
+/// Keep the conversation's state from its hook, whether or not a desktop is attached.
+fn observe(host: &Host, session: &str, hook: &Value) {
+    let payload = hook
+        .get("payload")
+        .and_then(Value::as_str)
+        .and_then(|p| STANDARD.decode(p).ok())
+        .and_then(|p| serde_json::from_slice::<Value>(&p).ok())
+        .unwrap_or(Value::Null);
+    let event = payload
+        .get("hook_event_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut activity = lock(&host.activity);
+    let entry = activity.entry(session.to_string()).or_default();
+    entry.at = now();
+    entry.state = match event {
+        "SessionStart" | "Stop" | "StopFailure" => "idle",
+        "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" => "working",
+        "PermissionRequest" => "permission",
+        "SessionEnd" => "ended",
+        "Notification" => {
+            entry.notification = payload
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            return;
+        }
+        _ => return,
+    };
+    if entry.state == "working" {
+        entry.notification = None;
+    }
 }
 
 fn exec(params: &Value) -> Result<Value, String> {
