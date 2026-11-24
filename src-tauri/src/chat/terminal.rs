@@ -97,22 +97,43 @@ struct Submission {
     normalized: String,
 }
 
+/// Lines queued by `diagnose` and not yet written by its writer thread.
+static DIAGNOSTICS_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// One line in the private app log (stderr). Codes and identifiers only, never transcript content.
 pub(crate) fn diagnose(scope: &str, code: &str) {
-    static LOG: std::sync::OnceLock<mpsc::SyncSender<String>> = std::sync::OnceLock::new();
+    static LOG: std::sync::OnceLock<Option<mpsc::SyncSender<String>>> = std::sync::OnceLock::new();
     // Callers log right before stopping the agent: a full disk must not panic and a stalled
     // stderr pipe must not block them, so one writer thread drains a bounded queue and
-    // lines are dropped once it is full.
+    // lines are dropped once it is full. Without that thread, logging is skipped.
     let log = LOG.get_or_init(|| {
         let (sender, lines) = mpsc::sync_channel::<String>(256);
-        std::thread::spawn(move || {
-            for line in lines {
-                let _ = writeln!(std::io::stderr().lock(), "{line}");
-            }
-        });
-        sender
+        std::thread::Builder::new()
+            .name("terminal-diagnostics".into())
+            .spawn(move || {
+                for line in lines {
+                    let _ = writeln!(std::io::stderr().lock(), "{line}");
+                    DIAGNOSTICS_PENDING.fetch_sub(1, Ordering::SeqCst);
+                }
+            })
+            .ok()
+            .map(|_| sender)
     });
-    let _ = log.try_send(format!("{} {scope} terminal.{code}", conversation::now()));
+    let line = format!("{} {scope} terminal.{code}", conversation::now());
+    // Count before sending so the writer can never decrement below zero.
+    DIAGNOSTICS_PENDING.fetch_add(1, Ordering::SeqCst);
+    if log.as_ref().is_none_or(|log| log.try_send(line).is_err()) {
+        DIAGNOSTICS_PENDING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Gives queued diagnostics a short deadline to reach the log before the app exits; a
+/// stalled inherited stderr must not hold the quit.
+pub(crate) fn flush_diagnostics() {
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while DIAGNOSTICS_PENDING.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 /// Every unverifiable-history failure shares one user message; the log keeps the failing step.
@@ -2187,6 +2208,15 @@ pub fn agent_terminal_resume(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flush_waits_for_queued_diagnostics() {
+        for _ in 0..50 {
+            diagnose("test", "flush");
+        }
+        flush_diagnostics();
+        assert_eq!(DIAGNOSTICS_PENDING.load(Ordering::SeqCst), 0);
+    }
 
     struct Memory(Arc<Mutex<Vec<u8>>>);
     impl Write for Memory {

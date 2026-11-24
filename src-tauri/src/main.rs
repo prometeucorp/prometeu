@@ -515,6 +515,7 @@ fn main() {
                 notifications::shutdown();
                 accounts::shutdown();
                 state::save_now(app);
+                chat::terminal::flush_diagnostics();
             }
             _ => {}
         });
