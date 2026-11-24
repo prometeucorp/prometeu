@@ -2266,7 +2266,6 @@
     {
       "target": "projects.clone",
       "sources": [
-        "src/launcher.ts",
         "src/projects.ts"
       ]
     },
@@ -2327,7 +2326,6 @@
     {
       "target": "projects.remoteFolder",
       "sources": [
-        "src/launcher.ts",
         "src/projects.ts"
       ]
     },
