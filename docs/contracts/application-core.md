@@ -26,16 +26,16 @@ implementations.
 | Area | Core ports and services | Desktop adapter |
 | --- | --- | --- |
 | Board | `BoardStore`, `BoardEvents`, `BoardPublisher` | `board_store.rs`, `state.rs` |
-| Workspace catalog and lifecycle | `Workspaces`, `WorkspaceFolders`, `WorkspaceWorktrees`, `workspace_lifecycle`, `WorktreeCleanup` | `session.rs`, `prometeu-git::cleanup` |
+| Workspace lifecycle | `workspace_lifecycle`, `WorktreeCleanup` | `session.rs`, `prometeu-git::cleanup` |
 | Conversation stream | `conversation::stream::Lines`, `Work`, `ConversationInput`, `TranscriptStore`, `ConversationEvents`, `Clock` | `transcript_store.rs`, `chat.rs` |
 | Session coordination | `SessionService`, `SessionReactions`, `SessionOutput`, `SessionHost`, `SessionPump` | `chat/host.rs` |
 | Launch and workers | `LaunchService`, `ResumePreparation`, `ConversationLauncher`, `ConversationWorkers`, `TaskExecutor` | `session/launch.rs`, `prometeu-process::ThreadExecutor` |
-| Provider preparation | `ProviderPreparation`, `AgentProtocol`, `AgentInput`, `ProviderDiscovery` | `agent_launch.rs`, `prometeu-protocols` |
+| Provider preparation | `ProviderPreparation`, `AgentProtocol`, `AgentInput` | `agent_launch.rs`, `prometeu-protocols` |
 | Processes and terminals | `ProcessLauncher`, `ProcessControl`, `ProcessWait`, `TerminalFactory`, `TerminalEvents`, `AuxiliaryLauncher` | `prometeu-process` |
 | Bounded commands | `QueryLauncher`, `CommandRunner` | `prometeu-process` |
 | Accounts and login | `AccountRegistry`, `AccountStore`, `LoginService`, `AccountAuthentication`, `LoginEffects` | `prometeu-files::accounts`, `accounts.rs`, `account_login.rs` |
 | Profiles and tools | `ProfileBackend`, `StartupTools`, `PackageBackend`, `tool_resolution` | `prometeu-profiles`, `prometeu-tools`, `tool_materialization.rs` |
-| Files, Git and repository | `ProjectFiles`, `ProjectEntries`, `ProjectSearch`, `RepositorySettings`, `RepositoryGit`, `RepositoryReferences` | `prometeu-files`, `prometeu-git` |
+| Files, Git and repository | `ProjectFiles`, `ProjectEntries`, `ProjectSearch`, `RepositorySettings`, `RepositoryGit` | `prometeu-files`, `prometeu-git` |
 
 Native request types (a prepared `Command` or PTY `CommandBuilder`), captured
 profiles, paths and handles are adapter-local generic parameters. No port is a

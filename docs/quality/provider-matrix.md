@@ -84,7 +84,7 @@ surfaces, fresh snapshots, no input submission, bounded failure retry and stale
 navigation/disposal; `src/conversation-view.test.ts` keeps the manual retry
 hidden while attaching or running. These lifecycle tests use mocked IPC.
 Compatibility tests live in `crates/core/src/board.rs`,
-`crates/core/src/session/launch/tests.rs`, `crates/core/src/workspaces.rs`,
+`crates/core/src/session/launch/tests.rs`,
 `src-tauri/src/session.rs`, and `src/backend-contract.test.ts`.
 
 Native command preparation in `src-tauri/src/terminal_agent_launch.rs`, the PTY
@@ -640,7 +640,7 @@ workers; Cursor worker creation remains unsupported. External MCP clients have
 no local parent workspace. Remote shares keep flat navigation.
 
 Evidence: `src/workspace-hierarchy.test.ts`, delegated-conversation tests in
-`crates/core/src/board.rs` and `crates/core/src/workspaces.rs`. Legacy multi-tab
+`crates/core/src/board.rs`. Legacy multi-tab
 workspaces retain their tabs. [ADR 0099](../decisions/0099-sub-workspaces.md)
 describes flattening without changing provider or MCP ownership.
 

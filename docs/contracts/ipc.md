@@ -163,7 +163,7 @@ folder (all its members get the new name) and dissolving it are the same
 command, so there is no separate folder entity. Unknown IDs are ignored. The
 change reaches the frontend through the `board` event; the browser mock applies
 the same rule. Test: `project_folders_persist_trimmed_and_clear_on_empty_names`
-in `src-tauri/crates/core/src/workspaces.rs`.
+in `src-tauri/crates/core/src/projects.rs`.
 
 Local notification commands and the `notification-open` event are described in
 the [notification contract](notifications.md).

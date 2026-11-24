@@ -329,7 +329,7 @@ read/save/remove. Desktop keeps the catalog guard, optional Cloud publication an
 existing Codex cache cleanup in its adapter and materializes selected packages
 through the shared startup services.
 
-`PluginLibrary` implements the `Plugins` port for source inspection, registration,
+`PluginLibrary` owns source inspection, registration,
 Git import, update and removal. A single discovered package is registered; a
 marketplace returns candidates for the existing selection dialog. Registration
 never activates a package. Import accepts existing Git URLs and GitHub shorthand;

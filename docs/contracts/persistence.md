@@ -313,8 +313,7 @@ macOS exposes the default in Settings / General and runs native terminal
 conversations. Linux rejects terminal launches explicitly. Compatibility
 is covered by the board revival and mode round-trip tests in
 `crates/core/src/board.rs`, launch deserialization in
-`crates/core/src/session/launch/tests.rs`, tab creation in
-`crates/core/src/workspaces.rs`, and desktop task/tab resume tests in
+`crates/core/src/session/launch/tests.rs`, and desktop task/tab resume tests in
 `src-tauri/src/session.rs`.
 
 `Board` contains projects, stages, workspaces and the optional `actions`
