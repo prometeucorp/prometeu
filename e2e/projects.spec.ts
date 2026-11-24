@@ -162,6 +162,18 @@ test("remote projects stay on their machine and install from settings", async ({
     }
     await app.__TAURI_INTERNALS__.invoke("remote_add_project", { machine: "other", path: "/home/me/other-project", url: null });
   });
+  // An empty machine hides the project and branch pickers, so the footer must point to Settings
+  // even when a worktree without a new branch would otherwise ask for a branch.
+  await page.getByRole("button", { name: "New workspace in njord", exact: true }).click();
+  await page.locator("#d-wt").check();
+  await page.locator("#d-nb").uncheck();
+  await page.locator("#d-machine").click();
+  await page.getByRole("menuitemcheckbox", { name: "vps", exact: true }).click();
+  const launcher = page.locator(".launcher");
+  await expect(launcher.getByRole("button", { name: "Add existing folder", exact: true })).toHaveCount(0);
+  await expect(launcher.getByRole("button", { name: "Clone repository", exact: true })).toHaveCount(0);
+  await expect(page.locator("#d-hint")).toHaveText("No projects registered on vps. Add one in Settings > Projects.");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Computer", exact: true }).click();
   await page.getByRole("menuitemcheckbox", { name: "vps", exact: true }).click();
   const settings = page.locator("#settingsView");

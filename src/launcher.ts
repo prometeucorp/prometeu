@@ -256,10 +256,11 @@ export function openLauncher(board: Board, opts: Open) {
     if (claude && !claude.loggedIn) return t("launcher.remoteSignIn", { name: remoteMachines.machineName(draft.host) });
     return "";
   };
+  // Missing projects or an unusable machine come first: the branch picker is hidden until they are fixed.
+  const setupProblem = () => remoteProblem() || (draft.project ? "" : t("launcher.localNone"));
   const choiceProblem = () => {
-    const remote = remoteProblem();
-    if (remote) return remote;
-    if (!draft.project) return t("projects.none");
+    const setup = setupProblem();
+    if (setup) return setup;
     if (needsChoice) return t("models.choose");
     // On a machine, Claude runs there: this computer may lack it, and then its catalog cannot judge the choice.
     if (!descriptor(draft.agent).installed) return draft.host ? "" : t("models.unavailable");
@@ -289,8 +290,8 @@ export function openLauncher(board: Board, opts: Open) {
       draft.worktree && !!draft.branch
         ? branchTaken(board, [draft.project, ...draft.extras], draft.branch)
         : null;
-    const aviso = taken ? t("launcher.hint.taken", { ws: taken.title }) :
-      draft.worktree && !draft.newBranch && !draft.branch ? t("launcher.branch.required") : choiceProblem();
+    const aviso = taken ? t("launcher.hint.taken", { ws: taken.title }) : setupProblem() ||
+      (draft.worktree && !draft.newBranch && !draft.branch ? t("launcher.branch.required") : choiceProblem());
     hint.classList.toggle("bad", !!aviso);
     hint.title = aviso || `${names} · ${onde}`;
     const where = draft.host && !aviso ? `${t("launcher.remoteNote", { name: remoteMachines.machineName(draft.host) })} · ${onde}` : onde;
