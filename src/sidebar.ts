@@ -1,6 +1,6 @@
-import { avatar, avatars, brand, icon, stageIcon, wave } from "./icons";
+import { avatar, avatars, brand, icon, wave } from "./icons";
 import { aliases, badge as machineBadge } from "./machines";
-import { stage as stageName, t, tn } from "./i18n";
+import { t, tn } from "./i18n";
 import * as menu from "./menu";
 import { keys } from "./platform";
 import { isDelegatedWorkspace, workspaceHierarchy } from "./workspace-hierarchy";
@@ -21,13 +21,12 @@ export type Hooks = {
   notifications: () => number;
   open: (ws: Workspace, tab?: string) => void;
   activeTab: () => string | null;
-  setStage: (id: string, stage: string) => void;
   /// Remove the workspace reference while keeping its worktree and branch.
   drop: (id: string) => void;
   /// Null title cancels editing and restores the row.
   rename: (id: string, title: string | null) => void;
   archive: (id: string, archived: boolean) => void;
-  /// Finish moves work to the final stage and archives it in one action.
+  /// Finish archives work in one action.
   finish: (id: string) => void;
   /// Open worktree disk cleanup.
   cleanup: () => void;
@@ -96,10 +95,8 @@ const el = (id: string) => document.getElementById(id)!;
 
 /* Rename and context menu. */
 
-/// Keep workspace actions together, including stage changes without opening the conversation.
-function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, kind: string): menu.Item[] {
-  const total = board.stages.length;
-  const at = board.stages.indexOf(ws.stage);
+/// Keep workspace actions together without opening the conversation.
+function wsMenu(ws: Workspace, hooks: Hooks, label: HTMLElement, kind: string): menu.Item[] {
   return [
     ws.unread
       ? { label: t("ws.menu.read"), track: "ws.menu.read", glyph: icon("mail-open"), run: () => hooks.unread(ws.id, false) }
@@ -107,16 +104,6 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
     ws.pinned
       ? { label: t("ws.menu.unpin"), track: "ws.menu.unpin", glyph: icon("pin-off"), run: () => hooks.pin(ws.id, false) }
       : { label: t("ws.menu.pin"), track: "ws.menu.pin", glyph: icon("pin"), run: () => hooks.pin(ws.id, true) },
-    {
-      label: t("ws.menu.stage"), track: "ws.menu.stage",
-      glyph: stageIcon(at, total),
-      sub: board.stages.map((name, i) => ({
-        label: stageName(name), track: "workspace.stage.select",
-        glyph: stageIcon(i, total),
-        checked: name === ws.stage,
-        run: () => hooks.setStage(ws.id, name),
-      })),
-    },
     {
       label: t("ws.menu.rename"), track: "ws.menu.rename",
       glyph: icon("pencil"),
@@ -158,11 +145,11 @@ function wsMenu(ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, k
   ];
 }
 
-export function attachMenu(node: HTMLElement, ws: Workspace, board: Board, hooks: Hooks, label: HTMLElement, kind: string) {
+export function attachMenu(node: HTMLElement, ws: Workspace, hooks: Hooks, label: HTMLElement, kind: string) {
   node.dataset.trackContextMenu = "workspace.menu";
   node.addEventListener("contextmenu", (e) => {
     e.preventDefault();
-    menu.openAt({ area: "sidebar", x: e.clientX, y: e.clientY }, wsMenu(ws, board, hooks, label, kind));
+    menu.openAt({ area: "sidebar", x: e.clientX, y: e.clientY }, wsMenu(ws, hooks, label, kind));
   });
 }
 
@@ -396,7 +383,6 @@ function renderRail(board: Board, hooks: Hooks) {
   }
 
   // Project headings disambiguate repositories with matching initials.
-  const stageAt = (ws: Workspace) => board.stages.indexOf(ws.stage);
   // Workspaces spanning repositories belong to collection groups.
   const single = live.filter((w) => !pinned.includes(w) && w.repos.length < 2);
   const mineOf = (id: string) => single.filter((w) => home(w.project) === id);
@@ -414,8 +400,6 @@ function renderRail(board: Board, hooks: Hooks) {
 
   const projectBox = (project: Project) => {
     const mine = mineOf(project.id);
-    // Order project workspaces by stage, with ongoing work first.
-    mine.sort((a, b) => stageAt(a) - stageAt(b));
     const plus = template("button", "ico sm", icon("plus"));
     // Create directly inside the selected project.
     plus.title = t("rail.newIn", { project: project.name });
@@ -543,7 +527,6 @@ function renderRail(board: Board, hooks: Hooks) {
     head.children[0].textContent = t("rail.sets");
     rail.append(head);
     for (const [name, mine] of sets) {
-      mine.sort((a, b) => stageAt(a) - stageAt(b));
       renderGroup(rail, board, hooks, name, avatars(mine[0].repos.map((r) => r.name)), mine, `@set:${name}`, { searching: !!query });
     }
   }
@@ -673,7 +656,7 @@ function renderGroup(
     const where = machineBadge(ws.host, true);
     if (where) b.querySelector(".wsidentity")!.after(where);
     if (ws.remote && !ws.remote.online) card.classList.add("off");
-    if (!ws.remote) attachMenu(b, ws, board, hooks, title, "sub");
+    if (!ws.remote) attachMenu(b, ws, hooks, title, "sub");
     else attachLeave(b, ws, owner!);
     card.append(b);
 

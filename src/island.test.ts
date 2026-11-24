@@ -7,7 +7,7 @@ import { snapshot, track } from "./island";
 const tab = (id: string, status: Status) => ({ id, title: "", status, note: null, tokens: null });
 const workspace = (id: string, tabs: ReturnType<typeof tab>[], extra: Partial<Workspace> = {}) =>
   ({ id, title: id, agent: "claude", model: "opus", tabs, archived: false, cleaned: false, preparing: false, ...extra }) as Workspace;
-const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: [], workspaces });
+const board = (...workspaces: Workspace[]): Board => ({ projects: [], workspaces });
 const line = (event: Record<string, unknown>) => JSON.stringify({ v: 1, at: 1_000, ...event });
 
 describe("notch island", () => {

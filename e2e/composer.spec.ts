@@ -28,7 +28,7 @@ test("native conversation keeps a full terminal and opens product tools on deman
       if ((command === "pty_write" || command === "pty_resize" || command === "chat_send") && args?.session === "t1") w.controls.push({ command, ...args });
       return invoke(command, args);
     };
-    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+    await invoke("set_unread", { id: "sessao-0929", unread: false });
   });
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   const terminal = page.locator("#chatwrap .conversation-terminal");
@@ -138,7 +138,7 @@ test("open pr resumes an exited native agent instead of drafting into it", async
       if ((command === "pty_write" || command === "chat_send") && args?.session === "t1") w.controls.push({ command, ...args });
       return invoke(command, args);
     };
-    await invoke("set_stage", { id: "sessao-0929", stage: "Fazendo" });
+    await invoke("set_unread", { id: "sessao-0929", unread: false });
   });
   await page.locator('#tiles .tile[data-tab="t1"] .topen').click();
   await expect(page.locator("#chatwrap .conversation-terminal .xterm-helper-textarea")).toBeFocused();
@@ -171,7 +171,7 @@ test("conversation footer keeps controls accessible without overlap", { tag: "@w
     workspace.tabs[0].status = "rodando";
     workspace.mcp = { base: "none", add: ["capim-ds"], remove: [] };
     workspace.plugins = { base: "none", add: ["caveman", "ponytail"], remove: [] };
-    await invoke("set_stage", { id: workspace.id, stage: workspace.stage });
+    await invoke("set_unread", { id: workspace.id, unread: false });
     w.mock.line("t1", { v: 1, at: 1, type: "session.state", state: "busy" });
     w.controls = [];
     w.__TAURI_INTERNALS__.invoke = (command, args) => {

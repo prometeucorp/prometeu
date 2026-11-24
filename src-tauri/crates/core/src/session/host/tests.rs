@@ -207,7 +207,6 @@ fn composed_service_recovers_queued_input_and_waits_for_readiness() {
     let mut board = lock(&board);
     assert!(board.tab_mut("s").unwrap().pending_prompt.is_none());
     assert!(board.tab_mut("s").unwrap().status == Status::Rodando);
-    assert_eq!(board.workspace_of("s").unwrap().stage, "review");
 }
 
 #[test]

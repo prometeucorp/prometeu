@@ -248,7 +248,6 @@ mod tests {
 
         let recovered = store(&current).load();
 
-        assert_eq!(recovered.stages, vec!["Fazendo"]);
         assert_eq!(recovered.workspaces.len(), 1);
         std::fs::remove_dir_all(current.parent().unwrap()).unwrap();
     }
@@ -265,7 +264,7 @@ mod tests {
 
         let recovered = store(&current).load();
 
-        assert_eq!(recovered.stages, vec!["Fazendo"]);
+        assert_eq!(recovered.workspaces.len(), 1);
         assert_eq!(recovered.workspaces[0].id, "w");
         std::fs::remove_dir_all(current.parent().unwrap()).unwrap();
     }
@@ -329,9 +328,15 @@ mod tests {
 
         let mut board = store.load();
         assert!(board.workspaces.is_empty());
-        board.stages = vec!["First".into()];
+        board
+            .telemetry_ids
+            .0
+            .insert("workspace:w".into(), "first".into());
         store.save(&board).unwrap();
-        board.stages = vec!["Second".into()];
+        board
+            .telemetry_ids
+            .0
+            .insert("workspace:w".into(), "second".into());
         store.save(&board).unwrap();
 
         assert_eq!(store.recovery().unwrap().source, "reset");

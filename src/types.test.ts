@@ -26,7 +26,7 @@ describe("branchTaken", () => {
     }) as unknown as Workspace;
 
   const board = (...workspaces: Workspace[]) =>
-    ({ stages: [], projects: [], workspaces }) as unknown as Board;
+    ({ projects: [], workspaces }) as unknown as Board;
 
   it("finds the workspace already using the branch when repository sets differ", () => {
     const first = ws("one", "aut-49", ["/rules"]);

@@ -265,13 +265,10 @@ pub struct Workspace {
     /// and `worktree` fields when the list is absent.
     #[serde(default)]
     pub repos: Vec<Repo>,
-    /// The user-selected work stage, independent of runtime `Status`. `column` is its legacy name.
-    #[serde(alias = "column")]
-    pub stage: String,
     /// Hidden from the active list; the worktree, branch and transcript remain intact.
     #[serde(default)]
     pub archived: bool,
-    /// Pinned to the top without changing work stage or runtime status.
+    /// Pinned to the top without changing runtime status.
     #[serde(default)]
     pub pinned: bool,
     /// Activity occurred while another workspace was visible.
@@ -484,9 +481,6 @@ pub struct Board {
     /// until the person decides. See docs/contracts/persistence.md and ADR 0045.
     #[serde(default)]
     pub tool_trust: Vec<ToolTrust>,
-    /// Ordered work stages. Position determines each stage's icon.
-    #[serde(alias = "columns")]
-    pub stages: Vec<String>,
     #[serde(default)]
     pub projects: Vec<Project>,
     /// Terminal sessions in sidebar order (ADR 0096). Written only when there is one, so older
@@ -562,9 +556,6 @@ impl Default for Board {
             actions: Default::default(),
             tools: Tools::default(),
             tool_trust: Vec::new(),
-            stages: ["Preparando", "Fazendo", "Code review", "Travado", "Feito"]
-                .map(String::from)
-                .to_vec(),
             projects: Vec::new(),
             terminals: Vec::new(),
             workspaces: Vec::new(),
@@ -687,15 +678,6 @@ impl Board {
             }
             // Standalone skills left the plugin axis for their own; migrate legacy selections.
             split_skills(&mut ws.plugins, &mut ws.skills);
-        }
-
-        // An unknown stage would hide the workspace from every group. Fall back to the first stage.
-        let first = self.stages.first().cloned().unwrap_or_default();
-        let stages = self.stages.clone();
-        for ws in &mut self.workspaces {
-            if !stages.contains(&ws.stage) {
-                ws.stage = first.clone();
-            }
         }
 
         // Boards predating the project catalog reconstruct it from legacy workspaces.
@@ -822,6 +804,29 @@ mod tests {
                    "branch":"b","worktree":"/wt","stage":"Fazendo"{extra}}}]}}"#
         );
         serde_json::from_str(&json).expect("board did not deserialize")
+    }
+
+    #[test]
+    fn retired_stages_are_ignored_without_losing_workspaces_or_tabs() {
+        let board = board_json(r#", "tabs":[{"id":"old","title":"History","status":"desligada"}]"#);
+        let saved = serde_json::to_value(&board).unwrap();
+        assert!(saved.get("stages").is_none());
+        assert!(saved["workspaces"][0].get("stage").is_none());
+        let restored: Board = serde_json::from_value(saved).unwrap();
+        assert_eq!(restored.workspaces[0].id, "w");
+        assert_eq!(restored.workspaces[0].tabs[0].id, "old");
+        assert_eq!(restored.workspaces[0].tabs[0].title, "History");
+        let legacy: Board = serde_json::from_value(serde_json::json!({
+            "columns":["Custom"], "workspaces":[{
+                "id":"w", "title":"Task", "repo":"/r", "repo_name":"r",
+                "branch":"b", "worktree":"/wt", "column":"Custom"
+            }]
+        }))
+        .unwrap();
+        assert_eq!(legacy.workspaces[0].id, "w");
+        assert!(serde_json::to_value(legacy).unwrap()["workspaces"][0]
+            .get("column")
+            .is_none());
     }
 
     #[test]
@@ -1099,7 +1104,9 @@ mod tests {
         assert!(ws.merged());
         let json = serde_json::to_string(&board).unwrap();
         assert!(!json.contains(r#""pr":{"number":3"#) || json.contains(r#""repos":[{"#));
-        assert!(!json.contains(r#""stage":"Fazendo","pr""#));
+        assert!(serde_json::to_value(&board).unwrap()["workspaces"][0]
+            .get("pr")
+            .is_none());
     }
 
     /// Existing repository lists retain their entries without duplication.

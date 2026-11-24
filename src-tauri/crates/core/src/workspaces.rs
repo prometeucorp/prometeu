@@ -70,7 +70,6 @@ impl CatalogSeed for PrimaryCatalog<'_> {
             PRIMARY.into(),
             project.name.clone(),
             &project,
-            &board.stages[0],
             provider,
         ));
         board.projects.push(project);
@@ -137,7 +136,7 @@ impl ApplicationPreparation {
             }
             _ => return Err(crate::error::code("err.windows.workspaceOptions")),
         };
-        let mut workspace = in_place(id, title.into(), &prepared.project, &draft.stage, provider);
+        let mut workspace = in_place(id, title.into(), &prepared.project, provider);
         workspace.worktree = prepared.path.clone();
         workspace.branch = prepared.branch;
         workspace.repos[0].worktree = prepared.path.clone();
@@ -210,7 +209,6 @@ impl Workspaces {
         let mut sessions = std::collections::HashSet::new();
         if catalog.v != 1
             || catalog.board.workspaces.len() > LIMIT
-            || catalog.board.stages.is_empty()
             || catalog.board.workspaces.iter().any(|w| {
                 w.tabs.len() > 32
                     || w.tabs.iter().any(|t| {
@@ -336,7 +334,6 @@ impl Workspaces {
             uuid::Uuid::new_v4().to_string(),
             title.into(),
             &project,
-            &self.catalog.board.stages[0],
             self.provider,
         );
         workspace.tabs[0].conversation_mode = self.catalog.board.conversation_mode;
@@ -350,13 +347,7 @@ impl Workspaces {
         let title = self.validate_creation(&request.title)?;
         let id = uuid::Uuid::new_v4().to_string();
         let prepared = worktrees.prepare(&id, request)?;
-        let mut workspace = in_place(
-            id,
-            title.into(),
-            &prepared.project,
-            &self.catalog.board.stages[0],
-            self.provider,
-        );
+        let mut workspace = in_place(id, title.into(), &prepared.project, self.provider);
         workspace.worktree = prepared.path.clone();
         workspace.branch = prepared.branch;
         workspace.repos[0].worktree = prepared.path.clone();
@@ -386,9 +377,6 @@ impl Workspaces {
         self.validate_creation(&draft.title)?;
         if draft.launch.agent != self.provider {
             return Err("workspace_provider_unsupported".into());
-        }
-        if !self.catalog.board.stages.contains(&draft.stage) {
-            return Err("workspace_stage_invalid".into());
         }
         if !draft.extras.is_empty()
             || !draft.kickoff.is_empty()
@@ -427,9 +415,6 @@ impl Workspaces {
         let PreparedApplication { project, workspace } = prepared;
         let result = (|| {
             self.validate_creation(&workspace.title)?;
-            if !self.catalog.board.stages.contains(&workspace.stage) {
-                return Err("workspace_stage_invalid".into());
-            }
             self.register(project, workspace.clone())?;
             Ok(workspace.clone())
         })();
@@ -481,20 +466,6 @@ impl Workspaces {
         self.get(id)?;
         let mut next = self.catalog.clone();
         next.active = id.into();
-        self.commit(next)
-    }
-    pub fn stage(&mut self, id: &str, stage: &str) -> Result<Catalog, String> {
-        self.get(id)?;
-        if !self.catalog.board.stages.iter().any(|s| s == stage) {
-            return Err("workspace_stage_invalid".into());
-        }
-        let mut next = self.catalog.clone();
-        next.board
-            .workspaces
-            .iter_mut()
-            .find(|w| w.id == id)
-            .unwrap()
-            .stage = stage.into();
         self.commit(next)
     }
     pub fn add_tab(&mut self, workspace: &str, choice: Option<Choice>) -> Result<Tab, String> {
@@ -567,13 +538,7 @@ pub fn valid_id(id: &str) -> bool {
     id == PRIMARY || uuid::Uuid::parse_str(id).is_ok_and(|v| v.to_string() == id)
 }
 
-fn in_place(
-    id: String,
-    title: String,
-    project: &Project,
-    stage: &str,
-    provider: ProviderId,
-) -> Workspace {
+fn in_place(id: String, title: String, project: &Project, provider: ProviderId) -> Workspace {
     Workspace {
         host: None,
         id: id.clone(),
@@ -590,7 +555,6 @@ fn in_place(
             base: String::new(),
             pr: None,
         }],
-        stage: stage.into(),
         archived: false,
         pinned: false,
         unread: false,
@@ -678,7 +642,7 @@ mod tests {
         }
     }
     #[test]
-    fn lifecycle_changes_persist_without_conflating_stage_and_status_and_roll_back_failed_saves() {
+    fn lifecycle_changes_persist_and_roll_back_failed_saves() {
         use crate::workspace_lifecycle::Change;
         let store = Arc::new(Memory::default());
         let mut service = Workspaces::open(
@@ -695,7 +659,6 @@ mod tests {
         service.change(PRIMARY, Change::Rename(" ".into())).unwrap();
         service.change(PRIMARY, Change::Pin(true)).unwrap();
         assert!(service.get(PRIMARY).unwrap().tabs[0].status == Status::Rodando);
-        let stage = service.get(PRIMARY).unwrap().stage.clone();
         store.fail.store(true, Ordering::SeqCst);
         assert!(service.change(PRIMARY, Change::Archive(true)).is_err());
         assert!(!service.get(PRIMARY).unwrap().archived);
@@ -704,17 +667,13 @@ mod tests {
         assert_eq!(service.snapshot().active, PRIMARY);
         store.fail.store(false, Ordering::SeqCst);
         service.change(PRIMARY, Change::Archive(true)).unwrap();
-        assert_eq!(service.get(PRIMARY).unwrap().stage, stage);
         assert!(service.get(PRIMARY).unwrap().tabs[0].status == Status::Desligada);
         let mut restored =
             Workspaces::open(store, Arc::new(Folders), "/project", ProviderId::Codex).unwrap();
         assert_eq!(restored.get(PRIMARY).unwrap().title, "Review");
         assert!(restored.get(PRIMARY).unwrap().pinned);
         restored.change(PRIMARY, Change::Finish).unwrap();
-        assert_eq!(
-            &restored.get(PRIMARY).unwrap().stage,
-            restored.snapshot().board.stages.last().unwrap()
-        );
+        assert!(restored.get(PRIMARY).unwrap().archived);
         restored.change(PRIMARY, Change::Remove).unwrap();
         assert!(restored.snapshot().active.is_empty());
         assert!(restored.snapshot().board.workspaces.is_empty());
@@ -1079,7 +1038,7 @@ mod tests {
         );
     }
     #[test]
-    fn creation_selection_and_stage_preserve_independent_sessions() {
+    fn creation_and_selection_preserve_independent_sessions() {
         let store = Arc::new(Memory::default());
         let mut service = Workspaces::open(
             store.clone(),
@@ -1096,7 +1055,6 @@ mod tests {
             created.board.workspaces[1].tabs[0].id
         );
         service.select(&second).unwrap();
-        service.stage(&second, "Feito").unwrap();
         assert!(matches!(
             service.get(&second).unwrap().tabs[0].status,
             Status::Desligada
@@ -1105,8 +1063,6 @@ mod tests {
             .unwrap()
             .snapshot();
         assert_eq!(restored.active, second);
-        assert_eq!(restored.board.workspaces[0].stage, "Preparando");
-        assert_eq!(restored.board.workspaces[1].stage, "Feito");
     }
     #[test]
     fn invalid_input_and_failed_save_do_not_change_the_catalog() {
@@ -1121,7 +1077,6 @@ mod tests {
         assert!(service.create("", "/project").is_err());
         assert!(service.create("Missing", "/missing").is_err());
         assert!(service.select("../../escape").is_err());
-        assert!(service.stage(PRIMARY, "unknown").is_err());
         store.fail.store(true, Ordering::SeqCst);
         assert!(service.create("Unsaved", "/project").is_err());
         assert_eq!(service.snapshot().board.workspaces.len(), 1);

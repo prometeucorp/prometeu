@@ -36,7 +36,6 @@ enum Action {
     WorkspaceWorktree { request: WorktreeRequest },
     WorkspaceCreate { title: String, path: String },
     WorkspaceSelect { id: String },
-    WorkspaceStage { id: String, stage: String },
     TerminalCurrent,
     TerminalOpen { cols: u16, rows: u16 },
     TerminalWrite { id: String, data: Vec<u8> },
@@ -198,10 +197,6 @@ impl Host {
             }
             (1, Action::WorkspaceSelect { id }) => self
                 .select(&id)
-                .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
-            (1, Action::WorkspaceStage { id, stage }) => self
-                .catalog
-                .stage(&id, &stage)
                 .and_then(|v| serde_json::to_value(v).map_err(|e| e.to_string())),
             (1, Action::Start) => self.context().runtime.start(),
             (1, Action::Command { frame }) => self

@@ -34,8 +34,7 @@ index and the relevant concept. Follow its dependencies; open known paths direct
 - A session is the transcript; the agent's process may die and be resumed.
 - Claude and Codex are external adaptations. Protocol differences must stay at
   the edge, without spreading vendor payloads through the presentation.
-- The workspace stage is the person's decision; the tab's status is the agent's
-  observed state. Do not mix the two.
+- The tab's status is the agent's observed state.
 - The shared session still runs only on the owner's Mac. The relay coordinates
   and persists ciphertext and metadata; content uses E2EE v4 with trust on first
   contact and automatic adoption of changed keys. The limits are in ADRs 0022

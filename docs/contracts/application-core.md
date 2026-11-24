@@ -164,7 +164,7 @@ diagnostic ports. Blank input has no effect; pending input appends in order and
 survives setup, account changes and failed sends (a failed send restores the
 prompt ahead of later input). Publication precedes revival and is not a durable
 save. `SessionReactions` updates tab status, notes, unread state, context and
-provider identity, never workspace stage. `SessionHost` owns one host's registry,
+provider identity, never workspace lifecycle. `SessionHost` owns one host's registry,
 `InputGates`, readiness and background work; exit cleanup compares identity under
 the registry lock and keeps a stopped conversation for replay.
 

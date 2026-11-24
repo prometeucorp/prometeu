@@ -409,7 +409,6 @@ pub enum WorkspaceAction {
     Rename,
     Pin,
     Unpin,
-    Stage,
     Finish,
     Archive,
     Restore,

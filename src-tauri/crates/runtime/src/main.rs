@@ -340,6 +340,7 @@ fn run() -> Result<(), String> {
                 "workspaces.v1",
                 "worktrees.v1",
                 "application.v1",
+                "application.stageless-workspaces.v1",
                 "application.operations.v1",
                 "application.initialization.v1",
                 "application.archive.v1",

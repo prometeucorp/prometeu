@@ -537,7 +537,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "actions.running": "Task running",
   "actions.deliveryName": "PR owner",
   "actions.deliveryStart": "Handle delivery of the changes in this workspace.",
-  "actions.deliveryPrompt": "Own delivery of this workspace. First review changes against the base, follow repository instructions, fix findings, and run relevant checks. Open or update the PR only after verifying the code to be published. Use the project PR skill when available. Consider each workspace repository; do not open a PR in a repository without changes. Do not merge or change the workspace stage.",
+  "actions.deliveryPrompt": "Own delivery of this workspace. First review changes against the base, follow repository instructions, fix findings, and run relevant checks. Open or update the PR only after verifying the code to be published. Use the project PR skill when available. Consider each workspace repository; do not open a PR in a repository without changes. Do not merge.",
   "err.actions.active": "This task is already active. Send the context in its tab.",
   "err.actions.invalid": "Check configuration: unique names, prompt, agent, and valid limits are required.",
   "err.actions.missing": "Command or agent not found.",
@@ -563,6 +563,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.antigravity.auth": "Sign in by running agy and try again.",
   "err.gemini.start": "Gemini CLI integration has been removed.",
   "err.provider.retired": "Gemini CLI integration has been removed. History is preserved; start a new conversation with Antigravity.",
+  "err.windows.runtimeUpgrade": "Workspace creation needs the updated WSL runtime. First disable ‘Automatically clean up archived worktrees’ in Settings. Archive your WSL workspaces and choose ‘Keep worktree’ when prompted. Also close all project terminal tabs. Quit and reopen Prometeu, then unarchive those workspaces. The chat’s Stop button does not release the runtime.",
+  "launcher.failed": "Could not create workspace",
   "err.windows.workspaceOptions": "This workspace option is not connected to WSL yet.",
   "windows.reconnecting": "Restoring the connection to WSL…",
   "err.windows.distribution": "Could not identify the default WSL distribution.",
@@ -737,12 +739,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "status.pronta": "ready",
   "status.desligada": "stopped",
 
-  "stage.Preparando": "Preparing",
-  "stage.Fazendo": "In progress",
-  "stage.Code review": "Code review",
-  "stage.Travado": "Blocked",
-  "stage.Feito": "Done",
-
   "rail.resize": "Resize sidebar",
   "rail.resize.hint": "Drag or use arrow keys to resize; double-click or Home restores the default width",
   "rail.hide": "Hide sidebar  ⌘B",
@@ -843,7 +839,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "top.pr.update": "Ask the active conversation to update the PR",
   "top.pr.go": "Nothing to send — open the PR in the browser",
   "top.pr.links": "The PRs for this branch, one per repository",
-  "top.finish": "The PR landed: move to the last stage and archive  ⌘⇧D",
+  "top.finish": "The PR landed: archive  ⌘⇧D",
   "top.side": "Side panel",
 
   "card.cleaned.title": "Worktree removed — it was {path}",
@@ -854,7 +850,6 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "ws.menu.unread": "Mark as unread",
   "ws.menu.unpin": "Unpin",
   "ws.menu.pin": "Pin to top",
-  "ws.menu.stage": "Set stage",
   "ws.menu.rename": "Rename",
   "ws.menu.copyPath": "Copy path",
   "ws.menu.reveal": "Open in Finder",
@@ -1298,7 +1293,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "project.newWorkspace": "New workspace",
 
   "gone.body":
-    "The worktree folder is off the disk. An existing branch stays; a branch created for this workspace was removed. The card, stage and PR remain.",
+    "The worktree folder is off the disk. An existing branch stays; a branch created for this workspace was removed. The card and PR remain.",
 
   /* ---------- releasing the disk ---------- */
 

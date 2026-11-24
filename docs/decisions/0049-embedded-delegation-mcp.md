@@ -76,8 +76,7 @@ providers in parallel.
 Creation and messages have request keys to make ordinary retries idempotent.
 New MCP messages reject busy targets. Native pending-message recovery remains;
 there is no exactly-once promise across provider/persistence crashes. Main turn
-completion and observed background activity remain separate facts. Workspace
-stage remains the person's decision.
+completion and observed background activity remain separate facts.
 
 Ordinary input accepted while an execution is running keeps that execution's
 identity until the next observed turn completion. V1 has no correlation between

@@ -315,7 +315,6 @@ fn main() {
             session::group_projects,
             session::list_branches,
             session::create_workspace,
-            session::set_stage,
             session::archive_workspace,
             session::finish_workspace,
             session::cleanup_worktree,

@@ -1,6 +1,6 @@
 import { attachMenu, type Hooks } from "./sidebar";
-import { avatars, icon, stageIcon } from "./icons";
-import { paint, stage as stageName, t, tn } from "./i18n";
+import { avatars, icon } from "./icons";
+import { paint, t, tn } from "./i18n";
 import { hasWorktree, merged, prs, repoLabel, type Board, type Workspace } from "./types";
 import { $, empty, template } from "./util";
 
@@ -95,23 +95,19 @@ function drawList() {
 
 function matches(ws: Workspace) {
   if (!query) return true;
-  const hay = [ws.title, ws.branch, repoLabel(ws), stageName(ws.stage), ...prs(ws).map(({ pr }) => pr.title), ws.issue?.identifier ?? ""]
+  const hay = [ws.title, ws.branch, repoLabel(ws), ...prs(ws).map(({ pr }) => pr.title), ws.issue?.identifier ?? ""]
     .join(" ")
     .toLowerCase();
   return query.split(/\s+/).every((word) => hay.includes(word));
 }
 
 function row(ws: Workspace): HTMLElement {
-  const board = ctx.board();
   const hooks = ctx.hooks();
-  const total = board.stages.length;
-  const at = board.stages.indexOf(ws.stage);
   const el = template(
     "div",
     "arow" + (ws.cleaned ? " gone" : ""),
     `<span class="av"></span>` +
       `<span class="atitle"><b></b><span class="abranch"></span></span>` +
-      `<span class="astage"></span>` +
       `<span class="apr"></span>` +
       `<span class="atag"></span>` +
       `<span class="iact"></span>`,
@@ -122,9 +118,6 @@ function row(ws: Workspace): HTMLElement {
   (el.querySelector(".av") as HTMLElement).title = repoLabel(ws);
   el.querySelector(".atitle b")!.textContent = ws.title;
   el.querySelector(".abranch")!.textContent = ws.branch;
-  const stage = el.querySelector(".astage")!;
-  stage.innerHTML = `${stageIcon(at, total, 13)}<span></span>`;
-  stage.children[1].textContent = stageName(ws.stage);
   // Show each repository's PR number; mark merged only when every PR has merged.
   const all = prs(ws);
   if (all.length) {
@@ -142,7 +135,7 @@ function row(ws: Workspace): HTMLElement {
   const openIt = () => hooks.open(ws);
   el.addEventListener("click", openIt);
   el.addEventListener("keydown", (e) => e.key === "Enter" && openIt());
-  attachMenu(el, ws, board, hooks, el.querySelector(".atitle b") as HTMLElement, "arow");
+  attachMenu(el, ws, hooks, el.querySelector(".atitle b") as HTMLElement, "arow");
 
   const act = el.querySelector(".iact")!;
   const back = template("button", "ghost", `${icon("archive-restore", 14)}<span></span>`);

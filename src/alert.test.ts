@@ -13,7 +13,7 @@ import { boardChanged, chatChanged, glanced, init, looked, teamChanged, unseen, 
 const tab = (id: string, status: Status = "rodando") => ({ id, title: id, status, note: null, tokens: null });
 const workspace = (id: string, tabs = [tab(`${id}-t`)], unread = false) =>
   ({ id, tabs, unread }) as Workspace;
-const board = (...workspaces: Workspace[]): Board => ({ stages: [], projects: [], workspaces });
+const board = (...workspaces: Workspace[]): Board => ({ projects: [], workspaces });
 const emit = (tab: string, event: Record<string, unknown>) =>
   chatChanged(tab, JSON.stringify({ v: 1, at: 1, ...event }));
 const done = (tab = "a-t") => emit(tab, {

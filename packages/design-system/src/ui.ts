@@ -197,6 +197,8 @@ export function formDialog(options: {
   const save = button(options.save, () => {}, options.variant ?? "pri", options.track ? `${options.track}.save` : undefined);
   save.type = "submit";
   const cancel = button(options.cancel, close, "outline", options.track ? `${options.track}.cancel` : undefined);
+  // WebKit can skip buttons in native tab order unless tabindex is explicit.
+  save.tabIndex = cancel.tabIndex = 0;
   footer.append(cancel, error, save);
   form.append(header, body, footer);
   dialog.append(form);

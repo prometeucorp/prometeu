@@ -37,7 +37,7 @@ state when Git is refreshed. The pt-BR labels keep the terms branch, commit and
 stage; explanations of the operations live in the tooltips, without repeating
 instructions in the list.
 
-Branch, workspace stage and agent status are independent concepts. Selecting a
+Branch and agent status are independent concepts. Selecting a
 branch does not switch the checkout of a running session: it opens an existing
 workspace or the launcher, with a mandatory worktree. A branch taken in a folder
 without a registered workspace shows that location without offering a checkout

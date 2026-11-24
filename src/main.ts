@@ -48,7 +48,8 @@ import * as trust from "./trust";
 import "./style.css";
 import type { Board, Issue, Project, Tab, TerminalSession, Workspace } from "./types";
 import * as update from "./update";
-import { $ } from "./util";
+import { $, h } from "./util";
+import { formDialog } from "./ui";
 import { mac } from "./platform";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import * as viewer from "./viewer";
@@ -66,7 +67,7 @@ background.subscribe((context) => {
   if (background.foreground(context)) void invoke("usage_refresh", {}).catch(() => {});
 });
 
-let state: Board = { stages: [], projects: [], workspaces: [] };
+let state: Board = { projects: [], workspaces: [] };
 
 /// Render local board state plus frontend-only remote shares. Backend commands use the local state alone.
 const view = (): Board => {
@@ -90,7 +91,6 @@ function say(text: string, isError = false) {
 const hooks: sidebar.Hooks = {
   open: (w, tab) => openWorkspace(w, true, tab),
   activeTab: session.currentSession,
-  setStage: ws.setStage,
   drop: (id) => {
     if (ws.id() === id) showDesk();
     invoke("remove_workspace", { id });
@@ -560,7 +560,14 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
         if (!state.workspaces.some((w) => w.id === created.id)) state.workspaces.push(created);
         openWorkspace(created);
       } catch (err) {
-        say(fromBack(err), true);
+        const dialog = formDialog({
+          title: t("launcher.failed"), save: t("review.close"), cancel: t("review.close"),
+          submit: async () => {}, error: fromBack, track: "launcher.error", area: "launcher",
+        });
+        dialog.save.remove();
+        dialog.body.tabIndex = 0;
+        dialog.body.append(h("p", "ui-hint", fromBack(err)));
+        dialog.open();
       }
     },
   });

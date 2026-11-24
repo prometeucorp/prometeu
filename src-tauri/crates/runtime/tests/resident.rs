@@ -330,6 +330,13 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
         .application("load_board".into(), Value::Null)
         .unwrap();
     let workspace = board["workspaces"][0]["id"].as_str().unwrap();
+    let project = board["projects"][0]["id"].as_str().unwrap();
+    client
+        .application(
+            "open_dock".into(),
+            serde_json::json!({"id":project,"kind":"terminal","cols":80,"rows":24}),
+        )
+        .unwrap();
     client
         .application(
             "open_dock".into(),
@@ -348,22 +355,46 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
     assert!(snapshot["seq"].is_u64());
     client.disconnect().unwrap();
     assert_eq!(executable(&target), first.to_str().unwrap());
-    let mut client = connector.connect(&target, events().0).unwrap();
+    let (sink, rx) = events();
+    let mut client = connector.connect(&target, sink).unwrap();
+    client.start().unwrap();
+    until(&rx, "session.identity");
+    // The upgrade instructions use Archive to release both idle Codex and the dock.
     client
         .application(
-            "close_dock".into(),
-            serde_json::json!({"id":workspace,"kind":"terminal"}),
+            "archive_workspace".into(),
+            serde_json::json!({"id":workspace,"archived":true}),
         )
         .unwrap();
     client.disconnect().unwrap();
     let mut client = connector.connect(&target, events().0).unwrap();
+    let board = client
+        .application("load_board".into(), Value::Null)
+        .unwrap();
+    assert_eq!(board["workspaces"][0]["id"], workspace);
+    assert_eq!(board["workspaces"][0]["archived"], true);
+    assert!(workdir.is_dir());
+    assert!(!client.snapshot().unwrap().running.unwrap());
     assert_eq!(
         client
-            .application("load_board".into(), Value::Null)
-            .unwrap()["workspaces"][0]["id"],
-        workspace
+            .application(
+                "pty_buffer".into(),
+                serde_json::json!({"session":format!("{project}:terminal"),"snapshot":true}),
+            )
+            .unwrap()["running"],
+        true
     );
-    assert!(!client.snapshot().unwrap().running.unwrap());
+    client.disconnect().unwrap();
+    assert_eq!(executable(&target), first.to_str().unwrap());
+    let mut client = connector.connect(&target, events().0).unwrap();
+    client
+        .application(
+            "close_dock".into(),
+            serde_json::json!({"id":project,"kind":"terminal"}),
+        )
+        .unwrap();
+    client.disconnect().unwrap();
+    let mut client = connector.connect(&target, events().0).unwrap();
     client.disconnect().unwrap();
     assert_eq!(executable(&target), next.to_str().unwrap());
     let mut client = connector.connect(&target, events().0).unwrap();
@@ -374,6 +405,18 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
         )
         .unwrap()
         .is_null());
+    client
+        .application(
+            "archive_workspace".into(),
+            serde_json::json!({"id":workspace,"archived":false}),
+        )
+        .unwrap();
+    assert_eq!(
+        client
+            .application("load_board".into(), Value::Null)
+            .unwrap()["workspaces"][0]["archived"],
+        false
+    );
     client.shutdown().unwrap();
     cleanup.armed = false;
     std::fs::remove_dir_all(base).unwrap();
@@ -510,9 +553,6 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
         client.snapshot().unwrap().generation.as_deref(),
         Some(second_generation.as_str())
     );
-    client
-        .workspace_stage("primary".into(), "Feito".into())
-        .unwrap();
     client.workspace_select("primary".into()).unwrap();
     let first_snapshot = client.snapshot().unwrap();
     assert_eq!(
@@ -544,10 +584,6 @@ fn workspace_switching_isolates_execution_and_restores_catalog_after_host_restar
     drop(client);
     let (sink, rx) = events();
     let mut restarted = connector.connect(&target, sink).unwrap();
-    assert_eq!(
-        restarted.workspace_list().unwrap().board.workspaces[0].stage,
-        "Feito"
-    );
     let restored = restarted.workspace_list().unwrap();
     assert_eq!(restored.board.workspaces[2].branch, "feature/runtime");
     assert_eq!(restored.board.workspaces[2].worktree, isolated.worktree);
