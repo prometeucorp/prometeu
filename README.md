@@ -63,6 +63,14 @@ The AppImage adds a launcher to your application menu and supports in-app update
 See the [Linux guide](docs/operations/linux.md) for runtime requirements, source
 packages, ARM64 builds and platform differences.
 
+### Windows — discontinued
+
+Windows support has ended. [v0.45.0](https://github.com/prometeucorp/prometeu/releases/tag/v0.45.0)
+is the last Windows release; its installer remains available there, but Windows
+installations no longer receive updates. Existing history stays in
+`~/.local/share/prometeu-windows/state` inside WSL by default. macOS and Linux
+builds do not import that history.
+
 ### Cursor CLI
 
 Cursor CLI is supported on macOS and Linux since v0.35.0. Install a Cursor CLI
