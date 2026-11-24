@@ -33,8 +33,9 @@ mutation, and older runtimes reject at the capability check before sending.
 Workspace creation also requires `application.stageless-workspaces.v1`.
 An old resident retained during an upgrade can still serve existing work, but
 both direct and deferred creation are refused by the bridge before transmission,
-with a translated explanation to finish running conversations and terminals and
-reconnect so the runtime can update. No legacy stage is reintroduced into drafts.
+with a translated explanation to stop running conversations and terminals, then
+quit and reopen Prometeu so the runtime can update. A healthy connection is not
+replaced by `application_reconnect`. No legacy stage is reintroduced into drafts.
 The bridge capability test covers old and current handshakes and both envelopes.
 
 Host-only commands outside the shared registry are `application_open`,

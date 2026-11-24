@@ -563,7 +563,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "err.antigravity.auth": "Sign in by running agy and try again.",
   "err.gemini.start": "Gemini CLI integration has been removed.",
   "err.provider.retired": "Gemini CLI integration has been removed. History is preserved; start a new conversation with Antigravity.",
-  "err.windows.runtimeUpgrade": "Workspace creation needs the updated WSL runtime. Finish running conversations and terminals, then reconnect to WSL to apply the update.",
+  "err.windows.runtimeUpgrade": "Workspace creation needs the updated WSL runtime. Stop running conversations and terminals, then quit and reopen Prometeu to apply the update.",
   "err.windows.workspaceOptions": "This workspace option is not connected to WSL yet.",
   "windows.reconnecting": "Restoring the connection to WSL…",
   "err.windows.distribution": "Could not identify the default WSL distribution.",

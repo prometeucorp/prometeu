@@ -561,7 +561,7 @@ export const PT = {
   "err.antigravity.auth": "Autentique sua conta executando agy e tente novamente.",
   "err.gemini.start": "A integra\u00e7\u00e3o com Gemini CLI foi removida.",
   "err.provider.retired": "A integração com Gemini CLI foi removida. O histórico está preservado; inicie uma nova conversa com Antigravity.",
-  "err.windows.runtimeUpgrade": "Criar workspaces exige o runtime WSL atualizado. Encerre as conversas e os terminais em execução e reconecte ao WSL para aplicar a atualização.",
+  "err.windows.runtimeUpgrade": "Criar workspaces exige o runtime WSL atualizado. Encerre as conversas e os terminais em execução, depois saia do Prometeu e abra-o novamente para aplicar a atualização.",
   "err.windows.workspaceOptions": "Esta opção de trabalho ainda não está integrada ao WSL.",
   "windows.reconnecting": "Restabelecendo a conexão com o WSL…",
   "err.windows.distribution": "Não foi possível identificar a distribuição WSL padrão.",
