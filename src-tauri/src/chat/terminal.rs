@@ -868,10 +868,16 @@ impl Transport {
         if input.submission.is_some() || !self.connected() {
             return Err(i18n::t("err.terminalAgent.notReady"));
         }
-        let normalized = if self.provider == crate::state::ProviderId::Cursor {
-            crate::native_ui_readiness::normalize_cursor_submission(text)
-        } else {
-            text.to_owned()
+        let normalized = match self.provider {
+            crate::state::ProviderId::Cursor => {
+                crate::native_ui_readiness::normalize_cursor_submission(text)
+            }
+            // Claude Code records prompts in NFC; macOS file names (attachment paths) arrive as
+            // NFD, so a verbatim hash would never match the native echo.
+            crate::state::ProviderId::Claude => {
+                unicode_normalization::UnicodeNormalization::nfc(text).collect()
+            }
+            _ => text.to_owned(),
         };
         input.submission = Some(Submission {
             write_started: false,

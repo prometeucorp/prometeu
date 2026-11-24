@@ -41,6 +41,33 @@ pub use cursor_completion::{CursorStopStamp, CursorStopWitness};
 type CompletionState = Arc<Mutex<completion::CompletionObservation>>;
 type SourceState = Arc<Mutex<source::SourceObservation>>;
 
+/// Runs one live Claude JSONL row through the real adapter and source observer, after the app
+/// announced `expected` as submission `id`, and returns the captured user record.
+#[cfg(test)]
+pub(crate) fn claude_live_user_capture(row: Value, expected: &str, id: &str) -> NativeCapture {
+    let mut source = source::SourceObservation::new(ProviderId::Claude, ObservationStart::Fresh);
+    let batches = Arc::new(Mutex::new(Vec::new()));
+    let output = batches.clone();
+    source.set_callback(Box::new(move |batch| output.lock().unwrap().push(batch)));
+    source.expect_submission(expected, id).unwrap();
+    let frames = crate::claude::Adapter::fresh().translate(&row);
+    let record = prometeu_protocols::terminal_transcript::TranscriptRecord {
+        ordinal: 0,
+        offset: 0,
+        phase: TranscriptPhase::Live,
+        value: row,
+        omitted_media: 0,
+    };
+    source.observe("session", &record, &frames);
+    source.finish_poll(false, false, "live", false).unwrap();
+    let batch = batches.lock().unwrap().pop().unwrap();
+    batch
+        .records
+        .into_iter()
+        .find(|capture| capture.checkpoint["kind"] == "user")
+        .unwrap()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObservationStart {
     /// The caller proved this is a new native session and constructs the observer before input.

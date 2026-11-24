@@ -592,7 +592,9 @@ provider's proven normalized input and the preceding native user occurrence.
 The canonical echo keeps the original text. At most 64 unbound submissions are
 restored in causal order after a crash; a mismatched candidate is an explicit
 conflict. Cursor's proven paste normalization changes CRLF/CR to LF and tabs to
-two spaces, without NFC normalization. A source baseline and an empty pending
+two spaces, without NFC normalization. Claude Code records prompts in NFC, so
+its normalized input is the NFC form (macOS attachment paths arrive as NFD).
+A source baseline and an empty pending
 submission queue are both required before admitting another app prompt or
 claiming catch-up. An unconfirmed input is never resent automatically.
 

@@ -19,12 +19,15 @@ impl Fixture {
         }
     }
     fn open(&self, native: Option<&str>, fresh: bool) -> Arc<JournalStore> {
+        self.open_as("cursor", native, fresh)
+    }
+    fn open_as(&self, provider: &str, native: Option<&str>, fresh: bool) -> Arc<JournalStore> {
         JournalStore::open(
             &self.root.join("canonical.jsonl"),
             &journal_path(&self.root, "app").unwrap(),
             JournalBinding {
                 app_session: "app".into(),
-                provider: "cursor".into(),
+                provider: provider.into(),
                 native_session: native.map(str::to_owned),
             },
             fresh,
@@ -1616,4 +1619,49 @@ fn journal_ephemeral_source_receipt_is_required_before_any_live_effect() {
         .is_err());
     assert!(lock(&effects.other).is_empty());
     assert!(lock(&effects.events).is_empty());
+}
+
+#[test]
+fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
+    // macOS hands attachment file names over as NFD; Claude Code records the prompt in NFC.
+    let original = "@\"/tmp/Captura de Tela a\u{300}s 15.04.png\"\n\nHelp me";
+    let echo = "@\"/tmp/Captura de Tela \u{e0}s 15.04.png\"\n\nHelp me";
+    let (transport, _) = super::super::tests::fixture();
+    let normalized = transport.begin_submission("attachment", original).unwrap();
+    transport.end_submission("attachment");
+    let native = crate::terminal_agent_observation::claude_live_user_capture(
+        json!({"uuid":"prompt","type":"user","message":{"role":"user","content":echo}}),
+        &normalized,
+        "attachment",
+    );
+    assert_eq!(native.input_binding.as_deref(), Some("attachment"));
+    let fixture = Fixture::new();
+    let store = fixture.open_as("claude", None, true);
+    let (live, _) = pump(&store);
+    let submission = store
+        .submission("attachment", original, &normalized)
+        .unwrap();
+    let mut input = |_: &Value, _: &str| Ok(vec![]);
+    live.capture_committed((), || {
+        live.command_committed(
+            &json!({"v":1,"type":"message.send","text":original}),
+            &mut input,
+            |lines, offset| store.commit_submission(&submission, lines, offset),
+        )
+    })
+    .unwrap();
+    store.bind_native("session").unwrap();
+    assert_eq!(store.disposition(&native).unwrap(), NativeDisposition::User);
+    assert!(live
+        .accept_committed(native.frame.as_ref().unwrap(), |line, offset| {
+            store.commit_record(&native, Some(line), offset)
+        })
+        .unwrap()
+        .is_empty());
+    let saved = store.load().unwrap();
+    assert_eq!(saved.matches("user.message").count(), 1);
+    assert!(
+        saved.contains("a\u{300}s 15.04.png"),
+        "keeps the original spelling"
+    );
 }
