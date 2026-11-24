@@ -139,3 +139,7 @@ Index entries must be rendered links; links inside code samples do not count.
 - [ADR 0099 — One level of sub-workspaces](0099-sub-workspaces.md): flat delegation grouping and one conversation per delegated workspace.
 - [ADR 0100](0100-conversation-transport-identity.md) — Persist conversation transport separately from provider and model; macOS defaults apply only to new conversations.
 - [ADR 0101](0101-remote-machines.md) — Workspaces on remote machines over SSH: a resident host owns terminal agents while the desktop keeps the board and interface.
+
+## Proposals
+
+- [ADR 0102](0102-agents-on-remote-machines.md) — Agents on a remote machine drive workspaces through its host: a host-owned registry, desktop-free Claude launch and a token-authorized agent socket and MCP server.
