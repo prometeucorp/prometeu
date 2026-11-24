@@ -91,7 +91,8 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
 
 // Creation recovery needs browser coverage: a toast truncated the instructions,
 // while unit tests cannot verify wrapping, focus order and keyboard scrolling.
-test("launcher errors keep complete upgrade instructions readable until dismissed", async ({ page }) => {
+// Run in WebKit too: native focus and scroll keys must work in the desktop webview.
+test("launcher errors keep complete upgrade instructions readable until dismissed", { tag: "@webkit" }, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 720 });
   await seed(page);
   await page.evaluate(() => {

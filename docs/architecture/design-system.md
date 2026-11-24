@@ -61,7 +61,8 @@ window has no room, so they never cover the menu that opened them.
 
 `formDialog` uses `dialog.showModal()`: content behind it becomes inert, focus
 returns on close and Tab/Shift+Tab cycle within the form. The body scrolls and
-the footer stays visible. Saving respects HTML validation, prevents double
+the footer stays visible. Footer buttons have an explicit tab stop so WebKit
+does not skip them during keyboard navigation. Saving respects HTML validation, prevents double
 submission, signals `aria-busy` and presents failures in `role="alert"` without
 losing the typed text. Menus opened in the dialog join the same layer. Escape
 closes the menu first; another Escape closes the dialog. Global shortcuts do
