@@ -1617,3 +1617,39 @@ fn journal_ephemeral_source_receipt_is_required_before_any_live_effect() {
     assert!(lock(&effects.other).is_empty());
     assert!(lock(&effects.events).is_empty());
 }
+
+#[test]
+fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
+    // macOS hands attachment file names over as NFD; Claude Code records the prompt in NFC.
+    let original = "@\"/tmp/Captura de Tela a\u{300}s 15.04.png\"\n\nHelp me";
+    let echo = "@\"/tmp/Captura de Tela \u{e0}s 15.04.png\"\n\nHelp me";
+    let (transport, _) = super::super::tests::fixture();
+    let normalized = transport.begin_submission("attachment", original).unwrap();
+    transport.end_submission("attachment");
+    assert_eq!(normalized, echo);
+    let fixture = Fixture::new();
+    let store = fixture.open(None, true);
+    let (live, _) = pump(&store);
+    let submission = store
+        .submission("attachment", original, &normalized)
+        .unwrap();
+    let mut input = |_: &Value, _: &str| Ok(vec![]);
+    live.capture_committed((), || {
+        live.command_committed(
+            &json!({"v":1,"type":"message.send","text":original}),
+            &mut input,
+            |lines, offset| store.commit_submission(&submission, lines, offset),
+        )
+    })
+    .unwrap();
+    store.bind_native("native").unwrap();
+    let native = user("attachment", echo);
+    assert_eq!(store.disposition(&native).unwrap(), NativeDisposition::User);
+    assert!(live
+        .accept_committed(native.frame.as_ref().unwrap(), |line, offset| {
+            store.commit_record(&native, Some(line), offset)
+        })
+        .unwrap()
+        .is_empty());
+    assert_eq!(store.load().unwrap().matches("user.message").count(), 1);
+}
