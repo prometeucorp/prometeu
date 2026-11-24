@@ -180,8 +180,8 @@ operations live in an overflow menu; the Add resource menu retains all existing
 creation and import paths. A registered resource is not automatically enabled.
 
 Projects uses the shared toolbar, item rows and empty state, filtered by computer.
-Remote folder registration and cloning use form dialogs shared with the launcher;
-the launcher no longer embeds a folder browser.
+Remote folder registration and cloning use form dialogs that live only in
+Projects; the launcher selects among registered projects.
 
 General keeps the notification master switch and native permission warning
 visible while its details expand in place. Agents shows defaults followed by

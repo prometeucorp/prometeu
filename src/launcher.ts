@@ -1,6 +1,5 @@
 import { track } from "./analytics";
 import * as remoteMachines from "./machines";
-import { openRemoteProjects, openRemoteClone } from "./projects";
 import * as accounts from "./accounts";
 import { button, checkbox, dropdown, field, input } from "./ui";
 export type { Group } from "./ui";
@@ -154,8 +153,6 @@ export function openLauncher(board: Board, opts: Open) {
         </div>
         <section class="launcher-repository" aria-labelledby="d-repository-title">
           <h2 id="d-repository-title" data-t="git.repository"></h2>
-          <div class="launcher-fields" id="d-machine-fields"></div>
-          <div class="launcher-remote" id="d-remote" hidden></div>
           <div class="launcher-fields" id="d-repository-fields"></div>
           <div class="launcher-switches" id="d-switches"></div>
           <p class="ui-hint" id="d-repo-hint"></p>
@@ -198,12 +195,12 @@ export function openLauncher(board: Board, opts: Open) {
   baseButton.querySelector("span")!.id = "d-basename";
   const projectField = field(t("launcher.project"), projectButton, undefined, "launcher.project");
   const branchField = field(t("launcher.base.label"), baseButton, undefined, "launcher.base.label");
-  $("d-repository-fields").append(projectField, branchField);
   // Where the workspace runs (ADR 0101). Shown only once a remote machine exists.
   const machineButton = pick("d-machine");
   machineButton.disabled = !!git;
-  $("d-machine-fields").append(field(t("launcher.machine"), machineButton, undefined, "launcher.machine"));
-  $("d-machine-fields").hidden = !remoteMachines.machines().length && !board.projects.some((p) => p.host);
+  const machineField = field(t("launcher.machine"), machineButton, undefined, "launcher.machine");
+  machineField.hidden = !remoteMachines.machines().length && !board.projects.some((p) => p.host);
+  $("d-repository-fields").append(machineField, projectField, branchField);
   $("d-issue-field").append(field(t("launcher.issue.label"), pick("d-issuebtn"), undefined, "launcher.issue.label"));
   $("d-model-field").append(field(t("actions.model"), pick("d-model"), undefined, "actions.model"));
   const effortButton = pick("d-effort");
@@ -763,36 +760,11 @@ export function openLauncher(board: Board, opts: Open) {
     if (issuePick.isOpen()) void issues.load().then(() => issuePick.isOpen() && issuePick.draw());
   });
 
-  // Project installation has its own dialog, shared with Settings > Projects.
-  const remoteBox = $("d-remote");
-  const addedProject = (project: import("./types").Project) => {
-    if (!board.projects.some(existing => existing.id === project.id)) board.projects.push(project);
-    if (draft.host === project.host) selectProject(project.id);
-  };
+  // Remote projects are installed in Settings > Projects before launching (ADR 0101).
   const drawMachine = () => {
     machineButton.querySelector("span")!.textContent = draft.host ? remoteMachines.machineName(draft.host) : t("machines.local");
     projectField.hidden = !onMachine().length;
     branchField.hidden = !draft.project;
-    remoteBox.hidden = !draft.host;
-    remoteBox.replaceChildren();
-    if (!draft.host) return;
-    const machine = draft.host;
-    const add = button(t("projects.remoteFolder"), () => openRemoteProjects(machine, board.projects, addedProject), "ghost", "projects.remoteFolder");
-    const clone = button(t("projects.clone"), () => openRemoteClone(machine, addedProject), "ghost", "projects.clone");
-    add.dataset.focus = "launcher-add-project";
-    clone.dataset.focus = "launcher-clone-project";
-    add.disabled = clone.disabled = !remoteMachines.online(machine);
-    remoteBox.append(add, clone);
-  };
-  const selectProject = (id: string) => {
-    draft.project = id;
-    drawProjectLabel();
-    draft.extras = draft.extras.filter((x) => x !== id);
-    basePick.close();
-    drawMachine();
-    loadBranches();
-    drawExtras();
-    drawHint();
   };
   let drawProjectLabel = () => {};
   dropdown(

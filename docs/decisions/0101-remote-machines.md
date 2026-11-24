@@ -94,7 +94,7 @@ without root.
   registered folder on that computer, including remote clones with a local
   counterpart. Existing remote repositories are added through a folder dialog;
   cloning is an explicit action with a URL and destination on the machine. The
-  launcher provides the same dialogs as shortcuts and keeps its task draft.
+  launcher offers no installation shortcuts: a machine is set up there first.
   This separates installation from workspace creation and makes the selected
   computer determine exactly which projects are offered. Existing backend
   origin resolution remains for compatibility with older callers.

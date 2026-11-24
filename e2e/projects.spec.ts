@@ -149,9 +149,9 @@ test("a new project preserves its name on failure and starts its first workspace
   await expect(page.locator("#chatwrap .composer textarea")).toBeVisible();
 });
 
-// The browser must preserve the launcher's draft and restore focus after the nested remote
-// project dialogs close. Pure filtering tests cannot prove dialog focus or live board wiring.
-test("remote projects stay on their machine and registration preserves the workspace draft", async ({ page }) => {
+// Remote projects are installed in Settings before launching; the launcher only offers the
+// selected machine's registered projects. The clone retry proves the dialog keeps its input.
+test("remote projects stay on their machine and install from settings", async ({ page }) => {
   await page.keyboard.press("Escape");
   await page.evaluate(async () => {
     const app = window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> } };
@@ -177,24 +177,7 @@ test("remote projects stay on their machine and registration preserves the works
   await expect(settings.locator(".desktop-item")).toHaveCount(1);
   await expect(settings.locator(".desktop-item")).toContainText("/home/me/code/api");
 
-  await page.getByRole("button", { name: "New workspace in api", exact: true }).click();
-  await page.locator("#d-prompt").fill("Keep my remote task draft");
-  await page.locator("#d-project").click();
-  await expect(page.getByRole("menuitemcheckbox", { name: "prometeu", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("menuitemcheckbox", { name: "other-project", exact: true })).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  const add = page.locator("#d-remote").getByRole("button", { name: "Add existing folder", exact: true });
-  await add.click();
-  await folders.getByRole("button", { name: "code", exact: true }).click();
-  await expect(folders.getByRole("checkbox", { name: "api · added", exact: true })).toBeDisabled();
-  await folders.getByRole("checkbox", { name: "app", exact: true }).check();
-  await folders.getByRole("button", { name: "Add projects", exact: true }).click();
-  await expect(folders).not.toBeVisible();
-  await expect(page.locator("#d-project")).toContainText("app");
-  await expect(page.locator("#d-prompt")).toHaveValue("Keep my remote task draft");
-  await expect(add).toBeFocused();
-
-  await page.locator("#d-remote").getByRole("button", { name: "Clone repository", exact: true }).click();
+  await settings.getByRole("button", { name: "Clone repository", exact: true }).click();
   const clone = page.getByRole("dialog", { name: "Clone repository on vps", exact: true });
   await clone.getByRole("textbox", { name: "Repository URL", exact: true }).fill("git@github.com:team/new-app.git");
   await page.evaluate(() => {
@@ -213,10 +196,16 @@ test("remote projects stay on their machine and registration preserves the works
   await expect(clone.getByRole("textbox", { name: "Repository URL", exact: true })).toHaveValue("git@github.com:team/new-app.git");
   await clone.getByRole("button", { name: "Clone repository", exact: true }).click();
   await expect(clone).not.toBeVisible();
-  await expect(page.locator("#d-project")).toContainText("new-app");
-  await expect(page.locator("#d-prompt")).toHaveValue("Keep my remote task draft");
+  await expect(settings.locator(".desktop-item")).toHaveCount(2);
+
+  await page.getByRole("button", { name: "New workspace in api", exact: true }).click();
+  await expect(page.locator(".launcher").getByRole("button", { name: "Add existing folder", exact: true })).toHaveCount(0);
+  await page.locator("#d-project").click();
+  await expect(page.getByRole("menuitemcheckbox", { name: "new-app", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("menuitemcheckbox", { name: "prometeu", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitemcheckbox", { name: "other-project", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.locator("#d-machine").click();
   await page.getByRole("menuitemcheckbox", { name: "This computer", exact: true }).click();
   await expect(page.locator("#d-project")).toContainText("njord");
-  await expect(page.locator("#d-remote")).toBeHidden();
 });
