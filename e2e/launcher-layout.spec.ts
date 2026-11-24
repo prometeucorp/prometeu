@@ -88,3 +88,38 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
   await page.getByTitle("Remove prometeu from this workspace", { exact: true }).click();
   await expect(page.locator("#d-wt")).toBeEnabled();
 });
+
+// Creation recovery needs browser coverage: a toast truncated the instructions,
+// while unit tests cannot verify wrapping and scroll access in the real layout.
+test("launcher errors keep complete upgrade instructions readable until dismissed", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await seed(page);
+  await page.evaluate(() => {
+    const backend = (window as unknown as { __TAURI_INTERNALS__: {
+      invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
+    } }).__TAURI_INTERNALS__;
+    const invoke = backend.invoke;
+    backend.invoke = (command, args) => command === "create_workspace"
+      ? Promise.reject('i18n:{"code":"err.windows.runtimeUpgrade"}')
+      : invoke(command, args);
+  });
+  await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
+  await page.locator("#d-go").click();
+  const dialog = page.getByRole("dialog", { name: "Could not create workspace" });
+  const message = dialog.locator(".ui-form-body p");
+  await expect(message).toContainText("Also close all project terminal tabs.");
+  await expect(message).toContainText("then unarchive those workspaces.");
+  await expect(message).toContainText("The chat’s Stop button does not release the runtime.");
+  expect(await message.evaluate(el => {
+    const style = getComputedStyle(el);
+    return style.whiteSpace !== "nowrap" && el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1;
+  })).toBe(true);
+  await inside(message, dialog.locator(".ui-form-body"));
+  await page.clock.install();
+  await page.clock.fastForward(10_000);
+  await expect(dialog).toBeVisible();
+  const close = dialog.getByRole("button", { name: "Close", exact: true });
+  await inside(close, dialog);
+  await close.click();
+  await expect(dialog).toBeHidden();
+});

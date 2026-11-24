@@ -33,9 +33,12 @@ mutation, and older runtimes reject at the capability check before sending.
 Workspace creation also requires `application.stageless-workspaces.v1`.
 An old resident retained during an upgrade can still serve existing work, but
 both direct and deferred creation are refused by the bridge before transmission,
-with a translated explanation to disable automatic worktree cleanup before
-archiving WSL workspaces, keep their worktrees when prompted, quit and reopen
-Prometeu, then unarchive those workspaces. Archiving stops retained Codex processes
+with a translated explanation in a dismissible dialog whose body wraps and
+scrolls instead of a transient, single-line toast. The instructions explain how
+to disable automatic worktree cleanup before archiving WSL workspaces, keep their
+worktrees when prompted, close all project terminal tabs, quit and reopen
+Prometeu, then unarchive those workspaces. Project terminals belong to the project
+and survive workspace archival. Archiving stops retained Codex processes
 and workspace terminals; the chat's Stop button only interrupts a turn and leaves
 the runtime busy even when Codex is idle. Keeping worktrees preserves files for
 unarchiving. A healthy connection is not replaced by `application_reconnect`.

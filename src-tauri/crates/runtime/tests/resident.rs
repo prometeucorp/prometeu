@@ -330,6 +330,13 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
         .application("load_board".into(), Value::Null)
         .unwrap();
     let workspace = board["workspaces"][0]["id"].as_str().unwrap();
+    let project = board["projects"][0]["id"].as_str().unwrap();
+    client
+        .application(
+            "open_dock".into(),
+            serde_json::json!({"id":project,"kind":"terminal","cols":80,"rows":24}),
+        )
+        .unwrap();
     client
         .application(
             "open_dock".into(),
@@ -368,6 +375,26 @@ fn replacement_waits_for_retained_conversations_and_shells_then_upgrades_an_idle
     assert_eq!(board["workspaces"][0]["archived"], true);
     assert!(workdir.is_dir());
     assert!(!client.snapshot().unwrap().running.unwrap());
+    assert_eq!(
+        client
+            .application(
+                "pty_buffer".into(),
+                serde_json::json!({"session":format!("{project}:terminal"),"snapshot":true}),
+            )
+            .unwrap()["running"],
+        true
+    );
+    client.disconnect().unwrap();
+    assert_eq!(executable(&target), first.to_str().unwrap());
+    let mut client = connector.connect(&target, events().0).unwrap();
+    client
+        .application(
+            "close_dock".into(),
+            serde_json::json!({"id":project,"kind":"terminal"}),
+        )
+        .unwrap();
+    client.disconnect().unwrap();
+    let mut client = connector.connect(&target, events().0).unwrap();
     client.disconnect().unwrap();
     assert_eq!(executable(&target), next.to_str().unwrap());
     let mut client = connector.connect(&target, events().0).unwrap();

@@ -1445,6 +1445,12 @@
       ]
     },
     {
+      "target": "launcher.error",
+      "sources": [
+        "src/main.ts"
+      ]
+    },
+    {
       "target": "launcher.go",
       "sources": [
         "src/launcher.ts"

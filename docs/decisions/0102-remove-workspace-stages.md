@@ -24,10 +24,11 @@ Git staging and observed conversation status remain independent features.
 
 An upgraded Windows shell can remain attached to an old, busy resident. Creation
 requires `application.stageless-workspaces.v1`; without it, the bridge explains
-how to archive WSL workspaces to stop retained Codex processes and terminals,
-then quit and reopen Prometeu and unarchive those workspaces. Automatic worktree
-cleanup must be disabled before archiving, and worktrees must be kept when
-prompted so files remain available afterward. The chat's Stop button only
+how to archive WSL workspaces to stop retained Codex processes and workspace
+terminals, close project terminal tabs separately, then quit and reopen Prometeu
+and unarchive those workspaces. The instructions stay visible in a dismissible
+dialog. Automatic worktree cleanup must be disabled before archiving, and
+worktrees must be kept when prompted so files remain available afterward. The chat's Stop button only
 interrupts a turn; reconnecting a healthy connection does nothing.
 This avoids restoring retired domain data or sending invalid drafts while keeping
 existing sessions available.

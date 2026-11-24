@@ -48,7 +48,8 @@ import * as trust from "./trust";
 import "./style.css";
 import type { Board, Issue, Project, Tab, TerminalSession, Workspace } from "./types";
 import * as update from "./update";
-import { $ } from "./util";
+import { $, h } from "./util";
+import { formDialog } from "./ui";
 import { mac } from "./platform";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import * as viewer from "./viewer";
@@ -559,7 +560,13 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
         if (!state.workspaces.some((w) => w.id === created.id)) state.workspaces.push(created);
         openWorkspace(created);
       } catch (err) {
-        say(fromBack(err), true);
+        const dialog = formDialog({
+          title: t("launcher.failed"), save: t("review.close"), cancel: t("review.close"),
+          submit: async () => {}, error: fromBack, track: "launcher.error", area: "launcher",
+        });
+        dialog.save.remove();
+        dialog.body.append(h("p", "ui-hint", fromBack(err)));
+        dialog.open();
       }
     },
   });
