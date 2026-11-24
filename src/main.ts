@@ -565,6 +565,7 @@ function launch(projectId?: string, seed?: Issue, git?: Open["git"]) {
           submit: async () => {}, error: fromBack, track: "launcher.error", area: "launcher",
         });
         dialog.save.remove();
+        dialog.body.tabIndex = 0;
         dialog.body.append(h("p", "ui-hint", fromBack(err)));
         dialog.open();
       }

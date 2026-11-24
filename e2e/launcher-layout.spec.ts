@@ -90,7 +90,7 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
 });
 
 // Creation recovery needs browser coverage: a toast truncated the instructions,
-// while unit tests cannot verify wrapping and scroll access in the real layout.
+// while unit tests cannot verify wrapping, focus order and keyboard scrolling.
 test("launcher errors keep complete upgrade instructions readable until dismissed", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 720 });
   await seed(page);
@@ -115,6 +115,15 @@ test("launcher errors keep complete upgrade instructions readable until dismisse
     return style.whiteSpace !== "nowrap" && el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1;
   })).toBe(true);
   await inside(message, dialog.locator(".ui-form-body"));
+  await page.setViewportSize({ width: 390, height: 320 });
+  const body = dialog.locator(".ui-form-body");
+  expect(await body.evaluate(el => el.scrollHeight - el.clientHeight)).toBeGreaterThan(0);
+  await page.keyboard.press("Tab");
+  await expect(body).toBeFocused();
+  await page.keyboard.press("End");
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(1);
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
   await page.clock.install();
   await page.clock.fastForward(10_000);
   await expect(dialog).toBeVisible();

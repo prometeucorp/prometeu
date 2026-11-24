@@ -34,7 +34,9 @@ Workspace creation also requires `application.stageless-workspaces.v1`.
 An old resident retained during an upgrade can still serve existing work, but
 both direct and deferred creation are refused by the bridge before transmission,
 with a translated explanation in a dismissible dialog whose body wraps and
-scrolls instead of a transient, single-line toast. The instructions explain how
+scrolls instead of a transient, single-line toast. Tab reaches the body before
+Close so keyboard users can scroll through instructions that overflow.
+The instructions explain how
 to disable automatic worktree cleanup before archiving WSL workspaces, keep their
 worktrees when prompted, close all project terminal tabs, quit and reopen
 Prometeu, then unarchive those workspaces. Project terminals belong to the project
