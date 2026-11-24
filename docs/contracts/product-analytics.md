@@ -90,7 +90,7 @@ The generated catalog defines all property types. This table defines meaning:
 | `workspace_created` | Workspace creation before preparation, including delegation; `provider`, `is_worktree` |
 | `conversation_created` | An additional conversation tab, excluding the workspace's first conversation; `provider` |
 | `project_action_used` | New registration/addition, creation of a local Git project, removal, changed order/group or creation of script configuration |
-| `workspace_action_used` | Changed stage, rename, pin, finish, archive, restore, remove or cleanup; manual read/unread actions are emitted by the UI, not automatic notification updates |
+| `workspace_action_used` | Rename, pin, finish, archive, restore, remove or cleanup; manual read/unread actions are emitted by the UI, not automatic notification updates |
 | `desk_layout_changed` | A completed visibility, order or size change |
 | `conversation_opened` | Explicit workspace-tab activation or revealing a desk conversation |
 | `conversation_resumed` | Continue sends its command successfully; not model execution |

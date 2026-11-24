@@ -358,7 +358,7 @@ test("browser suspends for menus and dialogs and restores the page without reloa
   const preview = page.locator(previewSelector);
   const name = page.frameLocator(previewSelector).locator("#design-name");
   await name.fill("Preserved project");
-  await page.locator("#wsmore").click();
+  await page.locator('#tabbar .tab[data-tab="t1"]').click({ button: "right" });
   await expect(page.locator(".menu")).toBeVisible();
   await expect(preview).toHaveJSProperty("hidden", true);
   await page.keyboard.press("Escape");

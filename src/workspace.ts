@@ -17,8 +17,8 @@ import * as diff from "./diff";
 import * as dock from "./dock";
 import * as dockbar from "./dockbar";
 import type * as fileMenu from "./file-menu";
-import { avatar, icon, stageIcon, wave } from "./icons";
-import { fromBack, stage as stageName, t, tn } from "./i18n";
+import { avatar, icon, wave } from "./icons";
+import { fromBack, t, tn } from "./i18n";
 import { fitsEffort, modelLabel } from "./model-choice";
 import { openModelPicker } from "./model-picker";
 import { openQuickOpen } from "./quick-open";
@@ -508,7 +508,7 @@ function drawShare(ws: Workspace, tab?: Tab) {
   }
 }
 
-/// Move infrequent actions into menus. The sidebar already shows stage; header sharing appears after activation.
+/// Move infrequent actions into menus. Header sharing appears after activation.
 function drawMore(ws: Workspace) {
   refreshNativeTools();
   const btn = $("wsmore") as HTMLButtonElement;
@@ -517,32 +517,19 @@ function drawMore(ws: Workspace) {
   if (!available) return;
 
   btn.innerHTML = icon("ellipsis", 16);
-  const stages = ctx.board().stages;
-  const at = stages.indexOf(ws.stage);
-  const items: menu.Item[] = [
-    {
-      label: t("ws.menu.stage"), track: "ws.menu.stage",
-      glyph: stageIcon(at, stages.length),
-      hint: stageName(ws.stage),
-      sub: stages.map((name, i) => ({
-        label: stageName(name), track: "workspace.stage.select",
-        glyph: stageIcon(i, stages.length),
-        checked: name === ws.stage,
-        run: () => setStage(ws.id, name),
-      })),
-    },
-  ];
+  const items: menu.Item[] = [];
   if (isDelegatedWorkspace(ctx.board(), ws.id)) {
     items.push({ label: t("dock.new"), track: "dock.new", glyph: icon("terminal", 14), run: dockbar.newTerm });
   }
   if (team.status().config && !team.sharedWithTeam(ws)) {
     items.unshift({ label: t("share.on"), track: "share.on", glyph: icon("share-2", 14), sub: shareItems(ws) });
   }
+  btn.hidden = !items.length && !session.nativeActions().length;
   btn.onclick = () => {
     if (current()?.id !== ws.id) return;
     const box = btn.getBoundingClientRect();
     const native = session.nativeActions();
-    menu.openAt({ area: "workspace", x: box.left, y: box.bottom + 4, anchor: btn }, native.length ? [...native, "sep", ...items] : items);
+    menu.openAt({ area: "workspace", x: box.left, y: box.bottom + 4, anchor: btn }, native.length ? [...native, ...(items.length ? ["sep" as const, ...items] : [])] : items);
   };
 }
 
@@ -636,8 +623,6 @@ export function renameWorkspace(id: string, title: string | null) {
   ctx.redraw();
   if (title) invoke("rename_workspace", { id, title }).catch((e) => ctx.say(fromBack(e), true));
 }
-
-export const setStage = (id: string, stage: string) => invoke("set_stage", { id, stage });
 
 /// Send the backend-generated PR prompt to the active conversation, resuming it if needed.
 async function openPr() {
@@ -805,7 +790,7 @@ function askPr(ws: Workspace) {
   void invoke("pr_open", { id: ws.id }).catch(() => {});
 }
 
-/// Finish moves work to the final stage and archives it, stopping its agent and docks.
+/// Finish archives work, stopping its agent and docks.
 export function finish(id: string) {
   const target = ctx.board().workspaces.find((workspace) => workspace.id === id);
   if (openWs === id) ctx.home();

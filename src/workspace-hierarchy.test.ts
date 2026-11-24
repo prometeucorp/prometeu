@@ -10,7 +10,7 @@ const delegation = (workspace: string, owner: string): Delegation => ({
   request_hash: "hash", repository_heads: {}, executions: [], background: null, requests: [],
 });
 const board = (workspaces: Workspace[], delegations?: Delegation[]): Board => ({
-  workspaces, delegations, stages: [], projects: [],
+  workspaces, delegations, projects: [],
 });
 
 describe("workspace hierarchy", () => {
@@ -76,10 +76,10 @@ describe("workspace hierarchy", () => {
     expect(workspaceHierarchy(state).familyOf([])).toEqual([]);
   });
 
-  it("omits archived children while keeping the workspace stage independent", () => {
+  it("omits archived children", () => {
     const main = workspace("main");
     const archived = { ...workspace("archived"), archived: true };
-    const finished = { ...workspace("finished"), stage: "Done" };
+    const finished = { ...workspace("finished"), };
     const hierarchy = workspaceHierarchy(board([main, archived, finished], [
       delegation("archived", "main-tab"), delegation("finished", "main-tab"),
     ]));

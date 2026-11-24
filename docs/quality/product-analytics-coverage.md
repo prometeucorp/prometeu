@@ -21,7 +21,7 @@ control identities. Repeated items share an authored action token.
 | Navigation/layout | `screen_viewed`; named navigation, back/forward, tabs and panel controls |
 | Projects | `project_action_used`: register, create Git project, remove and configure; named project forms |
 | Sidebar organization | Project group/order changes, workspace pins, manual read/unread actions; named groups/rows |
-| Workspace lifecycle | Existing creation plus `workspace_action_used`: stage, rename, finish, archive, restore, remove, cleanup |
+| Workspace lifecycle | Existing creation plus `workspace_action_used`: rename, finish, archive, restore, remove, cleanup |
 | Desk | `desk_layout_changed`, `conversation_opened`; panel controls and resize completion |
 | Conversation tabs | Existing additional-tab creation, explicit tab/desk opening and Continue use; no turn-end event |
 | Composer/context | New attachments and structured context; named send/stop/attachment controls; keyboard, paste/drop share attachment paths |

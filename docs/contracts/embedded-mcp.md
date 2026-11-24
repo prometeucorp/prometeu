@@ -100,7 +100,7 @@ configuration. The contract limits operations through this MCP.
 
 ## Identities and ownership
 
-- Workspace: repositories, worktrees, branch and the person's manual stage.
+- Workspace: repositories, worktrees and branch.
 - Delegated agent: one task responsibility, with a stable `agent_id`.
 - Conversation: the transcript, identified by `conversation_id`; in this version
   it has the same ID as its delegated agent.
@@ -158,7 +158,7 @@ identity, arbitrary workspace ID, or arbitrary repository path.
 | `list_agents` | none | Lists worker providers (`claude`, `codex`, `antigravity`) with availability and exact model IDs/efforts, queried live from each CLI for its selected account. |
 | `delegate` | `request_key`, `title`, `task`, `provider`, optional `project_id`, `model`, `effort` | Creates one agent and one isolated workspace; returns immediately during preparation. |
 | `list_delegations` | optional `offset`, `limit` (1–100) | Lists only this client's delegations within its scope. |
-| `get_delegation` | `agent_id` | Returns workspace preparation/failure/manual stage, conversation status, latest execution, background, pending requests and setup/run runtime. |
+| `get_delegation` | `agent_id` | Returns workspace preparation/failure, conversation status, latest execution, background, pending requests and setup/run runtime. |
 | `get_execution` | `agent_id`, `execution_id` | Reads a specific recorded execution. |
 | `send_message` | `agent_id`, `request_key`, `text` | Sends to an idle agent or resumes its stopped process. Returns an execution. |
 | `interrupt` | `agent_id` | Requests interruption of the main turn; does not promise to stop every provider background task. |

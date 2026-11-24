@@ -34,7 +34,7 @@ export function summarize(work: Pending): string {
 
 export type Leaving = { kind: "quit" } | { kind: "restart"; version: string };
 
-let board: () => Board = () => ({ stages: [], projects: [], workspaces: [] });
+let board: () => Board = () => ({ projects: [], workspaces: [] });
 /// One question at a time: a request made while it is open is refused, and the open question decides.
 let asking = false;
 

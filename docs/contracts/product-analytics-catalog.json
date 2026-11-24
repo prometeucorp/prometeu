@@ -1445,6 +1445,12 @@
       ]
     },
     {
+      "target": "launcher.error",
+      "sources": [
+        "src/main.ts"
+      ]
+    },
+    {
       "target": "launcher.go",
       "sources": [
         "src/launcher.ts"
@@ -3568,13 +3574,6 @@
       ]
     },
     {
-      "target": "workspace.stage.select",
-      "sources": [
-        "src/sidebar.ts",
-        "src/workspace.ts"
-      ]
-    },
-    {
       "target": "ws.menu.archive",
       "sources": [
         "src/sidebar.ts"
@@ -3627,13 +3626,6 @@
       "target": "ws.menu.reveal",
       "sources": [
         "src/sidebar.ts"
-      ]
-    },
-    {
-      "target": "ws.menu.stage",
-      "sources": [
-        "src/sidebar.ts",
-        "src/workspace.ts"
       ]
     },
     {
@@ -4112,7 +4104,7 @@
     {
       "name": "workspace_action_used",
       "properties": {
-        "action": "\"rename\" | \"pin\" | \"unpin\" | \"stage\" | \"finish\" | \"archive\" | \"restore\" | \"remove\" | \"cleanup\" | \"mark_read\" | \"mark_unread\""
+        "action": "\"rename\" | \"pin\" | \"unpin\" | \"finish\" | \"archive\" | \"restore\" | \"remove\" | \"cleanup\" | \"mark_read\" | \"mark_unread\""
       }
     }
   ]

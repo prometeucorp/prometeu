@@ -101,13 +101,6 @@ pub struct ArchiveEffects {
     pub changed: bool,
 }
 
-pub fn finish(board: &mut Board, id: &str) {
-    let last = board.stages.last().cloned();
-    if let (Some(stage), Some(workspace)) = (last, board.workspace_mut(id)) {
-        workspace.stage = stage;
-    }
-}
-
 pub fn archive(board: &mut Board, id: &str, archived: bool) -> ArchiveEffects {
     let Some(workspace) = board.workspace_mut(id) else {
         return ArchiveEffects::default();
@@ -152,7 +145,7 @@ mod archive_tests {
     }
 
     #[test]
-    fn archiving_preserves_sessions_files_stage_and_unrelated_workspaces() {
+    fn archiving_preserves_sessions_files_and_unrelated_workspaces() {
         let mut board = board();
         let mut expected = serde_json::to_value(&board).unwrap();
         expected["workspaces"][0]["archived"] = json!(true);
@@ -185,24 +178,6 @@ mod archive_tests {
             }
         );
         assert_eq!(serde_json::to_value(&board).unwrap(), expected);
-    }
-
-    #[test]
-    fn finishing_uses_the_persons_final_stage_without_changing_agent_state() {
-        let mut board = board();
-        let mut expected = serde_json::to_value(&board).unwrap();
-        expected["workspaces"][0]["stage"] = json!("Done");
-        finish(&mut board, "first");
-        assert_eq!(serde_json::to_value(&board).unwrap(), expected);
-        board.stages.clear();
-        let before = serde_json::to_value(&board).unwrap();
-        finish(&mut board, "first");
-        finish(&mut board, "missing");
-        assert_eq!(
-            archive(&mut board, "missing", true),
-            ArchiveEffects::default()
-        );
-        assert_eq!(serde_json::to_value(&board).unwrap(), before);
     }
 }
 

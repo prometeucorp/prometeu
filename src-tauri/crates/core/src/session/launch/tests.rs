@@ -85,7 +85,6 @@ impl Fixture {
 impl ResumePreparation for Fixture {
     fn prepare(&self, session: &str, snapshot: ResumeSnapshot) -> Result<PreparedResume, String> {
         self.effect("prepare");
-        assert_eq!(snapshot.workspace.stage, "review");
         if self.fail_prepare {
             return Err("invalid worktree".into());
         }
@@ -179,10 +178,6 @@ fn resume_prepares_outside_locks_and_installs_before_publication_and_readiness()
         );
         assert_ne!(lock(&fixture.host.conversations)["s"].0, old);
         assert!(fixture.host.is_ready("s"));
-        assert_eq!(
-            lock(&fixture.board).workspace_of("s").unwrap().stage,
-            "review"
-        );
     }
 }
 

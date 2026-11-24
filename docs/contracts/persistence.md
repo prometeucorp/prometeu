@@ -316,7 +316,12 @@ is covered by the board revival and mode round-trip tests in
 `crates/core/src/session/launch/tests.rs`, and desktop task/tab resume tests in
 `src-tauri/src/session.rs`.
 
-`Board` contains projects, stages, workspaces and the optional `actions`
+Workspace stages are retired ([ADR 0102](../decisions/0102-remove-workspace-stages.md)).
+Legacy `stages`/`columns` and `stage`/`column` fields are ignored on load and
+omitted on save. Workspaces and transcripts survive unchanged. Versions requiring
+those fields cannot read a newly saved board; use a pre-upgrade backup to downgrade.
+
+`Board` contains projects, workspaces and the optional `actions`
 catalog. The order of `projects` is the sidebar order the person chose by
 dragging; older boards keep their registration order. `Project.group` is the
 optional sidebar folder; it is written only when set, so older boards load

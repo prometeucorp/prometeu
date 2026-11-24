@@ -35,21 +35,21 @@ const samples = [
 const workspaces: Workspace[] = samples.map(([title, branch], index) => ({
   id: `preview-${index}`, title, branch, project: 'preview-sil', repo: '/sample/sil', repo_name: 'sil',
   worktree: `/sample/worktrees/${branch}`, repos: [{ path: '/sample/sil', name: 'sil', worktree: `/sample/worktrees/${branch}`, base: 'main', pr: null }],
-  stage: 'Fazendo', archived: false, pinned: false, unread: false, agent: 'codex',
+  archived: false, pinned: false, unread: false, agent: 'codex',
   model: index === 0 ? 'gpt-6-astra' : '', effort: 'high', mcp: null, plugins: null, skills: null,
   port: null, issue: null, cleaned: false, shared: false, audience: null, remote_control: false,
   confirm_messages: true, preparing: false, failed: null,
   tabs: [{ id: `tab-${index}`, title: index === 0 ? 'GPT-6-Astra' : 'Codex', status: 'pronta', note: null, tokens: null }], active: `tab-${index}`,
 }));
 const [parent, ...children] = workspaces;
-const board: Board = { stages: ['Preparando', 'Fazendo', 'Code review', 'Feito'], projects: [{ id: 'preview-sil', name: 'sil', path: '/sample/sil' }], workspaces };
+const board: Board = { projects: [{ id: 'preview-sil', name: 'sil', path: '/sample/sil' }], workspaces };
 const $ = (id: string) => document.getElementById(id)!;
 const noop = () => {};
 let selected = children[0];
 let collapsed = false;
 const hooks: sidebar.Hooks = {
   open: workspace => select(workspace), activeTab: () => selected.active,
-  setStage: noop, rename: noop, archive: noop, drop: noop, finish: noop, cleanup: noop, pin: noop, unread: noop,
+  rename: noop, archive: noop, drop: noop, finish: noop, cleanup: noop, pin: noop, unread: noop,
   reveal: noop, copyPath: noop, toDesk: noop, toIssues: noop, toArchived: noop,
   toNotifications: noop, notifications: () => 0, issues: () => null,
   addProject: noop, removeProject: noop, reorderProjects: noop, groupProjects: noop,

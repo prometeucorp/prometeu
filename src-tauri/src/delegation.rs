@@ -261,7 +261,7 @@ fn summary(board: &Board, d: &Delegation) -> Value {
         // Empty model/effort mean the provider CLI's default.
         "provider": launch.as_ref().map(|l| l.agent), "model": launch.as_ref().map(|l| &l.model),
         "effort": launch.as_ref().map(|l| &l.effort),
-        "workspace": ws.map(|w| json!({"title": w.title, "stage": w.stage,
+        "workspace": ws.map(|w| json!({"title": w.title,
             "preparing": w.preparing, "failed": w.failed, "archived": w.archived,
             "cleaned": w.cleaned, "branch": w.branch})),
         "conversation_status": tab.map(|t| match t.status {
@@ -548,7 +548,7 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
     let task = required(args, "task", 64 * 1024)?;
     let title = required(args, "title", 200)?;
     let state = app.state::<AppState>();
-    let (repos, choice, stage) = {
+    let (repos, choice) = {
         let board = lock(&state.board);
         client.validate(&board)?;
         if let Some(previous) =
@@ -557,11 +557,7 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
             return Ok(summary(&board, owned(&board, client, &previous.id)?));
         }
         let (repos, choice) = source(&board, client, args)?;
-        (
-            repos,
-            choice,
-            board.stages.first().cloned().unwrap_or_default(),
-        )
+        (repos, choice)
     };
     let permission = choice.permission;
     // An explicit project inherits only CLI defaults, not a running conversation's choice.
@@ -610,7 +606,7 @@ fn create(app: &AppHandle, client: &Client, args: &Value) -> Result<Value, Strin
         "project": primary.path,
         "extras": repos.iter().skip(1).map(|r| r.path.clone()).collect::<Vec<_>>(),
         "branch": format!("delegated-{}", &id[..12]), "base": base,
-        "worktree": true, "title": title, "stage": stage, "prompt": task, "inject": [],
+        "worktree": true, "title": title, "prompt": task, "inject": [],
         "agent": provider, "model": model, "effort": effort, "permission": permission,
         "mcp": [], "plugins": [], "skills": [],
     }))
@@ -1113,7 +1109,6 @@ mod tests {
             serde_json::from_value(serde_json::to_value(&board).unwrap()).unwrap();
         restored.revive();
         assert!(owned(&restored, &Client::conversation("coordinator"), "worker").is_ok());
-        assert_eq!(restored.workspaces[1].stage, "manual stage");
         assert_eq!(restored.delegations[0].request_key, "first");
     }
 
@@ -1666,7 +1661,7 @@ mod tests {
     }
 
     #[test]
-    fn send_rejects_busy_questions_pending_input_and_background_without_changing_stage() {
+    fn send_rejects_busy_questions_pending_input_and_background_without_changing_workspace() {
         let mut workspace = board().workspaces.remove(1);
         let mut d = delegation();
         assert!(check_send(&workspace, &d).is_ok());
@@ -1685,7 +1680,6 @@ mod tests {
         assert!(check_send(&workspace, &d).is_ok());
         workspace.archived = true;
         assert!(check_send(&workspace, &d).is_err());
-        assert_eq!(workspace.stage, "manual stage");
     }
 
     #[test]
