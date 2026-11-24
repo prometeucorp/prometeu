@@ -97,6 +97,55 @@ struct Submission {
     normalized: String,
 }
 
+/// Lines queued by `diagnose` and not yet written by its writer thread.
+static DIAGNOSTICS_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// One line in the private app log (stderr). Codes and identifiers only, never transcript content.
+pub(crate) fn diagnose(scope: &str, code: &str) {
+    static LOG: std::sync::OnceLock<Option<mpsc::SyncSender<String>>> = std::sync::OnceLock::new();
+    // Callers log right before stopping the agent: a full disk must not panic and a stalled
+    // stderr pipe must not block them, so one writer thread drains a bounded queue and
+    // lines are dropped once it is full. Without that thread, logging is skipped.
+    let log = LOG.get_or_init(|| {
+        let (sender, lines) = mpsc::sync_channel::<String>(256);
+        std::thread::Builder::new()
+            .name("terminal-diagnostics".into())
+            .spawn(move || {
+                for line in lines {
+                    let _ = writeln!(std::io::stderr().lock(), "{line}");
+                    DIAGNOSTICS_PENDING.fetch_sub(1, Ordering::SeqCst);
+                }
+            })
+            .ok()
+            .map(|_| sender)
+    });
+    let line = format!("{} {scope} terminal.{code}", conversation::now());
+    // Count before sending so the writer can never decrement below zero.
+    DIAGNOSTICS_PENDING.fetch_add(1, Ordering::SeqCst);
+    if log.as_ref().is_none_or(|log| log.try_send(line).is_err()) {
+        DIAGNOSTICS_PENDING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Gives queued diagnostics a short deadline to reach the log before the app exits; a
+/// stalled inherited stderr must not hold the quit.
+pub(crate) fn flush_diagnostics() {
+    wait_drained(&DIAGNOSTICS_PENDING, Duration::from_millis(500));
+}
+
+fn wait_drained(pending: &std::sync::atomic::AtomicUsize, limit: Duration) {
+    let deadline = Instant::now() + limit;
+    while pending.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Every unverifiable-history failure shares one user message; the log keeps the failing step.
+pub(crate) fn history(scope: &str, step: &str) -> String {
+    diagnose(scope, &format!("history.{step}"));
+    i18n::t("err.terminalAgent.history")
+}
+
 enum Observation {
     Live(NativeObservation),
     Ingestion(NativeIngestionBatch),
@@ -146,6 +195,7 @@ impl Observations {
         let warning = sender.clone();
         let prompt = sender.clone();
         let ingestion = sender.clone();
+        let session = config.session.clone();
         let mut native = TerminalAgentObservation::new(
             config,
             ObservationCallbacks {
@@ -188,19 +238,19 @@ impl Observations {
         if let Some(config) = cursor_store {
             native
                 .configure_cursor_store(config)
-                .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                .map_err(|_| history(&session, "cursor_store"))?;
         }
         if let Some(config) = antigravity_store {
             native
                 .configure_antigravity_store(config)
-                .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                .map_err(|_| history(&session, "antigravity_store"))?;
         }
         if source_ingestion {
             native
                 .set_ingestion(Box::new(move |batch| {
                     let _ = ingestion.send(Observation::Ingestion(batch));
                 }))
-                .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                .map_err(|_| history(&session, "ingestion_callback"))?;
         }
         Ok(Self {
             native,
@@ -226,14 +276,15 @@ impl Observations {
         for event in self.events.try_iter() {
             match event {
                 Observation::Ingestion(batch) => {
-                    journal.replay(&batch)?;
+                    // Step names only: the launch caller turns them into its history error.
+                    journal.replay(&batch).map_err(|_| "replay".to_owned())?;
                     self.native
                         .acknowledge_ingestion(&batch.id)
-                        .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                        .map_err(|_| "acknowledge".to_owned())?;
                 }
                 Observation::Baseline { revision, .. } => self.revision = Some(revision),
                 Observation::Warning(_) => {}
-                _ => return Err(i18n::t("err.terminalAgent.history")),
+                _ => return Err("unexpected_event".into()),
             }
         }
         Ok(())
@@ -247,21 +298,38 @@ impl Observations {
         context: &host::ConversationHost,
     ) -> Result<(), String> {
         use ingestion::NativeDisposition;
+        let scope = transport.generation.as_str();
         if batch.phase != prometeu_protocols::terminal_transcript::TranscriptPhase::Live {
-            return Err(i18n::t("err.terminalAgent.history"));
+            return Err(history(scope, "ingest.phase"));
         }
         let journal = transport
             .journal()
-            .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+            .ok_or_else(|| history(scope, "ingest.journal"))?;
         if batch.mode == crate::terminal_agent_observation::NativeIngestionMode::Append {
-            journal.begin_stream_batch(&batch)?;
+            journal.begin_stream_batch(&batch)
         } else {
-            journal.begin_batch(&batch)?;
+            journal.begin_batch(&batch)
         }
+        .map_err(|_| history(scope, &format!("ingest.begin:{:?}", batch.mode)))?;
         for record in &batch.records {
-            match journal.disposition(record)? {
+            // Occurrence and kind are native identifiers; the frame holds content and stays out.
+            let step = |name: &str| {
+                history(
+                    scope,
+                    &format!(
+                        "ingest.{name}:{}:{}",
+                        record.checkpoint["kind"], record.occurrence
+                    ),
+                )
+            };
+            match journal
+                .disposition(record)
+                .map_err(|_| step("disposition"))?
+            {
                 NativeDisposition::Duplicate | NativeDisposition::Checkpoint => {
-                    journal.commit_checkpoint(record)?;
+                    journal
+                        .commit_checkpoint(record)
+                        .map_err(|_| step("checkpoint"))?;
                     if record.checkpoint["kind"] == "turn"
                         && record.checkpoint["maintenance"] == "compact"
                     {
@@ -280,10 +348,13 @@ impl Observations {
                         let frame = record
                             .frame
                             .as_ref()
-                            .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
-                        if pump.feed_observed_committed(&frame.to_string(), |line, offset| {
-                            journal.commit_record(record, line, offset)
-                        })? {
+                            .ok_or_else(|| step("maintenance_frame"))?;
+                        if pump
+                            .feed_observed_committed(&frame.to_string(), |line, offset| {
+                                journal.commit_record(record, line, offset)
+                            })
+                            .map_err(|_| step("maintenance"))?
+                        {
                             self.maintenance = Some((record.occurrence.clone(), false));
                             self.completion = None;
                             let mut input = lock(&transport.input);
@@ -301,7 +372,9 @@ impl Observations {
                         &context.id,
                         &transport.generation,
                         record,
-                    )? {
+                    )
+                    .map_err(|_| step("user"))?
+                    {
                         transport.captured_input(pump);
                     }
                 }
@@ -309,28 +382,35 @@ impl Observations {
                     let frame = record
                         .frame
                         .as_ref()
-                        .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+                        .ok_or_else(|| step("revision_frame"))?;
                     if record.checkpoint["kind"] == "metadata"
                         && !prometeu_core::conversation::stream::persistent(frame)
                     {
                         // A changed historical usage/context fact has a receipt, but must not
                         // charge or replace state belonging to the current native request.
-                        journal.commit_checkpoint(record)?;
+                        journal
+                            .commit_checkpoint(record)
+                            .map_err(|_| step("revision_checkpoint"))?;
                     } else {
                         pump.revise_committed(&frame.to_string(), |line, offset| {
                             journal.commit_record(record, Some(line), offset)
-                        })?;
+                        })
+                        .map_err(|_| step("revision"))?;
                     }
                 }
                 NativeDisposition::Output => {
-                    transport.feed_native_output(pump, &journal, record)?;
+                    transport
+                        .feed_native_output(pump, &journal, record)
+                        .map_err(|_| step("output"))?;
                 }
             }
         }
-        journal.finish_batch(&batch)?;
+        journal
+            .finish_batch(&batch)
+            .map_err(|_| history(scope, "ingest.finish"))?;
         self.native
             .acknowledge_ingestion(&batch.id)
-            .map_err(|_| i18n::t("err.terminalAgent.history"))
+            .map_err(|_| history(scope, "ingest.acknowledge"))
     }
 
     fn poll(
@@ -347,7 +427,7 @@ impl Observations {
             .journal()
             .is_some_and(|journal| !journal.healthy())
         {
-            transport.abort_submission("");
+            transport.abort_submission("", "journal_unhealthy");
             return;
         }
         if transport.codex.is_some() {
@@ -405,8 +485,7 @@ impl Observations {
             match event {
                 Observation::Ingestion(batch) => {
                     if self.ingest(batch, transport, pump, context).is_err() {
-                        eprintln!("terminal.ingestion.failed");
-                        transport.abort_submission("");
+                        transport.abort_submission("", "ingestion");
                         return;
                     }
                 }
@@ -444,8 +523,8 @@ impl Observations {
                         .journal()
                         .is_some_and(|journal| journal.bind_native(&event.native_session).is_err())
                     {
-                        eprintln!("terminal.ingestion.identity");
-                        transport.abort_submission("");
+                        transport
+                            .abort_submission("", &format!("identity:{}", event.native_session));
                         return;
                     }
                     if let Some(path) = &event.transcript_path {
@@ -457,7 +536,7 @@ impl Observations {
                         );
                         if self.binding.as_ref() != Some(&binding) {
                             if binding.save(&paths::root()).is_err() {
-                                eprintln!("terminal.observation.binding");
+                                diagnose(&transport.generation, "observation.binding");
                                 continue;
                             }
                             self.binding = Some(binding);
@@ -479,13 +558,16 @@ impl Observations {
                     transport.observe_hook(&event, pump);
                 }
                 Observation::Hook(_) => {}
-                Observation::Warning(code) => eprintln!("{code}"),
+                Observation::Warning(code) => diagnose(
+                    &transport.generation,
+                    code.strip_prefix("terminal.").unwrap_or(code),
+                ),
             }
             if transport
                 .journal()
                 .is_some_and(|journal| !journal.healthy())
             {
-                transport.abort_submission("");
+                transport.abort_submission("", "journal_unhealthy_after_event");
                 return;
             }
         }
@@ -542,7 +624,7 @@ impl Observations {
                 .is_some_and(|journal| journal.caught_up())
             && self.complete(transport, pump).is_err()
         {
-            transport.abort_submission("");
+            transport.abort_submission("", "completion");
             return;
         }
         if !was_ready && transport.ready() && !context.setup_running() {
@@ -818,9 +900,10 @@ impl Transport {
         }
     }
 
-    pub(super) fn abort_submission(&self, id: &str) {
+    pub(super) fn abort_submission(&self, id: &str, reason: &str) {
         // The CLI may already have accepted input whose canonical commit failed. Stop this
         // incarnation instead of resending it or letting unjournaled observations continue.
+        diagnose(&self.generation, &format!("abort.{reason}"));
         self.retire();
         self.control.disconnect();
         self.process.kill();
@@ -1178,7 +1261,7 @@ impl Transport {
             for event in decisions.drain() {
                 pump.feed(&event.to_string());
                 if self.journal().is_some_and(|journal| !journal.healthy()) {
-                    self.abort_submission("");
+                    self.abort_submission("", "decision_journal_unhealthy");
                     break;
                 }
             }
@@ -1475,8 +1558,10 @@ fn pty_command(command: &Command) -> CommandBuilder {
     terminal
 }
 
-fn fail_io(transport: &Transport, events: &mpsc::Sender<ReadEvent>, error: String) {
+fn fail_io(transport: &Transport, events: &mpsc::Sender<ReadEvent>, reason: &str, error: String) {
     if !transport.gone.load(Ordering::Acquire) {
+        // Logged here because the Failed event is only projected once the tab is published.
+        diagnose(&transport.generation, &format!("abort.{reason}"));
         let _ = events.send(ReadEvent::Failed(error));
         transport.control.disconnect();
         transport.process.kill();
@@ -1514,7 +1599,7 @@ fn drain_native(
         match transport.output(&bytes[..count]) {
             Ok(native_replies) => responses.extend(native_replies),
             Err(error) => {
-                fail_io(transport, &events, error);
+                fail_io(transport, &events, "screen_output", error);
                 break;
             }
         }
@@ -1527,7 +1612,12 @@ fn drain_native(
         }
         if !responses.is_empty() && replies.try_send(responses).is_err() {
             // Bounded backpressure must not silently discard a reply or block the PTY reader.
-            fail_io(transport, &events, i18n::t("err.terminalAgent.screen"));
+            fail_io(
+                transport,
+                &events,
+                "reply_queue",
+                i18n::t("err.terminalAgent.screen"),
+            );
             break;
         }
         status.retain(|event| matches!(event, ProgramStatusEvent::Report(_)));
@@ -1550,7 +1640,7 @@ fn answer_queries(
                 return;
             }
             if let Err(error) = transport.write_bytes(&reply) {
-                fail_io(transport, &events, error);
+                fail_io(transport, &events, "reply_write", error);
                 return;
             }
         }
@@ -1638,6 +1728,11 @@ pub(crate) fn launch_on(
         initial_instructions,
     } = prepared;
     let generation = uuid::Uuid::new_v4().to_string();
+    // Correlates this incarnation's generation-scoped log lines with its tab.
+    diagnose(
+        &generation,
+        &format!("launch:{}:resumed={resumed}", request.session),
+    );
     let (mut bridge, hooks) = HookBridge::start(
         profile.provider,
         &request.session,
@@ -1646,7 +1741,7 @@ pub(crate) fn launch_on(
     )?;
     if provider == crate::state::ProviderId::Cursor {
         let mut witness = CursorStopWitness::new(&authorized_roots)
-            .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+            .map_err(|_| history(&request.session, "cursor_witness"))?;
         bridge.set_cursor_stop_capture(Box::new(move |event| witness.capture(event)));
     }
     let decisions = (provider == crate::state::ProviderId::Claude)
@@ -1672,24 +1767,25 @@ pub(crate) fn launch_on(
     let journal = ingestion::JournalStore::open(
         &paths::chat_log(&request.session),
         &ingestion::journal_path(&paths::root(), &request.session)
-            .map_err(|_| i18n::t("err.terminalAgent.history"))?,
+            .map_err(|_| history(&request.session, "journal_path"))?,
         JournalBinding {
             app_session: request.session.clone(),
             provider: serde_json::to_value(provider)
                 .ok()
                 .and_then(|value| value.as_str().map(str::to_owned))
-                .ok_or_else(|| i18n::t("err.terminalAgent.history"))?,
+                .ok_or_else(|| history(&request.session, "journal_provider"))?,
             native_session: provider_session.clone(),
         },
         !resumed,
     )
-    .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+    .map_err(|_| history(&request.session, "journal_open"))?;
     let cursor_store = if provider == crate::state::ProviderId::Cursor {
         Some(CursorObservationConfig {
-            chats_root: cursor_store_root.ok_or_else(|| i18n::t("err.terminalAgent.history"))?,
+            chats_root: cursor_store_root
+                .ok_or_else(|| history(&request.session, "cursor_root"))?,
             cli_version: bridge
                 .native_version()
-                .ok_or_else(|| i18n::t("err.terminalAgent.history"))?
+                .ok_or_else(|| history(&request.session, "cursor_version"))?
                 .into(),
             staging_root: paths::root().join("terminal-ingestion").join("snapshots"),
         })
@@ -1698,17 +1794,17 @@ pub(crate) fn launch_on(
     };
     let antigravity_store = if provider == crate::state::ProviderId::Antigravity {
         let conversations_root =
-            antigravity_store_root.ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+            antigravity_store_root.ok_or_else(|| history(&request.session, "antigravity_root"))?;
         let brain_root = conversations_root
             .parent()
-            .ok_or_else(|| i18n::t("err.terminalAgent.history"))?
+            .ok_or_else(|| history(&request.session, "antigravity_parent"))?
             .join("brain");
         Some(AntigravityObservationConfig {
             conversations_root,
             brain_root,
             cli_version: bridge
                 .native_version()
-                .ok_or_else(|| i18n::t("err.terminalAgent.history"))?
+                .ok_or_else(|| history(&request.session, "antigravity_version"))?
                 .into(),
             staging_root: paths::root().join("terminal-ingestion").join("snapshots"),
         })
@@ -1733,26 +1829,28 @@ pub(crate) fn launch_on(
         bridge.native_version(),
     )?;
     if let (Some(codex), Some(engine)) = (&codex, &engine) {
-        codex.replay(engine.history(), journal.as_ref())?;
+        codex
+            .replay(engine.history(), journal.as_ref())
+            .inspect_err(|_| diagnose(&request.session, "history.codex_replay"))?;
     }
     if resumed && engine.is_none() {
         let native = provider_session
             .as_deref()
-            .ok_or_else(|| i18n::t("err.terminalAgent.history"))?;
+            .ok_or_else(|| history(&request.session, "resume_native"))?;
         let saved =
             binding::Binding::load(&paths::root(), &request.session, profile.provider, native)
-                .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                .map_err(|_| history(&request.session, "binding_load"))?;
         if let Some(saved) = saved {
             observations
                 .native
                 .resume_from(saved.transcript.clone())
-                .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                .map_err(|_| history(&request.session, "resume_from"))?;
             observations.binding = Some(saved);
         } else if !matches!(
             provider,
             crate::state::ProviderId::Cursor | crate::state::ProviderId::Antigravity
         ) {
-            return Err(i18n::t("err.terminalAgent.history"));
+            return Err(history(&request.session, "binding_missing"));
         }
         // Cursor and AGY reauthorize their captured store and exact native metadata identity directly.
         // Its asynchronous SessionStart can precede creation of the derived JSONL binding.
@@ -1762,11 +1860,16 @@ pub(crate) fn launch_on(
         loop {
             match observations.native.poll() {
                 Ok(()) | Err(crate::terminal_agent_observation::ObservationError::Unstable) => {}
-                Err(_) => return Err(i18n::t("err.terminalAgent.history")),
+                Err(error) => {
+                    return Err(history(
+                        &request.session,
+                        &format!("baseline_poll:{error:?}"),
+                    ))
+                }
             }
             observations
                 .replay_pending(journal.as_ref())
-                .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+                .map_err(|error| history(&request.session, &format!("replay_pending:{error}")))?;
             if observations.native.baseline_ready()
                 && observations.native.caught_up()
                 && journal.caught_up()
@@ -1774,7 +1877,15 @@ pub(crate) fn launch_on(
                 break;
             }
             if Instant::now() >= deadline {
-                return Err(i18n::t("err.terminalAgent.history"));
+                return Err(history(
+                    &request.session,
+                    &format!(
+                        "baseline_timeout:ready={}:native={}:journal={}",
+                        observations.native.baseline_ready(),
+                        observations.native.caught_up(),
+                        journal.caught_up()
+                    ),
+                ));
             }
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -1793,7 +1904,7 @@ pub(crate) fn launch_on(
     // never be replaced with an empty buffer and then extended under incorrect line offsets.
     let lines = journal
         .seeded()
-        .map_err(|_| i18n::t("err.terminalAgent.history"))?;
+        .map_err(|_| history(&request.session, "seed"))?;
     let screen = screen::Screen::launch(
         &request.session,
         &generation,
@@ -1905,7 +2016,7 @@ pub(crate) fn launch_on(
             if published {
                 if let Some(codex) = &transport.codex {
                     if codex.refresh_usage().is_err() {
-                        transport.abort_submission("");
+                        transport.abort_submission("", "codex_usage");
                     }
                 }
             }
@@ -1918,7 +2029,7 @@ pub(crate) fn launch_on(
                     if published && codex.poll(events, &transport, &pump, &context).is_err()
                         || engine.as_ref().is_some_and(|engine| !engine.running())
                     {
-                        transport.abort_submission("");
+                        transport.abort_submission("", "codex_poll");
                         break;
                     }
                 }
@@ -1927,7 +2038,7 @@ pub(crate) fn launch_on(
                         // Observe persisted content before projecting any status in the same
                         // output batch. The terminal bytes themselves remain provider-owned.
                         if observations.queue_status(status_events).is_err() {
-                            transport.abort_submission("");
+                            transport.abort_submission("", "status_queue");
                             break;
                         }
                         observations.poll(&transport, &hooks, &pump, &context);
@@ -1996,6 +2107,7 @@ pub(crate) fn launch_on(
                 pump.feed(&frame.to_string());
             }
             let code = exit.as_ref().ok().copied();
+            diagnose(&transport.generation, &format!("exit:{code:?}"));
             if let Some(screen) = &transport.screen {
                 // TerminalOutput's empty exit chunk also consumes a chunk sequence.
                 let _ = screen.write(b"");
@@ -2100,6 +2212,40 @@ pub fn agent_terminal_resume(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flush_waits_for_queued_diagnostics_until_the_deadline() {
+        let pending = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let writer = Arc::clone(&pending);
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            writer.store(0, Ordering::SeqCst);
+        });
+        wait_drained(&pending, Duration::from_secs(5));
+        let waited = started.elapsed();
+        assert!(
+            waited >= Duration::from_millis(100),
+            "returned before the line was written"
+        );
+        assert!(
+            waited < Duration::from_secs(5),
+            "waited past a drained queue"
+        );
+
+        // A stalled writer never drains: the quit still proceeds at the deadline.
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let stalled = std::sync::atomic::AtomicUsize::new(1);
+            let started = Instant::now();
+            wait_drained(&stalled, Duration::from_millis(50));
+            let _ = sender.send(started.elapsed());
+        });
+        let waited = receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a stalled writer must not hold the wait open");
+        assert!(waited >= Duration::from_millis(50));
+    }
 
     struct Memory(Arc<Mutex<Vec<u8>>>);
     impl Write for Memory {

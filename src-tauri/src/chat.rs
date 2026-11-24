@@ -537,14 +537,21 @@ fn capture_input(
     if let (Some(transport), Some(submission)) = (&native_transport, &submission) {
         let uncertain = result.is_err() && transport.submission_write_started(&submission.id);
         if commit_failed || uncertain {
-            transport.abort_submission(&submission.id);
+            transport.abort_submission(
+                &submission.id,
+                if commit_failed {
+                    "submission_commit"
+                } else {
+                    "submission_uncertain"
+                },
+            );
         } else {
             if result.is_err() {
                 let cancelled = journal.as_ref().is_some_and(|journal| {
                     journal.cancel_unwritten_submission(&submission.id).is_ok()
                 });
                 if !cancelled {
-                    transport.abort_submission(&submission.id);
+                    transport.abort_submission(&submission.id, "submission_cancel");
                 }
             }
             transport.end_submission(&submission.id);

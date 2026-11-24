@@ -263,7 +263,7 @@ pub fn launch(
     let running = terminal.is_some_and(|t| t["running"] == json!(true)) || recovering;
     let effective =
         crate::chat::terminal::ingestion::resume_request(&crate::paths::root(), request)
-            .map_err(|_| crate::i18n::t("err.terminalAgent.history"))?;
+            .map_err(|_| crate::chat::terminal::history(&request.session, "resume_request"))?;
     let cwd = effective.worktree.clone();
     let transcript = mirror_path(
         machine,

@@ -148,6 +148,52 @@ fn install_crypto() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
+/// A Finder launch inherits /dev/null as stderr, which discards the diagnostic codes printed by
+/// the terminal host. Keep them in a private log under the app root instead. A stderr the caller
+/// chose (terminal, `2>file`, pipe) is left alone.
+fn persist_stderr() {
+    use std::os::{
+        fd::AsFd,
+        unix::{
+            fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+            io::AsRawFd,
+        },
+    };
+    // A closed stderr counts as discarded too.
+    let discarded = std::io::stderr()
+        .as_fd()
+        .try_clone_to_owned()
+        .and_then(|fd| std::fs::File::from(fd).metadata())
+        .map_or(true, |stderr| {
+            std::fs::metadata("/dev/null")
+                .is_ok_and(|null| null.dev() == stderr.dev() && null.ino() == stderr.ino())
+        });
+    if !discarded {
+        return;
+    }
+    let dir = paths::root().join("logs");
+    if paths::ensure_private_dir(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("prometeu.log");
+    // ponytail: rotates only at startup; one long session can exceed 5 MiB until the next launch.
+    if std::fs::metadata(&path).is_ok_and(|metadata| metadata.len() > 5 << 20) {
+        let _ = std::fs::rename(&path, dir.join("prometeu.log.1"));
+    }
+    if let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)
+    {
+        // `mode` applies only on creation; a restored or older log may be wider.
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
+        // SAFETY: both descriptors are valid; dup2 keeps stderr open after `file` drops.
+        unsafe { libc::dup2(file.as_raw_fd(), libc::STDERR_FILENO) };
+    }
+}
+
 fn main() {
     if std::env::args().nth(1).as_deref() == Some("--terminal-agent-hook") {
         let _ = terminal_agent_hooks::run();
@@ -170,6 +216,7 @@ fn main() {
         }
         return;
     }
+    persist_stderr();
     install_crypto();
     analytics::track(analytics::Event::AppOpened);
     adopt_login_path();
@@ -468,6 +515,7 @@ fn main() {
                 notifications::shutdown();
                 accounts::shutdown();
                 state::save_now(app);
+                chat::terminal::flush_diagnostics();
             }
             _ => {}
         });
