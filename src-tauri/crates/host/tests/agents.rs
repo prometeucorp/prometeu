@@ -46,6 +46,9 @@ impl Machine {
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = PathBuf::from("/tmp").join(format!("pa-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Git and Claude report physical paths (macOS's /tmp is a link to /private/tmp).
+        let dir = std::fs::canonicalize(&dir).unwrap();
         let root = dir.join("r");
         let home = dir.join("h");
         std::fs::create_dir_all(&home).unwrap();
@@ -158,6 +161,9 @@ impl Agent {
         let mut line = String::new();
         self.reader.read_line(&mut line).unwrap();
         let reply: Value = serde_json::from_str(&line).unwrap();
+        if reply["event"] == "error" {
+            return Err(format!("event {}", reply["error"].as_str().unwrap()));
+        }
         assert_eq!(reply["id"], self.next);
         match reply.get("error") {
             Some(error) => Err(error.as_str().unwrap().to_string()),
@@ -277,6 +283,15 @@ fn an_agent_drives_a_workspace_without_a_desktop() {
         .unwrap()
         .contains("\u{1b}[200~also add a test\u{1b}[201~"));
 
+    // Commits only this branch holds would be lost with it.
+    sh(
+        Path::new(&worktree),
+        "echo c > c && git add c && git commit -qm work",
+    );
+    assert!(agent
+        .call("workspace_close", json!({"id": workspace}))
+        .unwrap_err()
+        .starts_with("unpushed_commits"));
     std::fs::write(Path::new(&worktree).join("b"), "dirty").unwrap();
     assert!(agent
         .call("workspace_close", json!({"id": workspace}))
@@ -314,6 +329,42 @@ fn an_agent_drives_a_workspace_without_a_desktop() {
     };
     assert_eq!(reply["result"]["projects"][0]["path"], repo);
     assert_eq!(reply["result"]["workspaces"][0]["id"], workspace);
+}
+
+#[test]
+fn rotating_the_token_and_moving_the_socket_cut_off_old_access() {
+    let machine = Machine::new();
+    let (writer, reader, ready) = machine.connect(machine.token().trim());
+    assert_eq!(ready["event"], "ready");
+    let mut agent = Agent {
+        writer,
+        reader,
+        next: 0,
+    };
+    agent.call("projects_list", json!({})).unwrap();
+    let rotated = Command::new(BIN)
+        .args(["agents", "setup", "--rotate", "--root"])
+        .arg(&machine.root)
+        .output()
+        .unwrap();
+    assert!(rotated.status.success());
+    assert_eq!(
+        agent.call("projects_list", json!({})).unwrap_err(),
+        "event unauthorized"
+    );
+
+    let old = machine.socket();
+    let moved = machine.dir.join("moved.sock");
+    let setup = Command::new(BIN)
+        .args(["agents", "setup", "--socket"])
+        .arg(&moved)
+        .arg("--root")
+        .arg(&machine.root)
+        .output()
+        .unwrap();
+    assert!(setup.status.success());
+    machine.wait_for("the socket to move", || moved.exists() && !old.exists());
+    assert!(UnixStream::connect(&old).is_err());
 }
 
 #[test]

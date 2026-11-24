@@ -119,7 +119,16 @@ impl Store {
     fn load(&self) -> Result<Registry, String> {
         match std::fs::read(&self.path) {
             Ok(bytes) => {
-                serde_json::from_slice(&bytes).map_err(|e| format!("registry unreadable: {e}"))
+                let registry: Registry = serde_json::from_slice(&bytes)
+                    .map_err(|e| format!("registry unreadable: {e}"))?;
+                // Rewriting a newer format would silently drop what this host does not know.
+                if registry.version > VERSION {
+                    return Err(format!(
+                        "registry version {} is newer than this host supports",
+                        registry.version
+                    ));
+                }
+                Ok(registry)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Registry::default()),
             Err(e) => Err(e.to_string()),
@@ -149,7 +158,11 @@ impl Store {
 /// Write `bytes` to `path` (0600) through a temporary file and a rename.
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".tmp-{}-{n}", std::process::id()));
+    let temporary = path.with_file_name(name);
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .truncate(true)
@@ -202,6 +215,23 @@ mod tests {
             &std::fs::metadata(dir.join(FILE)).unwrap().permissions(),
         );
         assert_eq!(mode & 0o777, 0o600);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_newer_registry_is_never_rewritten() {
+        let dir = std::env::temp_dir().join(format!("registry-new-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(FILE),
+            r#"{"version":2,"projects":[],"future":[1]}"#,
+        )
+        .unwrap();
+        let store = Store::new(&dir);
+        assert!(store.update(|_| Ok(())).is_err());
+        assert!(std::fs::read_to_string(dir.join(FILE))
+            .unwrap()
+            .contains("future"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

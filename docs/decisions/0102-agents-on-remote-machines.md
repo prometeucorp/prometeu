@@ -101,9 +101,11 @@ claude --session-id <id> --dangerously-skip-permissions \
 ### Observed state
 
 The host now reads every hook it relays, whether or not a desktop is attached,
-and keeps each conversation's state: `starting`, `working` (`UserPromptSubmit`
-or tool hooks), `waiting` (`Stop`), `attention` (`Notification`) and `ended`
-(exit). Queued delivery to the desktop is unchanged.
+and keeps each conversation's state: `starting` (no hook yet), `working`
+(`UserPromptSubmit` or tool hooks), `idle` (`SessionStart` or `Stop`), `permission`
+(`PermissionRequest`) and `ended` (no running terminal). A `Notification` does
+not change the state; its message is kept in a separate `notification` field
+until the conversation works again. Queued delivery to the desktop is unchanged.
 
 Messages come from Claude's own transcript
 (`~/.claude/projects/<slug>/<id>.jsonl`). The host returns user and assistant
@@ -121,19 +123,33 @@ it is working, as it does for a person typing.
   container is a deployment choice. The default is `<root>/agents/`, which only
   the owner can reach. The socket is 0666 inside its directory. What authorizes a
   client is the token.
-- The token is 32 random bytes in `<root>/agents/token` (0600), created on the
-  first `prometeu-host agents token` and replaced by `--rotate`. Each connection's
-  first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`. The
-  host compares the token in constant time and closes the connection on any
-  mismatch.
+- The token is 32 random bytes in `<root>/agents/token` (0600), created by the
+  first `prometeu-host agents setup` and replaced by `agents setup --rotate`. Each
+  connection's first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
+  The host compares the token in constant time on that frame and again before
+  every request. A connection whose token no longer matches is closed, so
+  rotation cuts off clients that are already connected.
+- Whoever reaches the socket can hold connections open, so connections waiting
+  to authenticate are capped and given a deadline, and authenticated
+  connections are capped too.
+- The socket's path can change at run time. The host replaces an existing entry
+  only when it is a socket nobody answers. When it moves, the old listener stops
+  and the old socket is removed, so the directory it left no longer reaches the
+  host.
 - Methods: `projects_list`, `project_add { path }`, `project_clone { url, path? }`,
   `workspace_create { project, prompt, title?, branch?, base? }`, `workspace_list`,
   `workspace_get { id }`, `conversation_open { workspace, prompt }`,
   `conversation_read { id, cursor?, limit? }`, `conversation_send { id, text }`,
   `conversation_interrupt { id }` and `workspace_close { id, force? }`.
 - `workspace_close` ends the workspace's terminals and removes its worktree and
-  local branch, as the desktop's cleanup does. Without `force`, it refuses a
-  worktree with uncommitted changes.
+  local branch, as the desktop's cleanup does. Without `force`, it refuses what
+  would lose work: uncommitted changes, or commits that only the branch holds
+  (on neither its base nor any remote). It checks both before stopping the
+  conversations and again after they exit, and while a workspace is closing, no
+  conversation can start in it.
+- A request lost with its connection has an unknown outcome. The MCP server
+  sends again only requests that change nothing; for the others it tells the
+  agent to check the state before retrying, so a message is never typed twice.
 
 `prometeu-host mcp --socket <path>` is a stdio MCP server that exposes those
 methods as tools. It reads the token from `PROMETEU_AGENT_TOKEN`, so it fits the

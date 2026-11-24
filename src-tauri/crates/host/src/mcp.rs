@@ -7,6 +7,22 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 const SERVER_PROTOCOL: &str = "2025-06-18";
+/// Versions whose tool calls this server answers identically.
+const SUPPORTED: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+/// Methods that change nothing, so a request lost with its connection can be sent again.
+const READ_ONLY: &[&str] = &[
+    "projects_list",
+    "workspace_list",
+    "workspace_get",
+    "conversation_read",
+];
+
+/// Where a call failed: before the request left (safe to send again) or after (its outcome is
+/// unknown).
+enum Failure {
+    Before(String),
+    After(String),
+}
 
 struct Tool {
     name: &'static str,
@@ -139,21 +155,37 @@ impl Socket {
         Ok(())
     }
 
-    fn call_once(&mut self, method: &str, params: &Value) -> Result<Result<Value, String>, String> {
+    fn call_once(
+        &mut self,
+        method: &str,
+        params: &Value,
+    ) -> Result<Result<Value, String>, Failure> {
         if self.stream.is_none() {
-            self.connect()?;
+            self.connect().map_err(Failure::Before)?;
         }
         self.next += 1;
         let id = self.next;
-        let (writer, reader) = self.stream.as_mut().ok_or("not connected")?;
+        let (writer, reader) = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| Failure::Before("not connected".into()))?;
         let request = json!({"id": id, "method": method, "params": params});
-        writeln!(writer, "{request}").map_err(|e| e.to_string())?;
+        writeln!(writer, "{request}").map_err(|e| Failure::Before(e.to_string()))?;
         loop {
             let mut line = String::new();
-            if reader.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-                return Err("the host closed the connection".into());
+            match reader.read_line(&mut line) {
+                Ok(0) => return Err(Failure::After("the host closed the connection".into())),
+                Ok(_) => {}
+                Err(e) => return Err(Failure::After(e.to_string())),
             }
-            let reply: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            let reply: Value =
+                serde_json::from_str(&line).map_err(|e| Failure::After(e.to_string()))?;
+            if reply["event"] == "error" {
+                return Err(Failure::After(format!(
+                    "the host refused the request: {}",
+                    reply["error"].as_str().unwrap_or("unknown")
+                )));
+            }
             if reply["id"] != json!(id) {
                 continue;
             }
@@ -164,13 +196,27 @@ impl Socket {
         }
     }
 
-    /// Call the host, reconnecting once when the connection was lost (the host restarted).
+    /// Call the host. A request that never left is sent again on a new connection (the host
+    /// restarted); one lost after it left is repeated only when it changes nothing, because the
+    /// host may already have done it.
     fn call(&mut self, method: &str, params: &Value) -> Result<Value, String> {
+        let failure = match self.call_once(method, params) {
+            Ok(result) => return result,
+            Err(failure) => failure,
+        };
+        self.stream = None;
+        if let Failure::After(error) = failure {
+            if !READ_ONLY.contains(&method) {
+                return Err(format!(
+                    "{error}. The outcome is unknown: check with list_workspaces or read_conversation before retrying"
+                ));
+            }
+        }
         match self.call_once(method, params) {
             Ok(result) => result,
-            Err(_) => {
+            Err(Failure::Before(error) | Failure::After(error)) => {
                 self.stream = None;
-                self.call_once(method, params)?
+                Err(error)
             }
         }
     }
@@ -191,6 +237,7 @@ fn handle(socket: &mut Socket, message: &Value) -> Option<Value> {
             let protocol = message
                 .pointer("/params/protocolVersion")
                 .and_then(Value::as_str)
+                .filter(|v| SUPPORTED.contains(v))
                 .unwrap_or(SERVER_PROTOCOL);
             reply(
                 &id,
@@ -283,6 +330,84 @@ mod tests {
             assert!(methods.insert(tool.method), "{} repeats", tool.method);
             assert_eq!((tool.schema)()["type"], "object");
         }
+    }
+
+    /// A host that accepts connections, answers the hello, and then either drops each request
+    /// (the first `drops` connections) or answers it. Returns how many requests it received.
+    fn flaky_host(path: PathBuf, drops: usize) -> std::sync::mpsc::Receiver<String> {
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (seen, requests) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let stream = stream.unwrap();
+                let mut writer = stream.try_clone().unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                writeln!(writer, "{}", json!({"event": "ready"})).unwrap();
+                line.clear();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let request: Value = serde_json::from_str(&line).unwrap();
+                seen.send(request["method"].as_str().unwrap().to_string())
+                    .unwrap();
+                if n >= drops {
+                    writeln!(writer, "{}", json!({"id": request["id"], "result": []})).unwrap();
+                }
+            }
+        });
+        requests
+    }
+
+    fn socket(path: PathBuf) -> Socket {
+        Socket {
+            path,
+            token: "t".into(),
+            client: "test".into(),
+            stream: None,
+            next: 0,
+        }
+    }
+
+    #[test]
+    fn a_lost_reply_repeats_only_requests_that_change_nothing() {
+        let dir = std::env::temp_dir().join(format!("mcp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path = dir.join("write.sock");
+        let requests = flaky_host(path.clone(), 1);
+        let error = socket(path)
+            .call("conversation_send", &json!({"id": "c", "text": "hi"}))
+            .unwrap_err();
+        assert!(error.contains("outcome is unknown"), "{error}");
+        assert_eq!(requests.recv().unwrap(), "conversation_send");
+        assert!(requests
+            .recv_timeout(std::time::Duration::from_millis(200))
+            .is_err());
+
+        let path = dir.join("read.sock");
+        let requests = flaky_host(path.clone(), 1);
+        assert_eq!(
+            socket(path).call("workspace_list", &json!({})).unwrap(),
+            json!([])
+        );
+        assert_eq!(requests.iter().take(2).count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unsupported_protocol_versions_get_the_servers_own() {
+        let mut socket = socket("/nonexistent".into());
+        let init = |version: &str| {
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": version}})
+        };
+        let old = handle(&mut socket, &init("2024-11-05")).unwrap();
+        assert_eq!(old["result"]["protocolVersion"], "2024-11-05");
+        let future = handle(&mut socket, &init("2099-01-01")).unwrap();
+        assert_eq!(future["result"]["protocolVersion"], SERVER_PROTOCOL);
     }
 
     #[test]
