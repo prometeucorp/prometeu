@@ -4,6 +4,20 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.45.0] - 2026-11-24
+
+### New
+
+- **launcher:** Put run on, project and base branch on one row
+
+### Fixes
+
+- **launcher:** Point empty machines to settings before asking for a branch
+- **terminal:** Log why terminal tabs stop and fail to resume
+- **terminal:** Keep diagnostic logging from blocking cleanup
+- **terminal:** Keep a stalled stderr from blocking agent cleanup
+- **terminal:** Keep the last stop reasons in the log when quitting
+
 ## [0.44.0] - 2026-11-23
 
 ### New
