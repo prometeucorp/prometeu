@@ -99,13 +99,20 @@ struct Submission {
 
 /// One line in the private app log (stderr). Codes and identifiers only, never transcript content.
 pub(crate) fn diagnose(scope: &str, code: &str) {
-    use std::io::Write;
-    // A full disk must not panic before the caller stops the agent or closes its tab.
-    let _ = writeln!(
-        std::io::stderr().lock(),
-        "{} {scope} terminal.{code}",
-        conversation::now()
-    );
+    static LOG: std::sync::OnceLock<mpsc::SyncSender<String>> = std::sync::OnceLock::new();
+    // Callers log right before stopping the agent: a full disk must not panic and a stalled
+    // stderr pipe must not block them, so one writer thread drains a bounded queue and
+    // lines are dropped once it is full.
+    let log = LOG.get_or_init(|| {
+        let (sender, lines) = mpsc::sync_channel::<String>(256);
+        std::thread::spawn(move || {
+            for line in lines {
+                let _ = writeln!(std::io::stderr().lock(), "{line}");
+            }
+        });
+        sender
+    });
+    let _ = log.try_send(format!("{} {scope} terminal.{code}", conversation::now()));
 }
 
 /// Every unverifiable-history failure shares one user message; the log keeps the failing step.
