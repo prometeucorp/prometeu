@@ -128,6 +128,9 @@ const TOOLS: &[Tool] = &[
 
 struct Socket {
     path: PathBuf,
+    /// The host's user ID as this process sees it. When set, the token is sent only to a listener
+    /// running as that user, so a replaced socket cannot collect it.
+    host_uid: Option<u32>,
     token: String,
     client: String,
     stream: Option<(UnixStream, BufReader<UnixStream>)>,
@@ -138,6 +141,16 @@ impl Socket {
     fn connect(&mut self) -> Result<(), String> {
         let stream = UnixStream::connect(&self.path)
             .map_err(|e| format!("Prometeu host unreachable at {}: {e}", self.path.display()))?;
+        if let Some(expected) = self.host_uid {
+            let actual = peer_uid(&stream);
+            if actual != Some(expected) {
+                return Err(format!(
+                    "refusing to send the token: the socket at {} is served by user {}, not {expected}",
+                    self.path.display(),
+                    actual.map_or("unknown".into(), |u| u.to_string())
+                ));
+            }
+        }
         let mut writer = stream.try_clone().map_err(|e| e.to_string())?;
         let mut reader = BufReader::new(stream);
         let hello = json!({"hello": {"protocol": AGENT_PROTOCOL, "token": self.token, "client": self.client}});
@@ -222,6 +235,34 @@ impl Socket {
     }
 }
 
+/// The user ID of the process on the other end of a Unix socket.
+#[cfg(target_os = "linux")]
+fn peer_uid(stream: &UnixStream) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
+    // SAFETY: getsockopt writes at most `length` bytes into a zeroed, plain-data ucred.
+    unsafe {
+        let mut credentials: libc::ucred = std::mem::zeroed();
+        let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        let result = libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            &mut credentials as *mut libc::ucred as *mut libc::c_void,
+            &mut length,
+        );
+        (result == 0).then_some(credentials.uid)
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn peer_uid(stream: &UnixStream) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
+    let (mut uid, mut gid) = (0, 0);
+    // SAFETY: getpeereid only writes the two IDs.
+    let result = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
+    (result == 0).then_some(uid)
+}
+
 fn reply(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
@@ -291,8 +332,18 @@ pub fn run(path: PathBuf) -> Result<(), String> {
     let token = std::env::var("PROMETEU_AGENT_TOKEN")
         .map_err(|_| "PROMETEU_AGENT_TOKEN is not set".to_string())?;
     let client = std::env::var("PROMETEU_AGENT_NAME").unwrap_or_else(|_| "mcp".into());
+    let host_uid = match std::env::var("PROMETEU_AGENT_HOST_UID") {
+        Ok(value) => Some(
+            value
+                .trim()
+                .parse::<u32>()
+                .map_err(|_| "PROMETEU_AGENT_HOST_UID is not a user ID".to_string())?,
+        ),
+        Err(_) => None,
+    };
     let mut socket = Socket {
         path,
+        host_uid,
         token: token.trim().to_string(),
         client,
         stream: None,
@@ -363,6 +414,7 @@ mod tests {
     fn socket(path: PathBuf) -> Socket {
         Socket {
             path,
+            host_uid: None,
             token: "t".into(),
             client: "test".into(),
             stream: None,
@@ -398,6 +450,34 @@ mod tests {
     }
 
     #[test]
+    fn the_token_goes_only_to_the_expected_user() {
+        let dir = std::env::temp_dir().join(format!("mcp-uid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("h.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (heard, hellos) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut line = String::new();
+                let _ = BufReader::new(stream.unwrap()).read_line(&mut line);
+                let _ = heard.send(line);
+            }
+        });
+        // SAFETY: getuid has no preconditions.
+        let me = unsafe { libc::getuid() };
+        let mut impostor = socket(path.clone());
+        impostor.host_uid = Some(me.wrapping_add(1));
+        let error = impostor.call("projects_list", &json!({})).unwrap_err();
+        assert!(error.contains("refusing to send the token"), "{error}");
+        let line = hellos
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap_or_default();
+        assert!(!line.contains("\"t\""), "the token reached the listener");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn unsupported_protocol_versions_get_the_servers_own() {
         let mut socket = socket("/nonexistent".into());
         let init = |version: &str| {
@@ -414,6 +494,7 @@ mod tests {
     fn notifications_get_no_reply() {
         let mut socket = Socket {
             path: "/nonexistent".into(),
+            host_uid: None,
             token: String::new(),
             client: String::new(),
             stream: None,

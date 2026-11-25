@@ -101,7 +101,7 @@ unknown outcome.
 | `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path, inserts or replaces a workspace by ID |
 | `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
 | `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
-| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs |
+| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs or an agent request that changes the machine is in progress |
 
 Terminal and watch IDs match `[A-Za-z0-9_-]{1,128}`. Unknown terminals answer
 `unknown_terminal`, which the desktop treats as a process lost with the host.
@@ -209,6 +209,14 @@ authenticated connections are served; the next gets `"busy"`. Otherwise the
 host answers `{"event":"ready","protocol":1,"version"}` and serves `{ id,
 method, params }` requests in order with `{ id, result }` or `{ id, error }`.
 `client` (at most 64 characters) is recorded as the creator's `name`.
+Requests that change the machine (`project_add`, `project_clone`,
+`workspace_create`, `conversation_open`, `conversation_send`,
+`conversation_interrupt`, `workspace_close`) delay a non-forced `shutdown`. Once a
+shutdown has started, they fail with `host_stopping`.
+
+The token authorizes running commands as the host's user, so only that user may
+be able to write to the socket's directory: whoever can replace the socket can
+collect the token from the next client.
 
 | Method | Params | Result |
 | --- | --- | --- |
@@ -265,7 +273,10 @@ it, and a `{ role: "system", kind: "skipped" }` message reports its size. A
 reply carries at most 4 MiB of serialized messages: a page ends before the
 record that would exceed it, and a record that alone exceeds it keeps the
 messages that fit, followed by a `skipped` message counting the rest. A tail
-read drops its oldest messages to fit.
+read drops its oldest messages to fit. A cursor that does not follow a newline
+points inside a record, which a tail read returns when its window holds no line
+boundary. Reading from it waits for that record to end, then continues after
+it with a `skipped` message.
 
 `conversation_send` writes the text as a bracketed paste and, 150 ms later,
 Enter, holding the terminal's input across both so that concurrent messages
@@ -276,9 +287,10 @@ prompts, so such a conversation must be resumed from the desktop.
 the registry, never other terminals of the host.
 
 `workspace_close` refuses, unless `force`, a worktree with `git status
---porcelain` output (`uncommitted_changes`). Unless `keep_branch`, it also
-refuses one whose `HEAD` has commits on neither the base, resolved in the main
-checkout, nor any remote (`unpushed_commits`). It checks before ending the
+--porcelain` output (`uncommitted_changes`). It also refuses
+(`unpushed_commits`) when the worktree's `HEAD`, or the branch when it is to be
+deleted, has commits on neither the base, resolved in the main checkout, nor
+any remote. A kept branch counts as holding its commits. It checks before ending the
 conversations' terminals and again after they exit. When the second check
 refuses, the conversations stay ended: `conversation_send` resumes those whose
 `permission` is `auto`, and the others resume from the desktop.
@@ -293,7 +305,11 @@ branch. Finally it marks the workspace closed.
 `prometeu-host mcp [--socket PATH]` speaks MCP over stdio, newline-delimited
 JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.
 Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
-label, `PROMETEU_AGENT_NAME`, and connects lazily. It answers `initialize` with
+label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID`
+is set, it sends the token only to a listener whose peer credentials report
+that user ID, as the client's user namespace sees it. A rootless container
+usually sees the host's user as 65534. `agents setup` prints the host's own ID
+for that variable. It answers `initialize` with
 the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
 and with 2025-06-18 otherwise. When the connection fails before a request is
 sent, it reconnects and sends the request once more. When the connection is lost

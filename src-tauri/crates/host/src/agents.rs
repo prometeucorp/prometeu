@@ -424,12 +424,59 @@ fn optional<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|v| !v.is_empty())
 }
 
+/// Requests that change the machine. A non-forced shutdown waits for none to be running, and once
+/// a shutdown starts no new one begins, so an update never interrupts a request halfway (a
+/// worktree created but not yet recorded, for example).
+const MUTATING: &[&str] = &[
+    "project_add",
+    "project_clone",
+    "workspace_create",
+    "conversation_open",
+    "conversation_send",
+    "conversation_interrupt",
+    "workspace_close",
+];
+static MUTATIONS: AtomicUsize = AtomicUsize::new(0);
+static STOPPING: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug)]
+struct Mutation;
+impl Mutation {
+    fn begin() -> Result<Self, String> {
+        MUTATIONS.fetch_add(1, Ordering::SeqCst);
+        if STOPPING.load(Ordering::SeqCst) {
+            MUTATIONS.fetch_sub(1, Ordering::SeqCst);
+            return Err("host_stopping: the host is shutting down; retry in a moment".into());
+        }
+        Ok(Self)
+    }
+}
+impl Drop for Mutation {
+    fn drop(&mut self) {
+        MUTATIONS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Stop new agent changes before the host exits. Without `force`, refuse while one is running.
+pub fn begin_shutdown(force: bool) -> Result<(), String> {
+    STOPPING.store(true, Ordering::SeqCst);
+    if !force && MUTATIONS.load(Ordering::SeqCst) > 0 {
+        STOPPING.store(false, Ordering::SeqCst);
+        return Err("host_busy".into());
+    }
+    Ok(())
+}
+
 fn dispatch(
     host: &Arc<Host>,
     creator: &Creator,
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
+    let _mutation = match MUTATING.contains(&method) {
+        true => Some(Mutation::begin()?),
+        false => None,
+    };
     match method {
         "ping" => Ok(json!({})),
         "projects_list" => Ok(json!(host.registry.read()?.projects)),
@@ -950,10 +997,29 @@ fn read_transcript(
     budget: usize,
 ) -> Result<Value, String> {
     let size = file.metadata().map_err(|e| e.to_string())?.len();
-    let (start, tail) = match cursor {
+    let (mut start, tail) = match cursor {
         Some(cursor) => (cursor.min(size), false),
         None => (size.saturating_sub(window), true),
     };
+    // A cursor inside a record (a tail read that found no line boundary) resumes after that
+    // record ends, reporting the part it could not read.
+    let mut skipped = None;
+    if !tail && start > 0 {
+        let mut previous = [0u8; 1];
+        file.seek(SeekFrom::Start(start - 1))
+            .map_err(|e| e.to_string())?;
+        file.read_exact(&mut previous).map_err(|e| e.to_string())?;
+        if previous[0] != b'\n' {
+            match next_line(file, start)? {
+                Some(after) => {
+                    skipped = Some(json!({"role": "system", "kind": "skipped",
+                        "text": "the rest of a transcript record too large to read was skipped"}));
+                    start = after;
+                }
+                None => return Ok(json!({"messages": [], "cursor": start, "more": false})),
+            }
+        }
+    }
     file.seek(SeekFrom::Start(start))
         .map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
@@ -969,7 +1035,7 @@ fn read_transcript(
             .position(|b| *b == b'\n')
             .map_or(bytes.len(), |p| p + 1);
     }
-    let mut messages: Vec<Value> = Vec::new();
+    let mut messages: Vec<Value> = skipped.into_iter().collect();
     let mut used = 0;
     let mut consumed = offset;
     let mut more = false;
@@ -1066,9 +1132,6 @@ fn losses(workspace: &Workspace) -> Result<Option<String>, String> {
     if !status.is_empty() {
         return Ok(Some(format!("uncommitted_changes\n{status}")));
     }
-    if workspace.keep_branch {
-        return Ok(None);
-    }
     // The base names a ref of the main checkout (`HEAD` there is not the worktree's HEAD).
     let base = git(
         &workspace.project,
@@ -1078,12 +1141,20 @@ fn losses(workspace: &Workspace) -> Result<Option<String>, String> {
             &format!("{}^{{commit}}", workspace.base),
         ],
     );
+    // Removing the worktree drops what only its HEAD reaches (it may be detached), and deleting
+    // the branch drops what only the branch reaches; a kept branch still holds its commits.
+    let branch = format!("refs/heads/{}", workspace.branch);
     let unique = base
         .and_then(|base| {
-            git(
-                &workspace.worktree,
-                &["rev-list", "--count", "HEAD", "--not", "--remotes", &base],
-            )
+            let mut args = vec!["rev-list", "--count", "HEAD"];
+            if !workspace.keep_branch {
+                args.push(&branch);
+            }
+            args.extend(["--not", "--remotes", &base]);
+            if workspace.keep_branch {
+                args.push(&branch);
+            }
+            git(&workspace.worktree, &args)
         })
         .ok()
         .and_then(|count| count.parse::<u64>().ok());
@@ -1355,6 +1426,45 @@ mod tests {
         assert!(messages.len() < 6);
         assert_eq!(second["more"], false);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_cursor_inside_a_record_resumes_after_it_and_says_so() {
+        let dir = scratch("inside");
+        let path = dir.join("t.jsonl");
+        let huge = format!(
+            r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
+            "z".repeat(300)
+        );
+        // Still being written: no newline yet.
+        std::fs::write(&path, &huge).unwrap();
+        let mut file = std::fs::File::open(&path).unwrap();
+        let tail = read_transcript(&mut file, None, 50, 64, REPLY_BUDGET).unwrap();
+        let cursor = tail["cursor"].as_u64().unwrap();
+        let waiting = read_transcript(&mut file, Some(cursor), 50, 64, REPLY_BUDGET).unwrap();
+        assert_eq!(waiting["messages"], json!([]));
+        assert_eq!(waiting["cursor"], cursor);
+        let small = r#"{"type":"user","message":{"content":"next"}}"#;
+        std::fs::write(&path, format!("{huge}\n{small}\n")).unwrap();
+        let mut file = std::fs::File::open(&path).unwrap();
+        let after = read_transcript(&mut file, Some(cursor), 50, 64, REPLY_BUDGET).unwrap();
+        assert_eq!(after["messages"][0]["kind"], "skipped");
+        assert_eq!(after["messages"][1]["text"], "next");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shutdown_waits_for_running_changes_and_then_refuses_new_ones() {
+        let running = Mutation::begin().unwrap();
+        assert_eq!(begin_shutdown(false).unwrap_err(), "host_busy");
+        assert!(
+            Mutation::begin().is_ok(),
+            "a refused shutdown changes nothing"
+        );
+        drop(running);
+        begin_shutdown(false).unwrap();
+        assert!(Mutation::begin().unwrap_err().starts_with("host_stopping"));
+        STOPPING.store(false, Ordering::SeqCst);
     }
 
     #[test]

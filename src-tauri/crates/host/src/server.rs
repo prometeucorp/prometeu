@@ -607,6 +607,7 @@ fn dispatch(
             if !force && host.running() > 0 {
                 return Err("host_busy".into());
             }
+            crate::agents::begin_shutdown(force)?;
             conn.reply(id, Ok(json!({})));
             let _ = std::fs::remove_file(host.root.join(socket_name()));
             std::thread::sleep(Duration::from_millis(100));

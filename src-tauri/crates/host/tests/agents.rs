@@ -291,6 +291,12 @@ fn an_agent_drives_a_workspace_without_a_desktop() {
         .call("workspace_close", json!({"id": workspace}))
         .unwrap_err()
         .starts_with("unpushed_commits"));
+    // Detached at the base, HEAD holds nothing new, but deleting the branch still would lose it.
+    sh(Path::new(&worktree), "git checkout -q --detach HEAD~1");
+    assert!(agent
+        .call("workspace_close", json!({"id": workspace}))
+        .unwrap_err()
+        .starts_with("unpushed_commits"));
     std::fs::write(Path::new(&worktree).join("b"), "dirty").unwrap();
     assert!(agent
         .call("workspace_close", json!({"id": workspace}))

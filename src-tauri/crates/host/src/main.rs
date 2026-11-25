@@ -59,7 +59,12 @@ fn main() {
                     let config = serde_json::json!({
                         "command": exe,
                         "args": ["mcp", "--socket", socket.display().to_string()],
-                        "env": {"PROMETEU_AGENT_TOKEN": token, "PROMETEU_AGENT_NAME": "<bot name>"},
+                        "env": {
+                            "PROMETEU_AGENT_TOKEN": token,
+                            "PROMETEU_AGENT_NAME": "<bot name>",
+                            // SAFETY: getuid has no preconditions.
+                            "PROMETEU_AGENT_HOST_UID": unsafe { libc::getuid() }.to_string(),
+                        },
                     });
                     println!("Agent socket: {}", socket.display());
                     println!("Token: {token}");
