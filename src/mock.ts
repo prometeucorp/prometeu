@@ -2681,6 +2681,22 @@ const mockCommands: IpcHandlers = {
   },
   machine_claude_login_cancel() {},
   machine_stats() { return { workspaces: {}, memory_total: 16e9, memory_available: 12e9, load: 0.3, cpus: 4, terminals: 0 }; },
+  machine_terminals({ id }) {
+    if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
+    return board.workspaces.filter(workspace => workspace.host === id).flatMap(workspace => workspace.tabs.map((tab, index) => ({
+      id: tab.id, workspace: workspace.id, pid: 1000 + index, unit: null, started: 1_700_000_000,
+      running: tab.status !== "desligada", code: tab.status === "desligada" ? 0 : null, seq: 0,
+    })));
+  },
+  machine_terminal_stop({ id, terminal }) {
+    if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
+    const tab = board.workspaces.filter(workspace => workspace.host === id).flatMap(workspace => workspace.tabs).find(tab => tab.id === terminal);
+    if (!tab) throw "unknown_terminal";
+    tab.status = "desligada";
+    emit("board", board);
+    const running = agentTerminals.get(terminal);
+    if (running) emit("pty-closed", [terminal, 0, running.generation]);
+  },
   remote_add_project({ machine, path }) {
     const id = `remote:${machine}:${path}`;
     const existing = board.projects.find(project => project.id === id);

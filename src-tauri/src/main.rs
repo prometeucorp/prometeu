@@ -466,6 +466,8 @@ fn main() {
             remote::machine_install,
             remote::machine_connect,
             remote::machine_stats,
+            remote::machine_terminals,
+            remote::machine_terminal_stop,
             remote::machine_claude_status,
             remote::agents::machine_agents_enable,
             remote::agents::machine_agents_disable,

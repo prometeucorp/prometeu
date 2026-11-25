@@ -166,6 +166,10 @@ fn terminals_survive_detachment_and_replay_the_gap() {
 
     second.call("terminal_signal", json!({"id": "t1", "signal": "kill"}));
     second.until(|f| f["event"] == "exit" && f["id"] == "t1");
+    let stopped = second.call("terminal_list", json!({}));
+    assert_eq!(stopped[0]["id"], "t1");
+    assert_eq!(stopped[0]["pid"], list[0]["pid"]);
+    assert_eq!(stopped[0]["running"], false);
     second.detach();
     shutdown(&root);
 }

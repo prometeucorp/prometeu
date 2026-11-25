@@ -171,6 +171,31 @@ The next authenticated hook binds observation to the transcript as usual.
 in `chat/terminal/ingestion/tests.rs` covers this behavior without changing any
 persisted format or host protocol.
 
+## Desktop process inspection
+
+Settings exposes **Running processes** on each connected machine. The additive
+desktop IPC commands `machine_terminals { id }` and
+`machine_terminal_stop { id, terminal }` reuse `terminal_list` and
+`terminal_signal` with `signal: "kill"`. They require a connected machine and
+only address terminals owned by its host, never arbitrary PIDs. The wire
+protocol and persisted formats do not change, so already-installed hosts work
+without upgrading first.
+
+The list uses the host's `running` flag, including idle conversations, sign-in
+terminals and terminals absent from the desktop board. Board names are resolved
+only within that machine. It shows the conversation or terminal ID, workspace,
+PID and start time, refreshes every three seconds while open, and clears stale
+controls when a query fails. Ending a process requires confirmation and kills
+its process group without removing its workspace or saved transcript. Normal
+exit handling still drains and mirrors its output. The pending-update notice
+explains that idle processes also block replacement; remaining host requests
+can still delay replacement after the list becomes empty.
+
+`src/machine-processes.test.ts` covers host liveness, machine-scoped labels,
+confirmation, targeted stopping and polling lifetime. The existing
+`terminals_survive_detachment_and_replay_the_gap` host test verifies list and
+kill compatibility, including the listed state after exit.
+
 ## Desktop project selection
 
 Settings > Projects lists registered folders filtered by computer. The launcher

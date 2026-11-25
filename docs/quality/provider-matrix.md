@@ -18,6 +18,13 @@ every combination of providers, states, languages and screen sizes.
 
 ## Remote machines
 
+Settings lists and ends host-owned processes, including idle conversations and
+Claude sign-in terminals. This uses the existing host terminal protocol and
+does not enable remote support for other providers. `src/machine-processes.test.ts`
+checks liveness, machine-scoped labels, confirmation and refresh lifetime;
+`terminals_survive_detachment_and_replay_the_gap` in the host tests checks
+listing before and after a targeted kill.
+
 Only Claude declares `remoteMachines` ([ADR 0101](../decisions/0101-remote-machines.md)):
 its native hooks are relayed by the remote host and its project transcripts are
 mirrored for the observer. Codex, Cursor and Antigravity are rejected for remote
