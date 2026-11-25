@@ -28,6 +28,17 @@ const QUEUED_HOOKS: usize = 512;
 /// reading (asleep behind a half-open connection) reattaches and replays what it missed instead
 /// of growing the host's memory.
 const OUTBOX_LIMIT: usize = 16 * 1_048_576;
+
+/// `OUTBOX_LIMIT`, or `PROMETEU_HOST_OUTBOX_LIMIT` bytes, for tests on slow PTYs.
+fn outbox_limit() -> usize {
+    static LIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        std::env::var("PROMETEU_HOST_OUTBOX_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(OUTBOX_LIMIT)
+    })
+}
 /// Desktops attached at once.
 const CLIENT_LIMIT: usize = 8;
 const LABEL_LIMIT: usize = 64;
@@ -184,7 +195,7 @@ impl Outbox {
         }
         let line = frame.to_string();
         let size = line.len();
-        if self.queued.fetch_add(size, Ordering::AcqRel) + size > OUTBOX_LIMIT {
+        if self.queued.fetch_add(size, Ordering::AcqRel) + size > outbox_limit() {
             self.close();
             return false;
         }
@@ -195,7 +206,7 @@ impl Outbox {
     /// only a desktop that stopped reading reaches it.
     fn wait_for_room(&self) {
         while self.alive.load(Ordering::Acquire)
-            && self.queued.load(Ordering::Acquire) > OUTBOX_LIMIT / 2
+            && self.queued.load(Ordering::Acquire) > outbox_limit() / 2
         {
             std::thread::sleep(Duration::from_millis(10));
         }

@@ -714,6 +714,19 @@ fn the_desktop_that_types_drives_the_terminal_size() {
 #[test]
 fn a_desktop_that_stops_reading_is_dropped_instead_of_buffered() {
     let root = root();
+    // A small limit keeps the test independent of PTY throughput, which is low on macOS.
+    let mut host = Command::new(BIN)
+        .args(["serve", "--root"])
+        .arg(&root)
+        .env("PROMETEU_HOST_OUTBOX_LIMIT", "1048576")
+        .spawn()
+        .unwrap();
+    // Attaching earlier would start a second host without the limit.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::os::unix::net::UnixStream::connect(root.join("host-v1.sock")).is_err() {
+        assert!(Instant::now() < deadline, "the host should start");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let mut reader = Attached::device(&root, "mac-a");
     // An attachment whose stdout nobody reads, like a desktop asleep behind a half-open connection.
     let mut stalled = Command::new(BIN)
@@ -742,7 +755,7 @@ fn a_desktop_that_stops_reading_is_dropped_instead_of_buffered() {
     open_shell(
         &mut reader,
         "b1",
-        "sleep 0.3; head -c 40000000 /dev/zero | tr '\\0' x; sleep 30",
+        "sleep 0.3; head -c 8000000 /dev/zero | tr '\\0' x; sleep 30",
     );
     writeln!(
         stalled_in,
@@ -750,7 +763,7 @@ fn a_desktop_that_stops_reading_is_dropped_instead_of_buffered() {
         json!({"id": 1, "method": "terminal_attach", "params": {"id": "b1", "seq": 0}})
     )
     .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while reader
         .call("clients_list", json!({}))
         .as_array()
@@ -769,6 +782,7 @@ fn a_desktop_that_stops_reading_is_dropped_instead_of_buffered() {
     let _ = stalled.wait();
     reader.detach();
     shutdown(&root);
+    let _ = host.wait();
 }
 
 #[test]
