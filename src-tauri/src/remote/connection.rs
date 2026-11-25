@@ -46,8 +46,18 @@ pub enum Phase {
 }
 
 type Callback = Box<dyn FnOnce(Result<Value, String>) + Send>;
-/// Runs after every attachment, once terminals and mirrors are reattached.
-pub type Attached = Box<dyn Fn(&Arc<Connection>) + Send + Sync>;
+
+/// Why the machine needs this app's attention.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wake {
+    /// A new attachment, once terminals and mirrors are reattached.
+    Attached,
+    /// An agent changed the machine's registry (ADR 0103).
+    Registry,
+}
+
+/// Runs on its own thread after every attachment and registry change.
+pub type Attached = Box<dyn Fn(&Arc<Connection>, Wake) + Send + Sync>;
 enum Pending {
     Wait(mpsc::Sender<Result<Value, String>>),
     /// Runs on the reader thread, before any later frame: used where order matters.
@@ -142,6 +152,11 @@ pub struct Connection {
     looping: AtomicBool,
     changed: Box<dyn Fn() + Send + Sync>,
     attached: Attached,
+    /// Held by each run of `attached`: an attachment and registry events may overlap, and two
+    /// runs must not both adopt or attach the same conversation.
+    waking: Mutex<()>,
+    /// A registry refresh is queued and has not started; later events join it.
+    refresh_queued: AtomicBool,
 }
 
 impl Connection {
@@ -167,6 +182,8 @@ impl Connection {
             looping: AtomicBool::new(false),
             changed,
             attached,
+            waking: Mutex::new(()),
+            refresh_queued: AtomicBool::new(false),
         })
     }
 
@@ -375,8 +392,13 @@ impl Connection {
                 return;
             }
             this.reattach();
-            (this.attached)(&this);
+            this.wake(Wake::Attached);
         });
+    }
+
+    fn wake(self: &Arc<Self>, wake: Wake) {
+        let _one = lock(&self.waking);
+        (self.attached)(self, wake);
     }
 
     /// An older host build still serves the socket. Replace it only while it runs nothing, so
@@ -495,6 +517,19 @@ impl Connection {
                         );
                     }
                 }
+            }
+            Some("registry") => {
+                // One queued refresh covers every event that arrives before it starts, since it
+                // reads the whole registry then.
+                if self.refresh_queued.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+                let this = self.clone();
+                std::thread::spawn(move || {
+                    let _one = lock(&this.waking);
+                    this.refresh_queued.store(false, Ordering::Release);
+                    (this.attached)(&this, Wake::Registry);
+                });
             }
             Some("hook") => {
                 let session = frame["session"].as_str().unwrap_or_default();

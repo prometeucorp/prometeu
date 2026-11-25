@@ -947,33 +947,10 @@ fn normalize(identity: &Identity, payload: &Value) -> Result<NativeHookEvent, St
     })
 }
 
+/// The host launches Claude for agents with the same settings, so either side can observe a
+/// conversation the other started (ADR 0103).
 fn claude_config(helper: &str) -> Value {
-    let hooks = [
-        "SessionStart",
-        "UserPromptSubmit",
-        "Stop",
-        "PermissionRequest",
-        "PreToolUse",
-        "PostToolUse",
-        "PostToolUseFailure",
-        "SessionEnd",
-        "StopFailure",
-        "Notification",
-    ]
-    .into_iter()
-    .map(|name| {
-        (
-            name.into(),
-            json!([{"hooks":[{"type":"command","command":helper,"timeout":if name == "PermissionRequest" { DECISION_WAIT.as_secs() + 5 } else { 3 }}]}]),
-        )
-    })
-    .collect::<Map<_, _>>();
-    // This terminal is owned by Prometeu. Claude also gates its native OSC 7501 capability
-    // on this title preference. A private invocation layer enables the status channel without
-    // modifying user settings; the verified native bool parser treats "0" as false.
-    // In this verified build eager flush awaits the transcript write queue before the engine's
-    // final result reaches the TUI. The observer still requires persisted final content.
-    json!({"hooks": hooks, "env": {"CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "0", "CLAUDE_CODE_EAGER_FLUSH": "1"}})
+    prometeu_host::claude_hook_settings(helper)
 }
 
 fn cursor_config(helper: &str) -> Value {
@@ -1395,6 +1372,15 @@ pub(crate) mod smoke;
 mod tests {
     use super::*;
     use std::{net::Shutdown, process::Stdio, sync::mpsc::TryRecvError};
+
+    #[test]
+    fn claude_waits_for_decisions_as_long_as_this_app_does() {
+        assert_eq!(DECISION_WAIT.as_secs(), prometeu_host::DECISION_WAIT_SECS);
+        let settings = claude_config("helper");
+        let permission = &settings["hooks"]["PermissionRequest"][0]["hooks"][0];
+        assert_eq!(permission["command"], "helper");
+        assert_eq!(permission["timeout"], DECISION_WAIT.as_secs() + 5);
+    }
 
     fn identity() -> Identity {
         Identity {

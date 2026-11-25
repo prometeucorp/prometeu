@@ -323,7 +323,7 @@ export function draw() {
   }
   // Name the machine that runs a remote workspace next to its repository.
   crumb.querySelector(".machine-badge")?.remove();
-  const where = machineBadge(ws.host);
+  const where = machineBadge(ws.host, false, ws.creator);
   if (where) crumb.querySelector(".nm")!.after(where);
   // Use a repository count and picker instead of crowding the header with every name.
   const many = !owner && ws.repos.length > 1;

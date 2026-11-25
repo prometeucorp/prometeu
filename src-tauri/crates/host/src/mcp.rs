@@ -118,7 +118,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "close_workspace",
         method: "workspace_close",
-        description: "Close a workspace: stop its conversations and delete its worktree and branch. Refuses uncommitted changes unless force is true. Push or merge work you want to keep first.",
+        description: "Close a workspace: stop its conversations and delete its worktree and branch. Refuses uncommitted changes unless force is true. Push or merge work you want to keep first. When the branch could not be deleted, the result names it in branch_kept.",
         schema: || object(json!({
             "id": {"type": "string", "description": "Workspace ID."},
             "force": {"type": "boolean", "description": "Discard uncommitted changes."},

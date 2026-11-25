@@ -78,6 +78,7 @@ unknown outcome.
 | `exit` | `id`, `code`, `seq` | terminal exited, after its output was drained (up to 2 s, in case a background process keeps the PTY open); also sent at attachment for an exited terminal |
 | `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | a native hook invocation for the terminal `session` |
 | `file` | `watch`, `path`, `offset`, `reset`, `data` (base64) | bytes of a watched file from `offset`; `reset` restarts it from zero |
+| `registry` | none | an agent request that may add or close registry entries finished; the desktop synchronizes again |
 
 ## Methods
 
@@ -98,7 +99,7 @@ unknown outcome.
 | `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
 | `hook_reply` | `hook`, `stdout` (base64) | `{}` |
 | `registry_list` | none | the registry, with each conversation's `state`, `state_at` and `notification` |
-| `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path, inserts or replaces a workspace by ID |
+| `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path; inserts a workspace by ID, or merges into the one held: its title and new conversations, keeping every other field and conversation |
 | `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
 | `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
 | `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs or an agent request that changes the machine is in progress |
@@ -178,6 +179,30 @@ this host does not know. Records:
 
 Unknown fields are ignored. Times are Unix seconds.
 
+The desktop synchronizes its board with `registry_list` on every attachment
+and on every `registry` event (`src-tauri/src/remote/registry.rs`). It adopts
+missing projects and open workspaces as remote board entries. Their
+conversations become terminal-mode Claude tabs with the same IDs, and the
+workspace names an agent creator in `creator`. It adds conversations an agent
+opened in a workspace it already shows, and marks workspaces an agent closed as
+cleaned and archived. It records with `registry_put` its own remote workspaces
+and conversations once their tab is on the board, and the projects added on the
+machine. Each synchronization also records the projects, open workspaces and
+conversations that the registry lacks, and repeats `registry_close` for a
+workspace the desktop cleaned that the registry still lists as open. An entry
+whose ID the board already uses for a local workspace, a workspace on another
+machine or another tab is never adopted or changed. A conversation an agent
+opened before closing its workspace still becomes a tab of the closed
+workspace. Synchronization and the terminal reattachment that follows run one
+at a time per machine, and `registry` events that arrive while one is queued
+join it. It calls `registry_close` after cleaning a workspace. A
+workspace removed from the board without cleanup, a conversation whose tab was
+closed, or a project removed from the board (until it is added again) stays in
+the registry and is listed in
+`<root>/remote/<machine>/dismissed.json` on the desktop, which keeps it from
+being adopted again. An adopted conversation without a terminal on the
+host gets the transcript binding its first hook would have written.
+
 ## Observed state
 
 The host reads the event name of every hook it serves and keeps, per
@@ -231,7 +256,7 @@ collect the token from the next client.
 | `conversation_read` | `id`, `cursor?`, `limit?` (1–200, default 50) | `{ messages, cursor, more, status }` |
 | `conversation_send` | `id`, `text` | `{ resumed }` |
 | `conversation_interrupt` | `id` | `{}`; sends Escape |
-| `workspace_close` | `id`, `force?` | `{}` |
+| `workspace_close` | `id`, `force?` | `{}`, or `{ branch_kept, detail }` when the worktree is gone but the branch could not be deleted |
 
 Workspaces and conversations carry the observed state fields above.
 
@@ -302,7 +327,9 @@ While a workspace is closing, launches and messages into it fail with
 `workspace_closed`, and a second close fails with `workspace_closing`. It then
 forgets the terminals, removes the worktree (`git worktree remove`, with
 `--force` only when `force` is set) and, unless `keep_branch`, deletes the
-branch. Finally it marks the workspace closed.
+branch. Finally it marks the workspace closed. When the branch it meant to
+delete survives (the lookup failed without `force`, or `git branch -D` failed),
+the result names it in `branch_kept` with Git's `detail`.
 
 ### MCP server
 

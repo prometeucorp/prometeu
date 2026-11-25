@@ -236,6 +236,10 @@ pub fn remote_add_project(
     };
     let project = {
         let mut board = lock(&state.board);
+        // Adding it again undoes an earlier removal, which adoption would otherwise honor.
+        if let Some(machine) = project.host.as_deref() {
+            super::registry::undismiss(machine, &project.id);
+        }
         match board.projects.iter().find(|p| p.id == project.id) {
             Some(existing) => existing.clone(),
             None => {
@@ -245,6 +249,7 @@ pub fn remote_add_project(
         }
     };
     crate::state::publish(&app);
+    super::registry::record_project(&connection, &project);
     Ok(project)
 }
 
@@ -414,6 +419,7 @@ pub fn create(
         tabs: Vec::new(),
         active: None,
         host: Some(machine.to_string()),
+        creator: None,
     };
     {
         let mut board = lock(&state.board);

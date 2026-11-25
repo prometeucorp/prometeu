@@ -357,6 +357,10 @@ pub struct Workspace {
     /// agents keep running there while this computer sleeps or the app is closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// The agent that created this remote workspace through its machine's host (ADR 0103), by
+    /// the name its MCP configuration gives; `None` for work the person started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
 }
 
 fn confirm_by_default() -> bool {
