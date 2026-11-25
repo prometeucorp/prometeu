@@ -308,7 +308,10 @@ something answers at the socket, and the last bind error, stored in
 
 `agents setup` prints a local stdio MCP entry:
 `{ command: "<directory>/prometeu-mcp", args: ["mcp", "--socket", "<socket>"], env }`.
-Both paths are absolute paths on the machine. `env` holds `PROMETEU_AGENT_TOKEN`,
+Both paths are resolved against setup's working directory when `--root` is
+relative, so the copied configuration works from another directory. Resolution
+does not require the daemon's socket to exist or rewrite stored paths.
+`env` holds `PROMETEU_AGENT_TOKEN`,
 `PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. The expected peer ID
 is the setup user's actual UID, or the explicit `--client-uid` override. Setup
 makes no assumption about user namespaces. With `--json` it prints
@@ -471,6 +474,8 @@ MCP server against the real binary with a stand-in Claude, and the unit tests in
 `agents.rs`, `registry.rs`, `transcript.rs`, `naming.rs` and `mcp.rs` cover the
 rest. `the_generated_local_config_lists_tools_and_relays_calls` executes the
 emitted command, arguments and environment without deployment-specific edits.
+`a_relative_root_generates_an_mcp_config_usable_from_another_directory` covers
+relative roots before the socket exists and actual tool calls from another directory.
 `setup_under_a_private_home_never_opens_parent_permissions` covers private homes;
 `setup_preserves_legacy_access_and_disable_cleans_it_up` covers existing paths,
 tokens, directory modes and legacy permission cleanup. The desktop test

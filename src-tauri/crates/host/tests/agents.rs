@@ -40,6 +40,10 @@ fn sh(cwd: &Path, script: &str) {
 
 impl Machine {
     fn new() -> Self {
+        Self::with_relative_root(false)
+    }
+
+    fn with_relative_root(relative: bool) -> Self {
         // Short: Unix socket paths are limited to about 100 bytes.
         static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -80,15 +84,21 @@ while IFS= read -r line; do printf '%s\n' "$line" >> "{dir}/typed-$id"; done
         .unwrap();
         sh(&dir, "chmod +x claude");
         let setup = Command::new(BIN)
-            .args(["agents", "setup", "--root"])
-            .arg(&root)
+            .args(["agents", "setup", "--json", "--root"])
+            .arg(if relative { Path::new("./r") } else { &root })
+            .current_dir(&dir)
             .env("HOME", &home)
             .output()
             .unwrap();
         assert!(setup.status.success());
+        let setup: Value = serde_json::from_slice(&setup.stdout).unwrap();
+        // Configuration must be portable before the daemon creates its socket.
+        assert!(Path::new(setup["server"]["command"].as_str().unwrap()).is_absolute());
+        assert!(Path::new(setup["server"]["args"][2].as_str().unwrap()).is_absolute());
         let host = Command::new(BIN)
             .args(["serve", "--root"])
             .arg(&root)
+            .current_dir(&dir)
             .env("HOME", &home)
             .env("PROMETEU_HOST_CLAUDE", &fake)
             .env("CLAUDECODE", "1")
@@ -634,16 +644,31 @@ fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
 
 #[test]
 fn the_generated_local_config_lists_tools_and_relays_calls() {
-    let machine = Machine::new();
+    check_generated_local_config(false);
+}
+
+#[test]
+fn a_relative_root_generates_an_mcp_config_usable_from_another_directory() {
+    check_generated_local_config(true);
+}
+
+fn check_generated_local_config(relative: bool) {
+    let machine = Machine::with_relative_root(relative);
     let output = Command::new(BIN)
         .args(["agents", "setup", "--json", "--root"])
-        .arg(&machine.root)
+        .arg(if relative {
+            Path::new("./r")
+        } else {
+            &machine.root
+        })
+        .current_dir(&machine.dir)
         .output()
         .unwrap();
     assert!(output.status.success());
     let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
     let server = &setup["server"];
     let mut mcp = Command::new(server["command"].as_str().unwrap())
+        .current_dir(&machine.home)
         .args(
             server["args"]
                 .as_array()

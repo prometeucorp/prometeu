@@ -296,8 +296,9 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
     };
     Ok(Setup {
         token,
-        socket: wanted,
-        client,
+        // The copied configuration can run from another directory, even before the socket exists.
+        socket: std::path::absolute(wanted).map_err(|e| e.to_string())?,
+        client: std::path::absolute(client).map_err(|e| e.to_string())?,
         moved_from,
     })
 }
