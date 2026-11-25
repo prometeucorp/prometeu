@@ -4,6 +4,14 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.48.2] - 2026-11-25
+
+### Fixes
+
+- **mcp:** Make agent setup independent of deployment
+- **mcp:** Resolve setup paths before sharing config
+- **mcp:** Reject unusable socket paths during setup
+
 ## [0.48.1] - 2026-11-25
 
 ### Fixes
