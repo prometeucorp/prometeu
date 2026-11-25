@@ -328,6 +328,14 @@ native-screen case in `e2e/composer.spec.ts` checks actual xterm geometry and
 keyboard focus. Those
 browser fixtures do not certify native provider behavior.
 
+Claude image reads have native-ingestion regressions in
+`terminal_transcript::tests::terminal_transcript_claude_tool_images_keep_results_and_validate_the_envelope`
+and `terminal_observation_claude_read_image_survives_ingestion_and_cold_resume`.
+They cover oversized base64 images nested in tool results, preserved text and
+tool identity, invalid envelopes, and cold replay without duplicate canonical
+output. This is synthetic parser and journal evidence, not a native Tauri run.
+Codex retains its separate inline-image shapes; no other provider behavior changes.
+
 The private [terminal state helper](../contracts/terminal-state.md) has shared
 headless replay and stdio tests in `packages/terminal-state/test/`. The macOS
 desktop host and renderer use its screen contract, single query authority and

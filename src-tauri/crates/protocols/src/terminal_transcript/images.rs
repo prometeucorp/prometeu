@@ -148,12 +148,14 @@ impl ImageFilter {
     fn candidate(&self, path: Vec<String>) -> Option<Candidate> {
         let matches = match self.format {
             InlineImageFormat::Claude => {
-                path.len() == 5
+                matches!(path.len(), 5 | 7)
                     && path[0] == "message"
                     && path[1] == "content"
                     && path[2].parse::<usize>().is_ok()
-                    && path[3] == "source"
-                    && path[4] == "data"
+                    && (path.len() == 5
+                        || (path[3] == "content" && path[4].parse::<usize>().is_ok()))
+                    && path[path.len() - 2] == "source"
+                    && path[path.len() - 1] == "data"
             }
             InlineImageFormat::Codex => {
                 (path.len() == 3
@@ -320,15 +322,21 @@ impl ImageFilter {
             let pointer = format!("/{}", candidate.path.join("/"));
             let image = match candidate.kind {
                 InlineImageFormat::Claude => {
-                    let index = &candidate.path[2];
-                    value
-                        .pointer(&format!("/message/content/{index}/type"))
-                        .is_some_and(|v| v == "image")
+                    let block =
+                        format!("/{}", candidate.path[..candidate.path.len() - 2].join("/"));
+                    // Read-tool images are nested inside a tool_result content array.
+                    (candidate.path.len() == 5
+                        || value
+                            .pointer(&format!("/message/content/{}/type", candidate.path[2]))
+                            .is_some_and(|v| v == "tool_result"))
                         && value
-                            .pointer(&format!("/message/content/{index}/source/type"))
+                            .pointer(&format!("{block}/type"))
+                            .is_some_and(|v| v == "image")
+                        && value
+                            .pointer(&format!("{block}/source/type"))
                             .is_some_and(|v| v == "base64")
                         && value
-                            .pointer(&format!("/message/content/{index}/source/media_type"))
+                            .pointer(&format!("{block}/source/media_type"))
                             .and_then(Value::as_str)
                             .is_some_and(|mime| mime.starts_with("image/"))
                 }
