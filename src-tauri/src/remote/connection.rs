@@ -17,6 +17,9 @@ use super::Machine;
 pub const OFFLINE: &str = "err.remote.offline";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const BACKOFF: [u64; 7] = [1, 2, 3, 5, 10, 15, 30];
+/// While an older host build keeps serving because it was busy, how often to check whether it has
+/// become idle. A terminal ending checks sooner.
+const RETIRE_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Receives one remote terminal's stream. Implementations order replay and live output by the
 /// host's sequence numbers and must not block: they run on the connection's reader thread.
@@ -131,6 +134,10 @@ pub struct Connection {
     phase: Mutex<(Phase, Option<String>)>,
     ready: Mutex<Option<Value>>,
     update_pending: AtomicBool,
+    /// Counts attachments, so work tied to one attachment stops when it ends.
+    attachments: AtomicU64,
+    /// Set when a terminal ends while an update is pending: the old host may be idle now.
+    terminal_ended: AtomicBool,
     stdin: Mutex<Option<ChildStdin>>,
     child: Mutex<Option<Child>>,
     pending: Mutex<HashMap<u64, Pending>>,
@@ -156,6 +163,8 @@ impl Connection {
             phase: Mutex::new((Phase::Offline, None)),
             ready: Mutex::new(None),
             update_pending: AtomicBool::new(false),
+            attachments: AtomicU64::new(0),
+            terminal_ended: AtomicBool::new(false),
             stdin: Mutex::new(None),
             child: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
@@ -368,6 +377,7 @@ impl Connection {
         *lock(&self.ready) = Some(frame);
         let stale = expected.is_some_and(|hash| !current.contains(&hash));
         self.update_pending.store(stale, Ordering::Release);
+        let attachment = self.attachments.fetch_add(1, Ordering::AcqRel) + 1;
         self.set_phase(Phase::Connected, None);
         let this = self.clone();
         std::thread::spawn(move || {
@@ -376,11 +386,27 @@ impl Connection {
             }
             this.reattach();
             (this.attached)(&this);
+            if stale {
+                this.terminal_ended.store(false, Ordering::Release);
+                let current = || {
+                    this.wanted.load(Ordering::Acquire)
+                        && this.attachments.load(Ordering::Acquire) == attachment
+                        && this.connected()
+                };
+                retire_when_idle(
+                    current,
+                    || this.terminal_ended.swap(false, Ordering::AcqRel),
+                    || this.retire_stale(),
+                    RETIRE_INTERVAL,
+                    Duration::from_millis(250),
+                );
+            }
         });
     }
 
     /// An older host build still serves the socket. Replace it only while it runs nothing, so
-    /// an update never ends live work; otherwise it keeps serving with the same protocol.
+    /// an update never ends live work; otherwise it keeps serving with the same protocol and
+    /// `retire_when_idle` asks again later. The host repeats the idle check on `shutdown`.
     fn retire_stale(self: &Arc<Self>) -> bool {
         let idle = self
             .request("terminal_list", json!({}))
@@ -477,6 +503,9 @@ impl Connection {
                 }
             }
             Some("exit") => {
+                if self.update_pending() {
+                    self.terminal_ended.store(true, Ordering::Release);
+                }
                 let sink = lock(&self.terminals).get(id).cloned();
                 if let Some(sink) = sink {
                     sink.exit(frame["code"].as_u64().map(|c| c as u32));
@@ -651,6 +680,33 @@ impl Exec {
     }
 }
 
+/// Retry retiring a stale host while its attachment is `current`: as soon as `ended` reports that
+/// a terminal ended, and every `interval` otherwise, since terminals that agents started on the
+/// machine end without telling this app. Returns whether the host was retired.
+fn retire_when_idle(
+    current: impl Fn() -> bool,
+    ended: impl Fn() -> bool,
+    mut retire: impl FnMut() -> bool,
+    interval: Duration,
+    tick: Duration,
+) -> bool {
+    let mut last = Instant::now();
+    while current() {
+        std::thread::sleep(tick);
+        if !(ended() || last.elapsed() >= interval) {
+            continue;
+        }
+        if !current() {
+            break;
+        }
+        last = Instant::now();
+        if retire() {
+            return true;
+        }
+    }
+    false
+}
+
 enum Outcome {
     Closed,
     NotInstalled,
@@ -661,6 +717,58 @@ enum Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_busy_stale_host_is_retired_once_it_becomes_idle() {
+        use std::sync::atomic::AtomicUsize;
+        let tick = Duration::from_millis(5);
+        // The host stays busy for two checks, then a terminal ends and it is idle.
+        let attempts = AtomicUsize::new(0);
+        let ended = AtomicBool::new(false);
+        let retired = retire_when_idle(
+            || true,
+            || ended.swap(false, Ordering::AcqRel),
+            || {
+                let n = attempts.fetch_add(1, Ordering::AcqRel) + 1;
+                if n == 2 {
+                    ended.store(true, Ordering::Release);
+                }
+                n == 3
+            },
+            Duration::from_millis(20),
+            tick,
+        );
+        assert!(retired);
+        assert_eq!(attempts.load(Ordering::Acquire), 3);
+
+        // A terminal ending checks at once, without waiting for the interval.
+        let started = Instant::now();
+        let ended = AtomicBool::new(true);
+        assert!(retire_when_idle(
+            || true,
+            || ended.swap(false, Ordering::AcqRel),
+            || true,
+            Duration::from_secs(3600),
+            tick
+        ));
+        assert!(started.elapsed() < Duration::from_secs(1));
+
+        // A new attachment ends the retries without shutting anything down.
+        let checks = AtomicUsize::new(0);
+        let attempts = AtomicUsize::new(0);
+        let retired = retire_when_idle(
+            || checks.fetch_add(1, Ordering::AcqRel) < 5,
+            || true,
+            || {
+                attempts.fetch_add(1, Ordering::AcqRel);
+                false
+            },
+            Duration::from_secs(3600),
+            tick,
+        );
+        assert!(!retired);
+        assert!(attempts.load(Ordering::Acquire) <= 2);
+    }
 
     #[test]
     fn mirror_paths_stay_inside_the_mirror() {

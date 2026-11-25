@@ -57,7 +57,9 @@ sends `{"attach":{"protocol":1}}` and relays stdio. Exit status 127 or
 `No such file` before the ready frame means the build is not installed. If the
 ready frame's `executable` belongs to another build, the desktop shuts that host
 down only when it runs no terminal; otherwise it keeps using it and reports a
-pending update.
+pending update. While the update is pending and the attachment lasts, the desktop
+checks again when an `exit` event arrives and at least every 60 seconds. The
+host's own `shutdown` check still decides.
 
 ## Framing
 
