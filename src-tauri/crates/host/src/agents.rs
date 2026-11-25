@@ -206,7 +206,8 @@ pub fn listen(host: Arc<Host>) {
 /// when the host moved to another path.
 fn retire(path: &Path, stop: &AtomicBool, remove: bool) {
     stop.store(true, Ordering::Release);
-    let _ = UnixStream::connect(path);
+    // When the queue is full the accept loop is busy and will see the flag on its own.
+    let _ = probe(path);
     if remove && is_socket(path) {
         let _ = std::fs::remove_file(path);
     }
@@ -230,6 +231,55 @@ fn accept(host: Arc<Host>, listener: UnixListener, stop: Arc<AtomicBool>) {
     });
 }
 
+enum Probe {
+    /// Something accepted the connection.
+    Answers,
+    /// Nothing listens there: the socket was left behind.
+    Refused,
+    /// The listener's queue is full, or the path cannot be probed.
+    Unclear,
+}
+
+/// Connect without blocking. A blocking connect waits forever when the listener's queue is full,
+/// which would stall the thread that follows `agents.json`.
+fn probe(path: &Path) -> Probe {
+    use std::os::unix::ffi::OsStrExt;
+    let bytes = path.as_os_str().as_bytes();
+    // SAFETY: sockaddr_un is plain data; all-zero is a valid empty address.
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    if bytes.len() >= address.sun_path.len() {
+        return Probe::Unclear;
+    }
+    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    for (to, from) in address.sun_path.iter_mut().zip(bytes) {
+        *to = *from as libc::c_char;
+    }
+    // SAFETY: a new descriptor that this function owns and closes on every path.
+    unsafe {
+        let fd = libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0);
+        if fd < 0 {
+            return Probe::Unclear;
+        }
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags < 0 || libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
+            libc::close(fd);
+            return Probe::Unclear;
+        }
+        let result = libc::connect(
+            fd,
+            &address as *const libc::sockaddr_un as *const libc::sockaddr,
+            std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t,
+        );
+        let error = std::io::Error::last_os_error().raw_os_error();
+        libc::close(fd);
+        match (result, error) {
+            (0, _) => Probe::Answers,
+            (_, Some(libc::ECONNREFUSED | libc::ENOENT)) => Probe::Refused,
+            _ => Probe::Unclear,
+        }
+    }
+}
+
 /// Bind the agent socket. An existing entry is replaced only when it is a socket nobody answers,
 /// such as one a previous host left behind; anything else is refused rather than deleted.
 fn bind(path: &Path) -> Result<UnixListener, String> {
@@ -242,10 +292,13 @@ fn bind(path: &Path) -> Result<UnixListener, String> {
         Ok(meta) if !meta.file_type().is_socket() => {
             return Err("exists and is not a socket; refusing to replace it".into())
         }
-        Ok(_) if UnixStream::connect(path).is_ok() => {
-            return Err("another process is serving this socket".into())
-        }
-        Ok(_) => std::fs::remove_file(path).map_err(|e| e.to_string())?,
+        Ok(_) => match probe(path) {
+            Probe::Refused => std::fs::remove_file(path).map_err(|e| e.to_string())?,
+            Probe::Answers => return Err("another process is serving this socket".into()),
+            Probe::Unclear => {
+                return Err("the socket did not answer clearly; leaving it alone".into())
+            }
+        },
         Err(_) => {}
     }
     let listener = UnixListener::bind(path).map_err(|e| e.to_string())?;
@@ -1087,7 +1140,7 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
         // Claude may have written between the first check and its exit.
         if let Some(loss) = losses(&workspace)? {
             return Err(format!(
-                "{loss}\nThe conversations were stopped; send_message resumes them."
+                "{loss}\nThe conversations were stopped. send_message resumes those that run without permission prompts; the others resume from the desktop."
             ));
         }
     }
@@ -1210,6 +1263,29 @@ mod tests {
         assert!(bind(&socket).is_err(), "a served socket is not replaced");
         drop(live);
         assert!(bind(&socket).is_ok(), "a stale socket is replaced");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn probes_tell_live_and_stale_sockets_apart_without_blocking() {
+        let dir = scratch("probe");
+        let path = dir.join("p.sock");
+        assert!(matches!(probe(&path), Probe::Refused));
+        let listener = UnixListener::bind(&path).unwrap();
+        assert!(matches!(probe(&path), Probe::Answers));
+        // Fill the queue: a blocking connect would now wait forever. Linux reports a full
+        // queue as busy; macOS refuses outright, but the host ships for Linux only.
+        #[cfg(target_os = "linux")]
+        {
+            let mut held = Vec::new();
+            while matches!(probe(&path), Probe::Answers) && held.len() < 4096 {
+                held.push(UnixStream::connect(&path).unwrap());
+            }
+            assert!(held.len() < 4096, "the queue never filled");
+            assert!(matches!(probe(&path), Probe::Unclear));
+        }
+        drop(listener);
+        assert!(matches!(probe(&path), Probe::Refused));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

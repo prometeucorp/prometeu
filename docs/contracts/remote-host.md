@@ -193,7 +193,8 @@ Agents connect to the path in `agents.json`, or `<root>/agents/agents-v1.sock`.
 The host checks that path every 3 seconds and rebinds it, so `prometeu-host
 agents setup [--socket PATH] [--rotate]` applies without a restart. That command
 creates or rotates the token and prints an MCP configuration. An existing entry
-at the path is replaced only when it is a socket that does not answer;
+at the path is replaced only when it is a socket whose non-blocking connection
+attempt is refused; one that answers or whose queue is full is kept;
 otherwise the host leaves it alone, logs the refusal once and tries again at
 every check, so the path is taken as soon as it is freed. When the path changes,
 the previous listener stops and its socket file is removed.
@@ -279,7 +280,8 @@ the registry, never other terminals of the host.
 refuses one whose `HEAD` has commits on neither the base, resolved in the main
 checkout, nor any remote (`unpushed_commits`). It checks before ending the
 conversations' terminals and again after they exit. When the second check
-refuses, the conversations stay ended and `conversation_send` resumes them.
+refuses, the conversations stay ended: `conversation_send` resumes those whose
+`permission` is `auto`, and the others resume from the desktop.
 While a workspace is closing, launches and messages into it fail with
 `workspace_closed`, and a second close fails with `workspace_closing`. It then
 forgets the terminals, removes the worktree (`git worktree remove`, with
