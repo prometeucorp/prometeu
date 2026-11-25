@@ -56,19 +56,30 @@ export function aliases(projects: Project[]): Map<string, string> {
 }
 
 /// A compact chip naming the machine a workspace or project runs on, with its connection state. Local work shows none.
-/// `creator` names the agent that created the workspace through the machine's host (ADR 0103); empty when it gave no name.
-export function badge(host: string | undefined, compact = false, creator?: string): HTMLElement | null {
+/// It says only where the work runs; who created the workspace is a separate chip (`creatorBadge`).
+export function badge(host: string | undefined, compact = false): HTMLElement | null {
   if (!host) return null;
   const machine = machineOf(host);
   const state = machine?.phase ?? "offline";
-  const byAgent = creator !== undefined;
-  const by = byAgent ? t("remote.createdBy", { name: creator || t("remote.agent") }) : "";
-  const chip = template("span", `machine-badge ${state === "connected" ? "on" : "off"}${compact ? " compact" : ""}`, `${icon(byAgent ? "sparkles" : "server", 12)}<span></span>`);
-  chip.querySelector("span")!.textContent = compact ? "" : [machineName(host), by].filter(Boolean).join(" · ");
+  const chip = template("span", `machine-badge ${state === "connected" ? "on" : "off"}${compact ? " compact" : ""}`, `${icon("server", 12)}<span></span>`);
+  chip.querySelector("span")!.textContent = compact ? "" : machineName(host);
   const where = state === "connected"
     ? t("remote.badge", { name: machineName(host) })
     : t("remote.offline", { name: machineName(host) });
-  const title = [by, where].filter(Boolean).join(" · ");
+  chip.title = where;
+  chip.setAttribute("aria-label", where);
+  return chip;
+}
+
+/// A chip saying an agent created the workspace, wherever it runs: authorship is independent of the machine
+/// (`badge`), so a workspace an agent created on this computer shows it too. `creator` is the name the agent's MCP
+/// configuration gives, possibly empty; absent means the person created the workspace and shows nothing.
+export function creatorBadge(creator: string | undefined, compact = false): HTMLElement | null {
+  if (creator === undefined) return null;
+  const chip = template("span", `creator-badge${compact ? " compact" : ""}`, `${icon("sparkles", 12)}<span></span>`);
+  const label = t("workspace.createdByAgent");
+  chip.querySelector("span")!.textContent = compact ? "" : label;
+  const title = creator ? t("workspace.createdByNamedAgent", { name: creator }) : label;
   chip.title = title;
   chip.setAttribute("aria-label", title);
   return chip;

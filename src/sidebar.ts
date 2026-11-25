@@ -1,5 +1,5 @@
 import { avatar, avatars, brand, icon, wave } from "./icons";
-import { aliases, badge as machineBadge } from "./machines";
+import { aliases, badge as machineBadge, creatorBadge } from "./machines";
 import { t, tn } from "./i18n";
 import * as menu from "./menu";
 import { keys } from "./platform";
@@ -651,8 +651,8 @@ function renderGroup(
     b.dataset.track = "rail.workspace";
     b.addEventListener("click", () => hooks.open(ws, compact ? ws.tabs[0]?.id : undefined));
     if (!compact && (owner || opts.avatars)) b.children[0].after(template("span", "av", owner ? avatar(owner) : avatars(ws.repos.map((r) => r.name))));
-    const where = machineBadge(ws.host, true, ws.creator);
-    if (where) b.querySelector(".wsidentity")!.after(where);
+    const chips = [creatorBadge(ws.creator, true), machineBadge(ws.host, true)].filter((chip): chip is HTMLElement => !!chip);
+    b.querySelector(".wsidentity")!.after(...chips);
     if (ws.remote && !ws.remote.online) card.classList.add("off");
     if (!ws.remote) attachMenu(b, ws, hooks, title, "sub");
     else attachLeave(b, ws, owner!);

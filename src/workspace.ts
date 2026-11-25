@@ -1,5 +1,5 @@
 import { isDelegatedWorkspace, workspaceHierarchy } from "./workspace-hierarchy";
-import { badge as machineBadge } from "./machines";
+import { badge as machineBadge, creatorBadge } from "./machines";
 import { button } from "./ui";
 import { track } from "./analytics";
 import { attachReview } from "./chat";
@@ -321,10 +321,10 @@ export function draw() {
       `<span class="sep">${icon("chevron-right", 12)}</span><span class="nm"></span>` +
       `<button class="branch" hidden>${icon("git-branch", 12)}<span></span></button>`;
   }
-  // Name the machine that runs a remote workspace next to its repository.
-  crumb.querySelector(".machine-badge")?.remove();
-  const where = machineBadge(ws.host, false, ws.creator);
-  if (where) crumb.querySelector(".nm")!.after(where);
+  // Name the machine that runs a remote workspace next to its repository, and, separately, an agent that created it.
+  crumb.querySelectorAll(".machine-badge, .creator-badge").forEach((chip) => chip.remove());
+  const chips = [creatorBadge(ws.creator), machineBadge(ws.host)].filter((chip): chip is HTMLElement => !!chip);
+  crumb.querySelector(".nm")!.after(...chips);
   // Use a repository count and picker instead of crowding the header with every name.
   const many = !owner && ws.repos.length > 1;
   const who = crumb.querySelector<HTMLElement>(".who")!;
