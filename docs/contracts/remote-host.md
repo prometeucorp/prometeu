@@ -151,6 +151,18 @@ the bytes to `<root>/remote/<machine>/mirror/<absolute remote path>` (0700
 directories, 0600 files), and sends the mirror's sizes as offsets after every
 reattachment. The slug replaces every character outside `[A-Za-z0-9]` with `-`.
 
+Before adopting a terminal, the desktop waits for `watch_flush` to finish. A
+Claude `SessionStart` hook may have bound a transcript path before the first
+prompt creates that file. When the bound file is still absent and the journal
+contains neither native receipts nor prepared input, and the canonical log
+contains only status metadata, adoption keeps the existing process, identity
+and journal while observing its first prompt as new input. This exception never
+launches a replacement process or bypasses verification of existing history.
+The next authenticated hook binds observation to the transcript as usual.
+`remote_reattachment_before_first_prompt_preserves_identity_and_requires_empty_history`
+in `chat/terminal/ingestion/tests.rs` covers this behavior without changing any
+persisted format or host protocol.
+
 ## Desktop project selection
 
 Settings > Projects lists registered folders filtered by computer. The launcher

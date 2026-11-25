@@ -373,6 +373,17 @@ impl CaptureJournal {
         self.binding.native_session.as_deref()
     }
 
+    /// App status events can precede the first prompt. Any other receipt is conversation history.
+    pub(crate) fn has_conversation_activity(&self) -> Result<bool, JournalError> {
+        self.connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM captures WHERE json_extract(checkpoint,'$.kind') IS NOT 'app') OR EXISTS(SELECT 1 FROM prepared_inputs)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|_| JournalError::Storage)
+    }
+
     pub(crate) fn append(
         &mut self,
         log: &mut File,

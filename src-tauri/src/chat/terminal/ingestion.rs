@@ -189,6 +189,40 @@ impl JournalStore {
     pub(crate) fn seeded(&self) -> Result<Lines, String> {
         Lines::seeded(self)
     }
+
+    /// Reattach an existing process that has not created its transcript yet. Keep its journal
+    /// and identity, but allow the first prompt only when neither store records conversation work.
+    pub(crate) fn resume_observation(
+        &self,
+        adopts_process: bool,
+        transcript: Option<&Path>,
+    ) -> Result<bool, String> {
+        if !adopts_process
+            || transcript.is_none()
+            || transcript
+                .map(Path::try_exists)
+                .transpose()
+                .map_err(|_| ERROR)?
+                .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+        let text = self.load()?;
+        let mut writer = lock(&self.inner);
+        if writer
+            .journal
+            .has_conversation_activity()
+            .map_err(|_| ERROR)?
+            || !text.lines().all(|line| {
+                serde_json::from_str::<Value>(line)
+                    .is_ok_and(|frame| !persistent(&frame) || frame["type"] == "background.changed")
+            })
+        {
+            return Ok(true);
+        }
+        writer.fresh = true;
+        Ok(false)
+    }
     pub(crate) fn bind_native(&self, native: &str) -> Result<(), String> {
         lock(&self.inner)
             .journal

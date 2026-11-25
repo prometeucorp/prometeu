@@ -1675,6 +1675,10 @@ pub(crate) trait Execution {
     fn replaying(&self) -> Option<Arc<AtomicBool>> {
         None
     }
+    /// Reattach a process the host already owns; never launch a replacement.
+    fn adopts_process(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) struct Local;
@@ -1785,6 +1789,25 @@ pub(crate) fn launch_on(
         !resumed,
     )
     .map_err(|_| history(&request.session, "journal_open"))?;
+    let saved_binding = if resumed && engine.is_none() {
+        let native = provider_session
+            .as_deref()
+            .ok_or_else(|| history(&request.session, "resume_native"))?;
+        binding::Binding::load(&paths::root(), &request.session, provider, native)
+            .map_err(|_| history(&request.session, "binding_load"))?
+    } else {
+        None
+    };
+    let observe_resumed = resumed
+        && (engine.is_some()
+            || journal
+                .resume_observation(
+                    execution.adopts_process(),
+                    saved_binding
+                        .as_ref()
+                        .map(|saved| saved.transcript.as_path()),
+                )
+                .map_err(|_| history(&request.session, "observation_start"))?);
     let cursor_store = if provider == crate::state::ProviderId::Cursor {
         Some(CursorObservationConfig {
             chats_root: cursor_store_root
@@ -1823,7 +1846,7 @@ pub(crate) fn launch_on(
             session: request.session.clone(),
             process_nonce: generation.clone(),
             expected_native_session: provider_session.clone(),
-            start: if resumed {
+            start: if observe_resumed {
                 ObservationStart::Resume
             } else {
                 ObservationStart::Fresh
@@ -1839,14 +1862,8 @@ pub(crate) fn launch_on(
             .replay(engine.history(), journal.as_ref())
             .inspect_err(|_| diagnose(&request.session, "history.codex_replay"))?;
     }
-    if resumed && engine.is_none() {
-        let native = provider_session
-            .as_deref()
-            .ok_or_else(|| history(&request.session, "resume_native"))?;
-        let saved =
-            binding::Binding::load(&paths::root(), &request.session, profile.provider, native)
-                .map_err(|_| history(&request.session, "binding_load"))?;
-        if let Some(saved) = saved {
+    if observe_resumed && engine.is_none() {
+        if let Some(saved) = saved_binding {
             observations
                 .native
                 .resume_from(saved.transcript.clone())
@@ -1947,10 +1964,10 @@ pub(crate) fn launch_on(
         closed: Mutex::new(false),
         gone: pump.output.gone.clone(),
         ready: AtomicBool::new(false),
-        baseline_ready: AtomicBool::new(codex.is_some() || !resumed),
-        has_submitted: AtomicBool::new(resumed),
-        initial_input_available: AtomicBool::new(!resumed),
-        ingestion_ready: AtomicBool::new(resumed),
+        baseline_ready: AtomicBool::new(codex.is_some() || !observe_resumed),
+        has_submitted: AtomicBool::new(observe_resumed),
+        initial_input_available: AtomicBool::new(!observe_resumed),
+        ingestion_ready: AtomicBool::new(observe_resumed),
         psp_seen: AtomicBool::new(false),
         composer_ready: AtomicBool::new(false),
         journal: Some(journal),

@@ -46,6 +46,12 @@ Evidence: the host integration tests and the opt-in `vps_journey` cover
 transport, reattachment and limits. A live Claude response, completion and
 reattached status on a remote machine remain to be recorded here.
 
+`remote_reattachment_before_first_prompt_preserves_identity_and_requires_empty_history`
+in `src-tauri/src/chat/terminal/ingestion/tests.rs` covers restarting the desktop
+after Claude bound its native identity but before its first transcript exists.
+Adoption preserves that identity and status metadata; local resumes, existing
+transcripts, captured work and prepared input retain strict history verification.
+
 ## Native conversation mode
 
 The optional conversation mode format is shared by Claude, Codex, Antigravity

@@ -109,6 +109,12 @@ alone does not reconcile output missed during an app crash; the ingestion
 journal below provides the Cursor recovery path. Other providers still need
 their source-provenance integration before terminal mode can be enabled.
 
+[Remote process adoption](remote-host.md#transcript-mirror) can keep a process
+whose authenticated binding precedes its first transcript file. It retains the
+journal and identity, and requires proof that no conversation work was captured
+before observing the first prompt as new input. It does not relax the history
+requirements for launching a replacement process.
+
 Promised files (such as a capture's thumbnail) are materialized by AppKit in a
 new directory per gesture, without overwriting previous attachments. The backend
 only delivers to the UI files that exist inside that directory. They are not
