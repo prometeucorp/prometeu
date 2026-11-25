@@ -587,18 +587,20 @@ fn journal_store_failed_commit_never_publishes_captures_or_marks_the_sent_input_
 }
 
 #[test]
-fn journal_store_causal_mismatch_and_unsupported_content_stop_recovery_without_rewriting() {
+fn journal_store_binds_reformatted_echo_and_stops_recovery_on_unsupported_content() {
     let fixture = Fixture::new();
     let store = fixture.open(None, true);
     let (live, _) = pump(&store);
     send(&store, &live, "first", "Expected");
     store.bind_native("native").unwrap();
+    // A CLI that reformats the prompt must not poison resume: causal order binds the echo and
+    // the transcript keeps the app's original text once.
+    store
+        .replay(&batch("reformatted", vec![user("other", "Different")]))
+        .unwrap();
     let before = store.load().unwrap();
-    assert!(store
-        .replay(&batch("wrong", vec![user("other", "Different")]))
-        .is_err());
-    assert_eq!(store.load().unwrap(), before);
-    assert!(!store.caught_up());
+    assert_eq!(before.matches("user.message").count(), 1);
+    assert!(before.contains("Expected") && !before.contains("Different"));
     let mut unsupported = checkpoint();
     unsupported.checkpoint["kind"] = json!("unsupported_tool");
     assert!(store

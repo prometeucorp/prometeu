@@ -849,9 +849,10 @@ impl Writer {
                         && (self.observed_user.is_some() || input.empty_baseline)
                 })
             {
-                if !self.replay || input.normalized_hash != hash {
+                if !self.replay {
                     return Err(ERROR.into());
                 }
+                self.note_echo_mismatch(&input.normalized_hash, hash);
                 let frame = json!({"v":1,"type":"user.message","at":input.at,"content":[{"kind":"text","text":input.original}]});
                 let occurrence = format!("app:submission:{}", input.id);
                 self.append(&occurrence,"accepted",json!({"kind":"submission","id":input.id,"originalHash":input.original_hash,"normalizedHash":input.normalized_hash,"afterNativeUser":input.after_native_user,"emptyBaseline":input.empty_baseline}),vec![frame.to_string()],self.position.lines)?;
@@ -881,11 +882,25 @@ impl Writer {
             })
         };
         if let Some(target) = &target {
-            if target.checkpoint["normalizedHash"].as_str() != Some(hash) {
-                return Err(ERROR.into());
-            }
+            self.note_echo_mismatch(
+                target.checkpoint["normalizedHash"].as_str().unwrap_or_default(),
+                hash,
+            );
         }
         Ok(target)
+    }
+
+    /// Causal order already proves which app submission this native user echoes; the hash only
+    /// confirms the provider kept the text unchanged. CLIs reformat prompts across versions
+    /// (NFC, paste wrappers), so a mismatch is logged and the echo is bound anyway. Rejecting it
+    /// would kill the agent and poison every later resume on the same record.
+    fn note_echo_mismatch(&self, expected: &str, observed: &str) {
+        if expected != observed {
+            super::diagnose(
+                self.journal.native_session().unwrap_or("unbound"),
+                "history.echo_mismatch",
+            );
+        }
     }
 }
 
