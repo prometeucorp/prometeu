@@ -849,11 +849,24 @@ impl Writer {
                         && (self.observed_user.is_some() || input.empty_baseline)
                 })
             {
-                if !self.replay || input.normalized_hash != hash {
+                if !self.replay {
                     return Err(ERROR.into());
                 }
-                let frame = json!({"v":1,"type":"user.message","at":input.at,"content":[{"kind":"text","text":input.original}]});
                 let occurrence = format!("app:submission:{}", input.id);
+                if input.normalized_hash != hash {
+                    // Ambiguous: the app may never have written this input (the person typed
+                    // something else), or the CLI accepted and reformatted it. Keep what the
+                    // CLI recorded as its own message, and settle the input with a line-free
+                    // receipt so its saved dispatch counts as accepted and is never resent.
+                    super::diagnose(
+                        self.journal.native_session().unwrap_or("unbound"),
+                        "history.prepared_uncertain",
+                    );
+                    self.append(&occurrence,"accepted",json!({"kind":"uncertain_submission","id":input.id,"originalHash":input.original_hash}),vec![],self.position.lines)?;
+                    self.journal.finish_input(&input.id).map_err(|_| ERROR)?;
+                    return Ok(None);
+                }
+                let frame = json!({"v":1,"type":"user.message","at":input.at,"content":[{"kind":"text","text":input.original}]});
                 self.append(&occurrence,"accepted",json!({"kind":"submission","id":input.id,"originalHash":input.original_hash,"normalizedHash":input.normalized_hash,"afterNativeUser":input.after_native_user,"emptyBaseline":input.empty_baseline}),vec![frame.to_string()],self.position.lines)?;
                 self.journal.finish_input(&input.id).map_err(|_| ERROR)?;
                 return self
@@ -881,11 +894,27 @@ impl Writer {
             })
         };
         if let Some(target) = &target {
-            if target.checkpoint["normalizedHash"].as_str() != Some(hash) {
-                return Err(ERROR.into());
-            }
+            self.note_echo_mismatch(
+                target.checkpoint["normalizedHash"]
+                    .as_str()
+                    .unwrap_or_default(),
+                hash,
+            );
         }
         Ok(target)
+    }
+
+    /// Causal order already proves which app submission this native user echoes; the hash only
+    /// confirms the provider kept the text unchanged. CLIs reformat prompts across versions
+    /// (NFC, paste wrappers), so a mismatch is logged and the echo is bound anyway. Rejecting it
+    /// would kill the agent and poison every later resume on the same record.
+    fn note_echo_mismatch(&self, expected: &str, observed: &str) {
+        if expected != observed {
+            super::diagnose(
+                self.journal.native_session().unwrap_or("unbound"),
+                "history.echo_mismatch",
+            );
+        }
     }
 }
 

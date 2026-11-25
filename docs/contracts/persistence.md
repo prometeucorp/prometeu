@@ -595,10 +595,22 @@ No global text deduplication is permitted.
 An app submission's private checkpoint retains an opaque ID, the hash of the
 provider's proven normalized input and the preceding native user occurrence.
 The canonical echo keeps the original text. At most 64 unbound submissions are
-restored in causal order after a crash; a mismatched candidate is an explicit
-conflict. Cursor's proven paste normalization changes CRLF/CR to LF and tabs to
-two spaces, without NFC normalization. Claude Code records prompts in NFC, so
-its normalized input is the NFC form (macOS attachment paths arrive as NFD).
+restored in causal order after a crash. Causal order identifies the echo; the
+normalized hash only confirms the CLI kept the text. A hash mismatch on the
+causal candidate is logged as `terminal.history.echo_mismatch` and the echo is
+still bound, keeping the app's original text, because CLIs reformat prompts
+across versions and a rejection would stop the agent and fail every later
+resume on the same record. A prepared input recovered after a crash is
+ambiguous on a mismatch: the app may never have written it, or the CLI accepted
+and reformatted it. The mismatch is logged as
+`terminal.history.prepared_uncertain`, the native prompt is kept as its own
+message, and a line-free `uncertain_submission` receipt settles the input ID so
+its saved board dispatch counts as accepted and is never written again. Cursor's proven paste normalization changes CRLF/CR
+to LF and tabs to two spaces, without NFC normalization. Claude Code records
+prompts in NFC, so its normalized input is the NFC form (macOS attachment paths
+arrive as NFD). It also records a prompt made of one long paste wrapped as
+`<pasted_content id="…">`; the Claude adapter unwraps a prompt that is exactly
+one such block, so the echo and the displayed text are the pasted text.
 A source baseline and an empty pending
 submission queue are both required before admitting another app prompt or
 claiming catch-up. An unconfirmed input is never resent automatically.

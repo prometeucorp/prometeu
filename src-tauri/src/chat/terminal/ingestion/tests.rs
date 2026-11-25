@@ -587,18 +587,20 @@ fn journal_store_failed_commit_never_publishes_captures_or_marks_the_sent_input_
 }
 
 #[test]
-fn journal_store_causal_mismatch_and_unsupported_content_stop_recovery_without_rewriting() {
+fn journal_store_binds_reformatted_echo_and_stops_recovery_on_unsupported_content() {
     let fixture = Fixture::new();
     let store = fixture.open(None, true);
     let (live, _) = pump(&store);
     send(&store, &live, "first", "Expected");
     store.bind_native("native").unwrap();
+    // A CLI that reformats the prompt must not poison resume: causal order binds the echo and
+    // the transcript keeps the app's original text once.
+    store
+        .replay(&batch("reformatted", vec![user("other", "Different")]))
+        .unwrap();
     let before = store.load().unwrap();
-    assert!(store
-        .replay(&batch("wrong", vec![user("other", "Different")]))
-        .is_err());
-    assert_eq!(store.load().unwrap(), before);
-    assert!(!store.caught_up());
+    assert_eq!(before.matches("user.message").count(), 1);
+    assert!(before.contains("Expected") && !before.contains("Different"));
     let mut unsupported = checkpoint();
     unsupported.checkpoint["kind"] = json!("unsupported_tool");
     assert!(store
@@ -1711,4 +1713,47 @@ fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
         saved.contains("a\u{300}s 15.04.png"),
         "keeps the original spelling"
     );
+}
+
+#[test]
+fn journal_store_uncertain_prepared_input_keeps_the_native_prompt_and_is_never_resent() {
+    // After a crash, a prepared input whose echo differs is ambiguous: the person may have typed
+    // something else before the app wrote, or the CLI accepted and reformatted the app's input.
+    // The native prompt stays as recorded, and the saved dispatch must not be written again.
+    let fixture = Fixture::new();
+    {
+        let store = fixture.open(Some("native"), true);
+        store
+            .submission("dispatch", "App prompt", "App prompt")
+            .unwrap();
+    }
+    let recovered = fixture.open(Some("native"), false);
+    recovered
+        .replay(&batch(
+            "typed",
+            vec![user("typed", "Recorded by the CLI"), checkpoint()],
+        ))
+        .unwrap();
+    let history = recovered.load().unwrap();
+    assert_eq!(history.matches("user.message").count(), 1);
+    assert!(history.contains("Recorded by the CLI") && !history.contains("App prompt"));
+    // Resuming the saved board dispatch goes through `accepted_submission` before any write.
+    assert!(recovered
+        .accepted_submission("dispatch", "App prompt")
+        .unwrap());
+    assert!(recovered
+        .submission("dispatch", "App prompt", "App prompt")
+        .is_err());
+    assert!(recovered.caught_up());
+    // A later app prompt still binds to its own echo.
+    let (live, _) = pump(&recovered);
+    send(&recovered, &live, "next", "Next prompt");
+    let next = user("next", "Next prompt");
+    assert!(live
+        .accept_committed(next.frame.as_ref().unwrap(), |line, offset| {
+            recovered.commit_record(&next, Some(line), offset)
+        })
+        .unwrap()
+        .is_empty());
+    assert_eq!(recovered.load().unwrap().matches("user.message").count(), 2);
 }

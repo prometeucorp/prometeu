@@ -515,6 +515,7 @@ impl Adapter {
                 )];
             }
         }
+        let text = unwrap_paste(text).unwrap_or(text);
         (!text.trim().is_empty())
             .then(|| {
                 event(
@@ -1296,12 +1297,42 @@ fn unescape(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
+/// Claude Code records a prompt made of a single long paste (the app's terminal input is one
+/// bracketed paste) as `<pasted_content id="X">\n…\n</pasted_content id="X">`. The person's
+/// text is the inner part; it is also what the app submitted and expects as the native echo.
+fn unwrap_paste(text: &str) -> Option<&str> {
+    let (id, rest) = text
+        .trim()
+        .strip_prefix("<pasted_content id=\"")?
+        .split_once("\">\n")?;
+    rest.strip_suffix(&format!("\n</pasted_content id=\"{id}\">"))
+}
+
 #[cfg(test)]
 pub(crate) mod contract;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whole_prompt_paste_wrapper_is_unwrapped() {
+        let wrapped = "\n\n<pasted_content id=\"3cbc\">\n@/tmp/a.png\n\nLong text\n</pasted_content id=\"3cbc\">\n";
+        assert_eq!(unwrap_paste(wrapped), Some("@/tmp/a.png\n\nLong text"));
+        let frames = Adapter::default().translate(&json!({
+            "type":"user","message":{"role":"user","content":wrapped}
+        }));
+        assert_eq!(frames[0]["content"][0]["text"], "@/tmp/a.png\n\nLong text");
+        // Typed text around a paste, or mismatched ids, stays verbatim.
+        assert_eq!(
+            unwrap_paste("before <pasted_content id=\"a\">\nx\n</pasted_content id=\"a\">"),
+            None
+        );
+        assert_eq!(
+            unwrap_paste("<pasted_content id=\"a\">\nx\n</pasted_content id=\"b\">"),
+            None
+        );
+    }
 
     #[test]
     fn canonical_input_closes_stream_json_writer() {
