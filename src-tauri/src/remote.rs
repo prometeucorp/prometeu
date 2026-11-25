@@ -6,6 +6,7 @@
 //! person's `~/.ssh/config` works) and default resource limits for each workspace. Credentials
 //! never pass through the app: `ssh` authenticates with the person's own keys and agent.
 pub mod agent;
+pub mod agents;
 pub mod connection;
 pub mod install;
 pub mod login;
@@ -94,6 +95,8 @@ pub struct Service {
     app: Mutex<Option<AppHandle>>,
     /// The last `claude auth status` seen on each machine.
     claude: Mutex<HashMap<String, login::ClaudeStatus>>,
+    /// Whether agents are enabled on each machine, once checked (ADR 0103).
+    agents: Mutex<HashMap<String, agents::AgentsStatus>>,
     /// Conversations whose process ended while no desktop was attached: their next launch adopts
     /// the finished terminal to collect its output, hooks and transcript, instead of starting
     /// Claude again.
@@ -110,6 +113,7 @@ pub struct MachineView {
     pub update_pending: bool,
     /// Claude's sign-in on the machine, once checked.
     pub claude: Option<login::ClaudeStatus>,
+    pub agents: Option<agents::AgentsStatus>,
 }
 
 impl Service {
@@ -167,6 +171,7 @@ impl Service {
 
     pub fn views(&self) -> Vec<MachineView> {
         let claude = lock(&self.claude).clone();
+        let agents = lock(&self.agents).clone();
         let mut views: Vec<MachineView> = lock(&self.connections)
             .values()
             .map(|c| {
@@ -178,6 +183,7 @@ impl Service {
                     host: c.ready(),
                     update_pending: c.update_pending(),
                     claude: claude.get(&c.id).cloned(),
+                    agents: agents.get(&c.id).cloned(),
                 }
             })
             .collect();
@@ -188,6 +194,11 @@ impl Service {
 
 pub(crate) fn publish_claude(app: &AppHandle, id: &str, status: login::ClaudeStatus) {
     lock(&app.state::<Service>().claude).insert(id.into(), status);
+    publish(app);
+}
+
+pub(crate) fn publish_agents(app: &AppHandle, id: &str, status: agents::AgentsStatus) {
+    lock(&app.state::<Service>().agents).insert(id.into(), status);
     publish(app);
 }
 
@@ -242,11 +253,13 @@ pub fn fill_origins(app: &AppHandle, machine: Option<&Arc<Connection>>) {
     crate::state::publish(app);
 }
 
-/// Refresh what only changes between attachments: Claude's sign-in and the clones' origins.
+/// Refresh what only changes between attachments: Claude's sign-in, whether agents are enabled
+/// and the clones' origins.
 fn attached(app: &AppHandle, connection: &Arc<Connection>) {
     if let Ok(status) = login::status(connection) {
         publish_claude(app, &connection.id, status);
     }
+    agents::refresh(app, connection);
     fill_origins(app, Some(connection));
 }
 

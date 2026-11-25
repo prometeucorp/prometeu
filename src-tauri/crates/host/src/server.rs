@@ -518,10 +518,21 @@ fn dispatch(
 ) -> Result<Option<Value>, String> {
     let result = match method {
         "ping" => json!({}),
-        "exec" => exec(params)?,
-        "file_write" => file_write(params)?,
+        // Requests that change the machine hold off a non-forced shutdown, and fail once one has
+        // started, so an update never cuts them off halfway (ADR 0103).
+        "exec" => {
+            let _change = crate::agents::Mutation::begin()?;
+            exec(params)?
+        }
+        "file_write" => {
+            let _change = crate::agents::Mutation::begin()?;
+            file_write(params)?
+        }
         "file_read" => file_read(params)?,
-        "terminal_open" => open(host, params)?,
+        "terminal_open" => {
+            let _change = crate::agents::Mutation::begin()?;
+            open(host, params)?
+        }
         "terminal_write" => {
             let term = find(host, &terminal_id(params)?)?;
             let data = bytes(params, "data")?;

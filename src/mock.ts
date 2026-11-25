@@ -2641,7 +2641,7 @@ const mockCommands: IpcHandlers = {
   machine_install({ id }) {
     const machine = mockMachines.find(m => m.id === id);
     if (!machine) throw 'i18n:{"code":"err.remote.unknown"}';
-    Object.assign(machine, { phase: "connected", claude: { installed: true, loggedIn: false, email: null, method: null }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null } });
+    Object.assign(machine, { phase: "connected", agents: { enabled: false, socket: "/home/me/.prometeu-remote-agents/agents-v1.sock", serving: false, error: null }, claude: { installed: true, loggedIn: false, email: null, method: null }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null } });
     emit("machines", mockMachines);
     return machine;
   },
@@ -2651,6 +2651,26 @@ const mockCommands: IpcHandlers = {
     return machine?.claude ?? { installed: true, loggedIn: false, email: null, method: null };
   },
   machine_claude_login() { return "https://claude.ai/oauth/authorize?mock"; },
+  machine_agents_enable({ id, openHome }) {
+    const machine = mockMachines.find(m => m.id === id);
+    if (!machine || machine.phase !== "connected") throw 'i18n:{"code":"err.remote.offline"}';
+    const home = machine.host?.home ?? "/home/me";
+    if (!openHome && !machine.agents?.enabled) return { needs_open: [home] };
+    const dir = `${home}/.prometeu-remote-agents`;
+    machine.agents = { enabled: true, socket: `${dir}/agents-v1.sock`, serving: true, error: null };
+    emit("machines", mockMachines);
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("");
+    const server = { command: "/prometeu/prometeu-mcp", args: ["mcp", "--socket", "/prometeu/agents-v1.sock"],
+      env: { PROMETEU_AGENT_TOKEN: token, PROMETEU_AGENT_NAME: "agent", PROMETEU_AGENT_HOST_UID: "65534" } };
+    const masked = { ...server, env: { ...server.env, PROMETEU_AGENT_TOKEN: "•".repeat(16) } };
+    return { mount: `-v ${dir}:/prometeu:ro`, config: JSON.stringify({ mcpServers: { prometeu: server } }, null, 2),
+      preview: JSON.stringify({ mcpServers: { prometeu: masked } }, null, 2), client_uid: 65534, local_uid: 1000, opened: openHome ? [home] : [], moved_from: null };
+  },
+  machine_agents_disable({ id }) {
+    const machine = mockMachines.find(m => m.id === id);
+    if (machine) machine.agents = { enabled: false, socket: machine.agents?.socket ?? "", serving: false, error: null };
+    emit("machines", mockMachines);
+  },
   machine_claude_code({ id, code }) {
     if (code.trim() !== "mock-code") throw 'i18n:{"code":"err.remote.login","args":{"detail":"Invalid code"}}';
     const machine = mockMachines.find(m => m.id === id);

@@ -41,6 +41,8 @@ Agent clients on the machine
 without permission prompts; `src-tauri/crates/host/tests/agents.rs` covers them.
 The desktop adopts their workspaces as Claude terminal tabs that run in that
 mode, and `src-tauri/src/remote/registry.rs` covers the adoption.
+Settings enables them on a connected machine and shows the container's MCP
+configuration.
 
 Evidence: the host integration tests and the opt-in `vps_journey` cover
 transport, reattachment and limits. A live Claude response, completion and

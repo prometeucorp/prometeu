@@ -119,12 +119,38 @@ it is working, as it does for a person typing.
 - Agents never use the desktop socket (`host-v1.sock`), whose `exec`,
   `file_write` and terminal methods amount to a shell. The host serves a second
   socket, `agents-v1.sock`, which offers only the methods below.
-- Its directory is configurable, because exposing it to another Unix user or
-  container is a deployment choice. The default is `<root>/agents/`, which only
-  the owner can reach. The socket is 0666 inside its directory. What authorizes a
-  client is the token.
+- The host serves the agent socket only while a token exists. `prometeu-host
+  agents setup` needs no flags and no root: the default directory is
+  `~/.prometeu-remote-agents`, beside the root, created 0755 so another user's
+  container can mount it while only the person can replace what is inside. It
+  holds the socket (0666) and the client executable, never the token. A
+  container started by another Unix user reaches that folder only through the
+  person's home. Distributions such as Ubuntu create homes as 0750, so other
+  users then need traverse-only permission (`o+x`, not `o+r`) on the person's
+  own folders between the home and the agent directory. That lets them open
+  files under the home whose own permissions allow it when they know the path,
+  so setup changes nothing until the person agrees (`--open-home`, or the
+  confirmation in Settings). It records the folders it opened, and `agents
+  disable` closes them again. `--socket` chooses another directory, such as one
+  under `/srv`, without touching the home. What authorizes a client is the
+  token, so whoever could replace the socket or the client would collect it.
+  Setup and the host therefore refuse a directory that is not the person's own
+  or that anyone else can write, and one whose parent folders someone other
+  than the person or root could change, unless a parent is sticky like `/tmp`.
+- The host keeps an executable copy of itself, `prometeu-mcp` (0755), next to
+  the socket. It replaces it atomically whenever it binds the socket, which
+  includes the first bind after an update, so a bot's configuration names the
+  same command across updates and never runs a build that was removed. Setup
+  records the copy in `agents.json`. The host writes and `agents disable`
+  deletes only that recorded file, and setup refuses a folder where a file of
+  that name already exists that setup did not install.
+- Setup always records the socket's path. An install from before this default
+  has no record, so its host keeps the old `<root>/agents/agents-v1.sock` and its
+  clients keep working. The next setup moves it and says so.
 - The token is 32 random bytes in `<root>/agents/token` (0600), created by the
-  first `prometeu-host agents setup` and replaced by `agents setup --rotate`. Each
+  first `prometeu-host agents setup` and replaced by `agents setup --rotate`.
+  `agents disable` deletes it and the client executable; the host then closes
+  the socket and removes it. Each
   connection's first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
   The host compares the token in constant time on that frame and again before
   every request. A connection whose token no longer matches is closed, so
@@ -154,6 +180,17 @@ it is working, as it does for a person typing.
 `prometeu-host mcp --socket <path>` is a stdio MCP server that exposes those
 methods as tools. It reads the token from `PROMETEU_AGENT_TOKEN`, so it fits the
 environment field of a bot platform's MCP configuration.
+
+`agents setup` prints a configuration for a container: the agent directory
+mounted read-only at `/prometeu`, and an MCP entry running
+`/prometeu/prometeu-mcp mcp --socket /prometeu/agents-v1.sock`. The client
+checks that the socket's listener runs as `PROMETEU_AGENT_HOST_UID`, the
+person's user ID as the client's user namespace sees it. The host cannot detect
+that value: it depends on where the client runs. The configuration therefore
+defaults to the kernel's overflow ID (usually 65534), which is how a container
+in another user's rootless Docker sees an unmapped user, and the output says
+which value to pass with `--client-uid` for a client running directly on the
+machine or in a rootless container of the person's own user.
 
 ### The desktop
 
@@ -196,6 +233,26 @@ environment field of a bot platform's MCP configuration.
   soon as the desktop hears of it, and its tabs stop. Its transcript stays
   readable. When the worktree is gone but the branch could not be deleted,
   `workspace_close` names the branch in `branch_kept`.
+- In Settings, a connected machine offers **Enable agents**. The desktop runs
+  `agents setup --json` from the build it attaches with, over the existing SSH
+  attachment, and shows the container mount and the MCP configuration with copy
+  buttons. The token travels only over that SSH connection. The screen shows it
+  masked, so a screenshot (a feedback report, for example) never carries it.
+  Copying the configuration includes it. It is kept in memory until the person
+  closes the panel, and it is never stored, logged or sent through the relay.
+  The panel belongs to the SSH destination it was made for: editing the
+  destination or forgetting the machine closes it, and a late result for an
+  earlier destination is dropped. Settings shows agents as enabled only once
+  the socket answers, or shows why the host cannot serve it. The machine's menu then offers a new token (rotation) and
+  **Disable agents**, both confirmed first because they cut off connected bots.
+  Each attachment reads `agents status` to show whether agents are enabled.
+- A host update reaches agents too. The desktop replaces an older host only
+  while it runs no terminal. If the host is busy at attachment, the desktop asks
+  again when a terminal it follows ends, and every minute in any case, because
+  terminals that agents start end without telling the desktop. It never asks
+  while one of its own requests is in flight, and the host refuses to stop
+  while a command, file write or terminal launch is running, so an update never
+  loses the outcome of a `git worktree add` or a new token.
 - Agents see every workspace on the machine, including those the person created
   from the desktop. Local workspaces on the laptop never reach the host.
 
@@ -224,6 +281,10 @@ Multi-repository workspaces stay desktop-only.
 
 Implemented on the host and the desktop, and run in production with OpenBot
 (2026-11-24, Prometeu 0.46.0).
+Enabling agents from Settings with no shell steps (setup without flags or
+root, a client executable the host keeps current, the configuration shown with
+copy buttons, and host updates that wait for an idle moment) is covered by the
+tests below; its run with OpenBot through Settings is still to be recorded.
 
 - [Remote host protocol](../contracts/remote-host.md): registry, observed state,
   agent socket and MCP server.
@@ -234,9 +295,21 @@ Implemented on the host and the desktop, and run in production with OpenBot
   registry as the desktop socket returns it. The registry event reaches an
   attached desktop, and the desktop's later record of a workspace keeps the
   conversations an agent opened. The MCP server lists tools and relays calls.
+  `setup_needs_no_flags_and_the_host_keeps_the_client_current` covers
+  the default directory's modes, the JSON configuration, a host start replacing
+  a stale client, and disabling.
 - `src-tauri/src/remote/registry.rs`: an agent's registry workspace becomes a
   terminal-mode board entry that names its creator, and the desktop's records
   carry the conversations being launched with their permission mode.
+- Unit tests: `agents.rs` (the home opens only with consent and closes again
+  on disable; an install from before the move keeps its socket; setup refuses
+  shared folders, files it did not install and a taken socket path),
+  `remote/connection.rs` (`a_busy_stale_host_is_retired_once_it_becomes_idle`)
+  and `remote/agents.rs` (the setup output becomes a masked preview and a
+  ready-to-paste configuration; enabling asks before opening folders).
+- `src-tauri/crates/host/tests/host.rs` (`an_update_waits_for_a_running_command`)
+  and `tests/agents.rs` (`a_refused_socket_path_is_taken_once_it_is_free`, which
+  also reads the bind error through `agents status`).
 - Manual run on the VPS (2026-11-24) with Claude Code 2.1.331 and a test root.
   Through the agent socket, a workspace was created in a registered project.
   Claude wrote the requested file and answered, a multi-line follow-up typed
