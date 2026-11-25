@@ -18,10 +18,8 @@ export type Limits = { memory_max: string; cpu_quota: string };
 export type HostInfo = { home: string; user: string; os: string; arch: string; version: string; linger: boolean; scopes: boolean; executable: string | null };
 export type ClaudeStatus = { installed: boolean; loggedIn: boolean; email: string | null; method: string | null };
 export type AgentsStatus = { enabled: boolean; socket: string; serving: boolean; error: string | null };
-/** Shown once after enabling agents or rotating their token: the container mount and the MCP configuration with the token. */
-export type AgentsSetup = { mount: string; config: string; preview: string; client_uid: number; local_uid: number; opened: string[]; moved_from: string | null };
-/** Enabling stops without changing anything when folders under the machine's home must be opened to other users first. */
-export type AgentsEnable = AgentsSetup | { needs_open: string[] };
+/** Shown once after enabling agents or rotating their token: the local MCP configuration with the token. */
+export type AgentsSetup = { config: string; preview: string; moved_from: string | null };
 export type MachineView = { id: string; name: string; ssh: string; limits: Limits; phase: MachinePhase; detail: string | null; host: HostInfo | null; update_pending: boolean; claude?: ClaudeStatus | null; agents?: AgentsStatus | null };
 export type MachineInput = { id?: string | null; name: string; ssh: string; limits: Limits };
 export type WorkspaceStats = { memory: number | null; memory_max: number | null; cpu_usec: number | null; cpu_max: string | null };
@@ -154,14 +152,8 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
       message: t("machines.agents.rotateConfirm"), accept: t("machines.agents.rotate"), cancel: t("machines.cancel") })) return null;
     // A configuration is only ever shown for the destination it was made on.
     const ssh = machine.ssh;
-    let result = await invoke("machine_agents_enable", { id: machine.id, rotate, openHome: false });
-    if ("needs_open" in result) {
-      if (!await confirmDialog({ track: "machines.agents.openHome", area: "settings", title: t("machines.agents.openHome"),
-        message: t("machines.agents.openHomeConfirm", { folders: result.needs_open.join(", ") }),
-        accept: t("machines.agents.openHome"), cancel: t("machines.cancel") })) return null;
-      result = await invoke("machine_agents_enable", { id: machine.id, rotate, openHome: true });
-    }
-    if (!("needs_open" in result) && machineOf(machine.id)?.ssh === ssh) agentSetups.set(machine.id, { setup: result, ssh });
+    const result = await invoke("machine_agents_enable", { id: machine.id, rotate });
+    if (machineOf(machine.id)?.ssh === ssh) agentSetups.set(machine.id, { setup: result, ssh });
     return null;
   });
   const disableAgents = () => run(`agents:${machine.id}`, redraw, say, async () => {
@@ -289,9 +281,8 @@ function claudeLogin(machine: MachineView, link: string, say: (text: string, isE
   return panel;
 }
 
-/// The configuration a bot platform needs to drive this machine through its agent socket (ADR 0103): a read-only mount
-/// of the agent folder into the bot's container and an MCP server entry, each with a copy button. The token inside is
-/// shown only here, until the person closes the panel.
+/// Local stdio MCP configuration for any client (ADR 0103). The token is masked on screen
+/// and included only when copying, until the person closes the panel.
 function agentsPanel(machine: MachineView, setup: AgentsSetup, say: (text: string, isError?: boolean) => void, redraw: () => void): HTMLElement {
   const panel = h("div", "machine-agents");
   /** Shows `shown` and copies `value`: the configuration's token stays off the screen, so a screenshot never carries it. */
@@ -310,13 +301,10 @@ function agentsPanel(machine: MachineView, setup: AgentsSetup, say: (text: strin
   const done = button(t("machines.agents.done"), () => { agentSetups.delete(machine.id); redraw(); }, "ghost", "machines.agents.done");
   panel.append(
     h("p", "ui-hint", t("machines.agents.steps")),
-    copyable(t("machines.agents.mount"), setup.mount, setup.mount, false, "machines.agents.mount"),
     copyable(t("machines.agents.config"), setup.config, setup.preview, true, "machines.agents.config"),
-    h("p", "ui-hint", t("machines.agents.uid", { uid: String(setup.client_uid), local: String(setup.local_uid) })),
     notice(t("machines.agents.secret"), "warning"),
   );
   if (setup.moved_from) panel.append(notice(t("machines.agents.moved", { path: setup.moved_from }), "warning"));
-  if (setup.opened.length) panel.append(notice(t("machines.agents.opened", { folders: setup.opened.join(", ") }), "warning"));
   panel.append(done);
   return panel;
 }
