@@ -62,6 +62,8 @@ impl Base64 {
 struct Candidate {
     path: Vec<String>,
     kind: InlineImageFormat,
+    /// A Claude image inside a tool result, which earlier parsers kept whenever its record fit.
+    tool: bool,
     selected: bool,
     header: Vec<u8>,
     binary: Base64,
@@ -116,7 +118,9 @@ pub(super) struct ImageFilter {
     stack: Vec<Container>,
     string: Option<StringToken>,
     omitted: Vec<Candidate>,
-    fallback_bytes: usize,
+    /// Original bytes kept per budget: other candidates, then tool images, so a top-level image
+    /// can never crowd out a tool image that must be restored.
+    fallback_bytes: [usize; 2],
 }
 
 impl ImageFilter {
@@ -126,7 +130,7 @@ impl ImageFilter {
             stack: Vec::new(),
             string: None,
             omitted: Vec::new(),
-            fallback_bytes: 0,
+            fallback_bytes: [0; 2],
         }
     }
 
@@ -148,12 +152,14 @@ impl ImageFilter {
     fn candidate(&self, path: Vec<String>) -> Option<Candidate> {
         let matches = match self.format {
             InlineImageFormat::Claude => {
-                path.len() == 5
+                matches!(path.len(), 5 | 7)
                     && path[0] == "message"
                     && path[1] == "content"
                     && path[2].parse::<usize>().is_ok()
-                    && path[3] == "source"
-                    && path[4] == "data"
+                    && (path.len() == 5
+                        || (path[3] == "content" && path[4].parse::<usize>().is_ok()))
+                    && path[path.len() - 2] == "source"
+                    && path[path.len() - 1] == "data"
             }
             InlineImageFormat::Codex => {
                 (path.len() == 3
@@ -167,9 +173,11 @@ impl ImageFilter {
                         && path[3] == "image_url")
             }
         };
+        let tool = self.format == InlineImageFormat::Claude && path.len() == 7;
         matches.then(|| Candidate {
             path,
             kind: self.format,
+            tool,
             selected: self.format == InlineImageFormat::Claude,
             header: Vec::new(),
             binary: Base64::default(),
@@ -188,8 +196,8 @@ impl ImageFilter {
                         .last()
                         .is_some_and(|frame| frame.object && frame.expecting_key);
                     let candidate = (!key).then(|| self.candidate(self.value_path())).flatten();
-                    if candidate.is_some() {
-                        self.fallback_bytes += 1;
+                    if let Some(candidate) = &candidate {
+                        self.fallback_bytes[candidate.tool as usize] += 1;
                     }
                     self.string = Some(StringToken {
                         key,
@@ -238,9 +246,10 @@ impl ImageFilter {
         }
         if let Some(candidate) = &mut token.candidate {
             if let Some(original) = &mut candidate.original {
-                if self.fallback_bytes < FALLBACK_LIMIT {
+                let budget = &mut self.fallback_bytes[candidate.tool as usize];
+                if *budget < FALLBACK_LIMIT {
                     original.push(byte);
-                    self.fallback_bytes += 1;
+                    *budget += 1;
                 } else {
                     candidate.original = None;
                 }
@@ -316,19 +325,26 @@ impl ImageFilter {
             return Err(());
         }
         let mut omitted = 0;
+        let mut tool_images = Vec::new();
         for candidate in &self.omitted {
             let pointer = format!("/{}", candidate.path.join("/"));
             let image = match candidate.kind {
                 InlineImageFormat::Claude => {
-                    let index = &candidate.path[2];
-                    value
-                        .pointer(&format!("/message/content/{index}/type"))
-                        .is_some_and(|v| v == "image")
+                    let block =
+                        format!("/{}", candidate.path[..candidate.path.len() - 2].join("/"));
+                    // Read-tool images are nested inside a tool_result content array.
+                    (candidate.path.len() == 5
+                        || value
+                            .pointer(&format!("/message/content/{}/type", candidate.path[2]))
+                            .is_some_and(|v| v == "tool_result"))
                         && value
-                            .pointer(&format!("/message/content/{index}/source/type"))
+                            .pointer(&format!("{block}/type"))
+                            .is_some_and(|v| v == "image")
+                        && value
+                            .pointer(&format!("{block}/source/type"))
                             .is_some_and(|v| v == "base64")
                         && value
-                            .pointer(&format!("/message/content/{index}/source/media_type"))
+                            .pointer(&format!("{block}/source/media_type"))
                             .and_then(Value::as_str)
                             .is_some_and(|mime| mime.starts_with("image/"))
                 }
@@ -343,6 +359,10 @@ impl ImageFilter {
                             .is_some_and(|v| v == "input_image")
                 }
             };
+            if image && candidate.tool {
+                tool_images.push((pointer, candidate));
+                continue;
+            }
             let replacement = if image {
                 if !candidate.binary.valid() {
                     return Err(());
@@ -356,6 +376,36 @@ impl ImageFilter {
                 Value::String(serde_json::from_slice(original).map_err(|_| ())?)
             };
             *value.pointer_mut(&pointer).ok_or(())? = replacement;
+        }
+        if tool_images.is_empty() {
+            return Ok(omitted);
+        }
+        // Earlier parsers kept Read-tool image bytes whenever the record fit the line budget, and
+        // saved journals key those records by a digest of that exact value. Keep such records
+        // byte-identical so a resume matches them; omit the bytes only when the record could not
+        // have been read before. Tool images have their own original budget, so it always holds
+        // the bytes of a record that fits.
+        let originals = tool_images
+            .iter()
+            .map(|(_, candidate)| {
+                let original = candidate.original.as_deref()?;
+                serde_json::from_slice::<String>(original).ok()
+            })
+            .collect::<Option<Vec<_>>>();
+        if let Some(originals) = originals {
+            for ((pointer, _), original) in tool_images.iter().zip(originals) {
+                *value.pointer_mut(pointer).ok_or(())? = Value::String(original);
+            }
+            if value.to_string().len() <= super::TRANSCRIPT_LINE_LIMIT {
+                return Ok(omitted);
+            }
+        }
+        for (pointer, candidate) in tool_images {
+            if !candidate.binary.valid() {
+                return Err(());
+            }
+            *value.pointer_mut(&pointer).ok_or(())? = Value::Null;
+            omitted += 1;
         }
         Ok(omitted)
     }

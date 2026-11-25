@@ -2505,6 +2505,94 @@ mod tests {
     }
 
     #[test]
+    fn terminal_observation_claude_read_image_survives_ingestion_and_cold_resume() {
+        use crate::chat::terminal::ingestion::{journal_path, JournalStore};
+        use crate::terminal_agent_journal::JournalBinding;
+        use prometeu_core::conversation::stream::{persistent, public_text, TranscriptStore};
+
+        // A small image stays in the record, as earlier parsers saved it; a large one is omitted.
+        for data in ["iVBORw0KGgo=".to_string(), "A".repeat(6 * 1024 * 1024)] {
+            let fixture = Fixture::new();
+            let rows = [
+                json!({"uuid":"prompt","type":"user","message":{"role":"user","content":"Read the attached image"}}),
+                json!({"uuid":"read","parentUuid":"prompt","type":"assistant","message":{"id":"read","role":"assistant","content":[{"type":"tool_use","id":"read-image","name":"Read","input":{"file_path":"/tmp/image.png"}}]}}),
+                json!({"uuid":"result","parentUuid":"read","type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"read-image","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":data}},{"type":"text","text":"Image dimensions: 3024x1964"}],"is_error":false}]}}),
+                json!({"uuid":"answer","parentUuid":"result","type":"assistant","message":{"id":"answer","role":"assistant","content":[{"type":"text","text":"Visible answer"}]}}),
+            ];
+            std::fs::write(fixture.file(), lines(&rows)).unwrap();
+            let mut saved = String::new();
+            for start in [ObservationStart::Fresh, ObservationStart::Resume] {
+                let journal = JournalStore::open(
+                    &fixture.0.join("canonical.jsonl"),
+                    &journal_path(&fixture.0, "app").unwrap(),
+                    JournalBinding {
+                        app_session: "app".into(),
+                        provider: "claude".into(),
+                        native_session: Some("native-session".into()),
+                    },
+                    start == ObservationStart::Fresh,
+                )
+                .unwrap();
+                let (mut observer, seen) =
+                    observer_start(ProviderId::Claude, fixture.0.clone(), start);
+                let batches = Arc::new(Mutex::new(Vec::new()));
+                let output = batches.clone();
+                observer
+                    .set_ingestion(Box::new(move |batch| output.lock().unwrap().push(batch)))
+                    .unwrap();
+                if start == ObservationStart::Fresh {
+                    observer
+                        .accept_hook(hook(
+                            ProviderId::Claude,
+                            NativeHookKind::SessionStarted,
+                            &fixture.file(),
+                            None,
+                        ))
+                        .unwrap();
+                } else {
+                    observer.resume_from(fixture.file()).unwrap();
+                }
+                for _ in 0..10 {
+                    observer.poll().unwrap();
+                    for batch in batches.lock().unwrap().drain(..) {
+                        assert!(batch.complete);
+                        if start == ObservationStart::Resume {
+                            journal.replay(&batch).unwrap();
+                        } else {
+                            journal.begin_stream_batch(&batch).unwrap();
+                            for record in &batch.records {
+                                let line =
+                                    record.frame.as_ref().filter(|frame| persistent(frame)).map(
+                                        |frame| public_text(&frame.to_string(), frame).into_owned(),
+                                    );
+                                let offset = journal.load().unwrap().lines().count() as u64;
+                                journal
+                                    .commit_record(record, line.as_deref(), offset)
+                                    .unwrap();
+                            }
+                            journal.finish_batch(&batch).unwrap();
+                        }
+                        observer.acknowledge_ingestion(&batch.id).unwrap();
+                    }
+                    if observer.caught_up() {
+                        break;
+                    }
+                }
+                assert!(observer.baseline_ready() && observer.caught_up() && journal.caught_up());
+                assert!(seen.lock().unwrap().warnings.is_empty());
+                let text = journal.load().unwrap();
+                assert!(text.contains("Image dimensions: 3024x1964"));
+                assert!(text.contains("Visible answer"));
+                assert_eq!(text.matches("tool.completed").count(), 1);
+                if start == ObservationStart::Resume {
+                    assert_eq!(text, saved);
+                }
+                saved = text;
+            }
+        }
+    }
+
+    #[test]
     fn terminal_observation_large_inline_images_preserve_fresh_input_and_resume_quietly() {
         for provider in [ProviderId::Claude, ProviderId::Codex] {
             for start in [ObservationStart::Fresh, ObservationStart::Resume] {
