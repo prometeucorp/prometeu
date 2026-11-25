@@ -357,8 +357,9 @@ pub struct Workspace {
     /// agents keep running there while this computer sleeps or the app is closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
-    /// The agent that created this remote workspace through its machine's host (ADR 0103), by
-    /// the name its MCP configuration gives; `None` for work the person started.
+    /// Authorship, independent of `host`: the agent that created this workspace, by the name its
+    /// MCP configuration gives; `None` for work the person started. Today only a machine's host
+    /// records it (ADR 0103), but nothing ties it to remote work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub creator: Option<String>,
 }
@@ -708,6 +709,19 @@ impl Board {
             .find(|t| t.id == session)
     }
 
+    /// Show a conversation whose process this app stopped as stopped. Its registry entry is
+    /// already gone, so the process's later exit publishes nothing and cannot settle the tab.
+    /// True when the tab changed.
+    pub fn stop_tab(&mut self, session: &str) -> bool {
+        let Some(tab) = self.tab_mut(session) else {
+            return false;
+        };
+        let changed = tab.status != Status::Desligada || tab.note.is_some();
+        tab.status = Status::Desligada;
+        tab.note = None;
+        changed
+    }
+
     /// Find the owning workspace so session events update the correct card.
     pub fn workspace_of_mut(&mut self, session: &str) -> Option<&mut Workspace> {
         self.workspaces
@@ -917,6 +931,27 @@ mod tests {
 
         let normalized = serde_json::to_value(empty).unwrap();
         assert_eq!(normalized["workspaces"][0]["agent"], "claude");
+    }
+
+    /// A conversation the app stopped stops spinning, whatever it was doing.
+    #[test]
+    fn stopping_a_tab_clears_its_running_state() {
+        let mut board = board_json(
+            r#", "tabs":[{"id":"busy","title":"","status":"rodando","note":"Bash ls"},
+                        {"id":"asks","title":"","status":"querendo","note":"Allow?"},
+                        {"id":"off","title":"","status":"desligada"}]"#,
+        );
+        assert!(board.stop_tab("busy"));
+        assert!(board.stop_tab("asks"));
+        assert!(
+            !board.stop_tab("off"),
+            "an already stopped tab is unchanged"
+        );
+        assert!(!board.stop_tab("missing"));
+        for tab in &board.workspaces[0].tabs {
+            assert!(tab.status == Status::Desligada, "{} still runs", tab.id);
+            assert!(tab.note.is_none());
+        }
     }
 
     /// Interrupted preparation becomes an explicit failure after restart.

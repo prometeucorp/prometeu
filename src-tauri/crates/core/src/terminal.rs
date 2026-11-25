@@ -1,9 +1,12 @@
 //! Terminal byte retention and delivery. The execution host owns native PTYs and reader tasks.
 use crate::lock::lock;
 use crate::process::ProcessHandle;
+use crate::tasks::TaskExecutor;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub const SCROLLBACK: usize = 512 * 1024;
 
@@ -129,6 +132,72 @@ impl TerminalOutput {
     pub fn retire(&self) {
         let _buffer = lock(&self.buffer);
         self.gone.store(true, Ordering::Relaxed);
+    }
+}
+
+/// How long a terminal's trailing output may keep arriving after its process exited. The host
+/// daemon waits as long before announcing a remote exit.
+pub const EXIT_DRAIN: Duration = Duration::from_secs(2);
+
+/// Reaps a terminal's process on its own task, so a reader can end at process exit and not only
+/// at EOF: a descendant that inherited the terminal keeps it open after the program ends, and
+/// whether a PTY reports EOF then differs between systems. Without this, a conversation whose
+/// agent already exited would never publish its closure and would look busy forever.
+pub struct TerminalExit {
+    receiver: mpsc::Receiver<Result<u32, String>>,
+    exited: Option<(Result<u32, String>, Instant)>,
+    drain: Duration,
+}
+impl TerminalExit {
+    /// The waiter stays the single reaper. If scheduling fails, the task drops it, and its Drop
+    /// cleans up the unreaped child.
+    pub fn watch(
+        mut waiter: Box<dyn TerminalWait>,
+        tasks: &dyn TaskExecutor,
+        drain: Duration,
+    ) -> Result<Self, String> {
+        let (sender, receiver) = mpsc::channel();
+        tasks.spawn(Box::new(move || {
+            let _ = sender.send(waiter.wait());
+        }))?;
+        Ok(Self {
+            receiver,
+            exited: None,
+            drain,
+        })
+    }
+
+    fn observe(&mut self) {
+        if self.exited.is_some() {
+            return;
+        }
+        let result = match self.receiver.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err("terminal waiter ended".into()),
+        };
+        self.exited = Some((result, Instant::now()));
+    }
+
+    /// Whether the process exited and its trailing output had the drain period to arrive. A
+    /// reader still open then is held by something other than the program and may stop.
+    pub fn drained(&mut self) -> bool {
+        self.observe();
+        self.exited
+            .as_ref()
+            .is_some_and(|(_, at)| at.elapsed() >= self.drain)
+    }
+
+    /// The exit result, waiting for it when EOF came first.
+    pub fn wait(mut self) -> Result<u32, String> {
+        self.observe();
+        match self.exited {
+            Some((result, _)) => result,
+            None => self
+                .receiver
+                .recv()
+                .unwrap_or_else(|_| Err("terminal waiter ended".into())),
+        }
     }
 }
 

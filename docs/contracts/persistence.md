@@ -758,10 +758,14 @@ them. A remote workspace has no reserved `port`. Its tabs always store terminal
 mode. Removing a machine drops its projects from the board and is refused while a
 workspace still names it.
 
-`Workspace.creator` names the agent that created a remote workspace through its
-machine's host ([ADR 0103](../decisions/0103-agents-on-remote-machines.md)), as the
-label its MCP configuration gives, which may be empty. It is written only when set:
-absent means the person created the workspace, and an older version ignores it.
+`Workspace.creator` names the agent that created a workspace, as the label its MCP
+configuration gives, which may be empty. It is written only when set: absent means
+the person created the workspace, and an older version ignores it. It records
+authorship, not location, so it is independent of `host`: today only a machine's
+host sets it ([ADR 0103](../decisions/0103-agents-on-remote-machines.md)), but a
+local workspace may carry it too. The interface shows the two apart: the machine
+chip keeps its server icon and connection state, and a separate "Created by agent"
+chip shows authorship. Tests: `src/machines.test.ts`.
 
 `Project.origin` is the clone's `origin` remote normalized to `host/owner/repo`
 in lowercase, so every URL spelling of one repository compares equal. The app

@@ -177,10 +177,13 @@ impl Drop for Chat {
     }
 }
 
-/// Removing the conversation drops its process handle and starts shutdown.
+/// Removing the conversation drops its process handle and starts shutdown. The tab shows it
+/// stopped now: the process's exit no longer matches a registry entry and publishes nothing.
+/// Callers publish the board.
 pub fn kill(state: &AppState, id: &str) {
     crate::embedded_mcp::revoke(id);
     state.sessions.remove(id);
+    lock(&state.board).stop_tab(id);
     crate::delegation::stopped(state, id);
 }
 

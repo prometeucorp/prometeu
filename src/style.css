@@ -1659,13 +1659,14 @@ body.noside .side { display: none; }
 .workspace-family .ui-button { height: 24px; padding: 0 4px; font-size: 11px; color: var(--fg-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Remote machines (ADR 0101): where a workspace or project runs. */
-.machine-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); font-size: 11px; line-height: 16px; white-space: nowrap; }
-.machine-badge.compact { padding: 2px; border: 0; color: var(--fg-3); }
-.machine-badge.compact > span:empty { display: none; }
+/* Authorship (`creator-badge`) is a separate chip: an agent can create a workspace on any machine. */
+.machine-badge, .creator-badge { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-2); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.machine-badge.compact, .creator-badge.compact { padding: 2px; border: 0; color: var(--fg-3); }
+.machine-badge.compact > span:empty, .creator-badge.compact > span:empty { display: none; }
 .machine-badge.on svg { color: var(--done); }
 .machine-badge.off { opacity: .7; }
 .machine-badge.off svg { color: var(--wait); }
-.navitem.sub .machine-badge { margin-left: auto; }
+.navitem.sub .wsidentity + :is(.machine-badge, .creator-badge) { margin-left: auto; }
 .launcher-browse-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .launcher-browse-path { font-family: var(--mono); font-size: var(--text-sm); color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .launcher-browse-list { display: grid; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r); padding: var(--space-1); }
