@@ -527,7 +527,7 @@ change.
 
 | Command | Arguments | Effect |
 | --- | --- | --- |
-| `machines` | none | `[{ id, name, ssh, limits, phase, detail, host, update_pending }]`; `phase` is `offline`, `connecting`, `connected`, `not_installed`, `replaced` or `failed`; `host` is the host's ready frame |
+| `machines` | none | `[{ id, name, ssh, limits, phase, detail, host, update_pending, claude?, agents? }]`; `agents` is `{ enabled, socket }`, read after every attachment; `phase` is `offline`, `connecting`, `connected`, `not_installed`, `replaced` or `failed`; `host` is the host's ready frame |
 | `machine_save` | `machine: { id?, name, ssh, limits }` | adds or edits a machine and reconnects; rejects an `ssh` that is not one argument (`err.remote.destination`) or limits outside systemd syntax (`err.remote.limits`) |
 | `machine_remove` | `id` | forgets the machine and its projects; refused with `err.remote.inUse` while a workspace runs there |
 | `machine_install` | `id` | installs or replaces the host build, then waits up to 20 s for the connection |
@@ -537,6 +537,8 @@ change.
 | `machine_claude_login` | `id` | runs `claude auth login --claudeai` in a host terminal and returns its authorization link (`claude.ai`/`claude.com`, `/oauth/authorize`) once printed in full, within 30 s |
 | `machine_claude_code` | `id`, `code` | writes the code to that login, waits up to 90 s for it to exit and returns the new status; `err.remote.loginExpired` without a login in progress |
 | `machine_claude_login_cancel` | `id` | ends the login in progress |
+| `machine_agents_enable` | `id`, `rotate` | runs `agents setup --json` (with `--rotate` when asked) on the machine and returns `{ mount, config, client_uid, local_uid, opened }`; `config` holds the token, which Settings shows once and never stores (ADR 0103) |
+| `machine_agents_disable` | `id` | runs `agents disable` on the machine; the host closes the agent socket |
 | `remote_add_project` | `machine`, `path` (absolute), `url?` | clones `url` into `path` when given, registers the repository root as a project with `host`, and returns it |
 | `remote_list_dir` | `machine`, `path?` | `{ path, home, entries: [{ name, git }] }`: the folder's visible subfolders (the home folder without `path`), with `git` set on repositories; the launcher browses with it and registers the ticked repositories one by one |
 

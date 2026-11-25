@@ -1577,6 +1577,30 @@
       ]
     },
     {
+      "target": "machines.agents.disable",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.agents.done",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.agents.enable",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.agents.rotate",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
       "target": "machines.cancel",
       "sources": [
         "src/machines.ts"
@@ -3758,6 +3782,14 @@
     {
       "source": "src/launcher.ts",
       "expression": "`launcher.${id.slice(2)}`"
+    },
+    {
+      "source": "src/machines.ts",
+      "expression": "`${track}.copy`"
+    },
+    {
+      "source": "src/machines.ts",
+      "expression": "track"
     },
     {
       "source": "src/mcp.ts",

@@ -467,6 +467,8 @@ fn main() {
             remote::machine_connect,
             remote::machine_stats,
             remote::machine_claude_status,
+            remote::agents::machine_agents_enable,
+            remote::agents::machine_agents_disable,
             remote::login::machine_claude_login,
             remote::login::machine_claude_code,
             remote::login::machine_claude_login_cancel,
