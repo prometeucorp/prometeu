@@ -428,16 +428,20 @@ pub fn disable(root: &Path) -> Result<(), String> {
         let _ = std::fs::remove_file(client);
     }
     // Every folder is tried: one removed since setup must not keep the others, such as the
-    // home, open. Only folders that still exist and could not be closed stay recorded, so a
-    // later `disable` tries them again.
+    // home, open. Folders that could not be checked or closed stay recorded, so a later
+    // `disable` tries them again.
     let opened = recorded_opened(root);
     if opened.is_empty() {
         return Ok(());
     }
     let still_open: Vec<PathBuf> = opened
         .into_iter()
-        .filter(|folder| folder.exists())
-        .filter(|folder| set_traversable(std::slice::from_ref(folder), false).is_err())
+        // Only a folder confirmed gone is dropped; one that cannot even be checked stays.
+        .filter(|folder| match folder.try_exists() {
+            Ok(false) => false,
+            Ok(true) => set_traversable(std::slice::from_ref(folder), false).is_err(),
+            Err(_) => true,
+        })
         .collect();
     let mut config = config(root);
     config["opened"] = json!(still_open
@@ -1978,6 +1982,28 @@ mod tests {
         disable(&root).unwrap();
         assert_eq!(mode(&home), 0o750);
         assert!(recorded_opened(&root).is_empty());
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn disable_keeps_a_folder_it_could_not_check() {
+        let root = temporary_root("unchecked");
+        let base = root.parent().unwrap().to_path_buf();
+        let locked = base.join("locked");
+        let inside = locked.join("inside");
+        std::fs::create_dir_all(&inside).unwrap();
+        private_dir(&root.join("agents")).unwrap();
+        let config = json!({"opened": [inside.display().to_string()]});
+        registry::write_private(&root.join(CONFIG), config.to_string().as_bytes()).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads through any mode, so the case only exists for other users.
+        let unchecked = inside.try_exists().is_err();
+        let result = disable(&root);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        if unchecked {
+            assert!(result.unwrap_err().contains("could not close"));
+            assert_eq!(recorded_opened(&root), vec![inside]);
+        }
         let _ = std::fs::remove_dir_all(base);
     }
 
