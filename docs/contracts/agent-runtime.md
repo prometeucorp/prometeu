@@ -179,7 +179,13 @@ responses. Full Tauri application verification is a separate level of evidence.
 drain lets an input transaction await the painted draft while output continues.
 Live UI events and the canonical observation worker wait for
 tab publication before reporting identity or exit, and one owning waiter reaps
-the process before closure. An explicit native root `idle` report can release
+the process before closure. The waiter runs on its own task
+(`TerminalExit` in `crates/core/src/terminal.rs`), so reading ends at EOF or
+`EXIT_DRAIN` after process exit, whichever comes first: a descendant the agent
+started can keep the PTY open, and the tab would otherwise never leave its
+running state. A conversation this app kills (`chat::kill`) loses its registry
+entry first, so its tab is marked stopped there; its later exit publishes
+nothing. An explicit native root `idle` report can release
 startup input; spawn, first output, a hook named `SessionStart` and silence do
 not establish input readiness. Programmatic input uses bracketed paste and
 rejects terminal control characters; raw local keyboard input remains native.

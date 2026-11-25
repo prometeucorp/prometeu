@@ -128,3 +128,89 @@ fn dock_keys_belong_only_to_their_exact_owner() {
         assert_eq!(dock_kind(key, owner), None, "{key} is not owned by {owner}");
     }
 }
+
+struct Threads;
+impl TaskExecutor for Threads {
+    fn spawn(&self, task: crate::tasks::Task) -> Result<(), String> {
+        std::thread::spawn(task);
+        Ok(())
+    }
+}
+/// Exits with `code` when the test releases it, as a reaped child would.
+struct Exits(mpsc::Receiver<u32>);
+impl TerminalWait for Exits {
+    fn wait(&mut self) -> Result<u32, String> {
+        self.0.recv().map_err(|e| e.to_string())
+    }
+}
+fn eventually(mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    false
+}
+
+#[test]
+fn process_exit_ends_reading_even_when_the_terminal_never_reports_eof() {
+    let (exit, exits) = mpsc::channel();
+    let mut watch = TerminalExit::watch(Box::new(Exits(exits)), &Threads, Duration::ZERO).unwrap();
+    assert!(!watch.drained(), "a running process keeps its reader open");
+    exit.send(0).unwrap();
+    assert!(eventually(|| watch.drained()));
+    assert_eq!(watch.wait(), Ok(0));
+}
+
+#[test]
+fn trailing_output_gets_the_drain_period_after_exit() {
+    let (exit, exits) = mpsc::channel();
+    let mut watch =
+        TerminalExit::watch(Box::new(Exits(exits)), &Threads, Duration::from_secs(60)).unwrap();
+    exit.send(3).unwrap();
+    // The exit is observed, but the reader still has time for the last bytes.
+    assert!(eventually(|| {
+        watch.observe();
+        watch.exited.is_some()
+    }));
+    assert!(!watch.drained());
+    assert_eq!(watch.wait(), Ok(3));
+}
+
+#[test]
+fn eof_before_exit_still_waits_for_the_exit_code() {
+    let (exit, exits) = mpsc::channel();
+    let watch = TerminalExit::watch(Box::new(Exits(exits)), &Threads, Duration::ZERO).unwrap();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        exit.send(9).unwrap();
+    });
+    assert_eq!(watch.wait(), Ok(9));
+}
+
+#[test]
+fn a_failed_waiter_still_ends_the_terminal() {
+    let (exit, exits) = mpsc::channel::<u32>();
+    drop(exit);
+    let mut watch = TerminalExit::watch(Box::new(Exits(exits)), &Threads, Duration::ZERO).unwrap();
+    assert!(eventually(|| watch.drained()));
+    assert!(watch.wait().is_err());
+}
+
+#[test]
+fn a_rejected_waiter_task_reports_the_scheduling_error() {
+    struct Reject;
+    impl TaskExecutor for Reject {
+        fn spawn(&self, task: crate::tasks::Task) -> Result<(), String> {
+            drop(task);
+            Err("thread limit".into())
+        }
+    }
+    let (_exit, exits) = mpsc::channel();
+    assert_eq!(
+        TerminalExit::watch(Box::new(Exits(exits)), &Reject, Duration::ZERO).err(),
+        Some("thread limit".into())
+    );
+}

@@ -2008,7 +2008,12 @@ pub(crate) fn launch_on(
         }))
         .map_err(i18n::io)?;
     let identity = chat.process.identity.clone();
-    let mut waiter = started.waiter;
+    let mut exit = prometeu_core::terminal::TerminalExit::watch(
+        started.waiter,
+        state.tasks.as_ref(),
+        prometeu_core::terminal::EXIT_DRAIN,
+    )
+    .map_err(i18n::io)?;
     state
         .tasks
         .spawn(Box::new(move || {
@@ -2092,10 +2097,16 @@ pub(crate) fn launch_on(
                 if published {
                     transport.drain_decisions(&pump);
                 }
+                if exit.drained() {
+                    // The agent exited but something it started still holds the terminal open,
+                    // so EOF may never come. Release this side of the terminal to end its reader.
+                    diagnose(&transport.generation, "exit.held");
+                    transport.control.disconnect();
+                    break;
+                }
             }
             // EOF is not process exit. The sole waiter reaps before either closure notification.
-            let exit = waiter.wait();
-            drop(waiter);
+            let exit = exit.wait();
             if let (Some(codex), Some(events)) = (&transport.codex, &engine_events) {
                 if published && !transport.gone.load(Ordering::Acquire) {
                     let _ = codex.poll(events, &transport, &pump, &context);
