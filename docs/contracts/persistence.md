@@ -600,10 +600,12 @@ normalized hash only confirms the CLI kept the text. A hash mismatch on the
 causal candidate is logged as `terminal.history.echo_mismatch` and the echo is
 still bound, keeping the app's original text, because CLIs reformat prompts
 across versions and a rejection would stop the agent and fail every later
-resume on the same record. A prepared input recovered after a crash may never
-have reached the terminal, so order does not prove its write: a mismatch there
-is logged as `terminal.history.prepared_unsent`, the input is dropped without
-resending, and the native prompt is kept as its own message. Cursor's proven paste normalization changes CRLF/CR
+resume on the same record. A prepared input recovered after a crash is
+ambiguous on a mismatch: the app may never have written it, or the CLI accepted
+and reformatted it. The mismatch is logged as
+`terminal.history.prepared_uncertain`, the native prompt is kept as its own
+message, and a line-free `uncertain_submission` receipt settles the input ID so
+its saved board dispatch counts as accepted and is never written again. Cursor's proven paste normalization changes CRLF/CR
 to LF and tabs to two spaces, without NFC normalization. Claude Code records
 prompts in NFC, so its normalized input is the NFC form (macOS attachment paths
 arrive as NFD). It also records a prompt made of one long paste wrapped as

@@ -1716,28 +1716,44 @@ fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
 }
 
 #[test]
-fn journal_store_prepared_input_unsent_before_a_crash_keeps_the_native_prompt() {
-    // The app reserved an input and crashed before writing it; the person typed something else
-    // directly in the terminal. Order alone must not attribute that prompt to the app.
+fn journal_store_uncertain_prepared_input_keeps_the_native_prompt_and_is_never_resent() {
+    // After a crash, a prepared input whose echo differs is ambiguous: the person may have typed
+    // something else before the app wrote, or the CLI accepted and reformatted the app's input.
+    // The native prompt stays as recorded, and the saved dispatch must not be written again.
     let fixture = Fixture::new();
     {
         let store = fixture.open(Some("native"), true);
         store
-            .submission("unsent", "App prompt", "App prompt")
+            .submission("dispatch", "App prompt", "App prompt")
             .unwrap();
     }
     let recovered = fixture.open(Some("native"), false);
     recovered
         .replay(&batch(
             "typed",
-            vec![user("typed", "Typed in terminal"), checkpoint()],
+            vec![user("typed", "Recorded by the CLI"), checkpoint()],
         ))
         .unwrap();
     let history = recovered.load().unwrap();
     assert_eq!(history.matches("user.message").count(), 1);
-    assert!(history.contains("Typed in terminal") && !history.contains("App prompt"));
-    assert!(!recovered
-        .accepted_submission("unsent", "App prompt")
+    assert!(history.contains("Recorded by the CLI") && !history.contains("App prompt"));
+    // Resuming the saved board dispatch goes through `accepted_submission` before any write.
+    assert!(recovered
+        .accepted_submission("dispatch", "App prompt")
         .unwrap());
+    assert!(recovered
+        .submission("dispatch", "App prompt", "App prompt")
+        .is_err());
     assert!(recovered.caught_up());
+    // A later app prompt still binds to its own echo.
+    let (live, _) = pump(&recovered);
+    send(&recovered, &live, "next", "Next prompt");
+    let next = user("next", "Next prompt");
+    assert!(live
+        .accept_committed(next.frame.as_ref().unwrap(), |line, offset| {
+            recovered.commit_record(&next, Some(line), offset)
+        })
+        .unwrap()
+        .is_empty());
+    assert_eq!(recovered.load().unwrap().matches("user.message").count(), 2);
 }

@@ -852,21 +852,21 @@ impl Writer {
                 if !self.replay {
                     return Err(ERROR.into());
                 }
+                let occurrence = format!("app:submission:{}", input.id);
                 if input.normalized_hash != hash {
-                    // A prepared input may never have reached the terminal, so order alone does
-                    // not prove the app wrote this prompt. Keep what the person actually sent
-                    // as its own message and drop the unconfirmed input; it is never resent.
+                    // Ambiguous: the app may never have written this input (the person typed
+                    // something else), or the CLI accepted and reformatted it. Keep what the
+                    // CLI recorded as its own message, and settle the input with a line-free
+                    // receipt so its saved dispatch counts as accepted and is never resent.
                     super::diagnose(
                         self.journal.native_session().unwrap_or("unbound"),
-                        "history.prepared_unsent",
+                        "history.prepared_uncertain",
                     );
-                    self.journal
-                        .cancel_unwritten_input(&input.id)
-                        .map_err(|_| ERROR)?;
+                    self.append(&occurrence,"accepted",json!({"kind":"uncertain_submission","id":input.id,"originalHash":input.original_hash}),vec![],self.position.lines)?;
+                    self.journal.finish_input(&input.id).map_err(|_| ERROR)?;
                     return Ok(None);
                 }
                 let frame = json!({"v":1,"type":"user.message","at":input.at,"content":[{"kind":"text","text":input.original}]});
-                let occurrence = format!("app:submission:{}", input.id);
                 self.append(&occurrence,"accepted",json!({"kind":"submission","id":input.id,"originalHash":input.original_hash,"normalizedHash":input.normalized_hash,"afterNativeUser":input.after_native_user,"emptyBaseline":input.empty_baseline}),vec![frame.to_string()],self.position.lines)?;
                 self.journal.finish_input(&input.id).map_err(|_| ERROR)?;
                 return self
