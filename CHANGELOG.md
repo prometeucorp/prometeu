@@ -4,6 +4,14 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.46.1] - 2026-11-25
+
+### Fixes
+
+- **claude:** Keep image conversations resumable
+- **claude:** Keep earlier image conversations from repeating tool results on resume
+- **claude:** Keep earlier tool images when the same message also attached a large image
+
 ## [0.46.0] - 2026-11-25
 
 ### New
