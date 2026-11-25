@@ -468,6 +468,8 @@ fn main() {
             remote::machine_stats,
             remote::machine_terminals,
             remote::machine_terminal_stop,
+            remote::machine_clients,
+            remote::machine_client_detach,
             remote::machine_claude_status,
             remote::agents::machine_agents_enable,
             remote::agents::machine_agents_disable,

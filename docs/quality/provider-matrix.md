@@ -27,6 +27,13 @@ that stale confirmations cannot kill a resumed conversation;
 `terminals_survive_detachment_and_replay_the_gap` in the host tests checks
 listing before and after a targeted kill.
 
+Several computers can follow the same machine at once
+([ADR 0104](../decisions/0104-several-computers-on-one-machine.md)). This
+changes the host attachment, not provider support: hooks and permission requests
+are shared as Claude's, the only remote provider, emits them. The host
+integration tests in `src-tauri/crates/host/tests/host.rs` and
+`src/machine-clients.test.ts` cover it.
+
 Only Claude declares `remoteMachines` ([ADR 0101](../decisions/0101-remote-machines.md)):
 its native hooks are relayed by the remote host and its project transcripts are
 mirrored for the observer. Codex, Cursor and Antigravity are rejected for remote

@@ -225,6 +225,12 @@ fn device() -> Result<Device, String> {
     Ok(device)
 }
 
+/// This computer's stable ID and name. Remote machines use them to keep one attachment per
+/// computer while several computers follow the same machine (ADR 0104).
+pub(crate) fn this_device() -> Option<(String, String)> {
+    device().ok().map(|device| (device.id, device.label))
+}
+
 fn load() -> Result<Option<Saved>, String> {
     match std::fs::read(paths::root().join("cloud.json")) {
         Ok(bytes) => {
