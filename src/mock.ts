@@ -2685,13 +2685,15 @@ const mockCommands: IpcHandlers = {
     if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
     return board.workspaces.filter(workspace => workspace.host === id).flatMap(workspace => workspace.tabs.map((tab, index) => ({
       id: tab.id, workspace: workspace.id, pid: 1000 + index, unit: null, started: 1_700_000_000,
+      instance: agentTerminals.get(tab.id)?.generation ?? tab.id,
       running: tab.status !== "desligada", code: tab.status === "desligada" ? 0 : null, seq: 0,
     })));
   },
-  machine_terminal_stop({ id, terminal }) {
+  machine_terminal_stop({ id, terminal, instance }) {
     if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
     const tab = board.workspaces.filter(workspace => workspace.host === id).flatMap(workspace => workspace.tabs).find(tab => tab.id === terminal);
     if (!tab) throw "unknown_terminal";
+    if (tab.status === "desligada" || instance !== (agentTerminals.get(terminal)?.generation ?? terminal)) throw 'i18n:{"code":"err.remote.processChanged"}';
     tab.status = "desligada";
     emit("board", board);
     const running = agentTerminals.get(terminal);

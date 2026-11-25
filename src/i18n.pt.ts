@@ -2078,6 +2078,8 @@ export const PT = {
   "machines.processes.noWorkspace": "Sem workspace",
   "machines.processes.detail": "{workspace} · PID {pid} · Iniciado em {started}",
   "machines.processes.stop": "Encerrar processo",
+  "machines.processes.unsupported": "Atualize o daemon para encerrar processos por esta lista. Enquanto isso, encerre pela conversa ou pelo terminal da máquina.",
+  "err.remote.processChanged": "Este processo encerrou ou foi substituído. Atualize a lista e confirme o processo atual antes de encerrá-lo.",
   "machines.processes.stopConfirm": "Forçar o encerramento de “{name}” (PID {pid}) e seu grupo de processos? O trabalho em andamento será interrompido. Isso não apaga o workspace nem o histórico salvo da conversa.",
   "machines.local": "Este computador",
   "machines.phase.connected": "Conectada",

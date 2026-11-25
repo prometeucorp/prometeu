@@ -2034,6 +2034,8 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "machines.processes.noWorkspace": "No workspace",
   "machines.processes.detail": "{workspace} · PID {pid} · Started {started}",
   "machines.processes.stop": "End process",
+  "machines.processes.unsupported": "Update the daemon to end processes from this list. Until then, end them from their conversation or the machine's terminal.",
+  "err.remote.processChanged": "This process has ended or been replaced. Refresh the list and confirm the current process before ending it.",
   "machines.processes.stopConfirm": "Force end “{name}” (PID {pid}) and its process group? Work in progress will be interrupted. This does not delete the workspace or saved conversation history.",
   "machines.local": "This computer",
   "machines.phase.connected": "Connected",

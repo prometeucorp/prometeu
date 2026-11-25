@@ -19,9 +19,11 @@ every combination of providers, states, languages and screen sizes.
 ## Remote machines
 
 Settings lists and ends host-owned processes, including idle conversations and
-Claude sign-in terminals. This uses the existing host terminal protocol and
+Claude sign-in terminals. This adds a guarded stop to the host terminal protocol and
 does not enable remote support for other providers. `src/machine-processes.test.ts`
-checks liveness, machine-scoped labels, confirmation and refresh lifetime;
+checks liveness, machine-scoped labels, confirmation races, legacy hosts and refresh lifetime;
+`stopping_a_listed_process_never_kills_a_replacement_under_the_same_id` verifies
+that stale confirmations cannot kill a resumed conversation;
 `terminals_survive_detachment_and_replay_the_gap` in the host tests checks
 listing before and after a targeted kill.
 

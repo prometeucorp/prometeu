@@ -20,7 +20,7 @@ vi.mock("./ui", () => ({ formDialog: mocks.dialog, confirmDialog: mocks.confirm,
 }));
 import { runningProcesses, showMachineProcesses, type MachineTerminal } from "./machine-processes";
 
-const terminal = (id: string, running = true): MachineTerminal => ({ id, workspace: "workspace", pid: 123, unit: null, started: 100, running, code: null, seq: 0 });
+const terminal = (id: string, running = true): MachineTerminal => ({ id, instance: "original-process", workspace: "workspace", pid: 123, unit: null, started: 100, running, code: null, seq: 0 });
 const board: Board = { projects: [], workspaces: [{ id: "workspace", title: "Remote workspace", host: "vps",
   tabs: [{ id: "idle", title: "Idle conversation", status: "pronta" }, { id: "ended", title: "Ended conversation", status: "rodando" }],
 } as Workspace] };
@@ -58,7 +58,7 @@ it("requires confirmation, stops only the selected terminal, refreshes, and stop
   mocks.buttons.get("machines.processes.stop")!.run();
   mocks.buttons.get("machines.processes.stop")!.run();
   await vi.advanceTimersByTimeAsync(0);
-  expect(mocks.invoke.mock.calls.filter(([command]) => command === "machine_terminal_stop")).toEqual([["machine_terminal_stop", { id: "vps", terminal: "idle" }]]);
+  expect(mocks.invoke.mock.calls.filter(([command]) => command === "machine_terminal_stop")).toEqual([["machine_terminal_stop", { id: "vps", terminal: "idle", instance: "original-process" }]]);
   const beforePoll = mocks.invoke.mock.calls.length;
   await vi.advanceTimersByTimeAsync(3000);
   expect(mocks.invoke.mock.calls.length).toBeGreaterThan(beforePoll);
@@ -99,5 +99,37 @@ it("reports a failed stop without claiming the process ended", async () => {
   expect(body.children[2].textContent).toBe("connection lost");
   expect(body.children[3].children).toHaveLength(1);
   expect(mocks.buttons.get("machines.processes.stop")!.disabled).toBe(false);
+  mocks.dialog.mock.calls[0][0].closed();
+});
+
+it("keeps the confirmed process identity when the conversation restarts during confirmation", async () => {
+  showMachineProcesses("vps", "VPS");
+  await vi.advanceTimersByTimeAsync(0);
+  let confirm!: (accepted: boolean) => void;
+  mocks.confirm.mockReturnValueOnce(new Promise<boolean>(resolve => { confirm = resolve; }));
+  mocks.buttons.get("machines.processes.stop")!.run();
+  const replacement = { ...terminal("idle"), instance: "replacement-process" };
+  mocks.invoke.mockImplementation(async (command: string) => {
+    if (command === "machine_terminal_stop") throw "terminal_changed";
+    return command === "load_board" ? board : [replacement];
+  });
+  await vi.advanceTimersByTimeAsync(6000);
+  confirm(true);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(mocks.invoke).toHaveBeenCalledWith("machine_terminal_stop", { id: "vps", terminal: "idle", instance: "original-process" });
+  expect(mocks.dialog.mock.results[0].value.body.children[2].textContent).toBe("terminal_changed");
+  expect(mocks.buttons.get("machines.processes.stop")!.disabled).toBe(false);
+  mocks.dialog.mock.calls[0][0].closed();
+});
+
+it("lists legacy hosts without allowing an unguarded stop", async () => {
+  mocks.invoke.mockImplementation(async (command: string) => command === "load_board" ? board : [{ ...terminal("idle"), instance: undefined }]);
+  showMachineProcesses("vps", "VPS");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(mocks.row).toHaveBeenCalledWith(expect.objectContaining({ title: "Idle conversation", status: "machines.processes.unsupported" }));
+  expect(mocks.buttons.get("machines.processes.stop")!.disabled).toBe(true);
+  mocks.buttons.get("machines.processes.stop")!.run();
+  expect(mocks.confirm).not.toHaveBeenCalled();
+  expect(mocks.invoke.mock.calls.some(([command]) => command === "machine_terminal_stop")).toBe(false);
   mocks.dialog.mock.calls[0][0].closed();
 });

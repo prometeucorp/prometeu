@@ -477,10 +477,23 @@ pub fn machine_terminals(app: AppHandle, id: String) -> Result<Value, String> {
 
 /// End one host-owned process without deleting its workspace or transcript.
 #[tauri::command(async)]
-pub fn machine_terminal_stop(app: AppHandle, id: String, terminal: String) -> Result<(), String> {
+pub fn machine_terminal_stop(
+    app: AppHandle,
+    id: String,
+    terminal: String,
+    instance: String,
+) -> Result<(), String> {
     app.state::<Service>()
         .connected(&id)?
-        .request("terminal_signal", json!({"id": terminal, "signal": "kill"}))?;
+        .request(
+            "terminal_stop",
+            json!({"id": terminal, "instance": instance}),
+        )
+        .map_err(|error| match error.as_str() {
+            "terminal_changed" | "unknown_terminal" => crate::i18n::t("err.remote.processChanged"),
+            "unknown method terminal_stop" => crate::i18n::t("machines.processes.unsupported"),
+            _ => error,
+        })?;
     Ok(())
 }
 

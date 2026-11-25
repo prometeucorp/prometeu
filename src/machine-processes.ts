@@ -8,6 +8,8 @@ import { h } from "./util";
 /** Existing terminal_list wire fields; running includes idle agents and sign-in terminals. */
 export type MachineTerminal = {
   id: string; workspace: string | null; pid: number; unit: string | null;
+  /** Unique per process launch; absent on hosts that cannot safely stop a listed process. */
+  instance?: string;
   started: number; running: boolean; code: number | null; seq: number;
 };
 
@@ -38,13 +40,13 @@ export function showMachineProcesses(id: string, name: string) {
   dialog.body.append(sectionHeader({ description: t("machines.processes.hint"), actions: [refresh] }), status, error, rows);
 
   async function stop(terminal: ReturnType<typeof runningProcesses>[number], control: HTMLButtonElement) {
-    if (stopping || closed) return;
+    if (stopping || closed || !terminal.instance) return;
     stopping = true; clearTimeout(timer); control.disabled = refresh.disabled = true;
     try {
       if (!await confirmDialog({ title: t("machines.processes.stop"),
         message: t("machines.processes.stopConfirm", { name: terminal.title, pid: terminal.pid }),
         accept: t("machines.processes.stop"), cancel: t("machines.cancel"), track: "machines.processes.stop", area: "settings" }) || closed) return;
-      await invoke("machine_terminal_stop", { id, terminal: terminal.id });
+      await invoke("machine_terminal_stop", { id, terminal: terminal.id, instance: terminal.instance });
       error.textContent = "";
     } catch (cause) { if (!closed) error.textContent = fromBack(cause); }
     finally {
@@ -64,7 +66,9 @@ export function showMachineProcesses(id: string, name: string) {
       rows.replaceChildren(...processes.map(terminal => {
         const control = button(t("machines.processes.stop"), () => void stop(terminal, control), "outline", "machines.processes.stop");
         control.dataset.focus = terminal.id;
+        control.disabled = !terminal.instance;
         return itemRow({ title: terminal.title, glyph: "terminal",
+          status: terminal.instance ? undefined : t("machines.processes.unsupported"),
           description: t("machines.processes.detail", { workspace: terminal.workspaceName, pid: terminal.pid,
             started: new Date(terminal.started * 1000).toLocaleString() }), actions: [control],
         }).root;
