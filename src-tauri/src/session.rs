@@ -168,6 +168,15 @@ fn remove_registered_project(
     let removed = {
         let mut board = lock(board);
         let exists = board.projects.iter().any(|project| project.id == id);
+        // The machine's registry keeps the project; adoption must not bring it back (ADR 0103).
+        if let Some(machine) = board
+            .projects
+            .iter()
+            .find(|project| project.id == id)
+            .and_then(|project| project.host.clone())
+        {
+            crate::remote::registry::dismiss(&machine, id);
+        }
         prometeu_core::projects::remove(&mut board, id);
         exists
     };

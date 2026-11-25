@@ -155,6 +155,8 @@ pub struct Connection {
     /// Held by each run of `attached`: an attachment and registry events may overlap, and two
     /// runs must not both adopt or attach the same conversation.
     waking: Mutex<()>,
+    /// A registry refresh is queued and has not started; later events join it.
+    refresh_queued: AtomicBool,
 }
 
 impl Connection {
@@ -181,6 +183,7 @@ impl Connection {
             changed,
             attached,
             waking: Mutex::new(()),
+            refresh_queued: AtomicBool::new(false),
         })
     }
 
@@ -516,8 +519,17 @@ impl Connection {
                 }
             }
             Some("registry") => {
+                // One queued refresh covers every event that arrives before it starts, since it
+                // reads the whole registry then.
+                if self.refresh_queued.swap(true, Ordering::AcqRel) {
+                    return;
+                }
                 let this = self.clone();
-                std::thread::spawn(move || this.wake(Wake::Registry));
+                std::thread::spawn(move || {
+                    let _one = lock(&this.waking);
+                    this.refresh_queued.store(false, Ordering::Release);
+                    (this.attached)(&this, Wake::Registry);
+                });
             }
             Some("hook") => {
                 let session = frame["session"].as_str().unwrap_or_default();

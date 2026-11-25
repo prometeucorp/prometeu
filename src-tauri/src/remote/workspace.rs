@@ -236,6 +236,10 @@ pub fn remote_add_project(
     };
     let project = {
         let mut board = lock(&state.board);
+        // Adding it again undoes an earlier removal, which adoption would otherwise honor.
+        if let Some(machine) = project.host.as_deref() {
+            super::registry::undismiss(machine, &project.id);
+        }
         match board.projects.iter().find(|p| p.id == project.id) {
             Some(existing) => existing.clone(),
             None => {

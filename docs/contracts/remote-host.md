@@ -194,9 +194,11 @@ whose ID the board already uses for a local workspace, a workspace on another
 machine or another tab is never adopted or changed. A conversation an agent
 opened before closing its workspace still becomes a tab of the closed
 workspace. Synchronization and the terminal reattachment that follows run one
-at a time per machine. It calls `registry_close` after cleaning a workspace. A
-workspace removed from the board without cleanup, or a conversation whose tab
-was closed, stays in the registry and is listed in
+at a time per machine, and `registry` events that arrive while one is queued
+join it. It calls `registry_close` after cleaning a workspace. A
+workspace removed from the board without cleanup, a conversation whose tab was
+closed, or a project removed from the board (until it is added again) stays in
+the registry and is listed in
 `<root>/remote/<machine>/dismissed.json` on the desktop, which keeps it from
 being adopted again. An adopted conversation without a terminal on the
 host gets the transcript binding its first hook would have written.

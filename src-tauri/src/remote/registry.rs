@@ -100,7 +100,9 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
         // the listing was on its way is seen.
         let dismissed = dismissed(machine);
         for project in &listing.projects {
-            changed |= adopt_project(&mut board.projects, machine, project);
+            if !dismissed.contains(&super::workspace::project_id(machine, &project.path)) {
+                changed |= adopt_project(&mut board.projects, machine, project);
+            }
         }
         // IDs the board uses anywhere: an ID from this machine never takes over another entry.
         let taken: HashSet<String> = board
@@ -427,8 +429,9 @@ fn dismissed_path(machine: &str) -> PathBuf {
         .join("dismissed.json")
 }
 
-/// Workspaces the person removed from the board and conversations whose tab they closed: the
-/// registry still lists them, and they must not come back. IDs are UUIDs, so one set holds both.
+/// Workspaces and projects the person removed from the board and conversations whose tab they
+/// closed: the registry still lists them, and they must not come back. Workspace and conversation
+/// IDs are UUIDs and project IDs start with `remote:`, so one set holds all three.
 fn dismissed(machine: &str) -> HashSet<String> {
     std::fs::read_to_string(dismissed_path(machine))
         .ok()
@@ -436,13 +439,24 @@ fn dismissed(machine: &str) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-/// Remember a removed workspace or closed tab. Callers hold the board lock while they change the
+/// Remember a removed workspace or project, or a closed tab. Callers hold the board lock while they change the
 /// board, so a synchronization never reads the set between the change and this write.
-pub fn dismiss(machine: &str, workspace: &str) {
+pub fn dismiss(machine: &str, id: &str) {
     let mut ids = dismissed(machine);
-    if !ids.insert(workspace.to_string()) {
-        return;
+    if ids.insert(id.to_string()) {
+        save_dismissed(machine, &ids);
     }
+}
+
+/// Forget a dismissal when the person adds the entry again (a project, by its board ID).
+pub fn undismiss(machine: &str, id: &str) {
+    let mut ids = dismissed(machine);
+    if ids.remove(id) {
+        save_dismissed(machine, &ids);
+    }
+}
+
+fn save_dismissed(machine: &str, ids: &HashSet<String>) {
     let path = dismissed_path(machine);
     if let Some(parent) = path.parent() {
         if crate::paths::ensure_private_dir(parent).is_err() {

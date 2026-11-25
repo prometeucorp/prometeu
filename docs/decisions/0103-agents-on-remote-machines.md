@@ -188,9 +188,10 @@ environment field of a bot platform's MCP configuration.
   computer, to another machine or to another workspace.
 - Cleaning a remote workspace on the desktop marks it closed in the registry.
   Removing one from the board leaves its checkout on the machine, and closing a
-  tab leaves its conversation, so the registry keeps listing them. The desktop
-  remembers both in `<root>/remote/<machine>/dismissed.json` and does not adopt
-  them again.
+  tab leaves its conversation, so the registry keeps listing them. The same goes
+  for a project removed from the board. The desktop remembers these removals in
+  `<root>/remote/<machine>/dismissed.json` and does not adopt them again, until
+  the person adds the project again.
 - A workspace an agent closed is marked cleaned and archived on the board as
   soon as the desktop hears of it, and its tabs stop. Its transcript stays
   readable. When the worktree is gone but the branch could not be deleted,

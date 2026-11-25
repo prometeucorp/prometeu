@@ -56,7 +56,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
 | remote machines | `<root>/machines.json` | `remote.rs`; private `{ v: 1, machines: [{ id, name, ssh, limits: { memory_max, cpu_quota } }] }`, no credentials; see [ADR 0101](../decisions/0101-remote-machines.md) |
 | remote transcript mirror | `<root>/remote/<machine>/mirror/<remote path>` | `remote/connection.rs`; private append-only copies of a machine's Claude project files, rebuilt from offset zero when missing; see the [remote host protocol](remote-host.md#transcript-mirror) |
-| remote workspaces and tabs removed from the board | `<root>/remote/<machine>/dismissed.json` | `remote/registry.rs`; private JSON array of workspace and conversation IDs that adoption from the machine's registry skips; see [ADR 0103](../decisions/0103-agents-on-remote-machines.md) |
+| remote workspaces, tabs and projects removed from the board | `<root>/remote/<machine>/dismissed.json` | `remote/registry.rs`; private JSON array of workspace, conversation and project IDs that adoption from the machine's registry skips; adding the project again clears its entry; see [ADR 0103](../decisions/0103-agents-on-remote-machines.md) |
 | derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
 
 Catalog project installation reuses board Project records and stores local paths
