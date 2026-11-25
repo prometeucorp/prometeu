@@ -1714,3 +1714,30 @@ fn journal_binds_claude_nfc_echo_to_nfd_attachment_submission() {
         "keeps the original spelling"
     );
 }
+
+#[test]
+fn journal_store_prepared_input_unsent_before_a_crash_keeps_the_native_prompt() {
+    // The app reserved an input and crashed before writing it; the person typed something else
+    // directly in the terminal. Order alone must not attribute that prompt to the app.
+    let fixture = Fixture::new();
+    {
+        let store = fixture.open(Some("native"), true);
+        store
+            .submission("unsent", "App prompt", "App prompt")
+            .unwrap();
+    }
+    let recovered = fixture.open(Some("native"), false);
+    recovered
+        .replay(&batch(
+            "typed",
+            vec![user("typed", "Typed in terminal"), checkpoint()],
+        ))
+        .unwrap();
+    let history = recovered.load().unwrap();
+    assert_eq!(history.matches("user.message").count(), 1);
+    assert!(history.contains("Typed in terminal") && !history.contains("App prompt"));
+    assert!(!recovered
+        .accepted_submission("unsent", "App prompt")
+        .unwrap());
+    assert!(recovered.caught_up());
+}
