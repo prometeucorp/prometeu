@@ -40,6 +40,53 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+
+#[test]
+fn remote_reattachment_before_first_prompt_preserves_identity_and_requires_empty_history() {
+    let fixture = Fixture::new();
+    let transcript = fixture.root.join("native.jsonl");
+    let store = fixture.open_as("claude", Some("native"), true);
+    let status = json!({"v":1,"type":"background.changed","tasks":[]}).to_string();
+    store.commit(std::slice::from_ref(&status), 0).unwrap();
+    drop(store);
+
+    let store = fixture.open_as("claude", Some("native"), false);
+    assert!(store.resume_observation(false, Some(&transcript)).unwrap());
+    assert!(store.resume_observation(true, None).unwrap());
+    std::fs::write(&transcript, "").unwrap();
+    assert!(store.resume_observation(true, Some(&transcript)).unwrap());
+    std::fs::remove_file(&transcript).unwrap();
+    assert!(!store.resume_observation(true, Some(&transcript)).unwrap());
+    assert_eq!(store.load().unwrap().trim(), status);
+    assert_eq!(lock(&store.inner).journal.native_session(), Some("native"));
+    let submission = store
+        .submission("first", "First prompt", "First prompt")
+        .unwrap();
+    assert!(submission.empty_baseline);
+    // A queued input is already work, even when no native transcript or public echo exists.
+    assert!(store.resume_observation(true, Some(&transcript)).unwrap());
+    store.cancel_unwritten_submission("first").unwrap();
+    let input = json!({"v":1,"type":"user.message","content":"Existing prompt"}).to_string();
+    store.commit(&[input], 1).unwrap();
+    assert!(store.resume_observation(true, Some(&transcript)).unwrap());
+
+    // Native checkpoints must also prevent an empty start, even without public messages.
+    let fixture = Fixture::new();
+    let store = fixture.open_as("claude", Some("native"), false);
+    let mut writer = lock(&store.inner);
+    writer
+        .append(
+            SOURCE,
+            "baseline",
+            json!({"kind":"source","emptyBaseline":true}),
+            vec![],
+            0,
+        )
+        .unwrap();
+    drop(writer);
+    assert!(store.resume_observation(true, Some(&transcript)).unwrap());
+}
+
 #[derive(Default)]
 struct Effects {
     events: Mutex<Vec<String>>,

@@ -140,6 +140,13 @@ impl Execution for RemoteExecution {
             }),
         );
         if self.running {
+            // SessionStart can bind a path before Claude creates the file. Flush before deciding
+            // whether this is an existing transcript or a process still awaiting its first prompt.
+            self.connection.request_timeout(
+                "watch_flush",
+                json!({"id": watch}),
+                Duration::from_secs(10),
+            )?;
             return bridge.adopt_remote(version.trim());
         }
         let settings = bridge.configure_remote(command, version.trim(), &self.helper)?;
@@ -161,6 +168,10 @@ impl Execution for RemoteExecution {
 
     fn replaying(&self) -> Option<Arc<AtomicBool>> {
         Some(self.remote.replaying.clone())
+    }
+
+    fn adopts_process(&self) -> bool {
+        self.running
     }
 }
 

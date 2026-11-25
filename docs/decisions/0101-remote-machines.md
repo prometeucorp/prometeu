@@ -119,6 +119,12 @@ without root.
   `SessionStart` binds it and its first prompt is still delivered. Before adopting,
   the desktop flushes the transcript mirror, so turns written while it was away
   are read from where it stopped.
+- A first hook can also bind a path before Claude creates its transcript. After
+  flushing the mirror, adoption may observe that process as awaiting its first
+  prompt only if the bound file is absent and both the journal and canonical log
+  prove no conversation work was captured. It retains the native identity and
+  journal. A replacement process or any captured work still requires the normal
+  verified history bootstrap; a missing file alone never proves an empty session.
 - A remote conversation's profile names the machine (`remote:<machine>`). It never
   matches this computer's selected account, so switching local accounts does not
   restart remote conversations.
