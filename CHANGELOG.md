@@ -4,6 +4,17 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.48.0] - 2026-11-25
+
+### New
+
+- **remote:** Show and stop running processes on remote machines
+
+### Fixes
+
+- **remote:** Reconnect claude sessions before their first prompt
+- **remote:** Stop only the confirmed process instance
+
 ## [0.47.0] - 2026-11-25
 
 ### New
