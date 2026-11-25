@@ -665,6 +665,29 @@ fn dispatch(
         true => Some(Mutation::begin()?),
         false => None,
     };
+    let result = call(host, creator, method, params);
+    // A failed create may still leave its workspace recorded, so announce either way.
+    if CHANGES_REGISTRY.contains(&method) {
+        host.announce_registry();
+    }
+    result
+}
+
+/// Requests that may add or close registry entries.
+const CHANGES_REGISTRY: &[&str] = &[
+    "project_add",
+    "project_clone",
+    "workspace_create",
+    "conversation_open",
+    "workspace_close",
+];
+
+fn call(
+    host: &Arc<Host>,
+    creator: &Creator,
+    method: &str,
+    params: &Value,
+) -> Result<Value, String> {
     match method {
         "ping" => Ok(json!({})),
         "projects_list" => Ok(json!(host.registry.read()?.projects)),
@@ -1407,6 +1430,8 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
         return Ok(json!({}));
     }
     let separate = workspace.worktree != workspace.project;
+    // Why the branch survived a close that meant to delete it.
+    let mut kept = None;
     if separate && !force {
         if let Some(loss) = losses(&workspace)? {
             return Err(loss);
@@ -1439,11 +1464,21 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
             git(&workspace.project, &["worktree", "prune"])?;
         }
         // Without force, only a branch the checks above examined is deleted.
-        if !workspace.keep_branch && (force || branch_exists(&workspace) == Ok(true)) {
-            let _ = git(
-                &workspace.project,
-                &["branch", "-D", "--", &workspace.branch],
-            );
+        if !workspace.keep_branch {
+            let exists = branch_exists(&workspace);
+            let delete = match &exists {
+                Ok(present) => *present,
+                Err(_) => force,
+            };
+            kept = match (delete, exists) {
+                (true, _) => git(
+                    &workspace.project,
+                    &["branch", "-D", "--", &workspace.branch],
+                )
+                .err(),
+                (false, Err(error)) => Some(error),
+                (false, Ok(_)) => None,
+            };
         }
     }
     host.registry.update(|registry| {
@@ -1452,7 +1487,11 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
         }
         Ok(())
     })?;
-    Ok(json!({}))
+    // The worktree is gone either way; the branch may still hold commits worth a look.
+    Ok(match kept {
+        Some(detail) => json!({"branch_kept": workspace.branch, "detail": detail}),
+        None => json!({}),
+    })
 }
 
 // Desktop methods on the private socket.
@@ -1488,7 +1527,7 @@ pub fn registry_put(host: &Host, params: &Value) -> Result<Value, String> {
             registry.add_project(project);
         }
         if let Some(workspace) = workspace {
-            registry.put_workspace(workspace);
+            registry.merge_workspace(workspace);
         }
         Ok(json!({}))
     })

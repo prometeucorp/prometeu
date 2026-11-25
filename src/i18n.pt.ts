@@ -2094,6 +2094,8 @@ export const PT = {
   "launcher.remoteNote": "Roda o Claude no modo terminal em {name}, e continua trabalhando com este computador desligado.",
   "remote.badge": "Rodando em {name}",
   "remote.offline": "{name} offline: os agentes continuam lá e este app atualiza ao reconectar.",
+  "remote.createdBy": "Criado por {name}",
+  "remote.agent": "um agente",
   "remote.unsupported": "Indisponível em workspaces remotos por enquanto.",
   "err.remote.login": "O login do Claude na máquina falhou: {detail}",
   "err.remote.loginCode": "Cole o código que o Claude mostrou depois do login.",

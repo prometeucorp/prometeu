@@ -126,6 +126,14 @@ fn send(out: &mpsc::Sender<String>, frame: &Value) -> bool {
 }
 
 impl Host {
+    /// Tell the attached desktop, if any, that an agent changed the registry, so it adopts new
+    /// workspaces and conversations without waiting for its next attachment (ADR 0103).
+    pub(crate) fn announce_registry(&self) {
+        if let Some(client) = lock(&self.client).as_ref() {
+            send(&client.out, &json!({"event": "registry"}));
+        }
+    }
+
     /// Deliver a terminal frame when the attached client subscribed to it.
     fn emit_terminal(&self, id: &str, frame: &Value) -> bool {
         let client = lock(&self.client);

@@ -442,7 +442,7 @@ fn agents_reach_only_registered_conversations_and_never_resume_prompting_ones() 
         json!({"id": 1, "method": "registry_put", "params": {"workspace": workspace}})
     )
     .unwrap();
-    let mut lines = BufReader::new(desktop).lines();
+    let mut lines = BufReader::new(desktop.try_clone().unwrap()).lines();
     loop {
         let frame: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
         if frame["id"] == 1 {
@@ -455,6 +455,44 @@ fn agents_reach_only_registered_conversations_and_never_resume_prompting_ones() 
         .unwrap_err()
         .contains("resume it from the desktop"));
     assert!(!machine.dir.join("args-c1").exists());
+
+    // An agent's change reaches the attached desktop at once, so it adopts without reattaching.
+    agent.call("project_add", json!({"path": repo})).unwrap();
+    loop {
+        let frame: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        if frame["event"] == "registry" {
+            break;
+        }
+    }
+
+    // The desktop's later record of the workspace keeps what it did not know about.
+    let renamed = json!({
+        "id": "w1", "project": repo, "title": "renamed", "branch": "main", "base": "HEAD",
+        "worktree": repo, "created_at": 0, "created_by": {"kind": "desktop"},
+        "conversations": [{"id": "c2", "title": "second", "created_at": 1, "permission": "auto"}],
+    });
+    writeln!(
+        desktop,
+        "{}",
+        json!({"id": 2, "method": "registry_put", "params": {"workspace": renamed}})
+    )
+    .unwrap();
+    loop {
+        let frame: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        if frame["id"] == 2 {
+            assert_eq!(frame["result"], json!({}));
+            break;
+        }
+    }
+    let listed = agent.call("workspace_get", json!({"id": "w1"})).unwrap();
+    assert_eq!(listed["title"], "renamed");
+    let ids: Vec<&str> = listed["conversations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["c1", "c2"]);
 }
 
 #[test]

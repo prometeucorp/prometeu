@@ -39,6 +39,8 @@ workspace prompt. Remote execution remains Claude-only.
 Agent clients on the machine (proposed
 [ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
 without permission prompts; `src-tauri/crates/host/tests/agents.rs` covers them.
+The desktop adopts their workspaces as Claude terminal tabs that run in that
+mode, and `src-tauri/src/remote/registry.rs` covers the adoption.
 Settings enables them on a connected machine and shows the container's MCP
 configuration.
 

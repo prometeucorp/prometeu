@@ -10,10 +10,11 @@ pub mod agents;
 pub mod connection;
 pub mod install;
 pub mod login;
+pub mod registry;
 pub mod terminal;
 pub mod workspace;
 
-use connection::{Connection, Phase};
+use connection::{Connection, Phase, Wake};
 use prometeu_core::lock::lock;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -135,8 +136,11 @@ impl Service {
                     publish(app);
                 }
             }),
-            Box::new(move |connection| {
+            Box::new(move |connection, wake| {
                 if let Some(app) = &app {
+                    if wake == Wake::Attached {
+                        attached(app, connection);
+                    }
                     reattach_running(app, connection);
                 }
             }),
@@ -249,14 +253,21 @@ pub fn fill_origins(app: &AppHandle, machine: Option<&Arc<Connection>>) {
     crate::state::publish(app);
 }
 
-/// After (re)attaching, resume the conversations whose processes the machine still runs but this
-/// app does not show live, so their status and notifications update without opening each tab.
-fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
+/// Refresh what only changes between attachments: Claude's sign-in, whether agents are enabled
+/// and the clones' origins.
+fn attached(app: &AppHandle, connection: &Arc<Connection>) {
     if let Ok(status) = login::status(connection) {
         publish_claude(app, &connection.id, status);
     }
     agents::refresh(app, connection);
     fill_origins(app, Some(connection));
+}
+
+/// After (re)attaching or an agent's change, adopt what agents created on the machine, then resume
+/// the conversations whose processes the machine still runs but this app does not show live, so
+/// their status and notifications update without opening each tab.
+fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
+    let synced = registry::sync(app, connection);
     let Ok(list) = connection.request("terminal_list", json!({})) else {
         return;
     };
@@ -268,6 +279,15 @@ fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
                 .collect()
         })
         .unwrap_or_default();
+    // An adopted conversation whose process is gone (the machine restarted) resumes from its
+    // transcript when opened, like one this app started.
+    if let Some(home) = connection.home() {
+        for (session, cwd) in &synced.adopted {
+            if !terminals.iter().any(|(id, _)| id == session) {
+                agent::bind_transcript(&connection.id, &home, cwd, session);
+            }
+        }
+    }
     let state = app.state::<AppState>();
     let tabs: Vec<String> = lock(&state.board)
         .workspaces
@@ -519,7 +539,7 @@ mod journey {
                 },
             },
             Box::new(|| {}),
-            Box::new(|_| {}),
+            Box::new(|_, _| {}),
         );
         connection.start();
         wait(|| connection.connected(), 30);

@@ -320,7 +320,7 @@ mod journey {
                 limits: Limits::default(),
             },
             Box::new(|| {}),
-            Box::new(|_| {}),
+            Box::new(|_, _| {}),
         );
         connection.start();
         let deadline = Instant::now() + Duration::from_secs(30);
