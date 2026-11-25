@@ -1764,19 +1764,19 @@ pub fn new_tab(
 #[tauri::command]
 pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab: String) {
     stop(&state, std::slice::from_ref(&tab));
-    let machine = {
+    {
         let mut board = lock(&state.board);
-        board.workspace_mut(&workspace).and_then(|ws| {
+        if let Some(ws) = board.workspace_mut(&workspace) {
             ws.tabs.retain(|t| t.id != tab);
             if ws.active.as_deref() == Some(tab.as_str()) {
                 ws.active = ws.tabs.first().map(|t| t.id.clone());
             }
-            ws.host.clone()
-        })
-    };
-    // The machine's registry keeps the conversation; adoption must not reopen the tab.
-    if let Some(machine) = machine {
-        crate::remote::registry::dismiss(&machine, &tab);
+            // The machine's registry keeps the conversation; adoption must not reopen the tab.
+            // Saved under the board lock, which synchronization reads the set under.
+            if let Some(machine) = ws.host.clone() {
+                crate::remote::registry::dismiss(&machine, &tab);
+            }
+        }
     }
     publish(&app);
 }

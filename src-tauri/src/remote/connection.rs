@@ -152,6 +152,9 @@ pub struct Connection {
     looping: AtomicBool,
     changed: Box<dyn Fn() + Send + Sync>,
     attached: Attached,
+    /// Held by each run of `attached`: an attachment and registry events may overlap, and two
+    /// runs must not both adopt or attach the same conversation.
+    waking: Mutex<()>,
 }
 
 impl Connection {
@@ -177,6 +180,7 @@ impl Connection {
             looping: AtomicBool::new(false),
             changed,
             attached,
+            waking: Mutex::new(()),
         })
     }
 
@@ -385,8 +389,13 @@ impl Connection {
                 return;
             }
             this.reattach();
-            (this.attached)(&this, Wake::Attached);
+            this.wake(Wake::Attached);
         });
+    }
+
+    fn wake(self: &Arc<Self>, wake: Wake) {
+        let _one = lock(&self.waking);
+        (self.attached)(self, wake);
     }
 
     /// An older host build still serves the socket. Replace it only while it runs nothing, so
@@ -508,7 +517,7 @@ impl Connection {
             }
             Some("registry") => {
                 let this = self.clone();
-                std::thread::spawn(move || (this.attached)(&this, Wake::Registry));
+                std::thread::spawn(move || this.wake(Wake::Registry));
             }
             Some("hook") => {
                 let session = frame["session"].as_str().unwrap_or_default();

@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 use super::connection::Connection;
@@ -68,9 +68,6 @@ struct Listing {
     workspaces: Vec<RegisteredWorkspace>,
 }
 
-/// One synchronization at a time: an attachment and a registry event may overlap.
-static SYNC: Mutex<()> = Mutex::new(());
-
 /// What a synchronization changed that the caller must act on.
 #[derive(Default)]
 pub struct Synced {
@@ -79,11 +76,10 @@ pub struct Synced {
 }
 
 /// Bring the board in line with the machine's registry: add the projects, workspaces and
-/// conversations agents created, archive workspaces they closed, and record on the machine the
-/// remote workspaces this app knows that the registry lacks. A host without a registry (an older
-/// build) changes nothing.
+/// conversations agents created, archive workspaces they closed, and record on the machine what
+/// this app knows that the registry lacks. A host without a registry (an older build) changes
+/// nothing. The caller serializes synchronizations of one machine.
 pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
-    let _one = lock(&SYNC);
     let mut synced = Synced::default();
     let Some(listing) = connection
         .request("registry_list", json!({}))
@@ -93,82 +89,112 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
         return synced;
     };
     let machine = connection.id.as_str();
-    let dismissed = dismissed(machine);
     let state = app.state::<AppState>();
     let mut stopped = Vec::new();
-    let mut missing = Vec::new();
+    let mut puts = Vec::new();
+    let mut closes = Vec::new();
     let mut changed = false;
     {
         let mut board = lock(&state.board);
+        // Read under the board lock, which every dismissal also holds, so a removal made while
+        // the listing was on its way is seen.
+        let dismissed = dismissed(machine);
         for project in &listing.projects {
             changed |= adopt_project(&mut board.projects, machine, project);
         }
+        // IDs the board uses anywhere: an ID from this machine never takes over another entry.
+        let taken: HashSet<String> = board
+            .workspaces
+            .iter()
+            .flat_map(|ws| {
+                std::iter::once(ws.id.clone()).chain(ws.tabs.iter().map(|t| t.id.clone()))
+            })
+            .collect();
         for registered in &listing.workspaces {
-            match board.workspace_mut(&registered.id) {
-                Some(ws) if registered.closed => {
-                    // An agent closed it: the checkout and branch are gone on the machine.
-                    if !ws.cleaned {
-                        ws.archived = true;
-                        ws.cleaned = true;
-                        for tab in &mut ws.tabs {
-                            tab.status = Status::Desligada;
-                            tab.note = None;
-                            stopped.push(tab.id.clone());
-                        }
-                        changed = true;
-                    }
+            let index = board.workspaces.iter().position(|w| w.id == registered.id);
+            let Some(index) = index else {
+                if registered.closed || dismissed.contains(&registered.id) {
+                    continue;
                 }
-                Some(ws) => {
-                    let mut added = false;
-                    for conversation in &registered.conversations {
-                        if ws.tabs.iter().any(|t| t.id == conversation.id)
-                            || dismissed.contains(&conversation.id)
-                        {
-                            continue;
-                        }
-                        ws.tabs.push(tab(conversation));
-                        synced
-                            .adopted
-                            .push((conversation.id.clone(), ws.worktree.clone()));
-                        added = true;
-                    }
-                    if added {
-                        // An agent works here again: show it, as a new message would.
-                        ws.archived = false;
-                        ws.unread = true;
-                        changed = true;
-                    }
-                }
-                None if registered.closed || dismissed.contains(&registered.id) => {}
-                None => {
-                    if !board
-                        .projects
-                        .iter()
-                        .any(|p| p.id == super::workspace::project_id(machine, &registered.project))
-                    {
-                        adopt_project(
-                            &mut board.projects,
-                            machine,
-                            &RegisteredProject {
-                                path: registered.project.clone(),
-                                name: basename(&registered.project),
-                                origin: None,
-                            },
-                        );
-                    }
-                    synced.adopted.extend(
-                        registered
-                            .conversations
-                            .iter()
-                            .map(|c| (c.id.clone(), registered.worktree.clone())),
+                let project = super::workspace::project_id(machine, &registered.project);
+                if !board.projects.iter().any(|p| p.id == project) {
+                    adopt_project(
+                        &mut board.projects,
+                        machine,
+                        &RegisteredProject {
+                            path: registered.project.clone(),
+                            name: basename(&registered.project),
+                            origin: None,
+                        },
                     );
-                    board.workspaces.push(workspace(machine, registered));
+                }
+                let mut ws = workspace(machine, registered);
+                ws.tabs
+                    .retain(|t| !taken.contains(&t.id) && !dismissed.contains(&t.id));
+                ws.active = ws.tabs.last().map(|t| t.id.clone());
+                synced
+                    .adopted
+                    .extend(ws.tabs.iter().map(|t| (t.id.clone(), ws.worktree.clone())));
+                board.workspaces.push(ws);
+                changed = true;
+                continue;
+            };
+            let ws = &mut board.workspaces[index];
+            if ws.host.as_deref() != Some(machine) {
+                continue;
+            }
+            if ws.cleaned && !registered.closed {
+                // This app removed the checkout, but the close never reached the machine.
+                closes.push(ws.id.clone());
+                continue;
+            }
+            let mut added = false;
+            for conversation in &registered.conversations {
+                if ws.tabs.iter().any(|t| t.id == conversation.id)
+                    || taken.contains(&conversation.id)
+                    || dismissed.contains(&conversation.id)
+                {
+                    continue;
+                }
+                ws.tabs.push(tab(conversation));
+                if !registered.closed {
+                    synced
+                        .adopted
+                        .push((conversation.id.clone(), ws.worktree.clone()));
+                }
+                added = true;
+            }
+            if registered.closed {
+                // An agent closed it: the checkout and branch are gone on the machine.
+                if !ws.cleaned {
+                    ws.archived = true;
+                    ws.cleaned = true;
+                    for tab in &mut ws.tabs {
+                        tab.status = Status::Desligada;
+                        tab.note = None;
+                        stopped.push(tab.id.clone());
+                    }
                     changed = true;
                 }
+                changed |= added;
+            } else if added {
+                // An agent works here again: show it, as a new message would.
+                ws.archived = false;
+                ws.unread = true;
+                changed = true;
             }
         }
-        // Record what the registry lacks: workspaces from before it existed, and conversations
-        // whose record was lost on the way.
+        // Record what the registry lacks: projects and workspaces from before it existed, and
+        // conversations whose record was lost on the way.
+        for project in board
+            .projects
+            .iter()
+            .filter(|p| p.host.as_deref() == Some(machine))
+        {
+            if !listing.projects.iter().any(|p| p.path == project.path) {
+                puts.push(project_record(project));
+            }
+        }
         for ws in &board.workspaces {
             let recordable = ws.host.as_deref() == Some(machine)
                 && !ws.cleaned
@@ -186,7 +212,7 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                             .all(|t| w.conversations.iter().any(|c| c.id == t.id))
                 });
             if recordable && !complete {
-                missing.push(record(ws));
+                puts.push(record(ws));
             }
         }
     }
@@ -196,8 +222,11 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
     if changed {
         crate::state::publish(app);
     }
-    for params in missing {
+    for params in puts {
         let _ = connection.request("registry_put", params);
+    }
+    for id in closes {
+        close(connection, &id);
     }
     synced
 }
@@ -374,15 +403,16 @@ pub fn record_later(app: &AppHandle, workspace: &str) {
     });
 }
 
+fn project_record(project: &Project) -> Value {
+    json!({"project": {
+        "path": project.path, "name": project.name, "added_at": now(),
+        "added_by": {"kind": "desktop"},
+    }})
+}
+
 /// Record a project added on the machine.
 pub fn record_project(connection: &Connection, project: &Project) {
-    let _ = connection.request(
-        "registry_put",
-        json!({"project": {
-            "path": project.path, "name": project.name, "added_at": now(),
-            "added_by": {"kind": "desktop"},
-        }}),
-    );
+    let _ = connection.request("registry_put", project_record(project));
 }
 
 /// Tell the machine a workspace's checkout is gone, so agents stop offering it.
@@ -406,6 +436,8 @@ fn dismissed(machine: &str) -> HashSet<String> {
         .unwrap_or_default()
 }
 
+/// Remember a removed workspace or closed tab. Callers hold the board lock while they change the
+/// board, so a synchronization never reads the set between the change and this write.
 pub fn dismiss(machine: &str, workspace: &str) {
     let mut ids = dismissed(machine);
     if !ids.insert(workspace.to_string()) {

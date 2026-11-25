@@ -280,8 +280,35 @@ pub fn launch(
     let recovering = terminal.is_some() && lock(&service.recovering).contains(&request.session);
     let running = terminal.is_some_and(|t| t["running"] == json!(true)) || recovering;
     let effective =
-        crate::chat::terminal::ingestion::resume_request(&crate::paths::root(), request)
-            .map_err(|_| crate::chat::terminal::history(&request.session, "resume_request"))?;
+        match crate::chat::terminal::ingestion::resume_request(&crate::paths::root(), request) {
+            Ok(effective) => effective,
+            // A conversation an agent started has no identity here until its first relayed hook
+            // binds it (ADR 0103). Its process already runs or ran, so nothing is launched: observe
+            // it as a fresh start and the queued hooks bind it, as below for an unbound adoption.
+            Err(_)
+                if running
+                    && matches!(
+                        request.mode,
+                        StartMode::Resume {
+                            provider_session: None
+                        }
+                    ) =>
+            {
+                LaunchRequest {
+                    session: request.session.clone(),
+                    workspace: request.workspace.clone(),
+                    worktree: request.worktree.clone(),
+                    settings: request.settings.clone(),
+                    mode: StartMode::Fresh,
+                }
+            }
+            Err(_) => {
+                return Err(crate::chat::terminal::history(
+                    &request.session,
+                    "resume_request",
+                ))
+            }
+        };
     let cwd = effective.worktree.clone();
     let transcript = mirror_path(
         machine,

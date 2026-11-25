@@ -180,8 +180,12 @@ environment field of a bot platform's MCP configuration.
   conversations an agent opened or reopens a closed workspace. A conversation
   is recorded once its tab is on the board, so a synchronization never adopts
   one the desktop is still launching. Each synchronization also records the open
-  remote workspaces and conversations that the registry lacks, such as those
-  created before this decision, so agents see them while the laptop is off.
+  remote projects, workspaces and conversations that the registry lacks, such as
+  those created before this decision, so agents see them while the laptop is
+  off. When a cleanup's close did not reach the machine, the next
+  synchronization sends it again.
+- An ID from the machine never takes over a board entry that belongs to this
+  computer, to another machine or to another workspace.
 - Cleaning a remote workspace on the desktop marks it closed in the registry.
   Removing one from the board leaves its checkout on the machine, and closing a
   tab leaves its conversation, so the registry keeps listing them. The desktop

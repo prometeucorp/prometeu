@@ -187,8 +187,14 @@ workspace names an agent creator in `creator`. It adds conversations an agent
 opened in a workspace it already shows, and marks workspaces an agent closed as
 cleaned and archived. It records with `registry_put` its own remote workspaces
 and conversations once their tab is on the board, and the projects added on the
-machine. Each synchronization also records the open workspaces, or the
-conversations of one, that the registry lacks. It calls `registry_close` after cleaning a workspace. A
+machine. Each synchronization also records the projects, open workspaces and
+conversations that the registry lacks, and repeats `registry_close` for a
+workspace the desktop cleaned that the registry still lists as open. An entry
+whose ID the board already uses for a local workspace, a workspace on another
+machine or another tab is never adopted or changed. A conversation an agent
+opened before closing its workspace still becomes a tab of the closed
+workspace. Synchronization and the terminal reattachment that follows run one
+at a time per machine. It calls `registry_close` after cleaning a workspace. A
 workspace removed from the board without cleanup, or a conversation whose tab
 was closed, stays in the registry and is listed in
 `<root>/remote/<machine>/dismissed.json` on the desktop, which keeps it from
