@@ -501,6 +501,7 @@ fn a_refused_socket_path_is_taken_once_it_is_free() {
     machine.wait_for("agent socket", || machine.socket().exists());
     let blocked = machine.dir.join("blocked.sock");
     std::fs::write(&blocked, "not a socket").unwrap();
+    // Setup refuses a taken path instead of reporting agents as enabled.
     let setup = Command::new(BIN)
         .args(["agents", "setup", "--socket"])
         .arg(&blocked)
@@ -508,11 +509,29 @@ fn a_refused_socket_path_is_taken_once_it_is_free() {
         .arg(&machine.root)
         .output()
         .unwrap();
-    assert!(setup.status.success());
-    std::thread::sleep(Duration::from_secs(4));
+    assert!(!setup.status.success());
+    assert!(String::from_utf8_lossy(&setup.stderr).contains("is not a socket"));
+
+    // A path taken after setup: the host leaves the file alone, reports why it cannot serve the
+    // socket, and takes the path once it is free.
+    let config = json!({"socket": blocked.display().to_string()});
+    std::fs::write(machine.root.join("agents.json"), config.to_string()).unwrap();
+    let status = || {
+        let output = Command::new(BIN)
+            .args(["agents", "status", "--json", "--root"])
+            .arg(&machine.root)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    machine.wait_for("the bind error", || status()["error"].is_string());
+    assert!(status()["error"].as_str().unwrap().contains("not a socket"));
+    assert_eq!(status()["serving"], false);
     assert_eq!(std::fs::read_to_string(&blocked).unwrap(), "not a socket");
     std::fs::remove_file(&blocked).unwrap();
     machine.wait_for("the freed path", || UnixStream::connect(&blocked).is_ok());
+    machine.wait_for("the error to clear", || status()["error"].is_null());
+    assert_eq!(status()["serving"], true);
 }
 
 #[test]

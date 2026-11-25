@@ -341,3 +341,21 @@ fn a_terminal_reports_its_last_output_before_its_exit() {
     client.detach();
     shutdown(&root);
 }
+
+#[test]
+fn an_update_waits_for_a_running_command() {
+    let root = root();
+    let mut client = Attached::new(&root);
+    // A command such as `git worktree add` runs before any terminal exists; retiring the host
+    // then would lose its outcome.
+    let exec = client.send("exec", json!({"argv": ["sleep", "1"], "timeout_ms": 5000}));
+    std::thread::sleep(Duration::from_millis(300));
+    let refused = client.send("shutdown", json!({}));
+    let reply = client.until(|f| f["id"] == refused);
+    assert_eq!(reply["error"], "host_busy", "{reply}");
+    let done = client.until(|f| f["id"] == exec);
+    assert_eq!(done["result"]["code"], 0, "{done}");
+    let accepted = client.send("shutdown", json!({}));
+    let reply = client.until(|f| f["id"] == accepted);
+    assert!(reply.get("error").is_none(), "{reply}");
+}

@@ -122,7 +122,7 @@ export type Commands = {
   machine_connect: { args: { id: string }; result: void };
   machine_stats: { args: { id: string }; result: import("./machines").MachineStats };
   machine_claude_status: { args: { id: string }; result: import("./machines").ClaudeStatus };
-  machine_agents_enable: { args: { id: string; rotate: boolean }; result: import("./machines").AgentsSetup };
+  machine_agents_enable: { args: { id: string; rotate: boolean; open_home: boolean }; result: import("./machines").AgentsEnable };
   machine_agents_disable: { args: { id: string }; result: void };
   machine_claude_login: { args: { id: string }; result: string };
   machine_claude_code: { args: { id: string; code: string }; result: import("./machines").ClaudeStatus };

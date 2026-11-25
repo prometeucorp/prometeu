@@ -125,11 +125,13 @@ it is working, as it does for a person typing.
   container can mount it while only the person can replace what is inside. It
   holds the socket (0666) and the client executable, never the token. A
   container started by another Unix user reaches that folder only through the
-  person's home. Distributions such as Ubuntu create homes as 0750, so setup
-  adds traverse-only permission (`o+x`, not `o+r`) to the person's own folders
-  between the home and the agent directory and reports each folder it changed.
-  That lets other users open files under the home whose own permissions allow it
-  when they know the path. `--socket` chooses another directory, such as one
+  person's home. Distributions such as Ubuntu create homes as 0750, so other
+  users then need traverse-only permission (`o+x`, not `o+r`) on the person's
+  own folders between the home and the agent directory. That lets them open
+  files under the home whose own permissions allow it when they know the path,
+  so setup changes nothing until the person agrees (`--open-home`, or the
+  confirmation in Settings). It records the folders it opened, and `agents
+  disable` closes them again. `--socket` chooses another directory, such as one
   under `/srv`, without touching the home. What authorizes a client is the
   token, so whoever could replace the socket or the client would collect it.
   Setup and the host therefore refuse a directory that is not the person's own
@@ -238,14 +240,19 @@ machine or in a rootless container of the person's own user.
   masked, so a screenshot (a feedback report, for example) never carries it.
   Copying the configuration includes it. It is kept in memory until the person
   closes the panel, and it is never stored, logged or sent through the relay.
-  While the setup runs, the desktop does not retire an older host, so a new
-  token always reaches the screen. The machine's menu then offers a new token (rotation) and
+  The panel belongs to the SSH destination it was made for: editing the
+  destination or forgetting the machine closes it, and a late result for an
+  earlier destination is dropped. Settings shows agents as enabled only once
+  the socket answers, or shows why the host cannot serve it. The machine's menu then offers a new token (rotation) and
   **Disable agents**, both confirmed first because they cut off connected bots.
   Each attachment reads `agents status` to show whether agents are enabled.
 - A host update reaches agents too. The desktop replaces an older host only
   while it runs no terminal. If the host is busy at attachment, the desktop asks
   again when a terminal it follows ends, and every minute in any case, because
-  terminals that agents start end without telling the desktop.
+  terminals that agents start end without telling the desktop. It never asks
+  while one of its own requests is in flight, and the host refuses to stop
+  while a command, file write or terminal launch is running, so an update never
+  loses the outcome of a `git worktree add` or a new token.
 - Agents see every workspace on the machine, including those the person created
   from the desktop. Local workspaces on the laptop never reach the host.
 
@@ -294,11 +301,15 @@ tests below; its run with OpenBot through Settings is still to be recorded.
 - `src-tauri/src/remote/registry.rs`: an agent's registry workspace becomes a
   terminal-mode board entry that names its creator, and the desktop's records
   carry the conversations being launched with their permission mode.
-- Unit tests: `agents.rs` (only folders between the home and the agent
-  directory become traversable; the default directory sits beside the root),
+- Unit tests: `agents.rs` (the home opens only with consent and closes again
+  on disable; an install from before the move keeps its socket; setup refuses
+  shared folders, files it did not install and a taken socket path),
   `remote/connection.rs` (`a_busy_stale_host_is_retired_once_it_becomes_idle`)
-  and `remote/agents.rs` (the setup output becomes a mount and a ready-to-paste
-  configuration).
+  and `remote/agents.rs` (the setup output becomes a masked preview and a
+  ready-to-paste configuration; enabling asks before opening folders).
+- `src-tauri/crates/host/tests/host.rs` (`an_update_waits_for_a_running_command`)
+  and `tests/agents.rs` (`a_refused_socket_path_is_taken_once_it_is_free`, which
+  also reads the bind error through `agents status`).
 - Manual run on the VPS (2026-11-24) with Claude Code 2.1.331 and a test root.
   Through the agent socket, a workspace was created in a registered project.
   Claude wrote the requested file and answered, a multi-line follow-up typed

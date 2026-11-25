@@ -16,9 +16,11 @@ export type MachinePhase = "offline" | "connecting" | "connected" | "not_install
 export type Limits = { memory_max: string; cpu_quota: string };
 export type HostInfo = { home: string; user: string; os: string; arch: string; version: string; linger: boolean; scopes: boolean; executable: string | null };
 export type ClaudeStatus = { installed: boolean; loggedIn: boolean; email: string | null; method: string | null };
-export type AgentsStatus = { enabled: boolean; socket: string };
+export type AgentsStatus = { enabled: boolean; socket: string; serving: boolean; error: string | null };
 /** Shown once after enabling agents or rotating their token: the container mount and the MCP configuration with the token. */
 export type AgentsSetup = { mount: string; config: string; preview: string; client_uid: number; local_uid: number; opened: string[]; moved_from: string | null };
+/** Enabling stops without changing anything when folders under the machine's home must be opened to other users first. */
+export type AgentsEnable = AgentsSetup | { needs_open: string[] };
 export type MachineView = { id: string; name: string; ssh: string; limits: Limits; phase: MachinePhase; detail: string | null; host: HostInfo | null; update_pending: boolean; claude?: ClaudeStatus | null; agents?: AgentsStatus | null };
 export type MachineInput = { id?: string | null; name: string; ssh: string; limits: Limits };
 export type WorkspaceStats = { memory: number | null; memory_max: number | null; cpu_usec: number | null; cpu_max: string | null };
@@ -80,7 +82,7 @@ let editing: string | null = null;
 const signing = new Map<string, string>();
 /// The agent configuration just generated, per machine. Kept only in memory until the person closes it: the token is
 /// never stored, logged or sent anywhere else (ADR 0103).
-const agentSetups = new Map<string, AgentsSetup>();
+const agentSetups = new Map<string, { setup: AgentsSetup; ssh: string }>();
 const busy = new Set<string>();
 let feedback: { id: string; text: string; error: boolean } | null = null;
 
@@ -125,7 +127,10 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     : t("machines.noLimits"));
   const claude = machine.phase === "connected" ? machine.claude : undefined;
   const agents = machine.phase === "connected" ? machine.agents : undefined;
-  if (agents) line(agents.enabled ? t("machines.agents.on") : t("machines.agents.off"));
+  if (agents) {
+    if (agents.enabled && agents.error) line(t("machines.agents.blocked", { error: agents.error }), "warn");
+    else line(agents.enabled ? t("machines.agents.on") : t("machines.agents.off"));
+  }
   if (machine.phase === "connected") {
     line(!claude ? t("machines.claude.checking")
       : !claude.installed ? t("machines.claude.missing")
@@ -146,7 +151,16 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
   const enableAgents = (rotate: boolean) => run(`agents:${machine.id}`, redraw, say, async () => {
     if (rotate && !await confirmDialog({ track: "machines.agents.rotate", area: "settings", title: t("machines.agents.rotate"),
       message: t("machines.agents.rotateConfirm"), accept: t("machines.agents.rotate"), cancel: t("machines.cancel") })) return null;
-    agentSetups.set(machine.id, await invoke("machine_agents_enable", { id: machine.id, rotate }));
+    // A configuration is only ever shown for the destination it was made on.
+    const ssh = machine.ssh;
+    let result = await invoke("machine_agents_enable", { id: machine.id, rotate, open_home: false });
+    if ("needs_open" in result) {
+      if (!await confirmDialog({ track: "machines.agents.openHome", area: "settings", title: t("machines.agents.openHome"),
+        message: t("machines.agents.openHomeConfirm", { folders: result.needs_open.join(", ") }),
+        accept: t("machines.agents.openHome"), cancel: t("machines.cancel") })) return null;
+      result = await invoke("machine_agents_enable", { id: machine.id, rotate, open_home: true });
+    }
+    if (!("needs_open" in result) && machineOf(machine.id)?.ssh === ssh) agentSetups.set(machine.id, { setup: result, ssh });
     return null;
   });
   const disableAgents = () => run(`agents:${machine.id}`, redraw, say, async () => {
@@ -177,15 +191,17 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
       ...(machine.phase !== "not_installed" ? [{ track: "machines.install", label: t("machines.update"), glyph: icon("server"), run: install }] : []),
       ...(!offline && machine.phase !== "not_installed" ? [{ track: "machines.reconnect", label: t("machines.reconnect"), glyph: icon("rotate"), run: reconnect }] : []),
       "sep",
-      { track: "machines.remove", label: t("machines.remove"), glyph: icon("trash"), danger: true, run: () => run(machine.id, redraw, say, async () => { await invoke("machine_remove", { id: machine.id }); return null; }) },
+      { track: "machines.remove", label: t("machines.remove"), glyph: icon("trash"), danger: true, run: () => run(machine.id, redraw, say, async () => { await invoke("machine_remove", { id: machine.id }); agentSetups.delete(machine.id); return null; }) },
     ]);
   } });
   act.append(more);
 
   const rows: HTMLElement[] = [node];
   if (signing.has(machine.id)) rows.push(claudeLogin(machine, signing.get(machine.id)!, say, redraw));
-  const setup = agentSetups.get(machine.id);
-  if (setup) rows.push(agentsPanel(machine, setup, say, redraw));
+  // A token made for an earlier SSH destination must never be copied into a bot for this one.
+  const shown = agentSetups.get(machine.id);
+  if (shown && shown.ssh !== machine.ssh) agentSetups.delete(machine.id);
+  else if (shown) rows.push(agentsPanel(machine, shown.setup, say, redraw));
   const note = (text: string, kind: "warning" | "error") => { const n = notice(text, kind); n.classList.add("machine-note"); rows.push(n); };
   if (machine.host && !machine.host.linger) note(t("machines.lingerOff"), "warning");
   if (machine.update_pending) note(t("machines.updatePending"), "warning");
@@ -211,6 +227,7 @@ function form(machine: MachineView | null, say: (text: string, isError?: boolean
   const save = button(t("machines.save"), () => {
     if (!ssh.value.trim()) { ssh.focus(); return; }
     run(id || "new", redraw, say, async () => {
+      if (machine && machine.ssh !== ssh.value.trim()) agentSetups.delete(machine.id);
       await invoke("machine_save", { machine: { id: machine?.id ?? null, name: name.value, ssh: ssh.value, limits: { memory_max: memory.value, cpu_quota: cpu.value } } });
       editing = null;
       return null;

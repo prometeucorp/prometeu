@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use super::Machine;
@@ -148,8 +148,10 @@ pub struct Connection {
     attachments: AtomicU64,
     /// Set when a terminal ends while an update is pending: the old host may be idle now.
     terminal_ended: AtomicBool,
-    /// Held while retiring an older host, and by commands the host must outlive (`keep_host`).
-    retiring: Mutex<()>,
+    /// Every request holds it shared while in flight; retiring an older host takes it exclusively
+    /// and gives up when any request is running, so an update never loses a request's outcome
+    /// (a `git worktree add`, a new agent token). Older hosts lack the host's own guard.
+    retiring: RwLock<()>,
     stdin: Mutex<Option<ChildStdin>>,
     child: Mutex<Option<Child>>,
     pending: Mutex<HashMap<u64, Pending>>,
@@ -182,7 +184,7 @@ impl Connection {
             update_pending: AtomicBool::new(false),
             attachments: AtomicU64::new(0),
             terminal_ended: AtomicBool::new(false),
-            retiring: Mutex::new(()),
+            retiring: RwLock::new(()),
             stdin: Mutex::new(None),
             child: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
@@ -433,26 +435,24 @@ impl Connection {
     /// an update never ends live work; otherwise it keeps serving with the same protocol and
     /// `retire_when_idle` asks again later. The host repeats the idle check on `shutdown`.
     fn retire_stale(self: &Arc<Self>) -> bool {
-        // A command holding `keep_host` must finish first; the next check retries.
-        let Ok(_retiring) = self.retiring.try_lock() else {
+        // A request in flight must finish first; the next check retries.
+        let Ok(_retiring) = self.retiring.try_write() else {
             return false;
         };
         let idle = self
-            .request("terminal_list", json!({}))
+            .send_request("terminal_list", json!({}), REQUEST_TIMEOUT)
             .ok()
             .and_then(|list| list.as_array().cloned())
             .is_some_and(|list| list.iter().all(|t| t["running"] != json!(true)));
-        if idle && self.request("shutdown", json!({})).is_ok() {
+        if idle
+            && self
+                .send_request("shutdown", json!({}), REQUEST_TIMEOUT)
+                .is_ok()
+        {
             self.reconnect();
             return true;
         }
         false
-    }
-
-    /// Keep an older host from being retired while the guard lives, for commands whose effect the
-    /// app must learn, such as a new agent token.
-    pub fn keep_host(&self) -> std::sync::MutexGuard<'_, ()> {
-        lock(&self.retiring)
     }
 
     fn reattach(self: &Arc<Self>) {
@@ -630,6 +630,16 @@ impl Connection {
     }
 
     pub fn request_timeout(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, String> {
+        let _in_flight = self.retiring.read().unwrap_or_else(|e| e.into_inner());
+        self.send_request(method, params, timeout)
+    }
+
+    fn send_request(
         &self,
         method: &str,
         params: Value,

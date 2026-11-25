@@ -183,31 +183,57 @@ fn secure_dir(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Let other users traverse, never list, the folders from `home` down to `dir`'s parent, so a
-/// container run by another user can mount `dir`. Only folders this user owns change. Returns the
-/// folders that changed.
-fn open_to_others(home: &Path, dir: &Path) -> Result<Vec<PathBuf>, String> {
+/// The folders from `home` down to `dir`'s parent that this user owns and that other users cannot
+/// traverse, so a container run by another user cannot mount `dir` through them.
+fn closed_folders(home: &Path, dir: &Path) -> Result<Vec<PathBuf>, String> {
     use std::os::unix::fs::MetadataExt;
     if !dir.starts_with(home) || dir == home {
         return Ok(Vec::new());
     }
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
-    let mut opened = Vec::new();
+    let mut closed = Vec::new();
     let mut at = dir.parent();
     while let Some(folder) = at.filter(|f| f.starts_with(home)) {
         let meta = std::fs::metadata(folder).map_err(|e| e.to_string())?;
         if meta.uid() == uid && meta.mode() & 0o001 == 0 {
-            std::fs::set_permissions(
-                folder,
-                std::fs::Permissions::from_mode((meta.mode() & 0o7777) | 0o001),
-            )
-            .map_err(|e| e.to_string())?;
-            opened.push(folder.to_path_buf());
+            closed.push(folder.to_path_buf());
         }
         at = folder.parent();
     }
-    Ok(opened)
+    Ok(closed)
+}
+
+/// Add or remove other users' traverse permission (`o+x`, never `o+r`) on `folders`.
+fn set_traversable(folders: &[PathBuf], traversable: bool) -> Result<(), String> {
+    for folder in folders {
+        let mode = std::fs::metadata(folder)
+            .map_err(|e| e.to_string())?
+            .permissions()
+            .mode()
+            & 0o7777;
+        let mode = if traversable {
+            mode | 0o001
+        } else {
+            mode & !0o001
+        };
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(mode))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn recorded_opened(root: &Path) -> Vec<PathBuf> {
+    config(root)
+        .get("opened")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .map(PathBuf::from)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Keep an executable copy of this build next to the agent socket, so a client's configuration
@@ -245,6 +271,40 @@ pub fn install_client(dir: &Path) -> Result<PathBuf, String> {
     Ok(target)
 }
 
+/// Why `agents setup` stopped.
+#[derive(Debug)]
+pub enum SetupError {
+    /// These folders must become traversable by other users for a container to mount the agent
+    /// folder; setup changes them only when asked (`--open-home`).
+    NeedsOpen(Vec<PathBuf>),
+    Failed(String),
+}
+
+impl From<String> for SetupError {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+impl From<&str> for SetupError {
+    fn from(error: &str) -> Self {
+        Self::Failed(error.into())
+    }
+}
+
+impl std::fmt::Display for SetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NeedsOpen(folders) => write!(
+                f,
+                "other users must be able to traverse {} to reach the agent folder; run again with --open-home, or choose a folder outside the home with --socket",
+                folders.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+            ),
+            Self::Failed(error) => f.write_str(error),
+        }
+    }
+}
+
 /// What `agents setup` did.
 pub struct Setup {
     pub token: String,
@@ -256,10 +316,29 @@ pub struct Setup {
     pub moved_from: Option<PathBuf>,
 }
 
-/// Enable agents: write `agents.json` when `socket` is given, prepare the socket's directory and
-/// the client executable in it, and create the token when missing or when `rotate` asks for a new
-/// one. A running host starts serving within seconds.
-pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, String> {
+/// Enable agents: record the socket and the client in `agents.json`, prepare the socket's
+/// directory and the client executable in it, and create the token when missing or when `rotate`
+/// asks for a new one. A running host starts serving within seconds. Nothing changes until every
+/// check passes; folders under the home are opened to other users only with `open_home`.
+pub fn setup(
+    root: &Path,
+    socket: Option<&Path>,
+    rotate: bool,
+    open_home: bool,
+) -> Result<Setup, SetupError> {
+    let home = std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from);
+    setup_in(root, socket, rotate, open_home, home.as_deref())
+}
+
+fn setup_in(
+    root: &Path,
+    socket: Option<&Path>,
+    rotate: bool,
+    open_home: bool,
+    home: Option<&Path>,
+) -> Result<Setup, SetupError> {
     private_dir(&root.join("agents"))?;
     let wanted = match socket {
         Some(socket) if !socket.is_absolute() => {
@@ -274,6 +353,10 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
         .parent()
         .ok_or("the socket path needs a directory")?
         .to_path_buf();
+    // A file at the path would keep the host from serving the socket while setup reported success.
+    if std::fs::symlink_metadata(&wanted).is_ok_and(|m| !m.file_type().is_socket()) {
+        return Err(format!("{} exists and is not a socket", wanted.display()).into());
+    }
     agent_dir(&dir)?;
     secure_dir(&dir)?;
     let client = dir.join(CLIENT);
@@ -282,20 +365,38 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
         return Err(format!(
             "{} was not installed by `agents setup`; remove it or choose another folder",
             client.display()
-        ));
+        )
+        .into());
+    }
+    let closed = match home {
+        Some(home) => closed_folders(home, &dir)?,
+        None => Vec::new(),
+    };
+    if !closed.is_empty() && !open_home {
+        return Err(SetupError::NeedsOpen(closed));
     }
     let previous = socket_path(root);
     let moved_from = (enabled(root) && previous != wanted).then_some(previous);
-    let config =
-        json!({"socket": wanted.display().to_string(), "client": client.display().to_string()});
+    // Folders setup opened are recorded first, so `disable` can close them again.
+    let mut recorded_open = recorded_opened(root);
+    recorded_open.extend(
+        closed
+            .iter()
+            .filter(|f| !recorded_open.contains(f))
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
+    let config = json!({
+        "socket": wanted.display().to_string(),
+        "client": client.display().to_string(),
+        "opened": recorded_open.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+    });
     registry::write_private(&root.join(CONFIG), config.to_string().as_bytes())?;
     if let Some(old) = recorded.filter(|old| *old != client) {
         let _ = std::fs::remove_file(old);
     }
-    let opened = match std::env::var_os("HOME").filter(|h| !h.is_empty()) {
-        Some(home) => open_to_others(Path::new(&home), &dir)?,
-        None => Vec::new(),
-    };
+    set_traversable(&closed, true)?;
+    let opened = closed;
     let client = install_client(&dir)?;
     let path = token_path(root);
     let token = match std::fs::read_to_string(&path) {
@@ -316,7 +417,8 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
 }
 
 /// Disable agents: drop the token, which closes every agent connection at its next request and
-/// makes the host stop serving the socket, and remove the client executable setup installed.
+/// makes the host stop serving the socket, remove the client executable setup installed, and
+/// close again the folders setup opened to other users.
 pub fn disable(root: &Path) -> Result<(), String> {
     match std::fs::remove_file(token_path(root)) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.to_string()),
@@ -325,7 +427,31 @@ pub fn disable(root: &Path) -> Result<(), String> {
     if let Some(client) = recorded_client(root) {
         let _ = std::fs::remove_file(client);
     }
+    let opened = recorded_opened(root);
+    if !opened.is_empty() {
+        set_traversable(&opened, false)?;
+        let mut config = config(root);
+        config["opened"] = json!([]);
+        registry::write_private(&root.join(CONFIG), config.to_string().as_bytes())?;
+    }
     Ok(())
+}
+
+/// Where the host records why it cannot serve the agent socket, for `agents status`.
+fn bind_error_path(root: &Path) -> PathBuf {
+    root.join("agents").join("bind-error")
+}
+
+/// Whether agents are enabled, where the socket is, whether something answers there, and the
+/// host's last reason for not serving it.
+pub fn status(root: &Path) -> Value {
+    let socket = socket_path(root);
+    json!({
+        "enabled": enabled(root),
+        "socket": socket.display().to_string(),
+        "serving": matches!(probe(&socket), Probe::Answers),
+        "error": std::fs::read_to_string(bind_error_path(root)).ok().filter(|e| !e.trim().is_empty()),
+    })
 }
 
 /// How another user's rootless container sees this user: the kernel's overflow user ID, since
@@ -408,6 +534,7 @@ pub fn listen(host: Arc<Host>) {
                     eprintln!("prometeu-host agents disabled");
                     retire(&old, &stop, true);
                 }
+                let _ = std::fs::remove_file(bind_error_path(&host.root));
                 refused = None;
                 std::thread::sleep(Duration::from_secs(3));
                 continue;
@@ -419,6 +546,7 @@ pub fn listen(host: Arc<Host>) {
                 match bind(&wanted) {
                     Ok(listener) => {
                         eprintln!("prometeu-host agents on {}", wanted.display());
+                        let _ = std::fs::remove_file(bind_error_path(&host.root));
                         // Only the client setup recorded: never a file someone else put there.
                         let recorded = recorded_client(&host.root);
                         if let Some(dir) = wanted
@@ -443,6 +571,10 @@ pub fn listen(host: Arc<Host>) {
                     Err(error) => {
                         if refused.as_ref() != Some(&wanted) {
                             eprintln!("prometeu-host agents: {}: {error}", wanted.display());
+                            let _ = registry::write_private(
+                                &bind_error_path(&host.root),
+                                format!("{}: {error}", wanted.display()).as_bytes(),
+                            );
                         }
                         refused = Some(wanted);
                     }
@@ -690,9 +822,9 @@ static MUTATIONS: AtomicUsize = AtomicUsize::new(0);
 static STOPPING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
-struct Mutation;
+pub(crate) struct Mutation;
 impl Mutation {
-    fn begin() -> Result<Self, String> {
+    pub(crate) fn begin() -> Result<Self, String> {
         MUTATIONS.fetch_add(1, Ordering::SeqCst);
         if STOPPING.load(Ordering::SeqCst) {
             MUTATIONS.fetch_sub(1, Ordering::SeqCst);
@@ -1778,28 +1910,52 @@ mod tests {
     }
 
     #[test]
-    fn only_folders_between_home_and_the_agent_dir_become_traversable() {
+    fn the_home_opens_only_with_consent_and_closes_again_on_disable() {
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o7777;
         let base = std::env::temp_dir().join(format!("pa-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
         let home = base.join("home");
-        let nested = home.join("a");
-        std::fs::create_dir_all(&nested).unwrap();
-        for folder in [&base, &home, &nested] {
-            std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o750)).unwrap();
+        let root = home.join(".prometeu-remote");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o750)).unwrap();
+        let dir = default_dir(&root);
+        assert_eq!(closed_folders(&home, &dir).unwrap(), vec![home.clone()]);
+        assert!(closed_folders(&home, Path::new("/srv/agents"))
+            .unwrap()
+            .is_empty());
+
+        // Without consent nothing changes: no token, no record, the home stays closed.
+        match setup_in(&root, None, false, false, Some(&home)) {
+            Err(SetupError::NeedsOpen(folders)) => assert_eq!(folders, vec![home.clone()]),
+            other => panic!("expected NeedsOpen, got {:?}", other.map(|s| s.socket)),
         }
-        let opened = open_to_others(&home, &nested.join("agents")).unwrap();
-        assert_eq!(opened, vec![nested.clone(), home.clone()]);
+        assert!(!enabled(&root));
+        assert_eq!(mode(&home), 0o750);
+        let done = setup_in(&root, None, false, true, Some(&home)).unwrap();
+        assert_eq!(done.opened, vec![home.clone()]);
         // Traverse only: listing stays closed, and nothing above the home changes.
         assert_eq!(mode(&home), 0o751);
-        assert_eq!(mode(&nested), 0o751);
-        assert_eq!(mode(&base), 0o750);
-        assert!(open_to_others(&home, &nested.join("agents"))
+        assert_eq!(mode(&base), 0o755);
+        disable(&root).unwrap();
+        assert_eq!(mode(&home), 0o750);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn setup_refuses_a_path_taken_by_something_else() {
+        let root = temporary_root("taken");
+        let base = root.parent().unwrap().to_path_buf();
+        let taken = base.join("taken");
+        std::fs::create_dir(&taken).unwrap();
+        std::fs::set_permissions(&taken, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(taken.join("a.sock"), b"file").unwrap();
+        let error = setup(&root, Some(&taken.join("a.sock")), false, false)
+            .err()
             .unwrap()
-            .is_empty());
-        assert!(open_to_others(&home, Path::new("/srv/agents"))
-            .unwrap()
-            .is_empty());
-        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
+            .to_string();
+        assert!(error.contains("is not a socket"), "{error}");
+        assert!(!enabled(&root));
         let _ = std::fs::remove_dir_all(base);
     }
 
@@ -1827,12 +1983,12 @@ mod tests {
         registry::write_private(&token_path(&root), b"old").unwrap();
         let legacy = root.join("agents/agents-v1.sock");
         assert_eq!(socket_path(&root), legacy);
-        let done = setup(&root, None, false).unwrap();
+        let done = setup(&root, None, false, false).unwrap();
         assert_eq!(done.token, "old");
         assert_eq!(done.socket, default_dir(&root).join("agents-v1.sock"));
         assert_eq!(done.moved_from, Some(legacy));
         assert_eq!(socket_path(&root), done.socket);
-        assert_eq!(setup(&root, None, false).unwrap().moved_from, None);
+        assert_eq!(setup(&root, None, false, false).unwrap().moved_from, None);
         let _ = std::fs::remove_dir_all(root.parent().unwrap());
     }
 
@@ -1843,32 +1999,35 @@ mod tests {
         let shared = base.join("shared");
         std::fs::create_dir(&shared).unwrap();
         std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
-        let error = setup(&root, Some(&shared.join("a.sock")), false)
+        let error = setup(&root, Some(&shared.join("a.sock")), false, false)
             .err()
-            .unwrap();
+            .unwrap()
+            .to_string();
         assert!(error.contains("writable by nobody else"), "{error}");
         // A folder inside a group-writable one could be swapped for another.
         std::fs::create_dir(shared.join("inner")).unwrap();
         std::fs::set_permissions(shared.join("inner"), std::fs::Permissions::from_mode(0o755))
             .unwrap();
-        let error = setup(&root, Some(&shared.join("inner/a.sock")), false)
+        let error = setup(&root, Some(&shared.join("inner/a.sock")), false, false)
             .err()
-            .unwrap();
+            .unwrap()
+            .to_string();
         assert!(error.contains("can replace"), "{error}");
 
         let own = base.join("own");
         std::fs::create_dir(&own).unwrap();
         std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).unwrap();
         std::fs::write(own.join(CLIENT), b"someone else's").unwrap();
-        let error = setup(&root, Some(&own.join("a.sock")), false)
+        let error = setup(&root, Some(&own.join("a.sock")), false, false)
             .err()
-            .unwrap();
+            .unwrap()
+            .to_string();
         assert!(error.contains("was not installed"), "{error}");
         assert!(!enabled(&root), "a refused setup creates no token");
         assert_eq!(std::fs::read(own.join(CLIENT)).unwrap(), b"someone else's");
 
         // Disabling removes only the client setup installed.
-        let done = setup(&root, Some(&base.join("mine/a.sock")), false).unwrap();
+        let done = setup(&root, Some(&base.join("mine/a.sock")), false, false).unwrap();
         assert!(done.client.exists());
         disable(&root).unwrap();
         assert!(!done.client.exists());

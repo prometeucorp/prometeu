@@ -29,7 +29,8 @@ Its install directory is the first 16 hex digits of its SHA-256.
   sessions/<tab>/settings.json Claude hook settings, 0600
   worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
   registry.json                the machine's projects and workspaces, 0600
-  agents.json                  `{ socket, client }` absolute paths written by setup, 0600
+  agents.json                  `{ socket, client, opened }` written by setup, 0600
+  agents/bind-error            why the host cannot serve the agent socket, while it cannot
   agents/token                 agent token, 0600; agents are enabled while it exists
 ~/.prometeu-remote[-dev]-agents/   default agent directory, 0755
   agents-v1.sock               agent socket, 0666
@@ -60,8 +61,11 @@ sends `{"attach":{"protocol":1}}` and relays stdio. Exit status 127 or
 ready frame's `executable` belongs to another build, the desktop shuts that host
 down only when it runs no terminal; otherwise it keeps using it and reports a
 pending update. While the update is pending and the attachment lasts, the desktop
-checks again when an `exit` event arrives and at least every 60 seconds. The
-host's own `shutdown` check still decides.
+checks again when an `exit` event arrives and at least every 60 seconds, and
+never while one of its requests is in flight. The host's own `shutdown` check
+still decides: `exec`, `file_write` and `terminal_open` delay a non-forced
+`shutdown` like the agent requests that change the machine, and fail with
+`host_stopping` once one has started.
 
 ## Framing
 
@@ -106,7 +110,7 @@ unknown outcome.
 | `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path; inserts a workspace by ID, or merges into the one held: its title and new conversations, keeping every other field and conversation |
 | `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
 | `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
-| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs or an agent request that changes the machine is in progress |
+| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs, an `exec`, `file_write` or `terminal_open` is in progress, or an agent request that changes the machine is; once it starts, those fail with `host_stopping` |
 
 Terminal and watch IDs match `[A-Za-z0-9_-]{1,128}`. Unknown terminals answer
 `unknown_terminal`, which the desktop treats as a process lost with the host.
@@ -232,15 +236,23 @@ agents are disabled, the listener stops and its socket is removed.
 host's bind refuse a directory not owned by the host's user or writable by its
 group or others, and one with a parent folder that is owned by another user than
 that user or root, or writable by group or others without the sticky bit. Setup
-also refuses a directory holding a `prometeu-mcp` it did not record. When that
-directory is under `$HOME`, it adds `o+x` to each folder from the home down to
-it that the person owns and that lacks it, and reports them. It records the
+also refuses a directory holding a `prometeu-mcp` it did not record, and a socket
+path taken by something other than a socket. When that directory is under
+`$HOME`, other users must be able to traverse each folder from the home down to
+it. Folders the person owns that lack `o+x` are changed only with
+`--open-home`: without it, setup changes nothing, exits 3 and names them, or with
+`--json` prints `{ needs_open: [paths] }` and exits 0. With it, setup records them
+in `opened`, adds `o+x` and reports them; `agents disable` removes `o+x` from the
+recorded folders again. It records the
 socket and `<directory>/prometeu-mcp` in `agents.json`, removes a previously
 recorded client elsewhere, copies itself there (0755), then creates or rotates
 the token. The host refreshes the recorded copy, through a temporary file and a
 rename and only when it differs, every time it binds the socket. `agents
 disable` deletes the token and the recorded copy. `agents status --json`
-prints `{ enabled, socket }`.
+prints `{ enabled, socket, serving, error }`: whether something answers at the
+socket, and the reason the host last gave for not serving it, which it writes to
+`agents/bind-error` when a bind fails and removes once it serves or agents are
+disabled.
 
 `agents setup` prints a mount (`<directory>:/prometeu:ro`) and an MCP entry
 `{ command: "/prometeu/prometeu-mcp", args: ["mcp", "--socket",
@@ -251,7 +263,9 @@ prints `{ enabled, socket }`.
 `{ token, socket, client, opened, moved_from, client_uid, local_uid, mount: {
 source, target, read_only }, server }` instead. The desktop's `machine_agents_enable`
 and `machine_agents_disable` commands run these through `exec` with the build
-they attach with, and the desktop does not retire an older host while one runs.
+they attach with. Enabling passes `--open-home` only after Settings asks the
+person about the folders named in `needs_open`, then waits up to 8 seconds for
+`serving` or `error` before publishing the status.
 They return the mount and the pretty-printed `{"mcpServers": {"prometeu":
 server}}` to Settings only, both as copied (`config`) and with the token masked
 for the screen (`preview`), and `MachineView.agents` carries the

@@ -14,6 +14,19 @@ use super::connection::Connection;
 pub struct AgentsStatus {
     pub enabled: bool,
     pub socket: String,
+    /// Whether something answers at the socket.
+    pub serving: bool,
+    /// Why the host cannot serve the socket, such as a file taking its path.
+    pub error: Option<String>,
+}
+
+/// Enabling either needs the person's consent to open folders under the machine's home to other
+/// users, or is done.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum EnableOutcome {
+    NeedsOpen { needs_open: Vec<String> },
+    Ready(AgentsSetup),
 }
 
 /// What Settings shows once, right after enabling or rotating.
@@ -45,8 +58,6 @@ fn host_command(connection: &Connection, args: &[&str]) -> Result<Value, String>
         .and_then(|r| r.get("root").and_then(Value::as_str).map(str::to_owned))
         .ok_or_else(|| crate::i18n::t(super::connection::OFFLINE))?;
     let program = format!("{root}/host/{}/prometeu-host", binary.hash);
-    // A host retired mid-command could take a new token with it before this app sees it.
-    let _keep = connection.keep_host();
     let mut argv = vec![program.as_str(), "agents"];
     argv.extend_from_slice(args);
     argv.extend_from_slice(&["--json", "--root", &root]);
@@ -66,6 +77,8 @@ pub fn status(connection: &Connection) -> Result<AgentsStatus, String> {
     Ok(AgentsStatus {
         enabled: status["enabled"] == Value::Bool(true),
         socket: status["socket"].as_str().unwrap_or_default().to_string(),
+        serving: status["serving"] == Value::Bool(true),
+        error: status["error"].as_str().map(str::to_owned),
     })
 }
 
@@ -112,22 +125,50 @@ fn setup_view(setup: &Value) -> AgentsSetup {
 }
 
 /// Enable agents on the machine, or replace their token when `rotate`, and return the
-/// configuration a bot needs. Rotating cuts off every connected agent client.
+/// configuration a bot needs. Rotating cuts off every connected agent client. Folders under the
+/// machine's home are opened to other users only with `open_home`, which Settings passes after
+/// asking; without it, the outcome names them and nothing changes.
 #[tauri::command(async)]
 pub fn machine_agents_enable(
     app: AppHandle,
     id: String,
     rotate: bool,
-) -> Result<AgentsSetup, String> {
+    open_home: bool,
+) -> Result<EnableOutcome, String> {
     let connection = app.state::<super::Service>().connected(&id)?;
-    let args: &[&str] = if rotate {
-        &["setup", "--rotate"]
-    } else {
-        &["setup"]
-    };
-    let setup = host_command(&connection, args)?;
-    refresh(&app, &connection);
-    Ok(setup_view(&setup))
+    let mut args = vec!["setup"];
+    if rotate {
+        args.push("--rotate");
+    }
+    if open_home {
+        args.push("--open-home");
+    }
+    let setup = host_command(&connection, &args)?;
+    if let Some(folders) = setup["needs_open"].as_array() {
+        let needs_open = folders
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        return Ok(EnableOutcome::NeedsOpen { needs_open });
+    }
+    // The host binds within a few seconds; wait for it, or for its reason not to, so Settings
+    // never reports agents as enabled while nothing serves them.
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let current = status(&connection);
+        let settled = current
+            .as_ref()
+            .map_or(true, |s| s.serving || s.error.is_some());
+        if let Ok(current) = current {
+            super::publish_agents(&app, &connection.id, current);
+        }
+        if settled || std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Ok(EnableOutcome::Ready(setup_view(&setup)))
 }
 
 /// Disable agents on the machine: the token is deleted and the host closes the socket.
@@ -148,7 +189,7 @@ mod tests {
         let setup = serde_json::json!({
             "token": "t0k",
             "mount": {"source": "/home/me/.prometeu-remote-agents", "target": "/prometeu", "read_only": true},
-            "server": {"command": "/prometeu/prometeu-host", "args": ["mcp", "--socket", "/prometeu/agents-v1.sock"],
+            "server": {"command": "/prometeu/prometeu-mcp", "args": ["mcp", "--socket", "/prometeu/agents-v1.sock"],
                 "env": {"PROMETEU_AGENT_TOKEN": "t0k", "PROMETEU_AGENT_NAME": "agent", "PROMETEU_AGENT_HOST_UID": "65534"}},
             "client_uid": 65534, "local_uid": 1000, "opened": ["/home/me"],
         });
@@ -171,5 +212,20 @@ mod tests {
             setup["server"]["args"]
         );
         assert_eq!(view.moved_from, None);
+    }
+
+    #[test]
+    fn enabling_asks_before_opening_folders_and_settings_tells_the_outcomes_apart() {
+        let asks = EnableOutcome::NeedsOpen {
+            needs_open: vec!["/home/me".into()],
+        };
+        assert_eq!(
+            serde_json::to_value(asks).unwrap(),
+            serde_json::json!({"needs_open": ["/home/me"]})
+        );
+        let ready =
+            serde_json::to_value(EnableOutcome::Ready(setup_view(&serde_json::json!({})))).unwrap();
+        assert!(ready.get("needs_open").is_none());
+        assert!(ready.get("config").is_some());
     }
 }

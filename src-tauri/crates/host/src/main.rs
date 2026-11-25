@@ -5,7 +5,8 @@
 //!   stdin/stdout to the socket, so the desktop's connection can drop without touching execution.
 //! - `hook` is the command native CLI hooks run. It forwards the hook payload to the host and
 //!   prints whatever decision the desktop returns.
-//! - `agents setup [--socket PATH] [--rotate] [--client-uid ID] [--json]` enables agent clients:
+//! - `agents setup [--socket PATH] [--rotate] [--client-uid ID] [--open-home] [--json]` enables
+//!   agent clients:
 //!   it prepares the agent socket's directory and client executable, writes the token they must
 //!   present, and prints an MCP configuration for a container (ADR 0103). `agents status` and
 //!   `agents disable` report and undo it.
@@ -32,6 +33,7 @@ fn main() {
             }
             "--rotate" => options.rotate = true,
             "--json" => options.json = true,
+            "--open-home" => options.open_home = true,
             // A bad value must not silently produce a configuration without the check.
             "--client-uid" => match args.next() {
                 Some(uid) if uid.parse::<u32>().is_ok() => options.client_uid = uid.parse().ok(),
@@ -83,7 +85,7 @@ fn main() {
             0
         }
         _ => {
-            eprintln!("usage: prometeu-host serve|attach|hook|version|mcp|agents setup|status|disable [--root DIR] [--socket PATH] [--rotate] [--client-uid ID] [--json]");
+            eprintln!("usage: prometeu-host serve|attach|hook|version|mcp|agents setup|status|disable [--root DIR] [--socket PATH] [--rotate] [--client-uid ID] [--open-home] [--json]");
             2
         }
     };
@@ -95,6 +97,7 @@ struct AgentOptions {
     socket: Option<std::path::PathBuf>,
     rotate: bool,
     json: bool,
+    open_home: bool,
     client_uid: Option<u32>,
 }
 
@@ -105,22 +108,20 @@ fn agents_command(root: &std::path::Path, action: Option<&str>, options: &AgentO
     };
     match action {
         Some("status") => {
-            let socket = agents::socket_path(root);
-            let status = serde_json::json!({
-                "enabled": agents::enabled(root),
-                "socket": socket.display().to_string(),
-            });
+            let status = agents::status(root);
             match options.json {
                 true => println!("{status}"),
-                false => println!(
-                    "Agents: {}\nSocket: {}",
-                    if agents::enabled(root) {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    },
-                    socket.display()
-                ),
+                false => {
+                    let enabled = status["enabled"] == serde_json::json!(true);
+                    println!(
+                        "Agents: {}\nSocket: {}",
+                        if enabled { "enabled" } else { "disabled" },
+                        status["socket"].as_str().unwrap_or_default()
+                    );
+                    if let Some(error) = status["error"].as_str() {
+                        println!("The host cannot serve it: {error}");
+                    }
+                }
             }
             0
         }
@@ -136,7 +137,12 @@ fn agents_command(root: &std::path::Path, action: Option<&str>, options: &AgentO
                 Err(error) => fail(error),
             }
         }
-        Some("setup") => match agents::setup(root, options.socket.as_deref(), options.rotate) {
+        Some("setup") => match agents::setup(
+            root,
+            options.socket.as_deref(),
+            options.rotate,
+            options.open_home,
+        ) {
             Ok(setup) => {
                 // SAFETY: getuid has no preconditions.
                 let local_uid = unsafe { libc::getuid() };
@@ -204,10 +210,24 @@ fn agents_command(root: &std::path::Path, action: Option<&str>, options: &AgentO
                 }
                 0
             }
-            Err(error) => fail(error),
+            // The desktop asks the person, then runs setup again with --open-home.
+            Err(agents::SetupError::NeedsOpen(folders)) if options.json => {
+                let folders: Vec<String> =
+                    folders.iter().map(|p| p.display().to_string()).collect();
+                println!("{}", serde_json::json!({"needs_open": folders}));
+                0
+            }
+            Err(error) => {
+                eprintln!("prometeu-host: {error}");
+                if matches!(error, agents::SetupError::NeedsOpen(_)) {
+                    3
+                } else {
+                    1
+                }
+            }
         },
         _ => {
-            eprintln!("usage: prometeu-host agents setup|status|disable [--root DIR] [--socket PATH] [--rotate] [--client-uid ID] [--json]");
+            eprintln!("usage: prometeu-host agents setup|status|disable [--root DIR] [--socket PATH] [--rotate] [--client-uid ID] [--open-home] [--json]");
             2
         }
     }
