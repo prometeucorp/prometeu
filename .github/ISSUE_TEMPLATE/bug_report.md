@@ -17,7 +17,7 @@ Describe the problem and what you expected instead.
 ## Environment
 
 - Prometeu version:
-- Operating system and architecture (include WSL distribution on Windows):
+- Operating system and architecture:
 - Agent and CLI version (Claude Code / Codex / Antigravity, if relevant):
 
 ## Screenshots or logs

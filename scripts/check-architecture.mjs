@@ -21,8 +21,7 @@ const forbidden = [
 
 const sources = new Map();
 for (const root of ["src", "relay/src", "packages/design-system/src", "packages/terminal-state/src"]) {
-  // Windows returns backslash-separated entries; the checker resolves POSIX paths.
-  const files = (await readdir(root, { recursive: true })).map((file) => file.replaceAll("\\", "/")).sort()
+  const files = (await readdir(root, { recursive: true })).sort()
     .filter((file) => /\.[cm]?[jt]sx?$/.test(file) && !/\.(?:test|spec|d)\.[cm]?[jt]sx?$/.test(file));
   for (const file of files) sources.set(`${root}/${file}`, await readFile(`${root}/${file}`, "utf8"));
 }
@@ -84,8 +83,7 @@ for (const match of chat.matchAll(/Command::new\s*\(\s*"(?:claude|codex|gemini|a
   failures.push(`src-tauri/src/chat.rs:${line}: processo de provider fora do adapter: ${match[0]}`);
 }
 
-/// ADR 0084: the Windows shell reaches execution through WSL, so it must not link the Unix execution
-/// adapters, and the portable crates stay free of Tauri. cargo tree resolves the graph without building.
+/// The portable crates stay free of Tauri (ADR 0085). cargo tree resolves the graph without building.
 function cargoPackages(args) {
   const tree = execFileSync(
     "cargo",
@@ -94,13 +92,7 @@ function cargoPackages(args) {
   );
   return new Set(tree.split("\n").map((line) => line.split(" ")[0]).filter(Boolean));
 }
-const windowsShell = cargoPackages([
-  "-p", "prometeu-wsl-desktop", "--features", "desktop", "--target", "x86_64-pc-windows-msvc",
-]);
-for (const crate of ["prometeu-process", "prometeu-profiles", "prometeu-tools", "prometeu-runtime"]) {
-  if (windowsShell.has(crate)) failures.push(`prometeu-wsl-desktop: Unix execution dependency in the Windows shell: ${crate}`);
-}
-for (const crate of ["prometeu-core", "prometeu-protocols", "prometeu-bridge"]) {
+for (const crate of ["prometeu-core", "prometeu-protocols"]) {
   if (cargoPackages(["-p", crate, "--target", "all"]).has("tauri")) failures.push(`${crate}: portable crate depends on tauri`);
 }
 

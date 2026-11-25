@@ -1,5 +1,4 @@
 import { invoke } from "./ipc";
-import { onConnectionRestored } from "./connection";
 import { terminalSnapshot, type TerminalOutput } from "./terminal-output";
 import { terminalInputOrigin } from "./terminal-input";
 import { replayAnsi } from "../packages/terminal-state/src/replay";
@@ -68,7 +67,6 @@ export class Term {
   private heldClosed: { generation?: string }[] = [];
   private generation: string | undefined;
   private sequence = -1;
-  private stopRecovery = () => {};
   private acceptsInput = false;
   private repliesOwnedByHost = false;
   private origin: ReturnType<typeof terminalInputOrigin> | undefined;
@@ -157,10 +155,6 @@ export class Term {
     }).then(retain)]);
     // Attachment also awaits registration; report an idle registration failure once.
     void this.listening.catch(error => this.options.error?.(error));
-    this.stopRecovery();
-    this.stopRecovery = onConnectionRestored(async () => {
-      if (this.key) await this.attach(this.key, Promise.resolve(), true);
-    });
   }
 
   /// xterm's default DOM renderer rebuilds row elements on every write and makes typing lag in
@@ -179,7 +173,7 @@ export class Term {
   }
 
   /// Invalidate earlier opens before waiting for the process and its retained output.
-  async attach(key: string, ready: Promise<unknown>, recovering = false) {
+  async attach(key: string, ready: Promise<unknown>) {
     if (this.disposed) return;
     this.detach();
     const version = this.attachVersion;
@@ -195,7 +189,7 @@ export class Term {
       this.refit(true);
     } catch (error) {
       if (version !== this.attachVersion) return;
-      if (!recovering) this.detach();
+      this.detach();
       throw error;
     }
   }
@@ -229,8 +223,6 @@ export class Term {
   }
 
   private release() {
-    this.stopRecovery();
-    this.stopRecovery = () => {};
     cancelAnimationFrame(this.pending);
     this.pending = 0;
     for (const stop of this.cleanup.splice(0)) stop();

@@ -9,10 +9,6 @@ pub struct Branches {
     pub git: bool,
 }
 
-pub trait RepositoryReferences: Send + Sync {
-    fn head(&self, path: &str) -> Result<Option<String>, String>;
-    fn branches(&self, path: &str) -> Result<Branches, String>;
-}
 pub fn head_name(output: &str) -> Option<String> {
     let name = output.trim();
     (!name.is_empty() && name != "HEAD").then(|| name.to_string())

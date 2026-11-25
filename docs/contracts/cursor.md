@@ -84,8 +84,7 @@ ACP `mcpServers` on both `session/new` and `session/load`. Stdio, HTTP and SSE
 hub entries encode through the ACP transport table; Claude-only connectors fail
 startup. Cursor may still load its own project/user rules, skills, hooks and MCP
 configuration; Prometeu makes no isolated-configuration claim. Team-level MCP
-support is limited by Cursor itself. Windows/WSL registration is outside this
-integration.
+support is limited by Cursor itself.
 
 ## Account quotas
 

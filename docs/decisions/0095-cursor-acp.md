@@ -59,8 +59,7 @@ requests receive a JSON-RPC error rather than blocking indefinitely.
 
 ## Consequences
 
-Cursor is available on the macOS/Linux desktop. Windows/WSL still registers only
-Codex. Hub MCP is injected through ACP `mcpServers` on new and resumed sessions.
+Cursor is available on the macOS/Linux desktop. Hub MCP is injected through ACP `mcpServers` on new and resumed sessions.
 Plugin and skill selections remain unavailable; explicit nonempty plugin or skill
 workspace selections fail startup, and absent axes resolve to empty hub
 selections rather than inheriting packages Cursor cannot accept. Cursor's own

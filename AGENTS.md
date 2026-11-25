@@ -62,8 +62,8 @@ The complete dependency rules are in
 - `src-tauri/crates/core/`: portable board models, conversation ordering,
   session, launch, account and tool rules behind injected ports (ADR 0085).
 - `src-tauri/crates/process/`, `profiles/`, `tools/`, `files/`, `git/`,
-  `protocols/` and `oauth/`: Tauri-free native adapters shared by the desktop
-  and the WSL runtime.
+  `protocols/` and `oauth/`: Tauri-free native adapters composed by the desktop;
+  `prometeu-host` reuses core and process.
 - `src-tauri/src/main.rs`: desktop composition root; `chat.rs`, `chat/host.rs`
   and `session/launch.rs` compose conversations from core services.
 - `src-tauri/src/claude.rs`, `antigravity.rs` and `crates/protocols/src/codex.rs`:
@@ -72,11 +72,8 @@ The complete dependency rules are in
   `state.rs` and `board_store.rs` adapt board events and file storage.
 - `src-tauri/src/accounts.rs` and `account_login.rs`: desktop account facade and
   native authentication.
-- `src-tauri/crates/runtime/`: Unix execution host used by Windows through WSL.
 - `src-tauri/crates/host/` and `src-tauri/src/remote/`: the SSH remote-machine
   daemon and its desktop connection, installer and remote workspaces (ADR 0101).
-- `src-tauri/crates/bridge/`, `crates/wsl-desktop/` and `src/windows/`: native
-  Windows shell that loads the existing interface over the WSL runtime (ADR 0084).
 - `src/team.ts`: the collaboration desktop shell (team.json, organizations,
   Tauri ports, facade).
 - `src/team-member.ts` and `src/team-*.ts`: the portable collaboration core and

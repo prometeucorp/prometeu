@@ -10,7 +10,7 @@ const files = directory => readdirSync(directory, { withFileTypes: true }).flatM
   return entry.isDirectory() ? files(path) : [path];
 });
 const paths = ["index.html", ...files("src"), ...files("packages/design-system/src")].filter(path =>
-  /\.(?:ts|js|html)$/.test(path) && !/\.test\.|\.d\.ts$|\/stories\.|\/gallery\.|-gallery\.|\/mock|\/mobile\/|\/windows\//.test(path));
+  /\.(?:ts|js|html)$/.test(path) && !/\.test\.|\.d\.ts$|\/stories\.|\/gallery\.|-gallery\.|\/mock|\/mobile\//.test(path));
 function record(target, path) {
   if (!/^[A-Za-z0-9._-]{1,80}$/.test(target)) return;
   if (!controls.has(target)) controls.set(target, new Set());

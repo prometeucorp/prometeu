@@ -5,7 +5,7 @@ Formats and guarantees that cross process or layer boundaries.
 - [Agent accounts](accounts.md) — Accounts, login, global selection and quota isolation between agents.
 - [Reusable actions and agents](actions.md) — Reusable commands, profiles, execution and waiting for external events.
 - [Agent runtime contract](agent-runtime.md) — Discovery, capabilities and the agent execution port.
-- [Portable application core](application-core.md) — Core ports, their desktop and WSL adapters and implementation obligations.
+- [Portable application core](application-core.md) — Core ports, their desktop adapters and implementation obligations.
 - [Browser and visual context](browser.md) — Preview, inspection, captures and sending to the draft.
 - [Optional Prometeu account](cloud-account.md) — SaaS, browser-based authentication, desktop connection and private persistence.
 - [Personal catalog and local items](cloud-catalog.md) — Plugins, MCP and skills managed in the SaaS, with private items and explicit sharing on the desktop.
@@ -35,5 +35,3 @@ Formats and guarantees that cross process or layer boundaries.
 - [Native Antigravity decision boundary](native-antigravity-decisions.md) — Verified hook, ACP and Remote Control paths and the missing local TUI attachment API.
 - [Native Codex engine](native-codex-engine.md) — Private app-server ownership, exact thread settings and native terminal attachment.
 - [Native terminal state helper](terminal-state.md) — Ordered emulation, generation-scoped screen snapshots and terminal query ownership.
-- [Native Windows application](windows-application.md) — Shared interface over WSL, command coverage, deadlines and paths.
-- [WSL runtime protocol](wsl-runtime.md) — Framing, capabilities, resident attachment, storage and compatibility.

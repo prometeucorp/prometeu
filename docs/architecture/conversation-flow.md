@@ -262,8 +262,7 @@ clears the marker through the core reactions. The transcript itself has no
 record of the cut, and Claude's native history cannot take one, so the place is
 kept in the board: when the conversation starts again, `chat.rs` records its
 history's line count in `Tab.cuts`, and every later snapshot replays `stopped`
-there. The WSL runtime keeps its
-conversations across interface restarts, so only its snapshot changes.
+there.
 
 A question or approval holds the tab in `Querendo` from `request.opened` until
 the person answers. Answering produces `request.closed`, which moves the tab
@@ -271,9 +270,9 @@ back to `Rodando` at once, unless another request of the same conversation is
 still open; output streamed meanwhile does not hide the wait. `Work` keeps the
 open requests and drops them when the conversation settles, since an ended turn
 can no longer receive the answer, so a late answer does not start a settled tab
-again. The desktop's `SessionReactions` and the WSL runtime derive status from
-the same `next_status` rule in `prometeu-core`, so the sidebar, desk, island and
-the delegation MCP's `conversation_status` agree on every host.
+again. The desktop's `SessionReactions` derive status from the `next_status`
+rule in `prometeu-core`, so the sidebar, desk, island and the delegation MCP's
+`conversation_status` agree.
 
 `alert.ts` tracks executions per tab from the live local `chat` events,
 separate from the unread state. `chat.rs` publishes `session.state` `starting`

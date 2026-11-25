@@ -243,7 +243,6 @@ Only opted-in builds compiled with a nonempty `PROMETEU_POSTHOG_KEY` send events
 | Shell | Coverage |
 | --- | --- |
 | macOS and Linux desktop | Explicit consent and the ingestion key |
-| Native Windows / WSL | Analytics commands unsupported; Settings disables the control |
 | Browser mock | No upload; preference persists in mock localStorage |
 | Mobile companion | No product-event transport in this delivery |
 

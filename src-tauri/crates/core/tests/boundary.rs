@@ -1,4 +1,4 @@
-//! Conservative source checks complement the core's independent build on Linux and Windows.
+//! Conservative source checks keep the core free of platform and desktop effects.
 
 use std::path::Path;
 

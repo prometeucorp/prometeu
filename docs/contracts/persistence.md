@@ -310,11 +310,10 @@ is optional: omission inherits the board preference only on creation, while an
 explicit `chat` overrides a terminal default.
 
 macOS exposes the default in Settings / General and runs native terminal
-conversations. Linux and WSL reject terminal launches explicitly. Compatibility
+conversations. Linux rejects terminal launches explicitly. Compatibility
 is covered by the board revival and mode round-trip tests in
 `crates/core/src/board.rs`, launch deserialization in
-`crates/core/src/session/launch/tests.rs`, tab creation in
-`crates/core/src/workspaces.rs`, and desktop task/tab resume tests in
+`crates/core/src/session/launch/tests.rs`, and desktop task/tab resume tests in
 `src-tauri/src/session.rs`.
 
 Workspace stages are retired ([ADR 0102](../decisions/0102-remove-workspace-stages.md)).
@@ -480,12 +479,6 @@ declaration whose hash differs from the stored decision — approval or rejectio
 — is resolved but not injected, and prompts again, until the person decides;
 the decision is never written into the repository. See
 [`plugin-marketplace.md`](plugin-marketplace.md).
-
-The WSL application catalog retains these same board fields inside its existing
-versioned catalog envelope. Shared resolution and declaration hashing preserve
-their meaning; selection/trust mutations save the next catalog before replacing
-the live value. No tool format migration is introduced for Windows. See
-[conversation tools](windows-application.md#conversation-tools).
 
 ### Workspace migration
 
@@ -766,8 +759,7 @@ exists, and `name` only when set, so a board from v0.29.0 or earlier loads and
 saves back unchanged; an older version ignores the field and drops it on its next
 save. Only the record persists: scrollback stays in memory and no process
 survives the app, so after a restart a session is listed stopped, and opening it
-starts a new shell in the same folder. The WSL runtime carries the field through
-its catalog unchanged. Test: `boards_from_v0_29_0_load_unchanged` in
+starts a new shell in the same folder. Test: `boards_from_v0_29_0_load_unchanged` in
 `crates/core/src/terminal_sessions/tests.rs`, against the board v0.29.0 wrote in
 its contract fixture.
 
@@ -830,14 +822,6 @@ write but before the receipt requires prepared-input reconciliation above and
 never retries automatically. A failed board barrier preserves the slot and
 prevents sending. Ordinary Chat retains its existing queue policy. See
 [sessions](application-core.md#sessions-launch-and-workers).
-
-## WSL runtime root
-
-On Windows, execution state lives in a separate, exclusively leased WSL root that
-reuses these board, transcript, account and tool formats and never adopts a
-desktop root. Its layout, the `workspaces.json` catalog and recovery limits are
-in the [WSL runtime protocol](wsl-runtime.md#storage-and-ownership). Worktree
-cleanup deletes the checkout, not its conversation store.
 
 ### Cursor sessions
 

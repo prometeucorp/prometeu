@@ -24,7 +24,6 @@ describe("terminal sessions", () => {
     current = null;
     shown = [];
     events = [];
-    terminals.useTerminalSessions(true);
     terminals.init({
       sessions: () => [home, named],
       current: () => current,
@@ -50,7 +49,7 @@ describe("terminal sessions", () => {
     expect(terminals.isLive(named.id)).toBe(false);
   });
 
-  it("start in the home folder or a chosen one, only where the host has sessions", async () => {
+  it("start in the home folder or a chosen one", async () => {
     invoke.mockResolvedValueOnce(home).mockResolvedValueOnce(named);
     await terminals.create();
     await terminals.createIn();
@@ -59,10 +58,6 @@ describe("terminal sessions", () => {
       ["terminal_create", { folder: named.folder }],
     ]);
     expect(shown).toEqual([home, named]);
-
-    terminals.useTerminalSessions(false);
-    await terminals.create();
-    expect(invoke).toHaveBeenCalledTimes(2);
   });
 
   it("report a folder that no longer exists without showing a session", async () => {

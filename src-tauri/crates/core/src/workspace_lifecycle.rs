@@ -1,6 +1,6 @@
 //! Existing board mutations shared by desktop and execution hosts. Effects stay with the host.
 use crate::{
-    board::{Board, Choice, ShareRights, Status},
+    board::{Board, ShareRights, Status},
     error::code,
 };
 
@@ -23,14 +23,7 @@ pub enum Change {
     },
     Pin(bool),
     Unread(bool),
-    Archive(bool),
-    Finish,
     Remove,
-    Retune {
-        tab: String,
-        choice: Choice,
-    },
-    Cleaned,
 }
 
 pub fn apply(board: &mut Board, id: &str, change: Change) -> Result<(), String> {
@@ -64,17 +57,6 @@ pub fn apply(board: &mut Board, id: &str, change: Change) -> Result<(), String> 
         Change::ConfirmMessages(confirm) => workspace.confirm_messages = confirm,
         Change::Pin(pinned) => workspace.pinned = pinned,
         Change::Unread(unread) => workspace.unread = unread,
-        Change::Retune { tab, choice } => workspace.retune(&tab, choice)?,
-        Change::Archive(archived) => {
-            set_archived(workspace, archived);
-        }
-        Change::Finish => {
-            set_archived(workspace, true);
-        }
-        Change::Cleaned => {
-            workspace.cleaned = true;
-            stopped(workspace);
-        }
         Change::Remove => board.workspaces.retain(|w| w.id != id),
     }
     Ok(())

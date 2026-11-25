@@ -19,14 +19,6 @@ pub struct Found {
     pub saved: bool,
 }
 
-pub trait Plugins: Send + Sync {
-    fn look(&self, source: String) -> Result<Plugin, String>;
-    fn save(&self, plugin: Plugin) -> Result<Vec<Plugin>, String>;
-    fn remove(&self, id: &str) -> Result<Vec<Plugin>, String>;
-    fn install(&self, source: String) -> Result<Found, String>;
-    fn update(&self, id: String) -> Result<Vec<Plugin>, String>;
-    fn scrap(&self, dir: String);
-}
 pub struct PluginLibrary {
     pub root: PathBuf,
     pub home: PathBuf,
@@ -306,28 +298,6 @@ impl PluginLibrary {
         if made && self.owned(dir) && !shared {
             std::fs::remove_dir_all(dir).ok();
         }
-    }
-}
-impl Plugins for PluginLibrary {
-    fn look(&self, source: String) -> Result<Plugin, String> {
-        self.look_source(source)
-    }
-    fn save(&self, plugin: Plugin) -> Result<Vec<Plugin>, String> {
-        self.save_local(plugin)
-    }
-    fn remove(&self, id: &str) -> Result<Vec<Plugin>, String> {
-        let hub = self.remove_local(self.load(), id);
-        self.write_hub(&hub)?;
-        Ok(hub)
-    }
-    fn install(&self, source: String) -> Result<Found, String> {
-        self.install_into(source, true)
-    }
-    fn update(&self, id: String) -> Result<Vec<Plugin>, String> {
-        self.update_plugin(id)
-    }
-    fn scrap(&self, dir: String) {
-        self.scrap_directory(dir)
     }
 }
 pub fn guessed_name(source: &str) -> String {
@@ -936,7 +906,7 @@ mod tests {
             runner: Arc::new(Timeout),
         };
         let error = library
-            .install("https://example.invalid/package".into())
+            .install_into("https://example.invalid/package".into(), true)
             .err()
             .unwrap();
         assert!(error.contains("err.plugin.clone") && error.contains("Timeout"));
@@ -944,15 +914,15 @@ mod tests {
         let source = root.join("user-package");
         std::fs::create_dir_all(source.join(".claude-plugin")).unwrap();
         std::fs::write(manifest_path(&source), r#"{"name":"user-package"}"#).unwrap();
-        let entry = library.look(source.display().to_string()).unwrap();
+        let entry = library.look_source(source.display().to_string()).unwrap();
         assert!(library
-            .save(entry)
+            .save_local(entry)
             .err()
             .unwrap()
             .contains("fixture write refused"));
         assert!(library.load().is_empty());
         let escape = library.store().join("../user-package");
-        library.scrap(escape.display().to_string());
+        library.scrap_directory(escape.display().to_string());
         assert!(source.exists());
         std::fs::remove_dir_all(root).unwrap();
     }

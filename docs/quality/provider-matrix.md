@@ -47,7 +47,7 @@ and Cursor. It persists a global new-conversation preference independently
 from each tab's fixed mode, including action tabs. On macOS, **Settings → General
 → New conversations** selects Chat or Terminal for newly created conversations.
 Changing it does not convert existing tabs or restart their processes. Linux
-and WSL keep the control hidden and explicitly reject terminal mode.
+keeps the control hidden and explicitly rejects terminal mode.
 Local Chat and Terminal views are exclusive. Terminal tabs have no transcript
 screen or surface switcher; canonical persistence, status, notifications and
 remote transcript sharing remain independent of that local presentation.
@@ -84,7 +84,7 @@ surfaces, fresh snapshots, no input submission, bounded failure retry and stale
 navigation/disposal; `src/conversation-view.test.ts` keeps the manual retry
 hidden while attaching or running. These lifecycle tests use mocked IPC.
 Compatibility tests live in `crates/core/src/board.rs`,
-`crates/core/src/session/launch/tests.rs`, `crates/core/src/workspaces.rs`,
+`crates/core/src/session/launch/tests.rs`,
 `src-tauri/src/session.rs`, and `src/backend-contract.test.ts`.
 
 Native command preparation in `src-tauri/src/terminal_agent_launch.rs`, the PTY
@@ -327,16 +327,15 @@ headless replay and stdio tests in `packages/terminal-state/test/`. The macOS
 desktop host and renderer use its screen contract, single query authority and
 generation ordering. The Node SEA/Tauri bundle has been verified locally
 on macOS arm64 without installed Node and is included by the standard macOS
-app/release build. CI verifies helper and host behavior; Linux release and WSL
-do not consume the helper. These shared transport tests
+app/release build. CI verifies helper and host behavior; the Linux release does
+not consume the helper. These shared transport tests
 establish no additional provider capability and do not replace the Tauri app
 verification above.
 
 ## Automatic worktree cleanup
 
 The local opt-in preference applies equally to Claude, Codex, Antigravity and
-Cursor when manually archiving or finishing from the desktop UI, including the
-shared Windows/WSL interface. It uses the existing cleanup IPC with no provider
+Cursor when manually archiving or finishing from the desktop UI. It uses the existing cleanup IPC with no provider
 payloads. Dirty, unmerged or unverifiable worktrees retain explicit selection;
 original clones and remote workspaces are excluded. `src/cleanup.test.ts`
 covers defaults, persistence, safe scoped deletion and error handling; existing
@@ -366,7 +365,6 @@ nested row actions, claiming from Available and prepared PR source preservation.
 See the [contract](../contracts/github-issues.md). GitHub notifications are also
 agent-independent; tests are in `src-tauri/src/github_notifications.rs` and
 `src/notification-feed.test.ts` ([contract](../contracts/github-notifications.md)).
-Windows/WSL has no GitHub command implementation yet.
 
 ## Local telemetry foundation
 
@@ -472,7 +470,7 @@ real-DOM analytics check verifies metadata on shared controls and portals.
 These checks do not certify live PostHog delivery or every CLI version.
 
 Only opted-in macOS/Linux desktop builds compiled with the key send events.
-Windows/WSL and mobile do not; the browser mock persists the choice but ignores
+Mobile does not; the browser mock persists the choice but ignores
 events. Missing events from those shells or installations without consent must
 not be counted as missing usage.
 
@@ -486,11 +484,11 @@ not be counted as missing usage.
 
 | Capability | Claude | Codex | Antigravity | Main evidence |
 | --- | --- | --- | --- | --- |
-| terminal sessions without a workspace or project, named, closed by × or `exit` and listed again after a restart | independent of the CLI; no agent runs in them | independent of the CLI | shared application behavior | `crates/core/src/terminal_sessions/tests.rs`, `src-tauri/src/terminal_sessions.rs`, `src/terminals.test.ts`, `fixtures/backend-contract.json`; the sidebar group, view and shortcut were checked by hand in the browser mock and have no E2E scenario; hidden on Windows until the WSL runtime implements them |
-| task inbox with search, team/status or repository/label filters and workspace actions | shared UI, independent of the CLI | same application flow | same application flow | `src/issues-filter.test.ts`; `e2e/issues.spec.ts` for menu focus, narrow layout and workspace launch; Cursor uses the same UI; Windows/WSL integration availability is unchanged |
+| terminal sessions without a workspace or project, named, closed by × or `exit` and listed again after a restart | independent of the CLI; no agent runs in them | independent of the CLI | shared application behavior | `crates/core/src/terminal_sessions/tests.rs`, `src-tauri/src/terminal_sessions.rs`, `src/terminals.test.ts`, `fixtures/backend-contract.json`; the sidebar group, view and shortcut were checked by hand in the browser mock and have no E2E scenario |
+| task inbox with search, team/status or repository/label filters and workspace actions | shared UI, independent of the CLI | same application flow | same application flow | `src/issues-filter.test.ts`; `e2e/issues.spec.ts` for menu focus, narrow layout and workspace launch; Cursor uses the same UI |
 | claim an unassigned Linear issue from a joined team | independent of the CLI; assigned issue can start a workspace | same application flow | same application flow | `linear.rs` eligibility, scope and cache tests; `e2e/issues.spec.ts` keyboard, pending-action and read-only navigation paths through the mock; live Linear consent and mutation still need manual verification |
 | grouped settings and searchable resource library | shared UI; existing account and tool capabilities | same UI and existing capabilities | same navigation; external account notice and unsupported tool execution remain unchanged | `src/settings-navigation.test.ts`, `e2e/settings.spec.ts`, existing accounts, Cloud, MCP and notifications scenarios |
-| create, rename, trash and restore from the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-menu.test.ts` for the menus; `src/tree-moves.test.ts` for the tab strip, drafts and expanded folders following a moved entry, while their wiring in `workspace.ts` and `viewer.ts` was checked by hand in the browser mock and is not covered in E2E; `crates/files/src/entries.rs` tests for names, Git metadata, conflicts, case-only renames on a case-sensitive disk and symlinks; `restore_deleted` tests in `crates/git/src/tests.rs` for staged content and deletions; `runtime/tests/resident.rs` exercises WSL tree/search IPC and recoverable Linux trash using isolated XDG data; case-insensitive disks are not exercised in Linux tests |
+| create, rename, trash and restore from the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-menu.test.ts` for the menus; `src/tree-moves.test.ts` for the tab strip, drafts and expanded folders following a moved entry, while their wiring in `workspace.ts` and `viewer.ts` was checked by hand in the browser mock and is not covered in E2E; `crates/files/src/entries.rs` tests for names, Git metadata, conflicts, case-only renames on a case-sensitive disk and symlinks; `restore_deleted` tests in `crates/git/src/tests.rs` for staged content and deletions; case-insensitive disks are not exercised in Linux tests |
 | Git marks in the side file tree | independent of the CLI | independent of the CLI | shared application behavior | `src/tree-git.test.ts`, `src/git-refresh.test.ts`, `tree_marks` and single-flight tests in `crates/git/src/tests.rs`; `e2e/audit-regressions.spec.ts` verifies file-row stability after saving, while mark colors are not covered in E2E |
 | copy a complete Markdown code block, including diff fences | shared presentation | shared presentation | shared presentation | `src/markdown.test.ts`, `e2e/markdown.spec.ts`; clipboard success and failure over the browser mock |
 | public bug reporting and private feedback with an account, image and capture | independent of the CLI | independent of the CLI | shared application behavior | `e2e/feedback.spec.ts`, the Cloud's `FeedbackTest` tests; opening the system browser, native capture and real GitHub require a manual smoke test |
@@ -501,7 +499,7 @@ not be counted as missing usage.
 | owner confirmation of teammates' messages | a granted teammate's prompt waits above the owner's composer with Send, Edit and Discard, only in memory; interrupts, answers and the owner's devices run at once | same rule before the Codex adapter | same rule before the Antigravity adapter | `team-owner.test.ts`, `team-organizations.test.ts`, `share_tests` in the core crate, `fixtures/backend-contract.json`, the `chat-pending` gallery story; the card, the share-menu option and desk tiles were checked by hand in the browser mock (`mock.message()`) and have no E2E scenario |
 | optional Prometeu account in the sidebar | independent of the CLI | independent of the CLI | shared application behavior | `cloud.rs`, `e2e/cloud.spec.ts`; no transcript is sent |
 | Git project catalog, batch clone and local registration | independent of the CLI; no setup | independent of the CLI; no setup | shared application behavior | `catalog/projects.rs`, `e2e/projects.spec.ts`, Cloud `projects_catalog_test.rb` |
-| create an empty local Git project and start its first workspace | independent of the CLI; no initial commit or setup | same flow, including Windows/WSL | shared application behavior | `crates/git/src/tests.rs`, `crates/bridge/src/application.rs`, `crates/runtime/tests/resident.rs`; `e2e/projects.spec.ts` checks nested form input retention and focus, then starts a conversation in the project folder without a worktree |
+| create an empty local Git project and start its first workspace | independent of the CLI; no initial commit or setup | same flow | shared application behavior | `crates/git/src/tests.rs`; `e2e/projects.spec.ts` checks nested form input retention and focus, then starts a conversation in the project folder without a worktree |
 | catalog of plugins, MCP and Actions in the account | independent of the CLI | independent of the CLI | shared application behavior | `catalog.rs`, `catalog_test.rb`; secrets and installation stay per Mac |
 | the organization's plugins, MCPs and skills | explicit local installation in the hub | the same UI and installation; existing adapters | Unavailable | `catalog.rs`, `organizations_test.rb`; optional installation form has no dedicated E2E; it requires no personal copy and does not activate automatically |
 | Actions form with shared components | the same UI | the same UI; options come from the catalog | shared application behavior | `e2e/actions.spec.ts` in Chromium; shared form focus/validation in `e2e/design-system.spec.ts` on both engines |
@@ -518,11 +516,10 @@ not be counted as missing usage.
 | login through the app | injected native `auth login` and browser | injected native `account/login/start` and browser | attachment only; official interactive agy login | `crates/core/src/accounts/login/tests.rs`: lifecycle ordering, cancellation, revision/error/busy guards; identity fixtures in `claude.rs` and `codex/account.rs`; OAuth with two real accounts still requires manual validation |
 | switching accounts between turns | resuming the shared transcript | resuming the shared rollout/index | Unavailable; externally managed identity | `crates/core/src/session/tests.rs`, profile tests; an authenticated continuation between two real accounts is not yet proven by the suite |
 | turn cut off by quitting or updating | shown as interrupted after restart, with Continue | same | same | `board.rs::tabs_working_when_the_app_ended_are_marked_interrupted`, `session/tests.rs::an_accepted_message_clears_the_interrupted_marker`, `stream/tests.rs::a_snapshot_names_the_process_presence_last` and `a_recorded_cut_stays_in_replay_after_continuing_and_reloading`, `src/timeline.test.ts` (a conversation whose process is gone); the notice and Continue were checked in the browser mock (`mock:interrupted`) and have no E2E scenario |
-| asking before quitting, closing the main window or restarting to update while local work would be cut off | working and waiting conversations count, independent of the CLI | same | same | `src/quit.test.ts`, `src/update.test.ts`, `src/appmenu.test.ts`, `crates/process/src/terminal/tests.rs` (a command running as a job or through `exec`) and `dock.rs` (`cuts_off`); the native menu item, window close and relaunch need a macOS app run; Windows never asks because its runtime keeps working after the window closes |
+| asking before quitting, closing the main window or restarting to update while local work would be cut off | working and waiting conversations count, independent of the CLI | same | same | `src/quit.test.ts`, `src/update.test.ts`, `src/appmenu.test.ts`, `crates/process/src/terminal/tests.rs` (a command running as a job or through `exec`) and `dock.rs` (`cuts_off`); the native menu item, window close and relaunch need a macOS app run |
 | notch island: follow, approve, answer and reopen | approvals with Edit diffs, plans and questions through the shared request cards | approvals for commands and file changes without a diff; questions; no plans | shared rows and quota; requests follow the adapter's canonical events | `src/island.test.ts`; native geometry, hover and answering need a macOS app run; closing the main window with the island on quits the app, checked with a macOS dev build because Tauri run events cannot be built in a unit test |
 | quotas per account | live stream and internal endpoint; selected account has a shorter native polling budget | live app-server event, bounded separate app-server probe and internal fallback | native `/usage` child; used and remaining by model group; completion uses an exit notification rather than a 20 ms loop | `usage.rs`, `usage_scheduler.rs` controlled-clock/generation and cancelled-login resumption tests, `antigravity.rs` bounded-child test, `statusbar.test.ts`, `e2e/accounts.spec.ts`; real provider launch counts still need a controlled native run |
 | live model catalog | native `list_models` control request | native paginated app-server `model/list`, including additional models | native `agy models` | `agents/catalog.rs`, `agents.test.ts`; per-agent errors and stale state |
-| native Windows application over WSL | not exposed | existing desk, ChatView, launcher, files, Git, Setup/Run, shells, tools and MCP OAuth execute in WSL with the external Codex CLI account; live account/model discovery; authenticated replies and recall after window reattachment verified; managed login pending | not exposed | `crates/runtime/tests/`, `crates/bridge/src/` tests, `src/windows/*.test.ts`, opt-in `scripts/test-windows-application.mjs`; [coverage](../contracts/windows-application.md) |
 | starting a session | stream-json adapter with shared workers | JSON-RPC adapter with shared workers | NDJSON adapter with shared workers; real text smoke passed | `crates/core/src/session/workers/tests.rs`: initialization, output/exit ordering, filtering and scheduling failure; native process tests and existing provider fixtures |
 | provider preparation and input | stream-json; read-only native history; input may arrive during a turn | JSON-RPC; canonical app log; closed writer releases the pipe while reader state survives | NDJSON; canonical app log; idle-only messages and process interruption | `agent_launch.rs` preparation/resume/store tests without Claude/Codex binaries; all three provider `canonical_input_*` tests; existing native argument fixtures |
 | resuming a session | transcript existence, otherwise fresh with the same ID | saved app-server thread, otherwise fresh | saved native conversation ID, otherwise fresh | `crates/core/src/session/launch/tests.rs`: preparation/spawn failure, queue retention, publication/readiness and permission overrides; existing `session.rs` and provider fixtures retain launch compatibility |
@@ -587,11 +584,10 @@ A missing test must not become `true` by similarity between providers.
 
 ## Known limitations
 
-Desktop distribution is independent of the provider. macOS Apple Silicon,
-Linux x86_64 AppImage and experimental Windows x64 share one release. macOS and
-AppImage have signed in-app updates for Claude, Codex and Antigravity; Windows
-has only Codex and requires manual installer updates. Other Linux installation
-types keep external updates.
+Desktop distribution is independent of the provider. macOS Apple Silicon and
+Linux x86_64 AppImage share one release. macOS and AppImage have signed in-app
+updates for Claude, Codex and Antigravity. Other Linux installation types keep
+external updates.
 Evidence: `scripts/test_release.py`, `src/update-init.test.ts` and
 `src/update.test.ts`; native installation and replacement remain manual checks
 under the [release contract](../contracts/releases.md).
@@ -641,12 +637,10 @@ reducers give fast diagnosis for every combination.
 Claude, Codex and Antigravity workers share one-level grouping, a provider mark
 and one conversation per delegated workspace. Cursor can coordinate these
 workers; Cursor worker creation remains unsupported. External MCP clients have
-no local parent workspace. Remote shares keep flat navigation. Windows has no
-embedded delegation entry point; its portable workspace service nevertheless
-applies the same conversation admission rule to delegation records.
+no local parent workspace. Remote shares keep flat navigation.
 
 Evidence: `src/workspace-hierarchy.test.ts`, delegated-conversation tests in
-`crates/core/src/board.rs` and `crates/core/src/workspaces.rs`. Legacy multi-tab
+`crates/core/src/board.rs`. Legacy multi-tab
 workspaces retain their tabs. [ADR 0099](../decisions/0099-sub-workspaces.md)
 describes flattening without changing provider or MCP ownership.
 
@@ -752,7 +746,6 @@ transcript, sharing and presentation paths after V1 normalization.
 | Native terminal recovery (macOS) | The host restores missing native tails before seeding history and commits live batches before publication; native IDs survive derived JSONL rewrites; successful completion requires the exact request, a private pre-ACK witness, post-hooks marker and empty composer; unprojected content prevents coverage | `protocols::cursor_store` synthetic protobuf/projection tests, `terminal_agent_cursor_store` copied DB/WAL tests, `terminal_agent_observation/cursor/tests.rs`, pre-ACK hook tests and `chat/terminal/ingestion/tests.rs`, verified on CLI `2026.11.13-eacade1` and accepted on newer builds; hook-authorized scratch store and request identity smokes |
 | Native terminal interruption (macOS) | An authenticated root aborted hook matching the durable source request commits `interrupted`; a restored draft does not keep the spinner running; later source/tool activity or a completed hook for that request cannot reopen or successfully complete it; new prompts invalidate older proof | `cursor_interruption_*` observer regressions and `journal_cursor_interruption_stops_spinner_and_keeps_late_source_quiet`; pinned native Ctrl+C smoke and local Escape source inspection above |
 | Native terminal running feedback (macOS) | A newer verified busy composer after a native submission boundary starts observed Working before source persistence; source capture claims the same cycle, and old paints cannot reopen a settled cycle | `cursor_busy_paint_starts_before_source_and_restored_retry_reopens_after_escape`, `cursor_working_observation_requires_its_current_complete_busy_composer`, `observed_native_input_reopens_a_settled_cycle_and_source_claims_it_once` |
-| Windows/WSL | Not registered | existing Codex-only runtime composition |
 
 Native-terminal preparation resolves the workspace once and shares the physical
 cwd between the PTY, Cursor workspace argument, transcript slug and store hash.

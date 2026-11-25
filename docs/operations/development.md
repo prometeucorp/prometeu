@@ -15,8 +15,7 @@ status: stable
 - Playwright's Chromium and WebKit for E2E tests;
 - Claude Code and/or Codex installed to test real sessions.
 
-On Linux, also install the WebKitGTK packages listed in [Linux](linux.md). On
-Windows, see [Native Windows/WSL integration](#native-windowswsl-integration).
+On Linux, also install the WebKitGTK packages listed in [Linux](linux.md).
 
 ```sh
 npm install
@@ -32,7 +31,7 @@ PORT=1421 npm run dev
 ```
 
 `npm run app` starts Tauri through `scripts/app.mjs` and isolates the port and
-the state root per worktree; on Windows it starts the WSL shell instead. `npm run dev` opens only the frontend over
+the state root per worktree. `npm run dev` opens only the frontend over
 `src/mock.ts`, useful for UI work and for the Playwright-driven tests.
 
 On macOS, native app/build commands also install the private terminal helper's
@@ -40,8 +39,8 @@ locked dependencies and build its self-contained Node SEA. `npm run build:app`
 is the bundle entry point; it supplies the sidecar/resource overlay to Tauri.
 Development passes the explicit helper path, while a packaged app resolves its
 sibling executable. macOS exposes Settings / General / Conversation mode for
-new conversations; the saved mode of an existing tab is unchanged. Linux and
-WSL keep Chat and reject native conversation mode. Helper/CLI tests do not
+new conversations; the saved mode of an existing tab is unchanged. Linux keeps
+Chat and rejects native conversation mode. Helper/CLI tests do not
 replace an actual Tauri app run; current app conformance is recorded in the
 [provider matrix](../quality/provider-matrix.md). See the
 [terminal state contract](../contracts/terminal-state.md).
@@ -90,7 +89,6 @@ npm run test:rust
 npm run test:core
 npm run test:process
 npm run terminal-state:check
-npm run test:runtime
 npm run test:contracts
 npm run test:e2e
 npm run format:check
@@ -100,11 +98,7 @@ npm run check
 
 `npm run check` runs documentation and architecture checks, Rust formatting,
 desktop and mobile builds/typecheck, the whole test suite and Clippy with
-warnings as errors. It is the same main validation as CI. It needs a Unix host:
-`test:release` runs `scripts/release.sh` and `test:rust` builds Unix-only
-crates, so on Windows `check`, `test:release` and `test:rust` stop early and point
-to `npm run check:windows` (see
-[Native Windows/WSL integration](#native-windowswsl-integration)).
+warnings as errors. It is the same main validation as CI.
 The terminal helper gate runs after the frontend build. It checks the helper's
 types and differential tests, builds its pinned SEA, runs with an empty PATH,
 then checks real helper/host ordering and restoration. It starts no provider
@@ -333,12 +327,6 @@ These suites run without Tauri, GUI libraries, installed agent CLIs or network;
 - `npm run test:profiles` and `npm run test:tools`: account profiles, MCP
   encoding and package preparation through injected files, catalogs and a
   synthetic installer CLI.
-- `npm run test:bridge`: the portable WSL client, paths and bootstrap.
-- `npm run test:runtime`: the shared Codex adapter and the real runtime
-  executable, bridge and resident host with a synthetic provider. It needs
-  Python 3.11 or later (`tomllib`). Resident fixtures use short canonical paths
-  under `/tmp` because of Unix socket limits; native XDG trash recovery runs only
-  on Linux.
 
 ## Remote machine host
 
@@ -360,78 +348,3 @@ installs the build on a real machine and drops SSH mid-output:
 ```sh
 PROMETEU_REMOTE_TEST_SSH=<ssh destination> cargo test --bin Prometeu vps_journey -- --ignored --nocapture
 ```
-
-## Native Windows/WSL integration
-
-Build and run the WSL runtime alone (Linux, WSL or macOS):
-
-```sh
-cargo build --manifest-path src-tauri/Cargo.toml -p prometeu-runtime --locked
-src-tauri/target/debug/prometeu-runtime --root /tmp/prometeu-runtime --workdir "$PWD"
-```
-
-Use an empty root on first run; desktop roots are rejected. Send one
-[framed request](../contracts/wsl-runtime.md#framing) per line, for example
-`{"v":1,"id":1,"action":{"method":"start"}}`, and wait for `session.identity`
-before a `command` carrying `message.send`. Codex uses the environment's own
-login and configuration.
-
-For the Windows app, run `npm run app` from a Windows checkout with Node, Rust
-(MSVC) and WebView2. The default WSL distribution needs `build-essential`, Rust
-through rustup, Git and an authenticated Codex. Like the Unix app, it takes the
-port from `PROMETEU_PORT` (default 1421) and isolates state per workspace name,
-in `~/.local/share/prometeu-windows-dev[-<name>]/state` inside WSL unless
-`PROMETEU_WINDOWS_RUNTIME_ROOT` is set. `npm run app:wsl` starts the same shell
-without that isolation, over the default Windows root.
-
-`npm run build:app:wsl` builds the executable without an installer. Without
-`PROMETEU_WSL_RUNTIME`, all these commands first build and embed the release
-runtime: on Linux directly, on Windows through `wsl.exe` in the default
-distribution, with Cargo's target under `~/.cache/prometeu/runtime-target` there
-and the binary copied to `src-tauri/target/wsl-runtime/`. Checkouts share that
-target; a `flock` held over the build and the copy keeps one checkout from
-embedding another's runtime. Elsewhere set
-`PROMETEU_WSL_RUNTIME` to a matching Linux x86_64 artifact, or automatic startup
-rejects the build. `npm run build:wsl` builds only the frontend. Packaging is in
-[release](release.md#windows-installer).
-
-`npm run check:windows` is the validation available on Windows: documentation,
-analytics controls, the `scripts/app.mjs` launch plan (`test:scripts`),
-architecture, Rust formatting, the WSL frontend build, contract and web tests,
-and the Windows CI job's Rust tests (`test:windows`) and Clippy
-(`lint:windows`). Git for Windows runs the `commit-msg` hook with its own `sh`.
-`.gitattributes` keeps LF checkouts despite `core.autocrlf`: the bridge embeds
-`install-runtime.sh` byte for byte and WSL's `sh` rejects CRLF. A checkout made
-before that rule needs its files checked out again.
-
-`npm run test:windows:native -- CONFIG.json` is the opt-in acceptance journey.
-It drives the original desk, editor, viewers, terminal, launcher, Setup/Run, Git,
-resources and attachments through WebView2, native IPC, real Windows dialogs,
-clipboard and Explorer, and an installed WSL distribution, using a synthetic
-provider in isolated roots. Optional configuration:
-
-- `codex`: absolute Linux path of an authenticated Codex; sends two short live
-  requests and checks recall after window reconnection (uses the CLI's quota).
-- `bootstrap: true` (with `codex`): exercises default WSL discovery, embedded
-  runtime installation and saved reconnection with an isolated
-  `PROMETEU_WINDOWS_RUNTIME_ROOT`.
-- `installer`: reinstalls that NSIS package between the two windows
-  (`scripts/fixtures/windows-install.ps1`); run only against an installation you
-  chose.
-
-Use a separate `artifacts` directory per mode. The clipboard fixture restores its
-contents afterwards. This journey stays outside the default suites: hosted CI
-has no WSL distribution, and mocks cannot prove native IPC, Windows argument
-encoding, path translation or execution surviving window closure.
-
-The ignored `actual_wsl_*` Rust tests run the bridge, terminal and resident
-reconnect through real `wsl.exe` (from WSL interop or Windows):
-
-```sh
-PROMETEU_TEST_WSL_DISTRIBUTION=Ubuntu-24.04 \
-  cargo test --manifest-path src-tauri/Cargo.toml -p prometeu-runtime \
-  --test resident actual_wsl_resident_reconnect -- --ignored
-```
-
-`actual_wsl_codex_recalls_after_reconnect` in `--test bridge` also needs
-`PROMETEU_TEST_CODEX` and makes two real model requests.

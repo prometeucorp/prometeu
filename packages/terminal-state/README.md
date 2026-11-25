@@ -2,7 +2,7 @@
 
 Private, provider-neutral terminal emulation for the native conversation host.
 It owns no PTY, account, provider process or canonical transcript. The package
-is consumed by the guarded desktop native transport. WSL does not consume it.
+is consumed by the guarded desktop native transport.
 
 ```sh
 npm ci --prefix packages/terminal-state
@@ -50,10 +50,10 @@ On macOS the standard app/build wrapper installs the helper's locked dependencie
 builds it, provides its explicit debug path and adds the
 Tauri sidecar/resource overlay. The packaged helper lives beside the application
 binary and needs no installed Node. Native macOS arm64 bundling and signing are
-locally verified; the Linux x64 build recipe is not locally verified. WSL keeps
-rejecting native conversation mode. CI checks the package, self-contained executable
+locally verified; the Linux x64 build recipe is not locally verified. CI checks the package, self-contained executable
 and host protocol; the macOS release includes and verifies the helper and notices.
-Linux release and WSL do not consume it. Native conversation mode remains disabled.
+The Linux release does not consume it, and native conversation mode remains
+disabled there.
 
 The macOS helper currently adds about 113 MiB before compression. It runs with
 `--jitless`, so the existing app signing entitlements also work for the nested

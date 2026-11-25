@@ -196,7 +196,7 @@ fn native_remote_tui_preserves_ask_and_plan_on_fresh_and_cold_resume() {
             1000,
         )
         .unwrap();
-        let started = prometeu_process::terminal::ResponsiveTerminalFactory
+        let started = prometeu_process::terminal::UnixTerminalFactory
             .open(
                 pty_command(&tui),
                 TerminalSize {
@@ -420,7 +420,7 @@ fn native_remote_turn_records_rpc_and_rollout_identity() {
         1000,
     )
     .unwrap();
-    let started = prometeu_process::terminal::ResponsiveTerminalFactory
+    let started = prometeu_process::terminal::UnixTerminalFactory
         .open(
             pty_command(&tui),
             TerminalSize {

@@ -5,12 +5,9 @@
 //!   stdin/stdout to the socket, so the desktop's connection can drop without touching execution.
 //! - `hook` is the command native CLI hooks run. It forwards the hook payload to the host and
 //!   prints whatever decision the desktop returns.
-#[cfg(unix)]
 mod client;
-#[cfg(unix)]
 mod server;
 
-#[cfg(unix)]
 fn main() {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();
@@ -54,10 +51,4 @@ fn main() {
         }
     };
     std::process::exit(code);
-}
-
-#[cfg(not(unix))]
-fn main() {
-    eprintln!("prometeu-host runs only on Unix hosts");
-    std::process::exit(2);
 }

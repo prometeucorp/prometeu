@@ -1,4 +1,4 @@
-//! Existing native cleanup checks and Git effects, shared by desktop and WSL.
+//! Existing native cleanup checks and Git effects.
 use prometeu_core::{
     board::Workspace,
     domain::Pr,

@@ -43,8 +43,7 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.icns"
     ],
     "createUpdaterArtifacts": true
   },
@@ -53,10 +52,7 @@
       "endpoints": [
         "https://github.com/prometeucorp/prometeu/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFNzE0NTE0MzdBQkU4QwpSV1NNdm5wRFVSVG5ENDRCSFdUMGg4SzBDcjBNbkE3ekdNL2M5VVZZSWE2ZG5sY3dqUlZjaVJwZgo=",
-      "windows": {
-        "installMode": "passive"
-      }
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFNzE0NTE0MzdBQkU4QwpSV1NNdm5wRFVSVG5ENDRCSFdUMGg4SzBDcjBNbkE3ekdNL2M5VVZZSWE2ZG5sY3dqUlZjaVJwZgo="
     }
   }
 }

@@ -15,7 +15,6 @@ pub mod publication;
 pub mod selection;
 pub mod workspace_lifecycle;
 pub mod workspace_tools;
-pub mod workspaces;
 
 pub mod session;
 

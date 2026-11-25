@@ -248,10 +248,6 @@ impl ResolvedTools {
     }
 }
 
-pub trait ToolSelection: Send + Sync {
-    fn resolve(&self, workspace: &str) -> Result<ResolvedTools, String>;
-}
-
 pub fn record_trust(
     trust: &mut Vec<ToolTrust>,
     declaration: ProjectDeclaration,

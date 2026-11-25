@@ -121,7 +121,7 @@ worktree branch, then opens `https://github.com/<base>/pull/<number>`.
 ## IPC
 
 All commands are registered in `src/ipc.ts`, the desktop handler and the browser
-mock. These adapters do not add implementations to the separate WSL runtime.
+mock.
 
 | Command | Input | Result |
 | --- | --- | --- |
@@ -199,5 +199,4 @@ The browser mock proves UI behavior, not real GitHub authorization, the device
 flow or native Git networking; those need a manual check against github.com.
 
 The feature is independent of Claude, Codex and Antigravity; see the
-[provider matrix](../quality/provider-matrix.md). Windows/WSL command support is
-listed separately in the [Windows contract](windows-application.md).
+[provider matrix](../quality/provider-matrix.md).

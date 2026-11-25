@@ -1,7 +1,7 @@
 ---
 type: Contract
 title: "Portable application core"
-description: "Core ports, their desktop and WSL adapters and implementation obligations."
+description: "Core ports, their desktop adapters and implementation obligations."
 status: stable
 ---
 
@@ -10,35 +10,36 @@ status: stable
 Implemented. Decision: [ADR 0085](../decisions/0085-portable-core.md).
 
 `src-tauri/crates/core` (`prometeu-core`) holds the persisted models, portable
-rules and sequencing shared by the desktop and the WSL runtime. It has no Tauri,
+rules and sequencing used by the desktop and the remote-machine host
+(`prometeu-host`, [ADR 0101](../decisions/0101-remote-machines.md)). It has no Tauri,
 filesystem, subprocess, socket or OS dispatch. It is a library in the Cargo
 workspace, not a deployed service. This document is a map of its ports and the
 obligations on their implementations; it is not a wire format. Formats that
 cross processes are in the [IPC](ipc.md), [persistence](persistence.md) and
-[WSL runtime](wsl-runtime.md) contracts.
+[remote host](remote-host.md) contracts.
 
 ## Ports and adapters
 
-Composition roots choose implementations: `src-tauri/src/main.rs` for the
-desktop and the runtime host (`crates/runtime/src/host.rs`) for WSL.
+The composition root `src-tauri/src/main.rs` chooses the desktop's
+implementations.
 
-| Area | Core ports and services | Desktop adapter | WSL runtime adapter |
-| --- | --- | --- | --- |
-| Board | `BoardStore`, `BoardEvents`, `BoardPublisher` | `board_store.rs`, `state.rs` | `CatalogStore` in `runtime::workspaces` |
-| Workspace catalog and lifecycle | `Workspaces`, `WorkspaceFolders`, `WorkspaceWorktrees`, `workspace_lifecycle`, `WorktreeCleanup` | `session.rs`, `prometeu-git::cleanup` | `runtime::worktrees`, `runtime::lifecycle`, `prometeu-git::cleanup` |
-| Conversation stream | `conversation::stream::Lines`, `Work`, `ConversationInput`, `TranscriptStore`, `ConversationEvents`, `Clock` | `transcript_store.rs`, `chat.rs` | runtime `SessionStore` and event delivery |
-| Session coordination | `SessionService`, `SessionReactions`, `SessionOutput`, `SessionHost`, `SessionPump` | `chat/host.rs` | runtime host |
-| Launch and workers | `LaunchService`, `ResumePreparation`, `ConversationLauncher`, `ConversationWorkers`, `TaskExecutor` | `session/launch.rs`, `prometeu-process::ThreadExecutor` | runtime provider, `ThreadExecutor` |
-| Provider preparation | `ProviderPreparation`, `AgentProtocol`, `AgentInput`, `ProviderDiscovery` | `agent_launch.rs`, `prometeu-protocols` | `runtime::provider`, `runtime::discovery`, `prometeu-protocols` |
-| Processes and terminals | `ProcessLauncher`, `ProcessControl`, `ProcessWait`, `TerminalFactory`, `TerminalEvents`, `AuxiliaryLauncher` | `prometeu-process` | `prometeu-process` (responsive PTY factory) |
-| Bounded commands | `QueryLauncher`, `CommandRunner` | `prometeu-process` | `prometeu-process` |
-| Accounts and login | `AccountRegistry`, `AccountStore`, `LoginService`, `AccountAuthentication`, `LoginEffects` | `prometeu-files::accounts`, `accounts.rs`, `account_login.rs` | `prometeu-files::accounts`, external Codex account |
-| Profiles and tools | `ProfileBackend`, `StartupTools`, `PackageBackend`, `tool_resolution` | `prometeu-profiles`, `prometeu-tools`, `tool_materialization.rs` | `prometeu-profiles`, `prometeu-tools`, `runtime::tools` |
-| Files, Git and repository | `ProjectFiles`, `ProjectEntries`, `ProjectSearch`, `RepositorySettings`, `RepositoryGit`, `RepositoryReferences` | `prometeu-files`, `prometeu-git` | same crates |
+| Area | Core ports and services | Desktop adapter |
+| --- | --- | --- |
+| Board | `BoardStore`, `BoardEvents`, `BoardPublisher` | `board_store.rs`, `state.rs` |
+| Workspace lifecycle | `workspace_lifecycle`, `WorktreeCleanup` | `session.rs`, `prometeu-git::cleanup` |
+| Conversation stream | `conversation::stream::Lines`, `Work`, `ConversationInput`, `TranscriptStore`, `ConversationEvents`, `Clock` | `transcript_store.rs`, `chat.rs` |
+| Session coordination | `SessionService`, `SessionReactions`, `SessionOutput`, `SessionHost`, `SessionPump` | `chat/host.rs` |
+| Launch and workers | `LaunchService`, `ResumePreparation`, `ConversationLauncher`, `ConversationWorkers`, `TaskExecutor` | `session/launch.rs`, `prometeu-process::ThreadExecutor` |
+| Provider preparation | `ProviderPreparation`, `AgentProtocol`, `AgentInput` | `agent_launch.rs`, `prometeu-protocols` |
+| Processes and terminals | `ProcessLauncher`, `ProcessControl`, `ProcessWait`, `TerminalFactory`, `TerminalEvents`, `AuxiliaryLauncher` | `prometeu-process` |
+| Bounded commands | `QueryLauncher`, `CommandRunner` | `prometeu-process` |
+| Accounts and login | `AccountRegistry`, `AccountStore`, `LoginService`, `AccountAuthentication`, `LoginEffects` | `prometeu-files::accounts`, `accounts.rs`, `account_login.rs` |
+| Profiles and tools | `ProfileBackend`, `StartupTools`, `PackageBackend`, `tool_resolution` | `prometeu-profiles`, `prometeu-tools`, `tool_materialization.rs` |
+| Files, Git and repository | `ProjectFiles`, `ProjectEntries`, `ProjectSearch`, `RepositorySettings`, `RepositoryGit` | `prometeu-files`, `prometeu-git` |
 
 Native request types (a prepared `Command` or PTY `CommandBuilder`), captured
 profiles, paths and handles are adapter-local generic parameters. No port is a
-generic method dispatcher, and none of these values crosses IPC or the bridge.
+generic method dispatcher, and none of these values crosses IPC.
 
 ## Obligations of implementations
 
