@@ -163,6 +163,20 @@ fn terminal_transcript_claude_tool_images_keep_results_and_validate_the_envelope
         assert_eq!(batch.records[0].omitted_media, 0);
         assert_eq!(batch.records[0].value, row(data));
     }
+    // A large top-level image is omitted as before without crowding out the tool image.
+    let mut mixed = row("iVBORw0KGgo=");
+    let attached = |data: &str| json!({"type":"image","source":{"type":"base64","media_type":"image/png","data":data}});
+    let content = mixed["message"]["content"].as_array_mut().unwrap();
+    content.insert(0, attached(&"A".repeat(2 * TRANSCRIPT_LINE_LIMIT)));
+    let mut expected = mixed.clone();
+    expected["message"]["content"][0]["source"]["data"] = Value::Null;
+    let mut tail = JsonlTail::with_inline_images(InlineImageFormat::Claude);
+    let batch = tail
+        .feed(0, &lines(&[mixed]), TranscriptPhase::Live)
+        .unwrap();
+    assert!(!batch.loss);
+    assert_eq!(batch.records[0].omitted_media, 1);
+    assert_eq!(batch.records[0].value, expected);
     for invalid in ["!", "AB=="] {
         let data = "A".repeat(2 * TRANSCRIPT_LINE_LIMIT) + invalid;
         let mut tail = JsonlTail::with_inline_images(InlineImageFormat::Claude);

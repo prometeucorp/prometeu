@@ -62,6 +62,8 @@ impl Base64 {
 struct Candidate {
     path: Vec<String>,
     kind: InlineImageFormat,
+    /// A Claude image inside a tool result, which earlier parsers kept whenever its record fit.
+    tool: bool,
     selected: bool,
     header: Vec<u8>,
     binary: Base64,
@@ -116,7 +118,9 @@ pub(super) struct ImageFilter {
     stack: Vec<Container>,
     string: Option<StringToken>,
     omitted: Vec<Candidate>,
-    fallback_bytes: usize,
+    /// Original bytes kept per budget: other candidates, then tool images, so a top-level image
+    /// can never crowd out a tool image that must be restored.
+    fallback_bytes: [usize; 2],
 }
 
 impl ImageFilter {
@@ -126,7 +130,7 @@ impl ImageFilter {
             stack: Vec::new(),
             string: None,
             omitted: Vec::new(),
-            fallback_bytes: 0,
+            fallback_bytes: [0; 2],
         }
     }
 
@@ -169,9 +173,11 @@ impl ImageFilter {
                         && path[3] == "image_url")
             }
         };
+        let tool = self.format == InlineImageFormat::Claude && path.len() == 7;
         matches.then(|| Candidate {
             path,
             kind: self.format,
+            tool,
             selected: self.format == InlineImageFormat::Claude,
             header: Vec::new(),
             binary: Base64::default(),
@@ -190,8 +196,8 @@ impl ImageFilter {
                         .last()
                         .is_some_and(|frame| frame.object && frame.expecting_key);
                     let candidate = (!key).then(|| self.candidate(self.value_path())).flatten();
-                    if candidate.is_some() {
-                        self.fallback_bytes += 1;
+                    if let Some(candidate) = &candidate {
+                        self.fallback_bytes[candidate.tool as usize] += 1;
                     }
                     self.string = Some(StringToken {
                         key,
@@ -240,9 +246,10 @@ impl ImageFilter {
         }
         if let Some(candidate) = &mut token.candidate {
             if let Some(original) = &mut candidate.original {
-                if self.fallback_bytes < FALLBACK_LIMIT {
+                let budget = &mut self.fallback_bytes[candidate.tool as usize];
+                if *budget < FALLBACK_LIMIT {
                     original.push(byte);
-                    self.fallback_bytes += 1;
+                    *budget += 1;
                 } else {
                     candidate.original = None;
                 }
@@ -352,7 +359,7 @@ impl ImageFilter {
                             .is_some_and(|v| v == "input_image")
                 }
             };
-            if image && candidate.kind == InlineImageFormat::Claude && candidate.path.len() == 7 {
+            if image && candidate.tool {
                 tool_images.push((pointer, candidate));
                 continue;
             }
@@ -376,9 +383,8 @@ impl ImageFilter {
         // Earlier parsers kept Read-tool image bytes whenever the record fit the line budget, and
         // saved journals key those records by a digest of that exact value. Keep such records
         // byte-identical so a resume matches them; omit the bytes only when the record could not
-        // have been read before. ponytail: originals share FALLBACK_LIMIT with every candidate in
-        // the record, so a record whose images together exceed it drops tool images even if the
-        // old parser kept them; give tool images their own budget if that case shows up.
+        // have been read before. Tool images have their own original budget, so it always holds
+        // the bytes of a record that fits.
         let originals = tool_images
             .iter()
             .map(|(_, candidate)| {
