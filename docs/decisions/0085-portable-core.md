@@ -40,10 +40,11 @@ locator, universal `Platform` object or ambient singleton. Composition roots
 such as a prepared `Command` are generic, adapter-local parameters; they never
 cross IPC.
 
-Native effects live in Tauri-free adapter crates that depend inward on the core,
-so every composition root injects the same implementations:
+The table below maps the desktop's adapters, including Tauri-free crates that
+depend inward on the core. The remote-machine host shares only `prometeu-core`
+and `prometeu-process` from the workspace.
 
-| Boundary | Core ports | Native adapter |
+| Boundary | Core ports | Desktop adapter |
 | --- | --- | --- |
 | Board and publication | `BoardStore`, `BoardEvents`, `BoardPublisher` | desktop `board_store.rs`, `state.rs` |
 | Conversation stream | `ConversationInput`, `TranscriptStore`, `ConversationEvents`, `Clock` | `transcript_store.rs`, `chat.rs` |
