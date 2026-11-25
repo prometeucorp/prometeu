@@ -4,6 +4,33 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.46.0] - 2026-11-25
+
+### New
+
+- **remote:** Let agents on a remote machine open and follow workspaces over mcp
+- **workspaces:** Remove workspace stages
+- **platform:** Drop windows support, prometeu now runs on macos and linux only
+- **remote:** Show on the board the workspaces agents create on a machine
+
+### Fixes
+
+- **terminal:** Stop claude conversations with image attachments from locking up
+- **remote:** Keep unpushed work and cut off old tokens for agent clients
+- **windows:** Explain pending runtime upgrades
+- **windows:** Correct runtime upgrade instructions
+- **windows:** Explain how to release the old runtime
+- **windows:** Keep complete runtime upgrade steps visible
+- **launcher:** Allow keyboard scrolling through long errors
+- **dialogs:** Keep footer buttons reachable by keyboard in webkit
+- **remote:** Keep agent messages whole and prompting conversations on the desktop
+- **remote:** Probe the agent socket without blocking
+- **remote:** Protect branch commits, updates and the agent token
+- **remote:** Let rootless clients check the host and close renamed branches
+- **remote:** Never delete an unchecked branch or drop the host check silently
+- **remote:** Adopt running agent conversations and keep adoption to this machine
+- **remote:** Keep removed machine projects off the board
+
 ## [0.45.0] - 2026-11-24
 
 ### New
