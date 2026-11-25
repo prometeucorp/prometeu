@@ -2,7 +2,7 @@
 type: Decision
 title: "ADR 0103 — Agents on a remote machine drive workspaces through its host"
 description: "The machine's host keeps its own registry of projects and workspaces, launches Claude without a desktop, and serves a token-authorized agent socket and MCP server."
-status: draft
+status: stable
 ---
 
 # ADR 0103 — Agents on a remote machine drive workspaces through its host
@@ -272,12 +272,12 @@ Multi-repository workspaces stay desktop-only.
 
 ## Evidence
 
-Implemented on the host and the desktop, including enabling agents from
-Settings with no shell steps: setup without flags or root, a client executable
-the host keeps current, the configuration shown with copy buttons, and host
-updates that wait for an idle moment. The run with OpenBot through that flow
-and the desktop following it are still pending, so this decision stays a
-proposal.
+Implemented on the host and the desktop, and run in production with OpenBot
+(2026-11-24, Prometeu 0.46.0).
+Enabling agents from Settings with no shell steps (setup without flags or
+root, a client executable the host keeps current, the configuration shown with
+copy buttons, and host updates that wait for an idle moment) is covered by the
+tests below; its run with OpenBot through Settings is still to be recorded.
 
 - [Remote host protocol](../contracts/remote-host.md): registry, observed state,
   agent socket and MCP server.
@@ -304,3 +304,29 @@ proposal.
   Claude wrote the requested file and answered, a multi-line follow-up typed
   into its running terminal was answered, and the workspace was refused while
   dirty, then closed with its worktree and branch removed.
+- Production run on the VPS (2026-11-24, Prometeu 0.46.0). OpenBot runs in
+  rootless Docker under its own Unix user, with `/srv/prometeu-agents` mounted
+  read-only at `/prometeu`. That directory holds the agent socket and a copy of
+  `prometeu-host`, and `agents setup --client-uid 65534` matched how the
+  container sees the person's user. Through the MCP server, OpenBot listed the
+  projects, created a workspace and followed its conversation, and closed it.
+  The desktop, attached during the run, showed the workspace as created by the
+  bot, followed it live and archived it on close. Creating a workspace with the
+  desktop off was not repeated in production; the host tests cover it.
+
+### Deployment gaps found in the production run
+
+Enabling a bot still takes manual steps on the machine. None changes the
+decision, but each is a follow-up:
+
+- The desktop replaces an older host only when it attaches and the old host
+  runs no terminal. A host busy at that moment kept serving after the update
+  until the desktop reconnected.
+- The socket directory outside `<root>` (here `/srv/prometeu-agents`) needed
+  `sudo` to create, and `agents setup` needed the path and `--client-uid` by
+  hand.
+- The container runs a copy of `prometeu-host`. A plain copy kept the owner-only
+  mode of `<root>`, so the container could not execute it until it was made
+  0755, and the copy does not follow host updates.
+- The bot's container needs the directory mounted and the token in its MCP
+  configuration; the token is only read from `PROMETEU_AGENT_TOKEN`.

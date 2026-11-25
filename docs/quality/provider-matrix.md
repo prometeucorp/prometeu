@@ -36,8 +36,8 @@ rule is covered by `src/machines.test.ts`; navigation compatibility by
 journey through machine selection and nested registration without losing the
 workspace prompt. Remote execution remains Claude-only.
 
-Agent clients on the machine (proposed
-[ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
+Agent clients on the machine
+([ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
 without permission prompts; `src-tauri/crates/host/tests/agents.rs` covers them.
 The desktop adopts their workspaces as Claude terminal tabs that run in that
 mode, and `src-tauri/src/remote/registry.rs` covers the adoption.
@@ -329,6 +329,15 @@ paste readiness, rejected controls and no automatic Enter or resume. The
 native-screen case in `e2e/composer.spec.ts` checks actual xterm geometry and
 keyboard focus. Those
 browser fixtures do not certify native provider behavior.
+
+Claude image reads have native-ingestion regressions in
+`terminal_transcript::tests::terminal_transcript_claude_tool_images_keep_results_and_validate_the_envelope`
+and `terminal_observation_claude_read_image_survives_ingestion_and_cold_resume`.
+They cover oversized base64 images nested in tool results, small ones kept
+byte-identical for journals saved by earlier parsers, preserved text and tool
+identity, invalid envelopes, and cold replay of both without duplicate canonical
+output. This is synthetic parser and journal evidence, not a native Tauri run.
+Codex retains its separate inline-image shapes; no other provider behavior changes.
 
 The private [terminal state helper](../contracts/terminal-state.md) has shared
 headless replay and stdio tests in `packages/terminal-state/test/`. The macOS

@@ -112,6 +112,14 @@ Opening a stopped local terminal tab automatically resumes the saved native
 session and restores its screen, including after app restart. It sends no
 artificial message. Manual resume remains available only after attachment fails
 to produce a running process; identity and unresolved-submission checks still apply.
+Claude transcript ingestion omits validated base64 image bytes in message
+content. Images inside `tool_result.content` (including those returned by
+`Read`) are omitted only when the record would not fit the 1 MiB JSONL record
+budget with them; smaller records stay byte-identical, because saved journals
+match records by a digest of that value. Omission preserves tool identity,
+adjacent text and image metadata. Malformed omitted images and oversized
+ordinary text still fail verification. Live ingestion and cold resume use the
+same filter, so an image read does not make the native history unresumable.
 Queued product messages draw attention through a pending-context indicator in
 the central tab-bar action group or desk header, independently of agent status, with their
 full text available on demand from the tools dialog. Pending input does not
