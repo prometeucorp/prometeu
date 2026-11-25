@@ -8,18 +8,12 @@
 //! - `agents setup [--socket PATH] [--rotate]` enables agent clients: it writes the agent socket's
 //!   path and the token they must present, and prints an MCP configuration (ADR 0103).
 //! - `mcp [--socket PATH]` is a stdio MCP server over the agent socket, for bot platforms.
-#[cfg(unix)]
 mod agents;
-#[cfg(unix)]
 mod client;
-#[cfg(unix)]
 mod mcp;
-#[cfg(unix)]
 mod registry;
-#[cfg(unix)]
 mod server;
 
-#[cfg(unix)]
 fn main() {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();
@@ -108,10 +102,4 @@ fn main() {
         }
     };
     std::process::exit(code);
-}
-
-#[cfg(not(unix))]
-fn main() {
-    eprintln!("prometeu-host runs only on Unix hosts");
-    std::process::exit(2);
 }

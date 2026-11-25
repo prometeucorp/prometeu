@@ -1,5 +1,4 @@
 //! Native Unix account profiles. Hosts supply roots and private file writes; no desktop is required.
-#![cfg(unix)]
 use prometeu_core::{
     accounts::{key, Account},
     board::ProviderId,

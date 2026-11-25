@@ -48,8 +48,8 @@ shortcut labels (`Ctrl+Shift+D`), "computer" where the catalogs say "Mac", and
 `<key>.generic` catalog variants for text naming macOS, Finder or System
 Settings. Shortcut handlers already accepted Ctrl.
 
-One GitHub release contains the macOS Apple Silicon DMG, Linux x86_64 AppImage
-and experimental unsigned Windows installer. macOS and Linux use the same
+One GitHub release contains the macOS Apple Silicon DMG and the Linux x86_64
+AppImage. macOS and Linux use the same
 version and updater signing key. Linux builds use
 Ubuntu 22.04 as the glibc baseline. Platform jobs build and sign in parallel,
 passing final files through workflow artifacts to one assembly job. That job
@@ -59,7 +59,7 @@ again after downloading the draft. Reruns reject existing releases instead of
 trusting assets from a potentially older commit of a moved tag. Drafts require
 manual removal before rebuilding; published releases require a new version.
 Uploads never replace assets, including during concurrent manual publication.
-Publication requires all three platforms and verified macOS and Linux updater signatures.
+Publication requires both platforms and verified macOS and Linux updater signatures.
 
 The frontend uses Tauri's native `getBundleType()` to enable the Linux updater
 only for AppImage. Arch `PKGBUILD`, Debian, RPM and source installations keep

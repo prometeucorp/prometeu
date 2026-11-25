@@ -1,7 +1,6 @@
 //! Drives the real host the way a bot platform does (ADR 0103): through the token-protected agent
 //! socket, with no desktop attached. A stand-in for Claude records its arguments, writes a native
 //! transcript, reports hooks through the host's hook command and logs what is typed into it.
-#![cfg(unix)]
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;

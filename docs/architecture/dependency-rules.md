@@ -225,30 +225,21 @@ it owns ([ADR 0085](../decisions/0085-portable-core.md),
 | `prometeu-files`, `prometeu-git` | project files, search, scripts, account storage; native Git | core |
 | `prometeu-process`, `prometeu-profiles` (Unix) | processes, PTYs, pipes, bounded commands; account profiles | core |
 | `prometeu-tools` (Unix) | MCP, packages, skills, plugins, MCP credentials | core, profiles, oauth |
-| `prometeu-bridge` | typed runtime client and injected WSL ports | core, oauth |
-| `prometeu-runtime` (Unix) | WSL execution host | the crates above |
-| `prometeu-wsl-desktop` | Windows shell; Tauri behind the `desktop` feature | bridge, oauth |
+| `prometeu-host` (Unix) | remote-machine daemon ([ADR 0101](../decisions/0101-remote-machines.md)) | core, process |
 | `prometeu` (`src-tauri`) | macOS/Linux desktop | core, adapters; Unix crates under `cfg(unix)` |
 
 Rules:
 
-- No crate other than the two shells links Tauri. The Windows shell links no Unix
-  execution crate (`prometeu-process`, `-profiles`, `-tools`, `-runtime`); it
-  embeds the Linux runtime only as data.
+- No crate other than the desktop (`src-tauri`) links Tauri.
 - Implementations are selected only in composition roots: `src-tauri/src/main.rs`,
-  the runtime host, the Windows shell, `src/main.ts` and `src/windows/main.ts`.
+  the remote host and `src/main.ts`.
   Application rules and presentation contain no OS dispatch, including
   equivalent `match` chains; target-specific code stays in adapter modules and
   target-specific Cargo dependencies.
 - Native requests (prepared commands, PTY builders, captured profiles, paths) are
-  adapter-local generic parameters, never IPC or bridge payloads.
-- Shared screens receive host effects through injected ports with inert desktop
-  defaults (`IpcTransport`, `ConnectionRecovery`, `TerminalSnapshots`,
-  `AttachmentPicker`) and never import `src/windows/`.
+  adapter-local generic parameters, never IPC payloads.
 
 Enforcement: `crates/core/tests/boundary.rs` allowlists the core manifest and
 rejects known native API and OS-dispatch tokens. `npm run architecture:check`
-inspects `cargo tree` so portable crates do not reach Tauri and the Windows shell
-does not reach Unix execution crates. CI builds and tests core, protocols and
-bridge on Windows. These are conservative checks, not semantic analysis;
+inspects `cargo tree` so portable crates do not reach Tauri. These are conservative checks, not semantic analysis;
 aliases, macros and dependency internals still need review.

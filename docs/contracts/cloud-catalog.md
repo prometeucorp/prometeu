@@ -296,9 +296,3 @@ with empty credentials.
   CRUD, conflict and compatibility.
 - `prometeu-cloud/test/browser/catalog.spec.js`: real Rails forms, CSRF,
   consumption of the desktop API and layout in Chromium/WebKit.
-
-The Windows application currently injects a local-only catalog source. It reports
-the same disconnected state shape as desktop and keeps local libraries available;
-it does not adopt or synchronize Cloud caches. Standalone skill mutations reuse
-the shared library, while desktop retains its existing Cloud revision checks and
-publication before local persistence. See the [Windows contract](windows-application.md).

@@ -63,9 +63,6 @@ Option 2, keeping project-view shells as they are.
 - **Local only.** Sessions never reach the relay, the delegation MCP, telemetry,
   the desk, the notch island or agent notifications; those read workspaces and
   their tabs only.
-- **Windows.** The WSL runtime has no sessions yet. The Windows entry point hides
-  every entry; the runtime rejects the commands and carries `Board.terminals`
-  through its catalog unchanged.
 
 ## Consequences
 
@@ -74,8 +71,6 @@ Option 2, keeping project-view shells as they are.
 - An older app version ignores `Board.terminals` and drops it on its next save,
   so a downgrade loses the list but nothing else.
 - Scrollback does not survive quitting; a restored session starts a new shell.
-- Windows needs its own implementation in the runtime before the entries can
-  show there.
 
 ## Evidence
 

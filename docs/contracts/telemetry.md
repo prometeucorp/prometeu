@@ -435,5 +435,4 @@ shared controls and confirmation dialogs. Provider differences also appear in th
 
 Canonical usage and measurement types are shared from
 `prometeu-core::conversation::usage`. The desktop retains database ownership and
-persisted formats; the WSL runtime filters private telemetry through the same
-conversation stream and has no telemetry database.
+persisted formats.

@@ -85,21 +85,6 @@ pub fn apply(
     }
     Ok(())
 }
-pub fn global(board: &mut Board, body: &Value) -> Result<(), String> {
-    let mcp = patch(body, "mcp", Axis::Mcp)?;
-    let plugins = patch(body, "plugins", Axis::Plugins)?;
-    let skills = patch(body, "skills", Axis::Skills)?;
-    if let Some(value) = mcp {
-        board.tools.mcp = value;
-    }
-    if let Some(value) = plugins {
-        board.tools.plugins = value;
-    }
-    if let Some(value) = skills {
-        board.tools.skills = value;
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

@@ -1,5 +1,4 @@
 //! Unix execution adapter shared by the local desktop and future headless hosts.
-#![cfg(unix)]
 
 use prometeu_core::lock::lock;
 use prometeu_core::process::{

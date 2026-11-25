@@ -11,8 +11,8 @@ Date: 2026-09-27
 
 ## Context
 
-A native Windows desktop with WSL execution needs the application rules to run
-outside Tauri and outside the process that draws the window. The board,
+The application rules need to run and be tested outside Tauri and outside the
+process that draws the window. The board,
 conversation ordering, process supervision, session coordination, terminals,
 accounts and tool preparation were coupled to Tauri state, Unix effects and
 desktop singletons. Moving only their structs would keep those dependencies
@@ -35,25 +35,27 @@ Tauri, filesystem, subprocess, socket or OS dispatch, and its manifest is limite
 to serialization and UUID libraries. Each boundary defines application-owned
 ports sized for its callers; there is no generic method dispatcher, service
 locator, universal `Platform` object or ambient singleton. Composition roots
-(`src-tauri/src/main.rs`, the runtime host and the Windows shell) select the
-implementations. Native requests such as a prepared `Command` are generic,
-adapter-local parameters; they never cross IPC or the WSL bridge.
+(`src-tauri/src/main.rs` and the remote-machine host of
+[ADR 0101](0101-remote-machines.md)) select the implementations. Native requests
+such as a prepared `Command` are generic, adapter-local parameters; they never
+cross IPC.
 
-Native effects live in Tauri-free adapter crates that depend inward on the core,
-so the desktop and the WSL runtime inject the same implementations:
+The table below maps the desktop's adapters, including Tauri-free crates that
+depend inward on the core. The remote-machine host shares only `prometeu-core`
+and `prometeu-process` from the workspace.
 
-| Boundary | Core ports | Native adapter |
+| Boundary | Core ports | Desktop adapter |
 | --- | --- | --- |
 | Board and publication | `BoardStore`, `BoardEvents`, `BoardPublisher` | desktop `board_store.rs`, `state.rs` |
 | Conversation stream | `ConversationInput`, `TranscriptStore`, `ConversationEvents`, `Clock` | `transcript_store.rs`, `chat.rs` |
 | Processes | `ProcessLauncher`, `ProcessControl`, `ProcessWait`, `TaskExecutor` | `prometeu-process` |
 | Terminals and private pipes | `TerminalFactory`, `TerminalEvents`, `AuxiliaryLauncher` | `prometeu-process` |
 | Bounded commands | `QueryLauncher`, `CommandRunner` | `prometeu-process` |
-| Session host, pump, launch and workers | `SessionHost`, `SessionLifecycle`, `SessionPump`, `LaunchService`, `ConversationWorkers` and their effect ports | desktop `chat/host.rs`, `session/launch.rs`; runtime host |
+| Session host, pump, launch and workers | `SessionHost`, `SessionLifecycle`, `SessionPump`, `LaunchService`, `ConversationWorkers` and their effect ports | desktop `chat/host.rs`, `session/launch.rs` |
 | Provider preparation | `ProviderPreparation`, `AgentProtocol`, `AgentInput` | `agent_launch.rs`, `prometeu-protocols` |
 | Accounts and login | `AccountStore`, `AccountAuthentication`, `LoginEffects` | `prometeu-files`, `account_login.rs` |
 | Profiles and tools | `ProfileBackend`, `StartupTools`, `PackageBackend`, MCP sources/files | `prometeu-profiles`, `prometeu-tools` |
-| Files, Git and catalogs | `ProjectFiles`, `RepositoryGit`, `CatalogStore`, `WorktreeCleanup` | `prometeu-files`, `prometeu-git`, runtime |
+| Files and Git | `ProjectFiles`, `RepositoryGit`, `WorktreeCleanup` | `prometeu-files`, `prometeu-git` |
 
 The detailed port contract is the
 [application-core contract](../contracts/application-core.md). The guarantees
@@ -136,8 +138,7 @@ The production desktop still runs in-process under
 for serialization and for composing non-reentrant effects correctly; the core
 types alone do not prevent an unsafe composition. The core's manifest allowlist
 and source-token checks, and the crate-graph guard in `npm run architecture:check`,
-are conservative and do not replace review. Reusing these ports in the Windows
-composition is decided in [ADR 0084](0084-shared-windows-desktop.md).
+are conservative and do not replace review.
 
 ## Evidence
 

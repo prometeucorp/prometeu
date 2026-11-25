@@ -6,7 +6,6 @@ import * as cloud from "./cloud";
 import { invoke } from "./ipc";
 import { track, trackClicks, viewScreen, type Screen } from "./analytics";
 import { askAnalyticsConsent } from "./analytics-settings";
-import { onConnectionRestored } from "./connection";
 import { listen } from "@tauri-apps/api/event";
 import { openProjects } from "./projects";
 import * as alert from "./alert";
@@ -137,7 +136,6 @@ const hooks: sidebar.Hooks = {
   },
   newWorkspace: (projectId) => launch(projectId),
   terminals: {
-    available: terminals.available,
     live: terminals.isLive,
     open: (id) => {
       const session = state.terminals?.find((item) => item.id === id);
@@ -326,15 +324,6 @@ function showSettings(push = true) {
 $("settings").addEventListener("click", () => showSettings());
 
 /* Backend events. */
-
-onConnectionRestored(async () => {
-  state = await invoke("load_board");
-  actions.update(state);
-  team.boardChanged(state);
-  alert.boardChanged(state);
-  refresh();
-  await dockbar.refresh();
-});
 
 listen<Board>("board", ({ payload }) => {
   state = payload;
@@ -687,7 +676,6 @@ function act(a: appmenu.Action): boolean {
       return true;
     // Shift-Command-T opens a terminal session in the home folder, with no workspace or project.
     case "novoTerminal":
-      if (!terminals.available()) return false;
       void terminals.create();
       return true;
     case "arquivar":

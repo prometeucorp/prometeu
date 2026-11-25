@@ -3,7 +3,6 @@ import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/men
 import { t, type Key } from "./i18n";
 import { track } from "./analytics";
 import { mac } from "./platform";
-import * as terminals from "./terminals";
 
 /// Shared action names for native-menu and document-keyboard dispatch.
 export type Action =
@@ -35,11 +34,6 @@ export const desktopApplicationMenu: ApplicationMenu = ({ native, settings, quit
   native("Services", "menu.app.services"), native("Separator"), native("Hide", "menu.app.hide"),
   native("HideOthers", "menu.app.hideOthers"), native("ShowAll", "menu.app.showAll"), native("Separator"), mac ? quit() : native("Quit", "menu.app.quit"),
 ];
-export const windowsApplicationMenu: ApplicationMenu = ({ native, settings }) => [
-  native({ About: null }, "menu.app.about"), settings(), native("Separator"), native("Quit", "menu.app.quit"),
-];
-let applicationMenu = desktopApplicationMenu;
-export function useApplicationMenu(menu: ApplicationMenu) { applicationMenu = menu; }
 
 export async function install(run: (a: Action) => void) {
   const our = (id: Action, key: Key, accelerator: string) =>
@@ -56,7 +50,7 @@ export async function install(run: (a: Action) => void) {
   const menu = await Menu.new({
     items: await Promise.all([
       // The application-named menu contains About, Hide, and Quit as macOS expects.
-      bar("Prometeu", applicationMenu({
+      bar("Prometeu", desktopApplicationMenu({
         native: os,
         settings: () => our("ajustes", "menu.app.settings", "CmdOrCtrl+,"),
         quit: () => our("quit", "menu.app.quit", "CmdOrCtrl+Q"),
@@ -64,7 +58,7 @@ export async function install(run: (a: Action) => void) {
       bar(t("menu.file"), [
         our("novoWorkspace", "menu.file.newWorkspace", "CmdOrCtrl+N"),
         our("novaConversa", "menu.file.newChat", "CmdOrCtrl+T"),
-        ...(terminals.available() ? [our("novoTerminal", "menu.file.newTerminal", "CmdOrCtrl+Shift+T")] : []),
+        our("novoTerminal", "menu.file.newTerminal", "CmdOrCtrl+Shift+T"),
         our("quickOpen", "menu.file.quickOpen", "CmdOrCtrl+P"),
         os("Separator"),
         // Command-W closes the current tab; Shift-Command-W closes the window.

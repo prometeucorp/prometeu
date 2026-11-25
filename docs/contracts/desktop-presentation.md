@@ -96,9 +96,8 @@ draft behavior. `attachmentChip` reports removal without accessing files.
 
 Workspace entry may await a conversation snapshot. A supporting shell selected
 during that wait retains the center and keyboard focus when attachment finishes;
-loading a transcript cannot supersede the person's later tab selection. The
-native Windows journey delays that snapshot deliberately and checks focus before
-typing, protecting a retained composer draft from unintended submission.
+loading a transcript cannot supersede the person's later tab selection,
+protecting a retained composer draft from unintended submission.
 
 `contextGauge` updates its open panel from the host's latest snapshot, including
 action availability and callbacks. It preserves scroll and focus on an enabled

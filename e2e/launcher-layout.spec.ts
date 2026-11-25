@@ -92,25 +92,24 @@ test("launcher layout: native branch controls preserve worktree and multiple-rep
 // Creation recovery needs browser coverage: a toast truncated the instructions,
 // while unit tests cannot verify wrapping, focus order and keyboard scrolling.
 // Run in WebKit too: native focus and scroll keys must work in the desktop webview.
-test("launcher errors keep complete upgrade instructions readable until dismissed", { tag: "@webkit" }, async ({ page }) => {
+test("launcher errors keep complete recovery instructions readable until dismissed", { tag: "@webkit" }, async ({ page }) => {
+  const failure = "Could not prepare the workspace because the repository is unavailable. Check that the project folder still exists and that you have permission to read its files. If the repository is on an external drive, reconnect the drive before trying again. Save any pending changes before moving the project folder. Reopen the project from its current location, then create the workspace again. Your existing conversations and project files have not been removed.";
   await page.setViewportSize({ width: 390, height: 720 });
   await seed(page);
-  await page.evaluate(() => {
+  await page.evaluate(failure => {
     const backend = (window as unknown as { __TAURI_INTERNALS__: {
       invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
     } }).__TAURI_INTERNALS__;
     const invoke = backend.invoke;
     backend.invoke = (command, args) => command === "create_workspace"
-      ? Promise.reject('i18n:{"code":"err.windows.runtimeUpgrade"}')
+      ? Promise.reject(failure)
       : invoke(command, args);
-  });
+  }, failure);
   await page.locator("#railbody").getByRole("button", { name: "Create", exact: true }).click();
   await page.locator("#d-go").click();
   const dialog = page.getByRole("dialog", { name: "Could not create workspace" });
   const message = dialog.locator(".ui-form-body p");
-  await expect(message).toContainText("Also close all project terminal tabs.");
-  await expect(message).toContainText("then unarchive those workspaces.");
-  await expect(message).toContainText("The chat’s Stop button does not release the runtime.");
+  await expect(message).toHaveText(failure);
   expect(await message.evaluate(el => {
     const style = getComputedStyle(el);
     return style.whiteSpace !== "nowrap" && el.scrollWidth <= el.clientWidth + 1 && el.scrollHeight <= el.clientHeight + 1;

@@ -292,12 +292,6 @@ Former Gemini accounts and active selections are opaque preserved entries, not
 usable accounts. Their directories, credentials and native histories remain
 untouched. See [ADR 0052](../decisions/0052-antigravity-runtime.md).
 
-The Windows/WSL composition uses a separate runtime-owned registry and the same
-atomic private writes. It currently registers the installed Codex CLI's external
-account and probes its real identity. Selection/removal persist; attaching an
-external account does not reactivate a removed selection. Additional managed login
-profiles remain pending there. See the [Windows contract](windows-application.md#launcher-and-execution-identity).
-
 ## Cursor
 
 Provider `cursor` attaches the single external CLI account, also named `cursor`,

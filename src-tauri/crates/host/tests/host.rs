@@ -1,6 +1,5 @@
 //! Drives the real binary the way the desktop does over SSH: through `attach` processes that come
 //! and go while the host and its terminals keep running.
-#![cfg(unix)]
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};

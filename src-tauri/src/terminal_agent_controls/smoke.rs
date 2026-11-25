@@ -629,7 +629,7 @@ struct OwnedTerminal {
 }
 impl OwnedTerminal {
     fn open(command: portable_pty::CommandBuilder) -> Result<Self, String> {
-        let started = prometeu_process::terminal::ResponsiveTerminalFactory
+        let started = prometeu_process::terminal::UnixTerminalFactory
             .open(
                 command,
                 TerminalSize {

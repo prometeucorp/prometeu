@@ -11,7 +11,7 @@ status: stable
 service. It consumes PTY bytes; it does not spawn the provider, read its
 transcript, change the board or infer agent activity. The macOS native transport
 owns one helper per native PTY, applies its bytes before publishing live output,
-and exposes its ordered screen snapshot. Linux release and WSL do not consume
+and exposes its ordered screen snapshot. The Linux release does not consume
 the helper. Native conversation mode is selectable on macOS; helper and CLI
 tests remain distinct from full Tauri app conformance. See
 [conversation transport identity](../decisions/0100-conversation-transport-identity.md)
@@ -244,8 +244,8 @@ A local debug `.app` bundle passed strict signature verification and executed
 the bundled helper without installed Node. The current helper is about 113 MiB
 before compression. `npm run terminal-state:check`, included after the frontend
 build in `npm run check`, validates the package, SEA and exact host wire/screen
-tests without invoking an agent. Linux CI runs that gate too; Linux release and
-WSL do not yet consume the helper. The macOS release build uses the same wrapper,
+tests without invoking an agent. Linux CI runs that gate too; the Linux release
+does not yet consume the helper. The macOS release build uses the same wrapper,
 then verifies the packaged executable and notices before notarizing the DMG.
 Native conversation mode is enabled separately by the macOS execution host and
 Settings capability. Packaging tests do not establish full application

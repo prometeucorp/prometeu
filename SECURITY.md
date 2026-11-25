@@ -4,7 +4,7 @@
 
 Please use the [latest release](https://github.com/prometeucorp/prometeu/releases/latest).
 Security fixes target the latest release; older releases do not have a separate
-maintenance branch. Windows support is experimental.
+maintenance branch.
 
 ## Report a vulnerability privately
 

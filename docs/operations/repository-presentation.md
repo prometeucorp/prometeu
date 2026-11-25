@@ -8,8 +8,8 @@ status: stable
 # Repository presentation
 
 The README puts the product, demo, latest downloads and star request before
-feature details. Keep the top section compact and retain the experimental
-Windows qualification beside the downloads. The first repository page still
+feature details. Keep the top section compact and retain the platform
+qualification beside the downloads. The first repository page still
 shows GitHub's file tree above the README; the README cannot change that layout.
 
 ## Media
@@ -62,7 +62,7 @@ immediately below it. The larger display favors readable captions over fitting
 the entire introduction into one viewport. GitHub's file tree remains above
 the README.
 
-Follow all three `/releases/latest/download/` links and confirm successful
+Follow both `/releases/latest/download/` links and confirm successful
 responses. Their stable asset names are part of the
 [release contract](../contracts/releases.md).
 

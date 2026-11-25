@@ -145,8 +145,7 @@ absence of forward secrecy, are in
   only view and comment ([ADR 0090](../decisions/0090-approved-remote-input.md)).
 - `set_confirm_messages`: receives `id` and `confirm` and persists
   `confirm_messages` in the workspace, independent of `set_shared`. A missing
-  field means `true`: teammates' messages wait for the owner. Windows does not
-  implement it, like `set_shared`.
+  field means `true`: teammates' messages wait for the owner.
 
 With exactly one accepted membership, the desktop activates it by itself when
 listing the organizations; leaving stores that decision in `localStorage`

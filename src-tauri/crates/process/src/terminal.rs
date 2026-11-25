@@ -64,18 +64,6 @@ impl TerminalFactory<CommandBuilder> for UnixTerminalFactory {
         open_with_streams(command, size, native_streams)
     }
 }
-/// Compatibility factory for hosts that require cancellable IO. Both Unix factories now share
-/// descriptor ownership, so explicit disconnect and waiter cleanup can cancel every stream.
-pub struct ResponsiveTerminalFactory;
-impl TerminalFactory<CommandBuilder> for ResponsiveTerminalFactory {
-    fn open(
-        &self,
-        command: CommandBuilder,
-        size: TerminalSize,
-    ) -> Result<StartedTerminal, TerminalError> {
-        open_with_streams(command, size, native_streams)
-    }
-}
 type Streams = (Box<dyn Read + Send>, Box<dyn Write + Send>);
 type OpenStreams = fn(&dyn MasterPty) -> Result<Streams, TerminalError>;
 fn open_with_streams(

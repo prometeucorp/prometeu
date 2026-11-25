@@ -4,13 +4,6 @@ import type { TerminalSession } from "./types";
 
 /// Terminal sessions: local shells owned by the app, not by a workspace or project (ADR 0096). The board lists them; this module knows which have a running shell and ends a session when its shell exits.
 
-let enabled = true;
-/// The Windows runtime has no terminal sessions yet; its entry point switches every entry off before the app starts.
-export function useTerminalSessions(on: boolean) {
-  enabled = on;
-}
-export const available = () => enabled;
-
 /// The person's name wins over the folder's name; the root folder shows its path.
 export function title(session: TerminalSession): string {
   return session.name || session.folder.split("/").filter(Boolean).pop() || session.folder;
@@ -58,7 +51,6 @@ export async function check(id: string) {
 
 /// Without a folder the session starts in the home folder. Nothing is registered as a project.
 export async function create(folder: string | null = null) {
-  if (!enabled) return;
   try {
     ctx.show(await invoke("terminal_create", { folder }));
   } catch (error) {

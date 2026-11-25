@@ -1777,7 +1777,7 @@ pub(crate) struct SmokeTerminal {
 }
 impl SmokeTerminal {
     pub(crate) fn open(command: portable_pty::CommandBuilder) -> Result<Self, String> {
-        let started = prometeu_process::terminal::ResponsiveTerminalFactory
+        let started = prometeu_process::terminal::UnixTerminalFactory
             .open(
                 command,
                 TerminalSize {

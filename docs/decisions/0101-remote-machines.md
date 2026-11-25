@@ -16,17 +16,15 @@ server or a VPS: more CPU and memory than a laptop, and agents that keep working
 while the laptop sleeps or the app is closed. The rest of the board stays local,
 and those workspaces should appear in it next to local ones.
 
-The WSL runtime ([ADR 0084](0084-shared-windows-desktop.md)) already runs a
-Unix execution host behind a pipe, but it cuts at the top: every desktop command
-needs a second implementation inside the runtime, so coverage always lags the
-desktop. Orca, cmux and Claude Desktop's SSH sessions all cut lower: a small,
-versioned helper on the remote host owns processes and buffers their output,
-and the laptop stays the interface.
+Running the whole application on the machine and attaching the interface to it
+cuts at the top: every desktop command needs a second implementation on the
+machine, so coverage always lags the desktop. Orca, cmux and Claude Desktop's
+SSH sessions all cut lower: a small, versioned helper on the remote host owns
+processes and buffers their output, and the laptop stays the interface.
 
 ## Options considered
 
-1. Run the whole application on the machine, as the WSL runtime does, and attach
-   the interface to it.
+1. Run the whole application on the machine and attach the interface to it.
 2. Mount the machine's files locally (sshfs) and run only processes remotely.
 3. Keep the desktop as the owner of the board, conversations and interface, and
    move only the terminal agent's process, its hooks and its native transcript

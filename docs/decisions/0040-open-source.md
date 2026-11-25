@@ -36,7 +36,7 @@ Option 2. The repository is transferred to `prometeucorp/prometeu` and becomes
 public. Releases, the updater's `latest.json` and the site's download link point
 to it. `prometeucorp/prometeu-releases` is archived.
 
-CI and releases run on GitHub-hosted macOS, Linux and Windows runners, free for a
+CI and releases run on GitHub-hosted macOS and Linux runners, free for a
 public repository. A self-hosted runner is forbidden: in a
 public repository, a fork's PR chooses its own workflow's `runs-on`, and with
 that it would run arbitrary code on this Mac. The release workflow uses the job's `GITHUB_TOKEN` with
@@ -67,8 +67,8 @@ Negative:
 
 ## Evidence
 
-- `.github/workflows/ci.yml` and `release.yml` use hosted macOS, Linux and
-  Windows runners; releases use `GITHUB_TOKEN`;
+- `.github/workflows/ci.yml` and `release.yml` use hosted macOS and Linux
+  runners; releases use `GITHUB_TOKEN`;
 - `src-tauri/tauri.conf.json` points the updater to `prometeucorp/prometeu`;
 - `scripts/release.sh` publishes in the same repository;
 - the release's `verify` job validates `latest.json` against the app's public

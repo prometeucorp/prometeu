@@ -71,9 +71,9 @@ value is retained without fallback and cannot execute. The JSON field is still c
 Provider preparation is injected separately from conversation spawning. Native
 adapters return configuration, transcript ownership and a connection factory;
 the launcher supplies process input and control. Interruption and turn-wait
-policy stay in the adapters, and no bridge payload is introduced. Codex
-translation is shared through `prometeu-protocols::codex` by the desktop and the
-[WSL runtime](wsl-runtime.md); the host supplies language and client version. See
+policy stay in the adapters, and no IPC payload is introduced. Codex
+translation lives in `prometeu-protocols::codex`; the desktop supplies language
+and client version. See
 the [application-core contract](application-core.md#sessions-launch-and-workers).
 
 ## Native terminal conversations
@@ -85,8 +85,8 @@ and saved on the tab; resume uses that saved value. macOS exposes **Settings →
 General → New conversations**, with Chat and Terminal choices for new
 conversations, including action tabs. Changing the default does not convert
 existing tabs or restart their processes. Terminal uses the installed native
-CLI for Claude, Codex, Antigravity and Cursor. Linux and WSL reject terminal
-mode with `err.terminalAgent.unsupported`; their control is hidden.
+CLI for Claude, Codex, Antigravity and Cursor. Linux rejects terminal mode with
+`err.terminalAgent.unsupported`; its control is hidden.
 
 Version gates are minimums ([ADR 0100](../decisions/0100-conversation-transport-identity.md)):
 launch requires Claude 2.1.326, Codex 0.169.0, Antigravity 1.5.9 or Cursor
@@ -552,9 +552,7 @@ captured set; sending another message alone does not reload tools.
 Provider adapters own CLI flags and consume tool artifacts through injected
 `prometeu-tools::StartupTools`. `session.rs` resolves application choices and
 passes `Launch` to the adapter; plugins and standalone skills share the package
-pipeline. Desktop `tool_materialization.rs` and WSL `runtime::tools` compose the
-same `NativeTools`; the WSL provider reads current choices through
-`ToolSelection` at spawn. Existing argument fixtures and injected startup tests
+pipeline. Desktop `tool_materialization.rs` composes `NativeTools`. Existing argument fixtures and injected startup tests
 preserve flags, resume behavior, scope, environment and failure ordering. See
 [tools and packages](application-core.md#tools-and-packages).
 
@@ -701,11 +699,9 @@ old Gemini identity is a retired persistence marker; any execution refuses with
 ## Shared native discovery
 
 Provider descriptors and model result types live in `prometeu-core::agents`.
-The desktop and WSL runtime share `prometeu-protocols::catalog` for bounded
-queries, pagination and response validation; hosts supply the query launcher,
-prepared command and client version. `ProviderDiscovery` registers providers in
-the runtime. Windows coverage is in the
-[Windows application contract](windows-application.md).
+The desktop uses `prometeu-protocols::catalog` for bounded queries, pagination
+and response validation, supplying the query launcher, prepared command and
+client version.
 
 ## Cursor
 

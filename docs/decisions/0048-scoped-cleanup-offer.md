@@ -50,7 +50,7 @@ When enabled, inspect only the selected row from the existing scan, then clean
 it with `force: true`: opting in is the approval to lose uncommitted or unmerged
 work, because Git merge detection misses squash merges and PRs the GitHub
 integration cannot read. Force still requires an archived, non-original
-checkout and keeps saved existing branches. Desktop and WSL archive/finish
+checkout and keeps saved existing branches. Desktop archive/finish
 commands wait for the foreground archive hook to exit before replying; merely
 spawning it would let automatic deletion race resource teardown. Hooks must
 not detach teardown work. This preserves existing exit-status policy and adds
@@ -58,11 +58,7 @@ no hook timeout. Desktop closes per-workspace launch admission across teardown, 
 already admitted launches to publish their tabs, and stops agents both before
 the hook and before archive completion. Admission reopens after completion,
 but an archived workspace must be explicitly restored before launching again.
-The same memory-only gate excludes cleanup during a repeated archive hook. WSL uses the existing
-deferred-operation worker and polling contract, negotiated through
-`application.archive.v1`, so long hooks do not block requests or hit the
-thirty-second transport timeout; catalog mutation stays on the owner loop.
-The bridge retains its ten-minute polling deadline.
+The same memory-only gate excludes cleanup during a repeated archive hook.
 Errors are reported without retrying. Manual cleanup remains unchanged. The setting explains that this
 removes the whole worktree, including ignored files, rather than only
 `node_modules`. This reuses the cleanup boundary instead of introducing a

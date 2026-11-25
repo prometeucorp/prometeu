@@ -73,9 +73,7 @@ there is no requirement to wrap every function in an interface.
 
 [ADR 0085](0085-portable-core.md) moves board models, this use case and the
 other application rules into an independently tested library with injected
-effects. The production desktop deployment remains local and in-process; the
-Windows composition runs the same core in a WSL runtime under
-[ADR 0084](0084-shared-windows-desktop.md).
+effects. The production desktop deployment remains local and in-process.
 
 The import graph and selected global-access checks are architectural fitness
 checks, not a complete proof of purity. Their exact scope and limits are in the

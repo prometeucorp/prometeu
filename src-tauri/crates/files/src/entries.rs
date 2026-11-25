@@ -112,7 +112,7 @@ fn rename(root: &Path, from: &str, to: &str) -> Result<(), String> {
         return Ok(());
     }
     let case_only = case_change(&source, &target);
-    // On a case-insensitive disk (the macOS and Windows defaults) the new spelling already
+    // On a case-insensitive disk (the macOS default) the new spelling already
     // "exists": it is the source itself. That is the only target allowed to exist.
     if !case_only || spelled(&target) {
         taken(&target)?;

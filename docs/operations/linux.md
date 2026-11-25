@@ -118,10 +118,3 @@ Without a default toolchain, the Tauri CLI fails with a panic while running
 Missing optional programs produce the same unavailable or failure errors the
 UI already shows on macOS. CI builds the backend and runs Rust tests and Clippy
 on Linux; desktop integration still needs manual checks on a Linux session.
-
-## WSL2
-
-Under WSLg, the window opens on the Windows desktop like any other Linux GUI
-app. If it stays blank, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`. WSL has no
-systemd by default, so keep awake has no effect, banners need a notification
-daemon and links open in a Linux browser. This setup is not tested.

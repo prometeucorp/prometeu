@@ -7,7 +7,7 @@ status: stable
 
 # Desktop release and update contract
 
-One version and tag (`v<version>`) identify the macOS, Linux and Windows desktop
+One version and tag (`v<version>`) identify the macOS and Linux desktop
 builds in `prometeucorp/prometeu`. A release stays a draft until all builds,
 macOS and Linux signature verification and native installation checks finish.
 The operational procedure is in [release](../operations/release.md);
@@ -17,10 +17,8 @@ distribution choices are in
 ## Assets and manifest
 
 Stable install names are `Prometeu_aarch64.dmg` for macOS Apple Silicon,
-`Prometeu_x86_64.AppImage` for Linux x86_64 and `Prometeu_x64-setup.exe` for
-Windows x64. They live alongside the macOS and Linux updater packages, their
-`.sig` files and `latest.json` in the same release. The Windows installer is
-unsigned and has no updater entry; installing the next version is manual.
+`Prometeu_x86_64.AppImage` for Linux x86_64. They live alongside the macOS and
+Linux updater packages, their `.sig` files and `latest.json` in the same release.
 
 The app keeps the endpoint
 `https://github.com/prometeucorp/prometeu/releases/latest/download/latest.json`.
@@ -47,11 +45,10 @@ Recovery from a published defect requires a newer version.
 ## Assembly ownership
 
 Platform jobs upload final packages as separate workflow artifacts. One
-job assembles the manifest only after all three succeed, using the signatures
+job assembles the manifest only after both succeed, using the signatures
 beside the final files, including the repacked AppImage. It writes both generic and
 installer-specific entries. It verifies local artifacts before upload and the
-downloaded draft afterward. It also requires the Windows installer before and
-after upload. Reruns fail if the release already exists: signatures,
+downloaded draft afterward. Reruns fail if the release already exists: signatures,
 version and notes cannot prove which commit built an older draft after a tag
 moves. Rebuilding requires manual draft removal. Uploads never replace existing
 assets, including when manual publication races with the initial draft check. The public format, asset names, URLs and updater key remain
@@ -83,8 +80,7 @@ and no available update, so UI tests never download packages.
 updater packages. The verifier checks changelog notes, macOS and Linux updater
 targets, exact versioned URLs, all install assets, signature-file consistency
 and minisign signatures against the embedded key.
-`scripts/test_release.py` covers missing platforms/assets, including the Windows
-installer, wrong versions/URLs, signature failures, draft assembly, refusal to
+`scripts/test_release.py` covers missing platforms/assets, wrong versions/URLs, signature failures, draft assembly, refusal to
 overwrite published assets and refusal to publish incomplete or failed builds.
 `src/update-init.test.ts` preserves package-manager ownership and macOS behavior;
 `src/update.test.ts` covers download, the question before restarting and restart.

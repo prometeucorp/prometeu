@@ -287,16 +287,9 @@ mod tests {
 }
 
 /// Public consent data; the verifier and provider credentials stay in the execution host.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConsentRequest {
     pub authorize: String,
     pub state: String,
-    #[serde(default)]
-    pub language: String,
-}
-/// Host-specific browser and loopback handling. Implementations bind before opening the browser.
-pub trait Consent: Send + Sync {
-    fn authorize(&self, request: &ConsentRequest) -> Result<String, String>;
 }
 pub const MCP_REDIRECT: &str = "http://127.0.0.1:17421/mcp";
 pub const MCP_PORT: u16 = 17421;
