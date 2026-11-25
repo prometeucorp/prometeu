@@ -151,10 +151,23 @@ fn terminal_transcript_claude_tool_images_keep_results_and_validate_the_envelope
         assert_eq!(records[0].omitted_media, 1);
         assert_eq!(records[0].value, expected);
     }
-    for invalid in ["AAAA!", "AB=="] {
+    // Earlier parsers kept tool images in records that fit the line budget, and saved journals
+    // key those records by their exact value: such records must stay byte-identical, even when
+    // the image is not valid base64.
+    for data in ["iVBORw0KGgo=", "AAAA!"] {
         let mut tail = JsonlTail::with_inline_images(InlineImageFormat::Claude);
         let batch = tail
-            .feed(0, &lines(&[row(invalid)]), TranscriptPhase::Live)
+            .feed(0, &lines(&[row(data)]), TranscriptPhase::Live)
+            .unwrap();
+        assert!(!batch.loss);
+        assert_eq!(batch.records[0].omitted_media, 0);
+        assert_eq!(batch.records[0].value, row(data));
+    }
+    for invalid in ["!", "AB=="] {
+        let data = "A".repeat(2 * TRANSCRIPT_LINE_LIMIT) + invalid;
+        let mut tail = JsonlTail::with_inline_images(InlineImageFormat::Claude);
+        let batch = tail
+            .feed(0, &lines(&[row(&data)]), TranscriptPhase::Live)
             .unwrap();
         assert!(batch.loss && batch.records.is_empty());
     }

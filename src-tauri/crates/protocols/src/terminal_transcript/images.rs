@@ -318,6 +318,7 @@ impl ImageFilter {
             return Err(());
         }
         let mut omitted = 0;
+        let mut tool_images = Vec::new();
         for candidate in &self.omitted {
             let pointer = format!("/{}", candidate.path.join("/"));
             let image = match candidate.kind {
@@ -351,6 +352,10 @@ impl ImageFilter {
                             .is_some_and(|v| v == "input_image")
                 }
             };
+            if image && candidate.kind == InlineImageFormat::Claude && candidate.path.len() == 7 {
+                tool_images.push((pointer, candidate));
+                continue;
+            }
             let replacement = if image {
                 if !candidate.binary.valid() {
                     return Err(());
@@ -364,6 +369,37 @@ impl ImageFilter {
                 Value::String(serde_json::from_slice(original).map_err(|_| ())?)
             };
             *value.pointer_mut(&pointer).ok_or(())? = replacement;
+        }
+        if tool_images.is_empty() {
+            return Ok(omitted);
+        }
+        // Earlier parsers kept Read-tool image bytes whenever the record fit the line budget, and
+        // saved journals key those records by a digest of that exact value. Keep such records
+        // byte-identical so a resume matches them; omit the bytes only when the record could not
+        // have been read before. ponytail: originals share FALLBACK_LIMIT with every candidate in
+        // the record, so a record whose images together exceed it drops tool images even if the
+        // old parser kept them; give tool images their own budget if that case shows up.
+        let originals = tool_images
+            .iter()
+            .map(|(_, candidate)| {
+                let original = candidate.original.as_deref()?;
+                serde_json::from_slice::<String>(original).ok()
+            })
+            .collect::<Option<Vec<_>>>();
+        if let Some(originals) = originals {
+            for ((pointer, _), original) in tool_images.iter().zip(originals) {
+                *value.pointer_mut(pointer).ok_or(())? = Value::String(original);
+            }
+            if value.to_string().len() <= super::TRANSCRIPT_LINE_LIMIT {
+                return Ok(omitted);
+            }
+        }
+        for (pointer, candidate) in tool_images {
+            if !candidate.binary.valid() {
+                return Err(());
+            }
+            *value.pointer_mut(&pointer).ok_or(())? = Value::Null;
+            omitted += 1;
         }
         Ok(omitted)
     }

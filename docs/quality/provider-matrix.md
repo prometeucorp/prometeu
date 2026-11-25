@@ -331,8 +331,9 @@ browser fixtures do not certify native provider behavior.
 Claude image reads have native-ingestion regressions in
 `terminal_transcript::tests::terminal_transcript_claude_tool_images_keep_results_and_validate_the_envelope`
 and `terminal_observation_claude_read_image_survives_ingestion_and_cold_resume`.
-They cover oversized base64 images nested in tool results, preserved text and
-tool identity, invalid envelopes, and cold replay without duplicate canonical
+They cover oversized base64 images nested in tool results, small ones kept
+byte-identical for journals saved by earlier parsers, preserved text and tool
+identity, invalid envelopes, and cold replay of both without duplicate canonical
 output. This is synthetic parser and journal evidence, not a native Tauri run.
 Codex retains its separate inline-image shapes; no other provider behavior changes.
 
