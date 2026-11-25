@@ -36,6 +36,10 @@ rule is covered by `src/machines.test.ts`; navigation compatibility by
 journey through machine selection and nested registration without losing the
 workspace prompt. Remote execution remains Claude-only.
 
+Agent clients on the machine (proposed
+[ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
+without permission prompts; `src-tauri/crates/host/tests/agents.rs` covers them.
+
 Evidence: the host integration tests and the opt-in `vps_journey` cover
 transport, reattachment and limits. A live Claude response, completion and
 reattached status on a remote machine remain to be recorded here.

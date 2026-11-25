@@ -7,8 +7,9 @@ status: stable
 
 # Remote host protocol
 
-Decision: [ADR 0101](../decisions/0101-remote-machines.md). Implementation:
-`src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
+Decisions: [ADR 0101](../decisions/0101-remote-machines.md) and, for the registry
+and agent clients, the proposed [ADR 0103](../decisions/0103-agents-on-remote-machines.md).
+Implementation: `src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
 
 ## Installation
 
@@ -26,7 +27,11 @@ Its install directory is the first 16 hex digits of its SHA-256.
   host-v1.lock                 flock held by the serving host
   host.log                     host stderr
   sessions/<tab>/settings.json Claude hook settings, 0600
-  worktrees/<repo>/<branch>/   worktrees created by the desktop
+  worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
+  registry.json                the machine's projects and workspaces, 0600
+  agents.json                  optional `{ "socket": "<absolute path>" }`, 0600
+  agents/token                 agent token, 0600
+  agents/agents-v1.sock        default agent socket, 0666 in a 0700 directory
 ```
 
 Installation checks that `uname -sm` is `Linux x86_64`, streams the build over
@@ -92,8 +97,11 @@ unknown outcome.
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`; streams `file` events every 250 ms while this attachment lives |
 | `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
 | `hook_reply` | `hook`, `stdout` (base64) | `{}` |
+| `registry_list` | none | the registry, with each conversation's `state`, `state_at` and `notification` |
+| `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path, inserts or replaces a workspace by ID |
+| `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
 | `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
-| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs |
+| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs or an agent request that changes the machine is in progress |
 
 Terminal and watch IDs match `[A-Za-z0-9_-]{1,128}`. Unknown terminals answer
 `unknown_terminal`, which the desktop treats as a process lost with the host.
@@ -154,8 +162,180 @@ remains compatible with callers that pass a local project ID.
 `src/machines.test.ts` covers local, selected-host, other-host and aliased clones.
 `src/settings-navigation.test.ts` preserves the saved `projects` destination.
 
+## Registry
+
+`registry.json` is `{ version: 1, projects, workspaces }`; only the host writes
+it, with an atomic rename through a uniquely named temporary file. A registry
+with a newer `version` is refused instead of being rewritten without the fields
+this host does not know. Records:
+
+- project: `{ path, name, origin?, added_at, added_by }`;
+- workspace: `{ id, project, title, branch, base, worktree, created_at,
+  created_by, closed, keep_branch, conversations }`;
+- conversation: `{ id, title, created_at, permission }`, where `id` is the tab,
+  Claude session and terminal ID and `permission` is `auto` or `ask`;
+- creator: `{ kind: "desktop" | "agent", name? }`.
+
+Unknown fields are ignored. Times are Unix seconds.
+
+## Observed state
+
+The host reads the event name of every hook it serves and keeps, per
+conversation, `state` and `state_at`: `idle` after `SessionStart`, `Stop` or
+`StopFailure`; `working` after `UserPromptSubmit` or a tool hook; `permission`
+after `PermissionRequest`. `Notification` records its `message` as
+`notification` until the next working hook. A conversation whose terminal is
+not running reports `ended`; a running one with no hook yet reports `starting`.
+
+## Agent socket
+
+Agents connect to the path in `agents.json`, or `<root>/agents/agents-v1.sock`.
+The host checks that path every 3 seconds and rebinds it, so `prometeu-host
+agents setup [--socket PATH] [--rotate] [--client-uid ID]` applies without a
+restart. That command
+creates or rotates the token and prints an MCP configuration. An existing entry
+at the path is replaced only when it is a socket whose non-blocking connection
+attempt is refused; one that answers or whose queue is full is kept;
+otherwise the host leaves it alone, logs the refusal once and tries again at
+every check, so the path is taken as soon as it is freed. When the path changes,
+the previous listener stops and its socket file is removed.
+
+The first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
+The token is read from `agents/token` and compared in constant time on the hello
+frame and again before every request. A mismatch answers
+`{"event":"error","error":"unauthorized"}`, an unknown protocol `"protocol"`,
+and the connection closes. At most 16 connections may wait for their hello, each
+for at most 10 seconds; more are closed without an answer. At most 64
+authenticated connections are served; the next gets `"busy"`. Otherwise the
+host answers `{"event":"ready","protocol":1,"version"}` and serves `{ id,
+method, params }` requests in order with `{ id, result }` or `{ id, error }`.
+`client` (at most 64 characters) is recorded as the creator's `name`.
+Requests that change the machine (`project_add`, `project_clone`,
+`workspace_create`, `conversation_open`, `conversation_send`,
+`conversation_interrupt`, `workspace_close`) delay a non-forced `shutdown`. Once a
+shutdown has started, they fail with `host_stopping`.
+
+The token authorizes running commands as the host's user, so only that user may
+be able to write to the socket's directory: whoever can replace the socket can
+collect the token from the next client.
+
+| Method | Params | Result |
+| --- | --- | --- |
+| `projects_list` | none | projects |
+| `project_add` | `path` (absolute, inside a Git repository) | the project registered at the repository's top level |
+| `project_clone` | `url`, `path?` (default `~/code/<name>`) | the cloned project |
+| `workspace_create` | `project` (path or name), `prompt`, `title?`, `branch?`, `base?` | the workspace with its first conversation |
+| `workspace_list` | `all?` | open workspaces, or all of them |
+| `workspace_get` | `id` | the workspace |
+| `conversation_open` | `workspace`, `prompt` | the conversation and its `workspace` |
+| `conversation_read` | `id`, `cursor?`, `limit?` (1–200, default 50) | `{ messages, cursor, more, status }` |
+| `conversation_send` | `id`, `text` | `{ resumed }` |
+| `conversation_interrupt` | `id` | `{}`; sends Escape |
+| `workspace_close` | `id`, `force?` | `{}` |
+
+Workspaces and conversations carry the observed state fields above.
+
+`workspace_create` fetches `origin` (best effort) and picks a fresh
+`prometeu/<noun>-<adjective>-<NNNN>` branch when none is given. The base is
+`origin/HEAD`, or else `HEAD`. The worktree path is
+`<root>/worktrees/<project name>/<flattened branch>`, with symbolic links in the
+parent resolved, because Claude names transcript folders after its physical
+working directory. Before Git creates anything, the host marks that exact folder
+trusted in `~/.claude.json` (`projects[<path>].hasTrustDialogAccepted`) under a
+lock shared by its own edits. Claude asks about folder trust even without
+permission prompts, and a trusted parent does not count. The host then adds the
+worktree and records the workspace; if recording fails, it removes the worktree
+and the new branch. Finally it launches:
+
+```text
+claude --session-id|--resume <id> --dangerously-skip-permissions \
+  --settings <root>/sessions/<id>/settings.json <prompt>
+```
+
+If the launch fails, the error names the recorded workspace and conversation:
+`conversation_send` retries the launch and `workspace_close` removes the
+workspace. `conversation_open` removes its conversation from the registry when
+its launch fails.
+
+The terminal is 120×40 with the workspace slice and no limits. Its hook
+environment names the session and `claude`, with placeholder token and nonce
+that a desktop relay replaces. Variables a parent Claude exports to its children
+are unset. `--resume` is used when the transcript already exists. `PROMETEU_HOST_CLAUDE`
+replaces the `claude` program, for tests.
+
+`conversation_read` parses `~/.claude/projects/<slug>/<id>.jsonl`. A message is
+`{ role, kind: text | tool_use | tool_result, text, tool?, error?, at }`. Tool
+text is cut to 2,000 characters and message text to 20,000. Meta and subagent
+lines are skipped. Without a cursor, it returns the last `limit` messages from
+the last 8 MiB of the file. With a cursor, it returns the messages after that
+byte offset, reading at most 8 MiB. The reply's `cursor` always ends at a line
+boundary. A single record longer than 8 MiB is skipped: the cursor moves past
+it, and a `{ role: "system", kind: "skipped" }` message reports its size. A
+reply carries at most 4 MiB of serialized messages: a page ends before the
+record that would exceed it, and a record that alone exceeds it keeps the
+messages that fit, followed by a `skipped` message counting the rest. A tail
+read drops its oldest messages to fit. A cursor that does not follow a newline
+points inside a record, which a tail read returns when its window holds no line
+boundary. Reading from it waits for that record to end, then continues after
+it with a `skipped` message.
+
+`conversation_send` writes the text as a bracketed paste and, 150 ms later,
+Enter, holding the terminal's input across both so that concurrent messages
+never merge. It relaunches an ended conversation with the text as its prompt,
+except one whose `permission` is not `auto`: the host launches only without
+prompts, so such a conversation must be resumed from the desktop.
+`conversation_interrupt` and every other conversation method accept only IDs in
+the registry, never other terminals of the host.
+
+`workspace_close` refuses, unless `force`, a worktree with `git status
+--porcelain` output (`uncommitted_changes`). It also refuses
+(`unpushed_commits`) when the worktree's `HEAD`, or the branch when it is to be
+deleted, has commits on neither the base, resolved in the main checkout, nor
+any remote. A kept branch counts as holding its commits. A branch that Git confirms no longer exists under its recorded name (renamed or
+deleted) is not checked, and only `HEAD` is. When the lookup itself fails, the
+close is refused. Without `force`, only a branch the checks examined is
+deleted. It checks before ending the
+conversations' terminals and again after they exit. When the second check
+refuses, the conversations stay ended: `conversation_send` resumes those whose
+`permission` is `auto`, and the others resume from the desktop.
+While a workspace is closing, launches and messages into it fail with
+`workspace_closed`, and a second close fails with `workspace_closing`. It then
+forgets the terminals, removes the worktree (`git worktree remove`, with
+`--force` only when `force` is set) and, unless `keep_branch`, deletes the
+branch. Finally it marks the workspace closed.
+
+### MCP server
+
+`prometeu-host mcp [--socket PATH]` speaks MCP over stdio, newline-delimited
+JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.
+Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
+label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID`
+is set, it sends the token only to a listener whose peer credentials report
+that user ID, as the client's user namespace sees it. A rootless container
+usually sees the host's user as 65534. `agents setup --client-uid <ID>` adds the
+variable to the printed configuration; a missing or non-numeric ID fails the
+command before anything is written. Without the flag, the variable is left
+out, and the command explains which ID to pass. It answers `initialize` with
+the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
+and with 2025-06-18 otherwise. When the connection fails before a request is
+sent, it reconnects and sends the request once more. When the connection is lost
+after sending, it repeats only the read-only methods (`projects_list`,
+`workspace_list`, `workspace_get`, `conversation_read`). For any other method, it
+reports that the outcome is unknown. Tools map one to one to the agent methods: `list_projects`,
+`add_project`, `clone_project`, `create_workspace`, `list_workspaces`,
+`get_workspace`, `open_conversation`, `read_conversation`, `send_message`,
+`interrupt_conversation` and `close_workspace`. Results are pretty-printed
+JSON text, and host errors set `isError`.
+
+Tests: `src-tauri/crates/host/tests/agents.rs` drives the agent socket and the
+MCP server against the real binary with a stand-in Claude, and the unit tests in
+`agents.rs`, `registry.rs`, `transcript.rs`, `naming.rs` and `mcp.rs` cover the
+rest.
+
 ## Compatibility
 
 A protocol change that older desktops or hosts cannot ignore bumps `PROTOCOL`,
-which renames the socket. Fields are additive within a protocol. Tests:
+which renames the socket. Fields are additive within a protocol. The agent socket
+has its own `AGENT_PROTOCOL`, carried in its hello frame. The registry carries its
+own `version`. Tests:
 `src-tauri/crates/host/tests/host.rs` and the `remote` unit tests.
