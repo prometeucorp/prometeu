@@ -883,7 +883,9 @@ impl Writer {
         };
         if let Some(target) = &target {
             self.note_echo_mismatch(
-                target.checkpoint["normalizedHash"].as_str().unwrap_or_default(),
+                target.checkpoint["normalizedHash"]
+                    .as_str()
+                    .unwrap_or_default(),
                 hash,
             );
         }
