@@ -302,9 +302,21 @@ fn an_agent_drives_a_workspace_without_a_desktop() {
         .call("workspace_close", json!({"id": workspace}))
         .unwrap_err()
         .starts_with("uncommitted_changes"));
+    std::fs::remove_file(Path::new(&worktree).join("b")).unwrap();
+    // Renamed away (as after merging it elsewhere), the branch is no longer the workspace's to
+    // delete, and HEAD, at the base, holds nothing new: closing needs no force.
+    sh(
+        Path::new(&worktree),
+        &format!("git branch -m {branch} renamed-after-merge"),
+    );
     agent
-        .call("workspace_close", json!({"id": workspace, "force": true}))
+        .call("workspace_close", json!({"id": workspace}))
         .unwrap();
+    let kept = Command::new("git")
+        .args(["-C", &repo, "branch", "--list", "renamed-after-merge"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&kept.stdout).trim().is_empty());
     assert!(!Path::new(&worktree).exists());
     let branches = Command::new("git")
         .args(["-C", &repo, "branch", "--list", &branch])

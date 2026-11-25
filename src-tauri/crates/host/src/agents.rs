@@ -1144,14 +1144,20 @@ fn losses(workspace: &Workspace) -> Result<Option<String>, String> {
     // Removing the worktree drops what only its HEAD reaches (it may be detached), and deleting
     // the branch drops what only the branch reaches; a kept branch still holds its commits.
     let branch = format!("refs/heads/{}", workspace.branch);
+    // A renamed or deleted branch holds nothing closing could delete; HEAD is still checked.
+    let present = git(
+        &workspace.worktree,
+        &["rev-parse", "--verify", "--quiet", &branch],
+    )
+    .is_ok();
     let unique = base
         .and_then(|base| {
             let mut args = vec!["rev-list", "--count", "HEAD"];
-            if !workspace.keep_branch {
+            if present && !workspace.keep_branch {
                 args.push(&branch);
             }
             args.extend(["--not", "--remotes", &base]);
-            if workspace.keep_branch {
+            if present && workspace.keep_branch {
                 args.push(&branch);
             }
             git(&workspace.worktree, &args)

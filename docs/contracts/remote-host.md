@@ -191,7 +191,8 @@ not running reports `ended`; a running one with no hook yet reports `starting`.
 
 Agents connect to the path in `agents.json`, or `<root>/agents/agents-v1.sock`.
 The host checks that path every 3 seconds and rebinds it, so `prometeu-host
-agents setup [--socket PATH] [--rotate]` applies without a restart. That command
+agents setup [--socket PATH] [--rotate] [--client-uid ID]` applies without a
+restart. That command
 creates or rotates the token and prints an MCP configuration. An existing entry
 at the path is replaced only when it is a socket whose non-blocking connection
 attempt is refused; one that answers or whose queue is full is kept;
@@ -290,7 +291,9 @@ the registry, never other terminals of the host.
 --porcelain` output (`uncommitted_changes`). It also refuses
 (`unpushed_commits`) when the worktree's `HEAD`, or the branch when it is to be
 deleted, has commits on neither the base, resolved in the main checkout, nor
-any remote. A kept branch counts as holding its commits. It checks before ending the
+any remote. A kept branch counts as holding its commits. A branch that no longer
+exists under its recorded name, renamed or deleted, is not checked, and only
+`HEAD` is. It checks before ending the
 conversations' terminals and again after they exit. When the second check
 refuses, the conversations stay ended: `conversation_send` resumes those whose
 `permission` is `auto`, and the others resume from the desktop.
@@ -308,8 +311,9 @@ Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
 label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID`
 is set, it sends the token only to a listener whose peer credentials report
 that user ID, as the client's user namespace sees it. A rootless container
-usually sees the host's user as 65534. `agents setup` prints the host's own ID
-for that variable. It answers `initialize` with
+usually sees the host's user as 65534. `agents setup --client-uid <ID>` adds the
+variable to the printed configuration. Without the flag, the variable is left
+out, and the command explains which ID to pass. It answers `initialize` with
 the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
 and with 2025-06-18 otherwise. When the connection fails before a request is
 sent, it reconnects and sends the request once more. When the connection is lost
