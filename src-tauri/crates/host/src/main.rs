@@ -28,7 +28,14 @@ fn main() {
             "--root" => root = args.next().map(std::path::PathBuf::from),
             "--socket" => socket = args.next().map(std::path::PathBuf::from),
             "--rotate" => rotate = true,
-            "--client-uid" => client_uid = args.next().filter(|v| v.parse::<u32>().is_ok()),
+            // A bad value must not silently produce a configuration without the check.
+            "--client-uid" => match args.next() {
+                Some(uid) if uid.parse::<u32>().is_ok() => client_uid = Some(uid),
+                _ => {
+                    eprintln!("prometeu-host: --client-uid requires a numeric user ID");
+                    std::process::exit(2);
+                }
+            },
             _ => rest.push(arg),
         }
     }

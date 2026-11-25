@@ -328,6 +328,32 @@ fn an_agent_drives_a_workspace_without_a_desktop() {
     assert_eq!(all[0]["closed"], true);
     assert_eq!(all[0]["conversations"][0]["state"], "ended");
 
+    // Force discards what the checks protect: uncommitted changes and unpushed commits.
+    let forced = agent
+        .call(
+            "workspace_create",
+            json!({"project": "repo", "prompt": "throwaway"}),
+        )
+        .unwrap();
+    let forced_tree = forced["worktree"].as_str().unwrap().to_string();
+    let forced_branch = forced["branch"].as_str().unwrap().to_string();
+    sh(
+        Path::new(&forced_tree),
+        "echo d > d && git add d && git commit -qm unpushed && echo e > e",
+    );
+    agent
+        .call(
+            "workspace_close",
+            json!({"id": forced["id"], "force": true}),
+        )
+        .unwrap();
+    assert!(!Path::new(&forced_tree).exists());
+    let gone = Command::new("git")
+        .args(["-C", &repo, "branch", "--list", &forced_branch])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&gone.stdout).trim().is_empty());
+
     // The desktop socket offers the same registry, for adoption into the board.
     let mut desktop = UnixStream::connect(machine.root.join("host-v1.sock")).unwrap();
     writeln!(desktop, "{}", json!({"attach": {"protocol": 1}})).unwrap();
@@ -448,6 +474,24 @@ fn a_refused_socket_path_is_taken_once_it_is_free() {
     assert_eq!(std::fs::read_to_string(&blocked).unwrap(), "not a socket");
     std::fs::remove_file(&blocked).unwrap();
     machine.wait_for("the freed path", || UnixStream::connect(&blocked).is_ok());
+}
+
+#[test]
+fn setup_rejects_a_client_uid_that_is_not_a_number() {
+    let root = std::env::temp_dir().join(format!("pa-uid-{}", std::process::id()));
+    for bad in [&["--client-uid", "nobody"][..], &["--client-uid"][..]] {
+        let output = Command::new(BIN)
+            .args(["agents", "setup"])
+            .args(bad)
+            .arg("--root")
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stdout).contains("Token"));
+    }
+    assert!(!root.join("agents").join("token").exists());
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

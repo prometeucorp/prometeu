@@ -1122,6 +1122,23 @@ fn conversation_send(host: &Arc<Host>, id: &str, message: &str) -> Result<Value,
     Ok(json!({"resumed": false}))
 }
 
+/// Whether the workspace's branch exists under its recorded name: `Ok(false)` only when Git
+/// listed the branches and it was not among them.
+fn branch_exists(workspace: &Workspace) -> Result<bool, String> {
+    let name = format!("refs/heads/{}", workspace.branch);
+    let listed = git(
+        &workspace.project,
+        &["for-each-ref", "--format=%(refname)", &name],
+    )
+    .map_err(|error| {
+        format!(
+            "unpushed_commits: could not look up {}: {error}",
+            workspace.branch
+        )
+    })?;
+    Ok(listed.lines().any(|line| line == name))
+}
+
 /// What closing would lose: uncommitted changes, and commits that only the workspace's branch
 /// holds (not on the base nor on any remote), which deleting the branch would drop.
 fn losses(workspace: &Workspace) -> Result<Option<String>, String> {
@@ -1145,11 +1162,8 @@ fn losses(workspace: &Workspace) -> Result<Option<String>, String> {
     // the branch drops what only the branch reaches; a kept branch still holds its commits.
     let branch = format!("refs/heads/{}", workspace.branch);
     // A renamed or deleted branch holds nothing closing could delete; HEAD is still checked.
-    let present = git(
-        &workspace.worktree,
-        &["rev-parse", "--verify", "--quiet", &branch],
-    )
-    .is_ok();
+    // When Git cannot tell, the close is refused rather than guessed.
+    let present = branch_exists(workspace)?;
     let unique = base
         .and_then(|base| {
             let mut args = vec!["rev-list", "--count", "HEAD"];
@@ -1236,7 +1250,8 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
             }
             git(&workspace.project, &["worktree", "prune"])?;
         }
-        if !workspace.keep_branch {
+        // Without force, only a branch the checks above examined is deleted.
+        if !workspace.keep_branch && (force || branch_exists(&workspace) == Ok(true)) {
             let _ = git(
                 &workspace.project,
                 &["branch", "-D", "--", &workspace.branch],

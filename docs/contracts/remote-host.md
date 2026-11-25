@@ -291,9 +291,10 @@ the registry, never other terminals of the host.
 --porcelain` output (`uncommitted_changes`). It also refuses
 (`unpushed_commits`) when the worktree's `HEAD`, or the branch when it is to be
 deleted, has commits on neither the base, resolved in the main checkout, nor
-any remote. A kept branch counts as holding its commits. A branch that no longer
-exists under its recorded name, renamed or deleted, is not checked, and only
-`HEAD` is. It checks before ending the
+any remote. A kept branch counts as holding its commits. A branch that Git confirms no longer exists under its recorded name (renamed or
+deleted) is not checked, and only `HEAD` is. When the lookup itself fails, the
+close is refused. Without `force`, only a branch the checks examined is
+deleted. It checks before ending the
 conversations' terminals and again after they exit. When the second check
 refuses, the conversations stay ended: `conversation_send` resumes those whose
 `permission` is `auto`, and the others resume from the desktop.
@@ -312,7 +313,8 @@ label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID
 is set, it sends the token only to a listener whose peer credentials report
 that user ID, as the client's user namespace sees it. A rootless container
 usually sees the host's user as 65534. `agents setup --client-uid <ID>` adds the
-variable to the printed configuration. Without the flag, the variable is left
+variable to the printed configuration; a missing or non-numeric ID fails the
+command before anything is written. Without the flag, the variable is left
 out, and the command explains which ID to pass. It answers `initialize` with
 the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
 and with 2025-06-18 otherwise. When the connection fails before a request is
