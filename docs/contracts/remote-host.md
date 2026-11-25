@@ -310,7 +310,10 @@ something answers at the socket, and the last bind error, stored in
 `{ command: "<directory>/prometeu-mcp", args: ["mcp", "--socket", "<socket>"], env }`.
 Both paths are resolved against setup's working directory when `--root` is
 relative, so the copied configuration works from another directory. Resolution
-does not require the daemon's socket to exist or rewrite stored paths.
+does not require the daemon's socket to exist or rewrite stored paths. Setup
+validates the emitted address against the platform's Unix socket path limit
+before writing configuration or tokens; an invalid address is rejected with
+guidance to choose another path using `--socket`.
 `env` holds `PROMETEU_AGENT_TOKEN`,
 `PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. The expected peer ID
 is the setup user's actual UID, or the explicit `--client-uid` override. Setup
@@ -476,6 +479,8 @@ rest. `the_generated_local_config_lists_tools_and_relays_calls` executes the
 emitted command, arguments and environment without deployment-specific edits.
 `a_relative_root_generates_an_mcp_config_usable_from_another_directory` covers
 relative roots before the socket exists and actual tool calls from another directory.
+`setup_rejects_an_oversized_absolute_socket_before_saving` covers rejection
+without enabling agents and recovery with a short explicit socket path.
 `setup_under_a_private_home_never_opens_parent_permissions` covers private homes;
 `setup_preserves_legacy_access_and_disable_cleans_it_up` covers existing paths,
 tokens, directory modes and legacy permission cleanup. The desktop test

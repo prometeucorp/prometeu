@@ -243,7 +243,6 @@ pub struct Setup {
 /// asks for a new one. A running host starts serving within seconds. Access from other users or
 /// execution environments is configured by the integrator, never by setup.
 pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, String> {
-    private_dir(&root.join("agents"))?;
     let wanted = match socket {
         Some(socket) if !socket.is_absolute() => {
             return Err("the socket path must be absolute".into())
@@ -253,6 +252,15 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
             config_path(root, "socket").unwrap_or_else(|| default_dir(root).join(socket_name()))
         }
     };
+    // Validate the address clients receive, not a shorter path relative to the daemon.
+    let emitted_socket = std::path::absolute(&wanted).map_err(|e| e.to_string())?;
+    std::os::unix::net::SocketAddr::from_pathname(&emitted_socket).map_err(|e| {
+        format!(
+            "invalid agent socket path {}: {e}; choose another path with --socket",
+            emitted_socket.display()
+        )
+    })?;
+    private_dir(&root.join("agents"))?;
     let dir = wanted
         .parent()
         .ok_or("the socket path needs a directory")?
@@ -297,7 +305,7 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
     Ok(Setup {
         token,
         // The copied configuration can run from another directory, even before the socket exists.
-        socket: std::path::absolute(wanted).map_err(|e| e.to_string())?,
+        socket: emitted_socket,
         client: std::path::absolute(client).map_err(|e| e.to_string())?,
         moved_from,
     })
@@ -1913,7 +1921,8 @@ mod tests {
     }
 
     fn temporary_root(name: &str) -> PathBuf {
-        let base = std::env::temp_dir().join(format!("pa-{name}-{}", std::process::id()));
+        // Keep setup addresses within the Unix socket limit even when the system temp path is long.
+        let base = Path::new("/tmp").join(format!("pa-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();

@@ -652,6 +652,38 @@ fn a_relative_root_generates_an_mcp_config_usable_from_another_directory() {
     check_generated_local_config(true);
 }
 
+#[test]
+fn setup_rejects_an_oversized_absolute_socket_before_saving() {
+    let machine = Machine::new();
+    let directory = machine.dir.join("x".repeat(128));
+    std::fs::create_dir(&directory).unwrap();
+    let root = directory.join("state");
+    let output = Command::new(BIN)
+        .args(["agents", "setup", "--json", "--root", "./state"])
+        .current_dir(&directory)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid agent socket path"));
+    assert!(
+        !root.exists(),
+        "a rejected configuration must not enable agents"
+    );
+
+    // A short explicit socket allows the state directory to stay where the user chose it.
+    let socket = machine.dir.join("short/agents-v1.sock");
+    let output = Command::new(BIN)
+        .args(["agents", "setup", "--json", "--root", "./state", "--socket"])
+        .arg(&socket)
+        .current_dir(&directory)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(setup["server"]["args"][2], socket.display().to_string());
+    assert!(root.join("agents/token").exists());
+}
+
 fn check_generated_local_config(relative: bool) {
     let machine = Machine::with_relative_root(relative);
     let output = Command::new(BIN)
