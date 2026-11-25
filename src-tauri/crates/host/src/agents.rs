@@ -26,6 +26,8 @@ pub const AGENT_PROTOCOL: u32 = 1;
 const CONFIG: &str = "agents.json";
 const READ_LIMIT: usize = 200;
 const TAIL_BYTES: u64 = 8 * 1_048_576;
+/// Serialized messages per reply, well under the socket's line limit.
+const REPLY_BUDGET: usize = 4 * 1_048_576;
 const GIT: Duration = Duration::from_secs(60);
 const CLONE: Duration = Duration::from_secs(600);
 /// Variables a Claude process exports to its children. A host started from inside a Claude
@@ -174,7 +176,8 @@ pub fn listen(host: Arc<Host>) {
         loop {
             let wanted = socket_path(&host.root);
             let serving = bound.as_ref().is_some_and(|(p, _)| *p == wanted) && is_socket(&wanted);
-            if !serving && refused.as_ref() != Some(&wanted) {
+            // A refused path is retried at every poll, since it may be freed; it is logged once.
+            if !serving {
                 match bind(&wanted) {
                     Ok(listener) => {
                         eprintln!("prometeu-host agents on {}", wanted.display());
@@ -187,7 +190,9 @@ pub fn listen(host: Arc<Host>) {
                         refused = None;
                     }
                     Err(error) => {
-                        eprintln!("prometeu-host agents: {}: {error}", wanted.display());
+                        if refused.as_ref() != Some(&wanted) {
+                            eprintln!("prometeu-host agents: {}: {error}", wanted.display());
+                        }
                         refused = Some(wanted);
                     }
                 }
@@ -410,6 +415,8 @@ fn dispatch(
         "conversation_send" => conversation_send(host, text(params, "id")?, text(params, "text")?),
         "conversation_interrupt" => {
             let id = text(params, "id")?;
+            // Only conversations in the registry: an agent must never reach other terminals.
+            find_conversation(host, id)?;
             if !host.is_running(id) {
                 return Err("conversation_ended".into());
             }
@@ -871,7 +878,7 @@ fn conversation_read(host: &Host, params: &Value) -> Result<Value, String> {
     let state = json!({"state": activity.state, "state_at": activity.at, "notification": activity.notification});
     let path = transcript_path(&workspace.worktree, id)?;
     let mut read = match std::fs::File::open(&path) {
-        Ok(mut file) => read_transcript(&mut file, cursor, limit, TAIL_BYTES)?,
+        Ok(mut file) => read_transcript(&mut file, cursor, limit, TAIL_BYTES, REPLY_BUDGET)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             json!({"messages": [], "cursor": 0, "more": false})
         }
@@ -887,6 +894,7 @@ fn read_transcript(
     cursor: Option<u64>,
     limit: usize,
     window: u64,
+    budget: usize,
 ) -> Result<Value, String> {
     let size = file.metadata().map_err(|e| e.to_string())?.len();
     let (start, tail) = match cursor {
@@ -908,7 +916,8 @@ fn read_transcript(
             .position(|b| *b == b'\n')
             .map_or(bytes.len(), |p| p + 1);
     }
-    let mut messages = Vec::new();
+    let mut messages: Vec<Value> = Vec::new();
+    let mut used = 0;
     let mut consumed = offset;
     let mut more = false;
     while let Some(end) = bytes[consumed..].iter().position(|b| *b == b'\n') {
@@ -917,10 +926,34 @@ fn read_transcript(
             break;
         }
         let line = &bytes[consumed..consumed + end];
-        consumed += end + 1;
-        if let Ok(value) = serde_json::from_slice::<Value>(line) {
-            messages.extend(prometeu_host::transcript::messages(&value));
+        let found = serde_json::from_slice::<Value>(line)
+            .map(|value| prometeu_host::transcript::messages(&value))
+            .unwrap_or_default();
+        let found_size: usize = found.iter().map(|m| m.to_string().len()).sum();
+        // A page always fits in one reply. The next page starts at this record, unless the
+        // record alone is too large: then it is cut, and the rest is reported as omitted.
+        if !tail && used + found_size > budget && !messages.is_empty() {
+            more = true;
+            break;
         }
+        consumed += end + 1;
+        if !tail && found_size > budget {
+            let total = found.len();
+            for message in found {
+                let length = message.to_string().len();
+                if used + length > budget {
+                    break;
+                }
+                used += length;
+                messages.push(message);
+            }
+            let omitted = total - messages.len();
+            messages.push(json!({"role": "system", "kind": "skipped",
+                "text": format!("{omitted} message(s) of one transcript record were omitted")}));
+            continue;
+        }
+        used += found_size;
+        messages.extend(found);
     }
     let mut next = start + consumed as u64;
     // A single record longer than the window would otherwise pin the cursor forever: skip it and
@@ -932,8 +965,14 @@ fn read_transcript(
             next = after;
         }
     }
-    if tail && messages.len() > limit {
-        messages.drain(..messages.len() - limit);
+    if tail {
+        if messages.len() > limit {
+            messages.drain(..messages.len() - limit);
+        }
+        let mut used: usize = messages.iter().map(|m| m.to_string().len()).sum();
+        while used > budget && !messages.is_empty() {
+            used -= messages.remove(0).to_string().len();
+        }
     }
     if next < size && !tail {
         more = true;
@@ -944,19 +983,23 @@ fn read_transcript(
 /// Type a message into the conversation, as a person pasting it and pressing Enter. Claude queues
 /// it when a turn is running. An ended conversation is resumed with the message as its prompt.
 fn conversation_send(host: &Arc<Host>, id: &str, message: &str) -> Result<Value, String> {
-    let (workspace, _) = find_conversation(host, id)?;
+    let (workspace, conversation) = find_conversation(host, id)?;
     if workspace.closed || lock(&CLOSING).contains(&workspace.id) {
         return Err("workspace_closed".into());
     }
     if !host.is_running(id) {
+        // The host only launches without permission prompts; a conversation the person runs with
+        // prompts must be resumed where they can be answered.
+        if conversation.permission != "auto" {
+            return Err(
+                "conversation_ended: it asks for permissions, so resume it from the desktop".into(),
+            );
+        }
         launch(host, &workspace, id, Some(message))?;
         return Ok(json!({"resumed": true}));
     }
     let clean = message.replace("\x1b[201~", "");
-    host.write(id, format!("\x1b[200~{clean}\x1b[201~").as_bytes())?;
-    // Claude handles a paste before the key that submits it.
-    std::thread::sleep(Duration::from_millis(150));
-    host.write(id, b"\r")?;
+    host.submit(id, format!("\x1b[200~{clean}\x1b[201~").as_bytes())?;
     Ok(json!({"resumed": false}))
 }
 
@@ -1190,11 +1233,50 @@ mod tests {
         );
         std::fs::write(&path, format!("{huge}\n{small}\n")).unwrap();
         let mut file = std::fs::File::open(&path).unwrap();
-        let first = read_transcript(&mut file, Some(0), 50, 64).unwrap();
+        let first = read_transcript(&mut file, Some(0), 50, 64, REPLY_BUDGET).unwrap();
         assert_eq!(first["messages"][0]["kind"], "skipped");
         assert_eq!(first["cursor"], huge.len() as u64 + 1);
-        let second = read_transcript(&mut file, first["cursor"].as_u64(), 50, 64).unwrap();
+        let second =
+            read_transcript(&mut file, first["cursor"].as_u64(), 50, 64, REPLY_BUDGET).unwrap();
         assert_eq!(second["messages"][0]["text"], "after");
+        assert_eq!(second["more"], false);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pages_fit_the_reply_budget_and_cut_records_that_cannot() {
+        let dir = scratch("budget");
+        let path = dir.join("t.jsonl");
+        let text = |t: &str| format!(r#"{{"type":"user","message":{{"content":"{t}"}}}}"#);
+        let blocks: Vec<String> = (0..5)
+            .map(|i| format!(r#"{{"type":"text","text":"{}{i}"}}"#, "y".repeat(40)))
+            .collect();
+        let wide = format!(
+            r#"{{"type":"assistant","message":{{"content":[{}]}}}}"#,
+            blocks.join(",")
+        );
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n{wide}\n",
+                text(&"a".repeat(40)),
+                text(&"b".repeat(40))
+            ),
+        )
+        .unwrap();
+        let mut file = std::fs::File::open(&path).unwrap();
+        let read = |file: &mut std::fs::File, cursor| {
+            read_transcript(file, Some(cursor), 50, 1_048_576, 200).unwrap()
+        };
+        // Two small records fit; the next page starts at the wide one.
+        let first = read(&mut file, 0);
+        assert_eq!(first["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(first["more"], true);
+        // Alone, the wide record does not fit: what fits is kept and the rest reported.
+        let second = read(&mut file, first["cursor"].as_u64().unwrap());
+        let messages = second["messages"].as_array().unwrap();
+        assert_eq!(messages.last().unwrap()["kind"], "skipped");
+        assert!(messages.len() < 6);
         assert_eq!(second["more"], false);
         std::fs::remove_dir_all(dir).unwrap();
     }

@@ -368,6 +368,72 @@ fn rotating_the_token_and_moving_the_socket_cut_off_old_access() {
 }
 
 #[test]
+fn agents_reach_only_registered_conversations_and_never_resume_prompting_ones() {
+    let machine = Machine::new();
+    let (writer, reader, _) = machine.connect(machine.token().trim());
+    let mut agent = Agent {
+        writer,
+        reader,
+        next: 0,
+    };
+    assert_eq!(
+        agent
+            .call("conversation_interrupt", json!({"id": "desktop-terminal"}))
+            .unwrap_err(),
+        "unknown_conversation"
+    );
+
+    // A conversation the person runs with permission prompts, recorded by the desktop.
+    let repo = machine.dir.join("repo").display().to_string();
+    let mut desktop = UnixStream::connect(machine.root.join("host-v1.sock")).unwrap();
+    writeln!(desktop, "{}", json!({"attach": {"protocol": 1}})).unwrap();
+    let workspace = json!({
+        "id": "w1", "project": repo, "title": "t", "branch": "main", "base": "HEAD",
+        "worktree": repo, "created_at": 0, "created_by": {"kind": "desktop"},
+        "conversations": [{"id": "c1", "title": "t", "created_at": 0, "permission": "ask"}],
+    });
+    writeln!(
+        desktop,
+        "{}",
+        json!({"id": 1, "method": "registry_put", "params": {"workspace": workspace}})
+    )
+    .unwrap();
+    let mut lines = BufReader::new(desktop).lines();
+    loop {
+        let frame: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        if frame["id"] == 1 {
+            assert_eq!(frame["result"], json!({}));
+            break;
+        }
+    }
+    assert!(agent
+        .call("conversation_send", json!({"id": "c1", "text": "go"}))
+        .unwrap_err()
+        .contains("resume it from the desktop"));
+    assert!(!machine.dir.join("args-c1").exists());
+}
+
+#[test]
+fn a_refused_socket_path_is_taken_once_it_is_free() {
+    let machine = Machine::new();
+    machine.wait_for("agent socket", || machine.socket().exists());
+    let blocked = machine.dir.join("blocked.sock");
+    std::fs::write(&blocked, "not a socket").unwrap();
+    let setup = Command::new(BIN)
+        .args(["agents", "setup", "--socket"])
+        .arg(&blocked)
+        .arg("--root")
+        .arg(&machine.root)
+        .output()
+        .unwrap();
+    assert!(setup.status.success());
+    std::thread::sleep(Duration::from_secs(4));
+    assert_eq!(std::fs::read_to_string(&blocked).unwrap(), "not a socket");
+    std::fs::remove_file(&blocked).unwrap();
+    machine.wait_for("the freed path", || UnixStream::connect(&blocked).is_ok());
+}
+
+#[test]
 fn the_mcp_server_lists_tools_and_relays_calls() {
     let machine = Machine::new();
     let mut mcp = Command::new(BIN)

@@ -194,7 +194,8 @@ The host checks that path every 3 seconds and rebinds it, so `prometeu-host
 agents setup [--socket PATH] [--rotate]` applies without a restart. That command
 creates or rotates the token and prints an MCP configuration. An existing entry
 at the path is replaced only when it is a socket that does not answer;
-otherwise the host logs the refusal and leaves it alone. When the path changes,
+otherwise the host leaves it alone, logs the refusal once and tries again at
+every check, so the path is taken as soon as it is freed. When the path changes,
 the previous listener stops and its socket file is removed.
 
 The first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
@@ -259,10 +260,19 @@ lines are skipped. Without a cursor, it returns the last `limit` messages from
 the last 8 MiB of the file. With a cursor, it returns the messages after that
 byte offset, reading at most 8 MiB. The reply's `cursor` always ends at a line
 boundary. A single record longer than 8 MiB is skipped: the cursor moves past
-it, and a `{ role: "system", kind: "skipped" }` message reports its size.
+it, and a `{ role: "system", kind: "skipped" }` message reports its size. A
+reply carries at most 4 MiB of serialized messages: a page ends before the
+record that would exceed it, and a record that alone exceeds it keeps the
+messages that fit, followed by a `skipped` message counting the rest. A tail
+read drops its oldest messages to fit.
 
 `conversation_send` writes the text as a bracketed paste and, 150 ms later,
-Enter. It relaunches an ended conversation with the text as its prompt.
+Enter, holding the terminal's input across both so that concurrent messages
+never merge. It relaunches an ended conversation with the text as its prompt,
+except one whose `permission` is not `auto`: the host launches only without
+prompts, so such a conversation must be resumed from the desktop.
+`conversation_interrupt` and every other conversation method accept only IDs in
+the registry, never other terminals of the host.
 
 `workspace_close` refuses, unless `force`, a worktree with `git status
 --porcelain` output (`uncommitted_changes`). Unless `keep_branch`, it also

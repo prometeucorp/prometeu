@@ -162,6 +162,19 @@ impl Host {
         input.flush().map_err(|e| e.to_string())
     }
 
+    /// Type a paste and the Enter that submits it while holding the terminal's input, so another
+    /// client's message cannot land between them.
+    pub(crate) fn submit(&self, id: &str, paste: &[u8]) -> Result<(), String> {
+        let term = find(self, id)?;
+        let mut input = lock(&term.input);
+        input.write_all(paste).map_err(|e| e.to_string())?;
+        input.flush().map_err(|e| e.to_string())?;
+        // Claude handles a paste before the key that submits it.
+        std::thread::sleep(Duration::from_millis(150));
+        input.write_all(b"\r").map_err(|e| e.to_string())?;
+        input.flush().map_err(|e| e.to_string())
+    }
+
     /// Terminate a terminal and wait briefly for it to exit, then kill it.
     pub(crate) fn end(&self, id: &str) {
         let Ok(term) = find(self, id) else { return };
