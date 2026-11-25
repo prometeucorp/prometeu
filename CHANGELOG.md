@@ -4,6 +4,21 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.47.0] - 2026-11-25
+
+### New
+
+- **remote:** Enable agents on a machine without shell steps
+- **settings:** Copy a remote machine's MCP configuration from settings
+
+### Fixes
+
+- **remote:** Update the machine's daemon once it becomes idle
+- **remote:** Keep the agent token out of shared folders and screenshots
+- **remote:** Ask before opening the home and never lose work to an update
+- **remote:** Let settings enable agents and always close the home again
+- **remote:** Keep retrying folders disable could not check
+
 ## [0.46.1] - 2026-11-25
 
 ### Fixes
