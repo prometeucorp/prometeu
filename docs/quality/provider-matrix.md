@@ -50,8 +50,12 @@ Agent clients on the machine
 without permission prompts; `src-tauri/crates/host/tests/agents.rs` covers them.
 The desktop adopts their workspaces as Claude terminal tabs that run in that
 mode, and `src-tauri/src/remote/registry.rs` covers the adoption.
-Settings enables them on a connected machine and shows the container's MCP
-configuration.
+Settings enables them on a connected machine and shows a generic local stdio MCP
+configuration for any client. Container and network setup belong to the
+integrator. `the_generated_local_config_lists_tools_and_relays_calls` in the host
+integration tests executes the generated configuration; host unit tests cover
+unchanged home permissions and legacy cleanup. This changes client integration,
+not provider support: execution still launches Claude only.
 
 Evidence: the host integration tests and the opt-in `vps_journey` cover
 transport, reattachment and limits. A live Claude response, completion and

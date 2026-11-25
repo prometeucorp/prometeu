@@ -1595,12 +1595,6 @@
       ]
     },
     {
-      "target": "machines.agents.openHome",
-      "sources": [
-        "src/machines.ts"
-      ]
-    },
-    {
       "target": "machines.agents.rotate",
       "sources": [
         "src/machines.ts"

@@ -40,6 +40,10 @@ fn sh(cwd: &Path, script: &str) {
 
 impl Machine {
     fn new() -> Self {
+        Self::with_relative_root(false)
+    }
+
+    fn with_relative_root(relative: bool) -> Self {
         // Short: Unix socket paths are limited to about 100 bytes.
         static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -80,15 +84,21 @@ while IFS= read -r line; do printf '%s\n' "$line" >> "{dir}/typed-$id"; done
         .unwrap();
         sh(&dir, "chmod +x claude");
         let setup = Command::new(BIN)
-            .args(["agents", "setup", "--root"])
-            .arg(&root)
+            .args(["agents", "setup", "--json", "--root"])
+            .arg(if relative { Path::new("./r") } else { &root })
+            .current_dir(&dir)
             .env("HOME", &home)
             .output()
             .unwrap();
         assert!(setup.status.success());
+        let setup: Value = serde_json::from_slice(&setup.stdout).unwrap();
+        // Configuration must be portable before the daemon creates its socket.
+        assert!(Path::new(setup["server"]["command"].as_str().unwrap()).is_absolute());
+        assert!(Path::new(setup["server"]["args"][2].as_str().unwrap()).is_absolute());
         let host = Command::new(BIN)
             .args(["serve", "--root"])
             .arg(&root)
+            .current_dir(&dir)
             .env("HOME", &home)
             .env("PROMETEU_HOST_CLAUDE", &fake)
             .env("CLAUDECODE", "1")
@@ -535,9 +545,13 @@ fn a_refused_socket_path_is_taken_once_it_is_free() {
 }
 
 #[test]
-fn setup_rejects_a_client_uid_that_is_not_a_number() {
+fn setup_rejects_invalid_identity_and_removed_permission_flags() {
     let root = std::env::temp_dir().join(format!("pa-uid-{}", std::process::id()));
-    for bad in [&["--client-uid", "nobody"][..], &["--client-uid"][..]] {
+    for bad in [
+        &["--client-uid", "nobody"][..],
+        &["--client-uid"][..],
+        &["--open-home"][..],
+    ] {
         let output = Command::new(BIN)
             .args(["agents", "setup"])
             .args(bad)
@@ -558,16 +572,16 @@ fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
     let machine = Machine::new();
     let agents = machine.dir.join("r-agents");
     let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
-    // Reachable by another user's container, writable only by this user; the token stays private.
-    assert_eq!(mode(&agents), 0o755);
+    // New agent directories and tokens are private; existing directory modes are preserved.
+    assert_eq!(mode(&agents), 0o700);
     assert_eq!(mode(&machine.root.join("agents")), 0o700);
     let client = agents.join("prometeu-mcp");
     assert_eq!(mode(&client), 0o755);
     assert_eq!(std::fs::read(&client).unwrap(), std::fs::read(BIN).unwrap());
     machine.wait_for("agent socket", || machine.socket().exists());
 
-    // The JSON output is what the desktop shows: a container mount and an MCP entry whose paths
-    // never change across updates, with the token and the overflow user ID by default.
+    // The JSON output is a local MCP entry whose paths stay valid across updates.
+    // It authenticates the actual host user, without assuming a deployment environment.
     let output = Command::new(BIN)
         .args(["agents", "setup", "--json", "--root"])
         .arg(&machine.root)
@@ -577,21 +591,20 @@ fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
     assert!(output.status.success());
     let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(setup["token"], machine.token().trim());
-    assert_eq!(setup["mount"]["source"], agents.display().to_string());
-    assert_eq!(setup["mount"]["target"], "/prometeu");
-    assert_eq!(setup["server"]["command"], "/prometeu/prometeu-mcp");
+    assert!(setup.get("mount").is_none());
+    assert!(setup.get("needs_open").is_none());
+    assert_eq!(setup["server"]["command"], client.display().to_string());
     assert_eq!(
         setup["server"]["args"],
-        json!(["mcp", "--socket", "/prometeu/agents-v1.sock"])
+        json!(["mcp", "--socket", machine.socket().display().to_string()])
     );
     assert_eq!(
         setup["server"]["env"]["PROMETEU_AGENT_TOKEN"],
         machine.token().trim()
     );
-    let overflow = std::fs::read_to_string("/proc/sys/kernel/overflowuid")
-        .map(|t| t.trim().to_string())
-        .unwrap_or_else(|_| "65534".into());
-    assert_eq!(setup["server"]["env"]["PROMETEU_AGENT_HOST_UID"], overflow);
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() }.to_string();
+    assert_eq!(setup["server"]["env"]["PROMETEU_AGENT_HOST_UID"], uid);
 
     // A host started from another build (an update) replaces a stale copy atomically.
     std::fs::write(&client, b"old build").unwrap();
@@ -630,12 +643,78 @@ fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
 }
 
 #[test]
-fn the_mcp_server_lists_tools_and_relays_calls() {
+fn the_generated_local_config_lists_tools_and_relays_calls() {
+    check_generated_local_config(false);
+}
+
+#[test]
+fn a_relative_root_generates_an_mcp_config_usable_from_another_directory() {
+    check_generated_local_config(true);
+}
+
+#[test]
+fn setup_rejects_an_oversized_absolute_socket_before_saving() {
     let machine = Machine::new();
-    let mut mcp = Command::new(BIN)
-        .args(["mcp", "--root"])
-        .arg(&machine.root)
-        .env("PROMETEU_AGENT_TOKEN", machine.token())
+    let directory = machine.dir.join("x".repeat(128));
+    std::fs::create_dir(&directory).unwrap();
+    let root = directory.join("state");
+    let output = Command::new(BIN)
+        .args(["agents", "setup", "--json", "--root", "./state"])
+        .current_dir(&directory)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid agent socket path"));
+    assert!(
+        !root.exists(),
+        "a rejected configuration must not enable agents"
+    );
+
+    // A short explicit socket allows the state directory to stay where the user chose it.
+    let socket = machine.dir.join("short/agents-v1.sock");
+    let output = Command::new(BIN)
+        .args(["agents", "setup", "--json", "--root", "./state", "--socket"])
+        .arg(&socket)
+        .current_dir(&directory)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(setup["server"]["args"][2], socket.display().to_string());
+    assert!(root.join("agents/token").exists());
+}
+
+fn check_generated_local_config(relative: bool) {
+    let machine = Machine::with_relative_root(relative);
+    let output = Command::new(BIN)
+        .args(["agents", "setup", "--json", "--root"])
+        .arg(if relative {
+            Path::new("./r")
+        } else {
+            &machine.root
+        })
+        .current_dir(&machine.dir)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let server = &setup["server"];
+    let mut mcp = Command::new(server["command"].as_str().unwrap())
+        .current_dir(&machine.home)
+        .args(
+            server["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap()),
+        )
+        .envs(
+            server["env"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k, v.as_str().unwrap())),
+        )
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()

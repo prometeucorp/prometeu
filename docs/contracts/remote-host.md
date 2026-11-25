@@ -32,7 +32,7 @@ Its install directory is the first 16 hex digits of its SHA-256.
   agents.json                  `{ socket, client, opened }` written by setup, 0600
   agents/bind-error            why the host cannot serve the agent socket, while it cannot
   agents/token                 agent token, 0600; agents are enabled while it exists
-~/.prometeu-remote[-dev]-agents/   default agent directory, 0755
+~/.prometeu-remote[-dev]-agents/   default agent directory, 0700
   agents-v1.sock               agent socket, 0666
   prometeu-mcp                 client executable the host keeps current, 0755
 ```
@@ -284,50 +284,66 @@ seconds and rebinds, so `prometeu-host agents setup [--socket PATH] [--rotate]
 [--client-uid ID] [--json]` and `agents disable` apply without a restart. When
 agents are disabled, the listener stops and its socket is removed.
 
-`agents setup` creates the socket's directory 0755 when missing. Setup and the
-host's bind refuse a directory not owned by the host's user or writable by its
-group or others, and one with a parent folder that is owned by another user than
-that user or root, or writable by group or others without the sticky bit. Setup
-also refuses a directory holding a `prometeu-mcp` it did not record, and a socket
-path taken by something other than a socket. When that directory is under
-`$HOME`, other users must be able to traverse each folder from the home down to
-it. Folders the person owns that lack `o+x` are changed only with
-`--open-home`: without it, setup changes nothing, exits 3 and names them, or with
-`--json` prints `{ needs_open: [paths] }` and exits 0. With it, setup records them
-in `opened`, adds `o+x` and reports them. `agents disable` removes `o+x` from
-every recorded folder, skips only those confirmed gone, keeps recorded those it
-could not check or close, and fails naming them. It records the
-socket and `<directory>/prometeu-mcp` in `agents.json`, removes a previously
-recorded client elsewhere, copies itself there (0755), then creates or rotates
-the token. The host refreshes the recorded copy, through a temporary file and a
-rename and only when it differs, every time it binds the socket. `agents
-disable` deletes the token and the recorded copy. `agents status --json`
-prints `{ enabled, socket, serving, error }`: whether something answers at the
-socket, and the reason the host last gave for not serving it, which it writes to
-`agents/bind-error` when a bind fails and removes once it serves or agents are
-disabled.
+`agents setup` creates missing socket directories with mode 0700 and leaves
+existing directory permissions unchanged. It never opens the home or other
+parent folders to additional users. Setup and the host's bind refuse a directory
+not owned by the host's user or writable by its group or others, and a parent
+owned by anyone other than that user or root, or writable by group or others
+without the sticky bit. Setup also refuses a directory holding a `prometeu-mcp`
+it did not record, and a socket path taken by something other than a socket.
 
-`agents setup` prints a mount (`<directory>:/prometeu:ro`) and an MCP entry
-`{ command: "/prometeu/prometeu-mcp", args: ["mcp", "--socket",
-"/prometeu/<socket name>"], env }`. `env` holds `PROMETEU_AGENT_TOKEN`,
-`PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. That ID is
-`--client-uid` when given, and otherwise `/proc/sys/kernel/overflowuid`
-(usually 65534), which the text output explains. With `--json` it prints
-`{ token, socket, client, opened, moved_from, client_uid, local_uid, mount: {
-source, target, read_only }, server }` instead. The desktop's `machine_agents_enable`
-and `machine_agents_disable` commands run these through `exec` with the build
-they attach with. Enabling passes `--open-home` only after Settings asks the
-person about the folders named in `needs_open`, then waits up to 8 seconds for
-`serving` or `error` before publishing the status.
-They return the mount and the pretty-printed `{"mcpServers": {"prometeu":
-server}}` to Settings only, both as copied (`config`) and with the token masked
-for the screen (`preview`), and `MachineView.agents` carries the
-status read at each attachment. An existing entry
-at the path is replaced only when it is a socket whose non-blocking connection
-attempt is refused; one that answers or whose queue is full is kept;
-otherwise the host leaves it alone, logs the refusal once and tries again at
-every check, so the path is taken as soon as it is freed. When the path changes,
-the previous listener stops and its socket file is removed.
+Setup records the socket and `<directory>/prometeu-mcp` in `agents.json`, removes
+a previously recorded client elsewhere, copies itself there (0755), then creates
+or rotates the token. The host refreshes the recorded copy atomically, only when
+it differs, every time it binds the socket. `agents disable` deletes the token
+and the recorded copy. For compatibility, setup preserves the `opened` list
+written by older versions without changing those folders. Disabling still
+removes `o+x` from those legacy folders, skips only folders confirmed gone,
+retains records it could not check or close, and fails naming them. The removed
+`--open-home` flag fails before any setup changes.
+
+`agents status --json` prints `{ enabled, socket, serving, error }`: whether
+something answers at the socket, and the last bind error, stored in
+`agents/bind-error` and removed once the host serves or agents are disabled.
+
+`agents setup` prints a local stdio MCP entry:
+`{ command: "<directory>/prometeu-mcp", args: ["mcp", "--socket", "<socket>"], env }`.
+Both paths are resolved against setup's working directory when `--root` is
+relative, so the copied configuration works from another directory. Resolution
+does not require the daemon's socket to exist or rewrite stored paths. Setup
+validates the emitted address against the platform's Unix socket path limit
+before writing configuration or tokens; an invalid address is rejected with
+guidance to choose another path using `--socket`.
+`env` holds `PROMETEU_AGENT_TOKEN`,
+`PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. The expected peer ID
+is the setup user's actual UID, or the explicit `--client-uid` override. Setup
+makes no assumption about user namespaces. With `--json` it prints
+`{ token, socket, client, moved_from, server }`.
+
+The desktop's `machine_agents_enable { id, rotate }` and `machine_agents_disable`
+run these commands through `exec` with the installed build they attach with,
+even when an older daemon is still running. Enabling waits up to 8 seconds for
+`serving` or `error` before publishing status. It returns
+`{ config, preview, moved_from }` to Settings: the pretty-printed
+`{"mcpServers": {"prometeu": server}}` with the token for copying, and a masked
+preview for display. `MachineView.agents` carries status read at each attachment.
+The desktop IPC and mock change together; the setup output no longer contains
+mounts, namespace hints or a permission-consent outcome.
+
+Any MCP client that can execute the command and reach the socket can use this
+configuration. The default configuration targets the same machine and Unix user
+as the daemon. Containers, volumes, remote command execution, network access and
+permission changes belong to the integrator. No HTTP listener is added. An
+integration that maps paths or user identities must adapt the command, socket
+path and expected peer UID without removing token or peer authentication.
+Existing client configurations, recorded socket paths and directory permissions
+remain usable across upgrades; generating a new configuration produces local
+paths even for a previously customized installation.
+
+An existing socket entry is replaced only when a non-blocking connection is
+refused. An answering socket or a full queue is kept; otherwise the host logs
+the refusal once and retries at every check. When the path changes, the old
+listener stops and its socket is removed.
 
 The first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
 The token is read from `agents/token` and compared in constant time on the hello
@@ -442,10 +458,9 @@ JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.
 Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
 label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID`
 is set, it sends the token only to a listener whose peer credentials report
-that user ID, as the client's user namespace sees it. A rootless container
-usually sees the host's user as 65534. `agents setup` always adds the variable
-(see above); a missing or non-numeric `--client-uid` fails the command before
-anything is written. It answers `initialize` with
+that user ID, as the client's user namespace sees it. `agents setup` always
+adds the variable using the local user by default (see above); a missing or
+non-numeric `--client-uid` fails the command before anything is written. It answers `initialize` with
 the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
 and with 2025-06-18 otherwise. When the connection fails before a request is
 sent, it reconnects and sends the request once more. When the connection is lost
@@ -460,7 +475,16 @@ JSON text, and host errors set `isError`.
 Tests: `src-tauri/crates/host/tests/agents.rs` drives the agent socket and the
 MCP server against the real binary with a stand-in Claude, and the unit tests in
 `agents.rs`, `registry.rs`, `transcript.rs`, `naming.rs` and `mcp.rs` cover the
-rest.
+rest. `the_generated_local_config_lists_tools_and_relays_calls` executes the
+emitted command, arguments and environment without deployment-specific edits.
+`a_relative_root_generates_an_mcp_config_usable_from_another_directory` covers
+relative roots before the socket exists and actual tool calls from another directory.
+`setup_rejects_an_oversized_absolute_socket_before_saving` covers rejection
+without enabling agents and recovery with a short explicit socket path.
+`setup_under_a_private_home_never_opens_parent_permissions` covers private homes;
+`setup_preserves_legacy_access_and_disable_cleans_it_up` covers existing paths,
+tokens, directory modes and legacy permission cleanup. The desktop test
+`setup_output_becomes_a_masked_local_mcp_config` verifies token masking.
 
 ## Compatibility
 

@@ -88,8 +88,10 @@ A workspace can run on another computer reached over SSH. `prometeu-host`
 owns terminal agents in PTYs, queues their hooks while no desktop is attached,
 streams their transcript files and applies per-workspace systemd limits. The
 desktop (`src-tauri/src/remote/`) keeps the board, conversations, journal and
-interface. It reaches the host through the system `ssh`, reconnects after sleep
-or restarts, and reattaches from the last output sequence. See
+interface. The desktop reaches the host through the system `ssh`, reconnects
+after sleep or restarts, and reattaches from the last output sequence. External
+clients use the host's authenticated local stdio MCP; client deployment and
+infrastructure remain the integrator's responsibility. See
 [ADR 0101](docs/decisions/0101-remote-machines.md) and the
 [remote host protocol](docs/contracts/remote-host.md).
 
