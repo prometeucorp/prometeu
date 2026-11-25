@@ -153,12 +153,12 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
       message: t("machines.agents.rotateConfirm"), accept: t("machines.agents.rotate"), cancel: t("machines.cancel") })) return null;
     // A configuration is only ever shown for the destination it was made on.
     const ssh = machine.ssh;
-    let result = await invoke("machine_agents_enable", { id: machine.id, rotate, open_home: false });
+    let result = await invoke("machine_agents_enable", { id: machine.id, rotate, openHome: false });
     if ("needs_open" in result) {
       if (!await confirmDialog({ track: "machines.agents.openHome", area: "settings", title: t("machines.agents.openHome"),
         message: t("machines.agents.openHomeConfirm", { folders: result.needs_open.join(", ") }),
         accept: t("machines.agents.openHome"), cancel: t("machines.cancel") })) return null;
-      result = await invoke("machine_agents_enable", { id: machine.id, rotate, open_home: true });
+      result = await invoke("machine_agents_enable", { id: machine.id, rotate, openHome: true });
     }
     if (!("needs_open" in result) && machineOf(machine.id)?.ssh === ssh) agentSetups.set(machine.id, { setup: result, ssh });
     return null;

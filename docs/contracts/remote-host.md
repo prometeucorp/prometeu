@@ -242,8 +242,9 @@ path taken by something other than a socket. When that directory is under
 it. Folders the person owns that lack `o+x` are changed only with
 `--open-home`: without it, setup changes nothing, exits 3 and names them, or with
 `--json` prints `{ needs_open: [paths] }` and exits 0. With it, setup records them
-in `opened`, adds `o+x` and reports them; `agents disable` removes `o+x` from the
-recorded folders again. It records the
+in `opened`, adds `o+x` and reports them. `agents disable` removes `o+x` from
+every recorded folder that still exists, keeps recorded only those it could not
+close, and fails naming them. It records the
 socket and `<directory>/prometeu-mcp` in `agents.json`, removes a previously
 recorded client elsewhere, copies itself there (0755), then creates or rotates
 the token. The host refreshes the recorded copy, through a temporary file and a

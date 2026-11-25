@@ -427,14 +427,35 @@ pub fn disable(root: &Path) -> Result<(), String> {
     if let Some(client) = recorded_client(root) {
         let _ = std::fs::remove_file(client);
     }
+    // Every folder is tried: one removed since setup must not keep the others, such as the
+    // home, open. Only folders that still exist and could not be closed stay recorded, so a
+    // later `disable` tries them again.
     let opened = recorded_opened(root);
-    if !opened.is_empty() {
-        set_traversable(&opened, false)?;
-        let mut config = config(root);
-        config["opened"] = json!([]);
-        registry::write_private(&root.join(CONFIG), config.to_string().as_bytes())?;
+    if opened.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    let still_open: Vec<PathBuf> = opened
+        .into_iter()
+        .filter(|folder| folder.exists())
+        .filter(|folder| set_traversable(std::slice::from_ref(folder), false).is_err())
+        .collect();
+    let mut config = config(root);
+    config["opened"] = json!(still_open
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>());
+    registry::write_private(&root.join(CONFIG), config.to_string().as_bytes())?;
+    match still_open.is_empty() {
+        true => Ok(()),
+        false => Err(format!(
+            "could not close {} to other users again",
+            still_open
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 /// Where the host records why it cannot serve the agent socket, for `agents status`.
@@ -1939,6 +1960,24 @@ mod tests {
         assert_eq!(mode(&base), 0o755);
         disable(&root).unwrap();
         assert_eq!(mode(&home), 0o750);
+
+        // A nested folder setup opened and that is gone since never keeps the home open.
+        let nested = home.join("agents-here");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o750)).unwrap();
+        let done = setup_in(
+            &root,
+            Some(&nested.join("inner/a.sock")),
+            false,
+            true,
+            Some(&home),
+        )
+        .unwrap();
+        assert_eq!(done.opened, vec![nested.clone(), home.clone()]);
+        std::fs::remove_dir_all(&nested).unwrap();
+        disable(&root).unwrap();
+        assert_eq!(mode(&home), 0o750);
+        assert!(recorded_opened(&root).is_empty());
         let _ = std::fs::remove_dir_all(base);
     }
 

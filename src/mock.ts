@@ -2651,11 +2651,11 @@ const mockCommands: IpcHandlers = {
     return machine?.claude ?? { installed: true, loggedIn: false, email: null, method: null };
   },
   machine_claude_login() { return "https://claude.ai/oauth/authorize?mock"; },
-  machine_agents_enable({ id, open_home }) {
+  machine_agents_enable({ id, openHome }) {
     const machine = mockMachines.find(m => m.id === id);
     if (!machine || machine.phase !== "connected") throw 'i18n:{"code":"err.remote.offline"}';
     const home = machine.host?.home ?? "/home/me";
-    if (!open_home && !machine.agents?.enabled) return { needs_open: [home] };
+    if (!openHome && !machine.agents?.enabled) return { needs_open: [home] };
     const dir = `${home}/.prometeu-remote-agents`;
     machine.agents = { enabled: true, socket: `${dir}/agents-v1.sock`, serving: true, error: null };
     emit("machines", mockMachines);
@@ -2664,7 +2664,7 @@ const mockCommands: IpcHandlers = {
       env: { PROMETEU_AGENT_TOKEN: token, PROMETEU_AGENT_NAME: "agent", PROMETEU_AGENT_HOST_UID: "65534" } };
     const masked = { ...server, env: { ...server.env, PROMETEU_AGENT_TOKEN: "•".repeat(16) } };
     return { mount: `-v ${dir}:/prometeu:ro`, config: JSON.stringify({ mcpServers: { prometeu: server } }, null, 2),
-      preview: JSON.stringify({ mcpServers: { prometeu: masked } }, null, 2), client_uid: 65534, local_uid: 1000, opened: open_home ? [home] : [], moved_from: null };
+      preview: JSON.stringify({ mcpServers: { prometeu: masked } }, null, 2), client_uid: 65534, local_uid: 1000, opened: openHome ? [home] : [], moved_from: null };
   },
   machine_agents_disable({ id }) {
     const machine = mockMachines.find(m => m.id === id);
