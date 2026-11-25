@@ -82,6 +82,7 @@ while IFS= read -r line; do printf '%s\n' "$line" >> "{dir}/typed-$id"; done
         let setup = Command::new(BIN)
             .args(["agents", "setup", "--root"])
             .arg(&root)
+            .env("HOME", &home)
             .output()
             .unwrap();
         assert!(setup.status.success());
@@ -106,7 +107,7 @@ while IFS= read -r line; do printf '%s\n' "$line" >> "{dir}/typed-$id"; done
     }
 
     fn socket(&self) -> PathBuf {
-        self.root.join("agents/agents-v1.sock")
+        self.dir.join("r-agents/agents-v1.sock")
     }
 
     fn connect(&self, token: &str) -> (UnixStream, BufReader<UnixStream>, Value) {
@@ -492,6 +493,83 @@ fn setup_rejects_a_client_uid_that_is_not_a_number() {
     }
     assert!(!root.join("agents").join("token").exists());
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
+    use std::os::unix::fs::PermissionsExt;
+    let machine = Machine::new();
+    let agents = machine.dir.join("r-agents");
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+    // Reachable by another user's container, writable only by this user; the token stays private.
+    assert_eq!(mode(&agents), 0o755);
+    assert_eq!(mode(&machine.root.join("agents")), 0o700);
+    let client = agents.join("prometeu-host");
+    assert_eq!(mode(&client), 0o755);
+    assert_eq!(std::fs::read(&client).unwrap(), std::fs::read(BIN).unwrap());
+    machine.wait_for("agent socket", || machine.socket().exists());
+
+    // The JSON output is what the desktop shows: a container mount and an MCP entry whose paths
+    // never change across updates, with the token and the overflow user ID by default.
+    let output = Command::new(BIN)
+        .args(["agents", "setup", "--json", "--root"])
+        .arg(&machine.root)
+        .env("HOME", &machine.home)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(setup["token"], machine.token().trim());
+    assert_eq!(setup["mount"]["source"], agents.display().to_string());
+    assert_eq!(setup["mount"]["target"], "/prometeu");
+    assert_eq!(setup["server"]["command"], "/prometeu/prometeu-host");
+    assert_eq!(
+        setup["server"]["args"],
+        json!(["mcp", "--socket", "/prometeu/agents-v1.sock"])
+    );
+    assert_eq!(
+        setup["server"]["env"]["PROMETEU_AGENT_TOKEN"],
+        machine.token().trim()
+    );
+    let overflow = std::fs::read_to_string("/proc/sys/kernel/overflowuid")
+        .map(|t| t.trim().to_string())
+        .unwrap_or_else(|_| "65534".into());
+    assert_eq!(setup["server"]["env"]["PROMETEU_AGENT_HOST_UID"], overflow);
+
+    // A host started from another build (an update) replaces a stale copy atomically.
+    std::fs::write(&client, b"old build").unwrap();
+    let mut machine = machine;
+    let _ = machine.host.kill();
+    let _ = machine.host.wait();
+    machine.host = Command::new(BIN)
+        .args(["serve", "--root"])
+        .arg(&machine.root)
+        .env("HOME", &machine.home)
+        .spawn()
+        .unwrap();
+    machine.wait_for("the refreshed client", || {
+        std::fs::read(&client).is_ok_and(|b| b == std::fs::read(BIN).unwrap())
+            && mode(&client) == 0o755
+    });
+
+    // Disabling drops the token, the socket and the client.
+    let disabled = Command::new(BIN)
+        .args(["agents", "disable", "--root"])
+        .arg(&machine.root)
+        .output()
+        .unwrap();
+    assert!(disabled.status.success());
+    let status = Command::new(BIN)
+        .args(["agents", "status", "--json", "--root"])
+        .arg(&machine.root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&status.stdout).unwrap()["enabled"],
+        false
+    );
+    machine.wait_for("the socket to close", || !machine.socket().exists());
+    assert!(!client.exists());
 }
 
 #[test]

@@ -30,8 +30,10 @@ Its install directory is the first 16 hex digits of its SHA-256.
   worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
   registry.json                the machine's projects and workspaces, 0600
   agents.json                  optional `{ "socket": "<absolute path>" }`, 0600
-  agents/token                 agent token, 0600
-  agents/agents-v1.sock        default agent socket, 0666 in a 0700 directory
+  agents/token                 agent token, 0600; agents are enabled while it exists
+~/.prometeu-remote[-dev]-agents/   default agent directory, 0755
+  agents-v1.sock               agent socket, 0666
+  prometeu-host                client executable the host keeps current, 0755
 ```
 
 Installation checks that `uname -sm` is `Linux x86_64`, streams the build over
@@ -191,11 +193,34 @@ not running reports `ended`; a running one with no hook yet reports `starting`.
 
 ## Agent socket
 
-Agents connect to the path in `agents.json`, or `<root>/agents/agents-v1.sock`.
-The host checks that path every 3 seconds and rebinds it, so `prometeu-host
-agents setup [--socket PATH] [--rotate] [--client-uid ID]` applies without a
-restart. That command
-creates or rotates the token and prints an MCP configuration. An existing entry
+Agents connect to the path in `agents.json`, or `agents-v1.sock` in the default
+agent directory `<root>-agents` (`~/.prometeu-remote-agents`). The host serves it
+only while `agents/token` exists. It checks the token and the path every 3
+seconds and rebinds, so `prometeu-host agents setup [--socket PATH] [--rotate]
+[--client-uid ID] [--json]` and `agents disable` apply without a restart. When
+agents are disabled, the listener stops and its socket is removed.
+
+`agents setup` creates the socket's directory 0755 when missing and refuses one
+that every user can write. When that directory is under `$HOME`, it adds `o+x`
+to each folder from the home down to it that the person owns and that lacks it,
+and reports them. It copies itself to `prometeu-host` (0755) in the directory,
+then creates or rotates the token. The host refreshes that copy, through a
+temporary file and a rename and only when it differs, every time it binds the
+socket. `agents disable` deletes the token and the copy. `agents status --json`
+prints `{ enabled, socket }`.
+
+`agents setup` prints a mount (`<directory>:/prometeu:ro`) and an MCP entry
+`{ command: "/prometeu/prometeu-host", args: ["mcp", "--socket",
+"/prometeu/<socket name>"], env }`. `env` holds `PROMETEU_AGENT_TOKEN`,
+`PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. That ID is
+`--client-uid` when given, and otherwise `/proc/sys/kernel/overflowuid`
+(usually 65534), which the text output explains. With `--json` it prints
+`{ token, socket, client, opened, client_uid, local_uid, mount: { source,
+target, read_only }, server }` instead. The desktop's `machine_agents_enable`
+and `machine_agents_disable` commands run these through `exec` with the build
+they attach with. They return the mount and the pretty-printed `{"mcpServers":
+{"prometeu": server}}` to Settings only, and `MachineView.agents` carries the
+status read at each attachment. An existing entry
 at the path is replaced only when it is a socket whose non-blocking connection
 attempt is refused; one that answers or whose queue is full is kept;
 otherwise the host leaves it alone, logs the refusal once and tries again at
@@ -314,10 +339,9 @@ Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
 label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID`
 is set, it sends the token only to a listener whose peer credentials report
 that user ID, as the client's user namespace sees it. A rootless container
-usually sees the host's user as 65534. `agents setup --client-uid <ID>` adds the
-variable to the printed configuration; a missing or non-numeric ID fails the
-command before anything is written. Without the flag, the variable is left
-out, and the command explains which ID to pass. It answers `initialize` with
+usually sees the host's user as 65534. `agents setup` always adds the variable
+(see above); a missing or non-numeric `--client-uid` fails the command before
+anything is written. It answers `initialize` with
 the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
 and with 2025-06-18 otherwise. When the connection fails before a request is
 sent, it reconnects and sends the request once more. When the connection is lost

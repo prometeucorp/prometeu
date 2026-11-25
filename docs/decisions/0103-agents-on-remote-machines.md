@@ -119,12 +119,27 @@ it is working, as it does for a person typing.
 - Agents never use the desktop socket (`host-v1.sock`), whose `exec`,
   `file_write` and terminal methods amount to a shell. The host serves a second
   socket, `agents-v1.sock`, which offers only the methods below.
-- Its directory is configurable, because exposing it to another Unix user or
-  container is a deployment choice. The default is `<root>/agents/`, which only
-  the owner can reach. The socket is 0666 inside its directory. What authorizes a
-  client is the token.
+- The host serves the agent socket only while a token exists. `prometeu-host
+  agents setup` needs no flags and no root: the default directory is
+  `~/.prometeu-remote-agents`, beside the root, created 0755 so another user's
+  container can mount it while only the person can replace what is inside. It
+  holds the socket (0666) and the client executable, never the token. A
+  container started by another Unix user reaches that folder only through the
+  person's home. Distributions such as Ubuntu create homes as 0750, so setup
+  adds traverse-only permission (`o+x`, not `o+r`) to the person's own folders
+  between the home and the agent directory and reports each folder it changed.
+  That lets other users open files under the home whose own permissions allow it
+  when they know the path. `--socket` chooses another directory, such as one
+  under `/srv`, without touching the home. Setup refuses a directory every user
+  can write. What authorizes a client is the token.
+- The host keeps an executable copy of itself (0755) next to the socket. It
+  replaces it atomically whenever it binds the socket, which includes the first
+  bind after an update, so a bot's configuration names the same command across
+  updates and never runs a build that was removed.
 - The token is 32 random bytes in `<root>/agents/token` (0600), created by the
-  first `prometeu-host agents setup` and replaced by `agents setup --rotate`. Each
+  first `prometeu-host agents setup` and replaced by `agents setup --rotate`.
+  `agents disable` deletes it and the client executable; the host then closes
+  the socket and removes it. Each
   connection's first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
   The host compares the token in constant time on that frame and again before
   every request. A connection whose token no longer matches is closed, so
@@ -155,6 +170,17 @@ it is working, as it does for a person typing.
 methods as tools. It reads the token from `PROMETEU_AGENT_TOKEN`, so it fits the
 environment field of a bot platform's MCP configuration.
 
+`agents setup` prints a configuration for a container: the agent directory
+mounted read-only at `/prometeu`, and an MCP entry running
+`/prometeu/prometeu-host mcp --socket /prometeu/agents-v1.sock`. The client
+checks that the socket's listener runs as `PROMETEU_AGENT_HOST_UID`, the
+person's user ID as the client's user namespace sees it. The host cannot detect
+that value: it depends on where the client runs. The configuration therefore
+defaults to the kernel's overflow ID (usually 65534), which is how a container
+in another user's rootless Docker sees an unmapped user, and the output says
+which value to pass with `--client-uid` for a client running directly on the
+machine or in a rootless container of the person's own user.
+
 ### The desktop
 
 - On every attachment the desktop calls `registry_list` on its own socket. It
@@ -170,6 +196,18 @@ environment field of a bot platform's MCP configuration.
   workspace on the desktop marks it closed in the registry.
 - A workspace an agent closed is marked cleaned and archived on the board at the
   next attachment. Its transcript stays readable.
+- In Settings, a connected machine offers **Enable agents**. The desktop runs
+  `agents setup --json` from the build it attaches with, over the existing SSH
+  attachment, and shows the container mount and the MCP configuration with copy
+  buttons. The token travels only over that SSH connection. It is kept in memory
+  until the person closes the panel, and it is never stored, logged or sent
+  through the relay. The machine's menu then offers a new token (rotation) and
+  **Disable agents**, both confirmed first because they cut off connected bots.
+  Each attachment reads `agents status` to show whether agents are enabled.
+- A host update reaches agents too. The desktop replaces an older host only
+  while it runs no terminal. If the host is busy at attachment, the desktop asks
+  again when a terminal it follows ends, and every minute in any case, because
+  terminals that agents start end without telling the desktop.
 - Agents see every workspace on the machine, including those the person created
   from the desktop. They are recorded when they are created, so agents see them
   while the laptop is off. Local workspaces on the laptop never reach the host.
@@ -196,8 +234,12 @@ Multi-repository workspaces stay desktop-only.
 
 ## Evidence
 
-Implemented on the host. The desktop adoption and the OpenBot run are still
-pending, so this decision stays a proposal.
+The host side is implemented, and so is enabling agents from the desktop with
+no shell steps: setup without flags or root, a client executable the host keeps
+current, the configuration shown in Settings, and host updates that wait for an
+idle moment. The desktop does not adopt registry workspaces into the board yet,
+and the OpenBot run through the Settings flow is still to be recorded, so this
+decision stays a proposal.
 
 - [Remote host protocol](../contracts/remote-host.md): registry, observed state,
   agent socket and MCP server.
@@ -206,7 +248,14 @@ pending, so this decision stays a proposal.
   stand-in Claude. The test also covers the token refusal, folder trust, launch
   arguments, hook-derived state, cursors, the dirty-worktree refusal, and the
   registry as the desktop socket returns it. The MCP server lists tools and relays
-  calls.
+  calls. `setup_needs_no_flags_and_the_host_keeps_the_client_current` covers
+  the default directory's modes, the JSON configuration, a host start replacing
+  a stale client, and disabling.
+- Unit tests: `agents.rs` (only folders between the home and the agent
+  directory become traversable; the default directory sits beside the root),
+  `remote/connection.rs` (`a_busy_stale_host_is_retired_once_it_becomes_idle`)
+  and `remote/agents.rs` (the setup output becomes a mount and a ready-to-paste
+  configuration).
 - Manual run on the VPS (2026-11-24) with Claude Code 2.1.331 and a test root.
   Through the agent socket, a workspace was created in a registered project.
   Claude wrote the requested file and answered, a multi-line follow-up typed
