@@ -4,6 +4,14 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.48.1] - 2026-11-25
+
+### Fixes
+
+- **terminal:** Keep claude terminal conversations alive when a pasted prompt is reformatted
+- **terminal:** Keep the prompt typed in the terminal when an app prompt was never sent
+- **terminal:** Never resend a recovered prompt whose echo was reformatted
+
 ## [0.48.0] - 2026-11-25
 
 ### New
