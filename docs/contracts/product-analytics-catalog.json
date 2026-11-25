@@ -1685,6 +1685,25 @@
       ]
     },
     {
+      "target": "machines.processes",
+      "sources": [
+        "src/machine-processes.ts",
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.processes.refresh",
+      "sources": [
+        "src/machine-processes.ts"
+      ]
+    },
+    {
+      "target": "machines.processes.stop",
+      "sources": [
+        "src/machine-processes.ts"
+      ]
+    },
+    {
       "target": "machines.reconnect",
       "sources": [
         "src/machines.ts"

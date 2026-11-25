@@ -467,6 +467,36 @@ pub fn machine_connect(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Processes owned by the connected host, including idle and unadopted terminals.
+#[tauri::command(async)]
+pub fn machine_terminals(app: AppHandle, id: String) -> Result<Value, String> {
+    app.state::<Service>()
+        .connected(&id)?
+        .request("terminal_list", json!({}))
+}
+
+/// End one host-owned process without deleting its workspace or transcript.
+#[tauri::command(async)]
+pub fn machine_terminal_stop(
+    app: AppHandle,
+    id: String,
+    terminal: String,
+    instance: String,
+) -> Result<(), String> {
+    app.state::<Service>()
+        .connected(&id)?
+        .request(
+            "terminal_stop",
+            json!({"id": terminal, "instance": instance}),
+        )
+        .map_err(|error| match error.as_str() {
+            "terminal_changed" | "unknown_terminal" => crate::i18n::t("err.remote.processChanged"),
+            "unknown method terminal_stop" => crate::i18n::t("machines.processes.unsupported"),
+            _ => error,
+        })?;
+    Ok(())
+}
+
 /// Resource use of the machine and of each of its workspaces' slices.
 #[tauri::command(async)]
 pub fn machine_stats(app: AppHandle, state: State<AppState>, id: String) -> Result<Value, String> {

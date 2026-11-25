@@ -166,7 +166,64 @@ fn terminals_survive_detachment_and_replay_the_gap() {
 
     second.call("terminal_signal", json!({"id": "t1", "signal": "kill"}));
     second.until(|f| f["event"] == "exit" && f["id"] == "t1");
+    let stopped = second.call("terminal_list", json!({}));
+    assert_eq!(stopped[0]["id"], "t1");
+    assert_eq!(stopped[0]["pid"], list[0]["pid"]);
+    assert_eq!(stopped[0]["running"], false);
     second.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn stopping_a_listed_process_never_kills_a_replacement_under_the_same_id() {
+    let root = root();
+    let mut client = Attached::new(&root);
+    let params = json!({"id": "same-id", "argv": ["/bin/sh", "-c", "read line"],
+        "cwd": std::env::temp_dir(), "cols": 80, "rows": 24});
+    client.call("terminal_open", params.clone());
+    let original = client.call("terminal_list", json!({}))[0].clone();
+    assert!(original["instance"]
+        .as_str()
+        .is_some_and(|value| !value.is_empty()));
+    client.call(
+        "terminal_write",
+        json!({"id": "same-id", "data": STANDARD.encode("done\n")}),
+    );
+    let wait_for_exit = |client: &mut Attached| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while client.call("terminal_list", json!({}))[0]["running"] == true {
+            assert!(Instant::now() < deadline, "terminal should exit");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    wait_for_exit(&mut client);
+    client.call("terminal_open", params);
+    let replacement = client.call("terminal_list", json!({}))[0].clone();
+    assert_ne!(original["instance"], replacement["instance"]);
+
+    for (params, expected) in [
+        (
+            json!({"id": "same-id", "instance": original["instance"]}),
+            "terminal_changed",
+        ),
+        (json!({"id": "same-id"}), "missing instance"),
+    ] {
+        let request = client.send("terminal_stop", params);
+        assert_eq!(
+            client.until(|frame| frame["id"] == request)["error"],
+            expected
+        );
+        let listed = client.call("terminal_list", json!({}));
+        assert_eq!(listed[0]["instance"], replacement["instance"]);
+        assert_eq!(listed[0]["running"], true);
+    }
+
+    client.call(
+        "terminal_stop",
+        json!({"id": "same-id", "instance": replacement["instance"]}),
+    );
+    wait_for_exit(&mut client);
+    client.detach();
     shutdown(&root);
 }
 

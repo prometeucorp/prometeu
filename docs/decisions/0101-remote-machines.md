@@ -145,6 +145,15 @@ without root.
 - Quitting the app does not warn about remote work, and dropping a remote waiter
   leaves its process running. Closing a tab, Stop and removing or cleaning a
   workspace still end the remote process.
+- Settings lists the host's running terminals, including idle agents and
+  terminals no desktop tab represents. Each can be ended explicitly after
+  confirmation tied to its unique launch instance. The host validates that
+  instance and signals the same process handle, so a resumed conversation
+  cannot be killed by an earlier confirmation. The new `terminal_stop` method
+  fails closed on older hosts; an optional check on `terminal_signal` would be
+  silently ignored by them. Older hosts remain inspectable, with stopping from
+  the list disabled until they update. The list covers Prometeu terminals
+  rather than every operating-system process.
 
 ### Scope
 

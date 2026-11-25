@@ -101,8 +101,9 @@ unknown outcome.
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |
 | `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}` |
+| `terminal_stop` | `id`, `instance` | `{}`; kills only the listed process instance; rejects a replaced or ended process with `terminal_changed` |
 | `terminal_forget` | `id` | `{}`; drops an exited terminal and `sessions/<id>`; rejects a running terminal |
-| `terminal_list` | none | `[{ id, workspace, pid, unit, started, running, code, seq }]` |
+| `terminal_list` | none | `[{ id, instance, workspace, pid, unit, started, running, code, seq }]`; older hosts omit `instance` |
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`; streams `file` events every 250 ms while this attachment lives |
 | `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
 | `hook_reply` | `hook`, `stdout` (base64) | `{}` |
@@ -170,6 +171,45 @@ The next authenticated hook binds observation to the transcript as usual.
 `remote_reattachment_before_first_prompt_preserves_identity_and_requires_empty_history`
 in `chat/terminal/ingestion/tests.rs` covers this behavior without changing any
 persisted format or host protocol.
+
+## Desktop process inspection
+
+Settings exposes **Running processes** on each connected machine. The additive
+desktop IPC commands `machine_terminals { id }` and
+`machine_terminal_stop { id, terminal, instance }` use `terminal_list` and
+`terminal_stop`. They require a connected machine and only address terminals
+owned by its host, never arbitrary PIDs. Each terminal launch receives a fresh
+UUID in `instance`, retained across attachments. The confirmation carries that
+exact instance through IPC to the host, which checks it and signals the same
+process handle without looking up the terminal ID again. Reusing a conversation
+ID or PID cannot retarget an earlier confirmation; the process control also
+serializes signaling with reaping to prevent signaling a reused OS PID.
+
+The new host method and list field are additive within protocol 1, with no
+persisted format change. Old desktops still use `terminal_signal`. Hosts without
+`instance` remain inspectable, but their stop buttons are disabled with guidance
+to end work from the conversation or machine terminal before upgrading. A stop
+sent after reconnecting to an old host fails as an unknown method; there is no
+fallback to an unguarded signal. Adding an optional identity to `terminal_signal`
+would be unsafe because older hosts silently ignore unknown parameters.
+
+The list uses the host's `running` flag, including idle conversations, sign-in
+terminals and terminals absent from the desktop board. Board names are resolved
+only within that machine. It shows the conversation or terminal ID, workspace,
+PID and start time, refreshes every three seconds while open, and clears stale
+controls when a query fails. Ending a process requires confirmation and kills
+its process group without removing its workspace or saved transcript. Normal
+exit handling still drains and mirrors its output. The pending-update notice
+explains that idle processes also block replacement; remaining host requests
+can still delay replacement after the list becomes empty.
+
+`src/machine-processes.test.ts` covers host liveness, machine-scoped labels,
+confirmation races, legacy hosts, targeted stopping and polling lifetime.
+`stopping_a_listed_process_never_kills_a_replacement_under_the_same_id` verifies
+that stale or missing instances leave a replacement running and its current
+instance can stop it. The existing
+`terminals_survive_detachment_and_replay_the_gap` host test verifies list and
+kill compatibility, including the listed state after exit.
 
 ## Desktop project selection
 

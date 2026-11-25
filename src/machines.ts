@@ -7,6 +7,7 @@ import * as menu from "./menu";
 import { button, confirmDialog, field, input, notice } from "./ui";
 import type { Project } from "./types";
 import { h, template } from "./util";
+import { showMachineProcesses } from "./machine-processes";
 
 /// Remote machines (ADR 0101): computers reached over SSH whose `prometeu-host` daemon runs workspaces for this app.
 /// Rust owns the connections and publishes their state on the `machines` event; this module mirrors it for Settings,
@@ -195,6 +196,11 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     ]);
   } });
   act.append(more);
+  if (machine.phase === "connected") {
+    const processes = button(t("machines.processes"), () => showMachineProcesses(machine.id, machine.name), "outline", "machines.processes");
+    processes.dataset.focus = `machine-processes:${machine.id}`;
+    act.prepend(processes);
+  }
 
   const rows: HTMLElement[] = [node];
   if (signing.has(machine.id)) rows.push(claudeLogin(machine, signing.get(machine.id)!, say, redraw));

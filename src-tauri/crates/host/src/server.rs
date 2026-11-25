@@ -74,6 +74,7 @@ impl Ring {
 
 pub(crate) struct Term {
     pub(crate) id: String,
+    instance: String,
     workspace: Option<String>,
     pid: u32,
     started: u64,
@@ -547,6 +548,16 @@ fn dispatch(
             term.control.resize(size)?;
             json!({})
         }
+        "terminal_stop" => {
+            let term = find(host, &terminal_id(params)?)?;
+            if text(params, "instance")? != term.instance || !term.process.control.running() {
+                return Err("terminal_changed".into());
+            }
+            // Keep the same process handle through validation and signaling. Replacing the ID
+            // cannot retarget this handle, and its control never signals a reaped process.
+            term.process.control.kill();
+            json!({})
+        }
         "terminal_signal" => {
             let term = find(host, &terminal_id(params)?)?;
             match text(params, "signal")? {
@@ -577,7 +588,7 @@ fn dispatch(
                     .map(|t| {
                         let ring = lock(&t.ring);
                         json!({
-                            "id": t.id, "workspace": t.workspace, "pid": t.pid, "unit": t.unit,
+                            "id": t.id, "instance": t.instance, "workspace": t.workspace, "pid": t.pid, "unit": t.unit,
                             "started": t.started, "running": ring.running, "code": ring.code,
                             "seq": ring.seq,
                         })
@@ -766,6 +777,7 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
             }
         }
     }
+    let instance = crate::agents::uuid()?;
     let started = UnixTerminalFactory
         .open(command, size(params)?)
         .map_err(|e| format!("{e:?}"))?;
@@ -778,6 +790,7 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let pid = started.process.control.system_id();
     let term = Arc::new(Term {
         id: id.clone(),
+        instance,
         workspace,
         pid,
         started: now(),
