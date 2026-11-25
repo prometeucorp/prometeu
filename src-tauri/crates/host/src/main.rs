@@ -156,6 +156,10 @@ fn agents_command(root: &std::path::Path, action: Option<&str>, options: &AgentO
                         .map(|p| p.display().to_string())
                         .collect::<Vec<_>>());
                     out["client_uid"] = serde_json::json!(client_uid);
+                    out["moved_from"] = serde_json::json!(setup
+                        .moved_from
+                        .as_ref()
+                        .map(|p| p.display().to_string()));
                     out["local_uid"] = serde_json::json!(local_uid);
                     println!("{out}");
                     return 0;
@@ -170,6 +174,12 @@ fn agents_command(root: &std::path::Path, action: Option<&str>, options: &AgentO
                     println!(
                         "Made {} traversable by other users (o+x, not readable) so a container can mount the agent folder.",
                         folder.display()
+                    );
+                }
+                if let Some(old) = &setup.moved_from {
+                    println!(
+                        "The agent socket moved from {}; clients configured with that path need the configuration below.",
+                        old.display()
                     );
                 }
                 println!("Token: {}", setup.token);

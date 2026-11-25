@@ -2658,9 +2658,11 @@ const mockCommands: IpcHandlers = {
     machine.agents = { enabled: true, socket: `${dir}/agents-v1.sock` };
     emit("machines", mockMachines);
     const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("");
-    const server = { command: "/prometeu/prometeu-host", args: ["mcp", "--socket", "/prometeu/agents-v1.sock"],
+    const server = { command: "/prometeu/prometeu-mcp", args: ["mcp", "--socket", "/prometeu/agents-v1.sock"],
       env: { PROMETEU_AGENT_TOKEN: token, PROMETEU_AGENT_NAME: "agent", PROMETEU_AGENT_HOST_UID: "65534" } };
-    return { mount: `-v ${dir}:/prometeu:ro`, config: JSON.stringify({ mcpServers: { prometeu: server } }, null, 2), client_uid: 65534, local_uid: 1000, opened: [] };
+    const masked = { ...server, env: { ...server.env, PROMETEU_AGENT_TOKEN: "•".repeat(16) } };
+    return { mount: `-v ${dir}:/prometeu:ro`, config: JSON.stringify({ mcpServers: { prometeu: server } }, null, 2),
+      preview: JSON.stringify({ mcpServers: { prometeu: masked } }, null, 2), client_uid: 65534, local_uid: 1000, opened: [], moved_from: null };
   },
   machine_agents_disable({ id }) {
     const machine = mockMachines.find(m => m.id === id);

@@ -148,6 +148,8 @@ pub struct Connection {
     attachments: AtomicU64,
     /// Set when a terminal ends while an update is pending: the old host may be idle now.
     terminal_ended: AtomicBool,
+    /// Held while retiring an older host, and by commands the host must outlive (`keep_host`).
+    retiring: Mutex<()>,
     stdin: Mutex<Option<ChildStdin>>,
     child: Mutex<Option<Child>>,
     pending: Mutex<HashMap<u64, Pending>>,
@@ -180,6 +182,7 @@ impl Connection {
             update_pending: AtomicBool::new(false),
             attachments: AtomicU64::new(0),
             terminal_ended: AtomicBool::new(false),
+            retiring: Mutex::new(()),
             stdin: Mutex::new(None),
             child: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
@@ -430,6 +433,10 @@ impl Connection {
     /// an update never ends live work; otherwise it keeps serving with the same protocol and
     /// `retire_when_idle` asks again later. The host repeats the idle check on `shutdown`.
     fn retire_stale(self: &Arc<Self>) -> bool {
+        // A command holding `keep_host` must finish first; the next check retries.
+        let Ok(_retiring) = self.retiring.try_lock() else {
+            return false;
+        };
         let idle = self
             .request("terminal_list", json!({}))
             .ok()
@@ -440,6 +447,12 @@ impl Connection {
             return true;
         }
         false
+    }
+
+    /// Keep an older host from being retired while the guard lives, for commands whose effect the
+    /// app must learn, such as a new agent token.
+    pub fn keep_host(&self) -> std::sync::MutexGuard<'_, ()> {
+        lock(&self.retiring)
     }
 
     fn reattach(self: &Arc<Self>) {

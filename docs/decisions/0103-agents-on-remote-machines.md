@@ -130,12 +130,21 @@ it is working, as it does for a person typing.
   between the home and the agent directory and reports each folder it changed.
   That lets other users open files under the home whose own permissions allow it
   when they know the path. `--socket` chooses another directory, such as one
-  under `/srv`, without touching the home. Setup refuses a directory every user
-  can write. What authorizes a client is the token.
-- The host keeps an executable copy of itself (0755) next to the socket. It
-  replaces it atomically whenever it binds the socket, which includes the first
-  bind after an update, so a bot's configuration names the same command across
-  updates and never runs a build that was removed.
+  under `/srv`, without touching the home. What authorizes a client is the
+  token, so whoever could replace the socket or the client would collect it.
+  Setup and the host therefore refuse a directory that is not the person's own
+  or that anyone else can write, and one whose parent folders someone other
+  than the person or root could change, unless a parent is sticky like `/tmp`.
+- The host keeps an executable copy of itself, `prometeu-mcp` (0755), next to
+  the socket. It replaces it atomically whenever it binds the socket, which
+  includes the first bind after an update, so a bot's configuration names the
+  same command across updates and never runs a build that was removed. Setup
+  records the copy in `agents.json`. The host writes and `agents disable`
+  deletes only that recorded file, and setup refuses a folder where a file of
+  that name already exists that setup did not install.
+- Setup always records the socket's path. An install from before this default
+  has no record, so its host keeps the old `<root>/agents/agents-v1.sock` and its
+  clients keep working. The next setup moves it and says so.
 - The token is 32 random bytes in `<root>/agents/token` (0600), created by the
   first `prometeu-host agents setup` and replaced by `agents setup --rotate`.
   `agents disable` deletes it and the client executable; the host then closes
@@ -172,7 +181,7 @@ environment field of a bot platform's MCP configuration.
 
 `agents setup` prints a configuration for a container: the agent directory
 mounted read-only at `/prometeu`, and an MCP entry running
-`/prometeu/prometeu-host mcp --socket /prometeu/agents-v1.sock`. The client
+`/prometeu/prometeu-mcp mcp --socket /prometeu/agents-v1.sock`. The client
 checks that the socket's listener runs as `PROMETEU_AGENT_HOST_UID`, the
 person's user ID as the client's user namespace sees it. The host cannot detect
 that value: it depends on where the client runs. The configuration therefore
@@ -225,9 +234,12 @@ machine or in a rootless container of the person's own user.
 - In Settings, a connected machine offers **Enable agents**. The desktop runs
   `agents setup --json` from the build it attaches with, over the existing SSH
   attachment, and shows the container mount and the MCP configuration with copy
-  buttons. The token travels only over that SSH connection. It is kept in memory
-  until the person closes the panel, and it is never stored, logged or sent
-  through the relay. The machine's menu then offers a new token (rotation) and
+  buttons. The token travels only over that SSH connection. The screen shows it
+  masked, so a screenshot (a feedback report, for example) never carries it.
+  Copying the configuration includes it. It is kept in memory until the person
+  closes the panel, and it is never stored, logged or sent through the relay.
+  While the setup runs, the desktop does not retire an older host, so a new
+  token always reaches the screen. The machine's menu then offers a new token (rotation) and
   **Disable agents**, both confirmed first because they cut off connected bots.
   Each attachment reads `agents status` to show whether agents are enabled.
 - A host update reaches agents too. The desktop replaces an older host only

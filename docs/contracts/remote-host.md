@@ -29,11 +29,11 @@ Its install directory is the first 16 hex digits of its SHA-256.
   sessions/<tab>/settings.json Claude hook settings, 0600
   worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
   registry.json                the machine's projects and workspaces, 0600
-  agents.json                  optional `{ "socket": "<absolute path>" }`, 0600
+  agents.json                  `{ socket, client }` absolute paths written by setup, 0600
   agents/token                 agent token, 0600; agents are enabled while it exists
 ~/.prometeu-remote[-dev]-agents/   default agent directory, 0755
   agents-v1.sock               agent socket, 0666
-  prometeu-host                client executable the host keeps current, 0755
+  prometeu-mcp                 client executable the host keeps current, 0755
 ```
 
 Installation checks that `uname -sm` is `Linux x86_64`, streams the build over
@@ -218,33 +218,43 @@ not running reports `ended`; a running one with no hook yet reports `starting`.
 
 ## Agent socket
 
-Agents connect to the path in `agents.json`, or `agents-v1.sock` in the default
-agent directory `<root>-agents` (`~/.prometeu-remote-agents`). The host serves it
+Agents connect to the path in `agents.json`. Setup records `agents-v1.sock` in
+the default agent directory `<root>-agents` (`~/.prometeu-remote-agents`) unless
+`--socket` names another. Without a record, which is an install from before that
+default, the path stays `<root>/agents/agents-v1.sock`; the next setup moves it
+and reports `moved_from`. The host serves it
 only while `agents/token` exists. It checks the token and the path every 3
 seconds and rebinds, so `prometeu-host agents setup [--socket PATH] [--rotate]
 [--client-uid ID] [--json]` and `agents disable` apply without a restart. When
 agents are disabled, the listener stops and its socket is removed.
 
-`agents setup` creates the socket's directory 0755 when missing and refuses one
-that every user can write. When that directory is under `$HOME`, it adds `o+x`
-to each folder from the home down to it that the person owns and that lacks it,
-and reports them. It copies itself to `prometeu-host` (0755) in the directory,
-then creates or rotates the token. The host refreshes that copy, through a
-temporary file and a rename and only when it differs, every time it binds the
-socket. `agents disable` deletes the token and the copy. `agents status --json`
+`agents setup` creates the socket's directory 0755 when missing. Setup and the
+host's bind refuse a directory not owned by the host's user or writable by its
+group or others, and one with a parent folder that is owned by another user than
+that user or root, or writable by group or others without the sticky bit. Setup
+also refuses a directory holding a `prometeu-mcp` it did not record. When that
+directory is under `$HOME`, it adds `o+x` to each folder from the home down to
+it that the person owns and that lacks it, and reports them. It records the
+socket and `<directory>/prometeu-mcp` in `agents.json`, removes a previously
+recorded client elsewhere, copies itself there (0755), then creates or rotates
+the token. The host refreshes the recorded copy, through a temporary file and a
+rename and only when it differs, every time it binds the socket. `agents
+disable` deletes the token and the recorded copy. `agents status --json`
 prints `{ enabled, socket }`.
 
 `agents setup` prints a mount (`<directory>:/prometeu:ro`) and an MCP entry
-`{ command: "/prometeu/prometeu-host", args: ["mcp", "--socket",
+`{ command: "/prometeu/prometeu-mcp", args: ["mcp", "--socket",
 "/prometeu/<socket name>"], env }`. `env` holds `PROMETEU_AGENT_TOKEN`,
 `PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. That ID is
 `--client-uid` when given, and otherwise `/proc/sys/kernel/overflowuid`
 (usually 65534), which the text output explains. With `--json` it prints
-`{ token, socket, client, opened, client_uid, local_uid, mount: { source,
-target, read_only }, server }` instead. The desktop's `machine_agents_enable`
+`{ token, socket, client, opened, moved_from, client_uid, local_uid, mount: {
+source, target, read_only }, server }` instead. The desktop's `machine_agents_enable`
 and `machine_agents_disable` commands run these through `exec` with the build
-they attach with. They return the mount and the pretty-printed `{"mcpServers":
-{"prometeu": server}}` to Settings only, and `MachineView.agents` carries the
+they attach with, and the desktop does not retire an older host while one runs.
+They return the mount and the pretty-printed `{"mcpServers": {"prometeu":
+server}}` to Settings only, both as copied (`config`) and with the token masked
+for the screen (`preview`), and `MachineView.agents` carries the
 status read at each attachment. An existing entry
 at the path is replaced only when it is a socket whose non-blocking connection
 attempt is refused; one that answers or whose queue is full is kept;

@@ -18,7 +18,7 @@ export type HostInfo = { home: string; user: string; os: string; arch: string; v
 export type ClaudeStatus = { installed: boolean; loggedIn: boolean; email: string | null; method: string | null };
 export type AgentsStatus = { enabled: boolean; socket: string };
 /** Shown once after enabling agents or rotating their token: the container mount and the MCP configuration with the token. */
-export type AgentsSetup = { mount: string; config: string; client_uid: number; local_uid: number; opened: string[] };
+export type AgentsSetup = { mount: string; config: string; preview: string; client_uid: number; local_uid: number; opened: string[]; moved_from: string | null };
 export type MachineView = { id: string; name: string; ssh: string; limits: Limits; phase: MachinePhase; detail: string | null; host: HostInfo | null; update_pending: boolean; claude?: ClaudeStatus | null; agents?: AgentsStatus | null };
 export type MachineInput = { id?: string | null; name: string; ssh: string; limits: Limits };
 export type WorkspaceStats = { memory: number | null; memory_max: number | null; cpu_usec: number | null; cpu_max: string | null };
@@ -271,10 +271,11 @@ function claudeLogin(machine: MachineView, link: string, say: (text: string, isE
 /// shown only here, until the person closes the panel.
 function agentsPanel(machine: MachineView, setup: AgentsSetup, say: (text: string, isError?: boolean) => void, redraw: () => void): HTMLElement {
   const panel = h("div", "machine-agents");
-  const copyable = (label: string, value: string, multiline: boolean, track: string) => {
-    const control = input(value, multiline, track);
+  /** Shows `shown` and copies `value`: the configuration's token stays off the screen, so a screenshot never carries it. */
+  const copyable = (label: string, value: string, shown: string, multiline: boolean, track: string) => {
+    const control = input(shown, multiline, track);
     control.readOnly = true; control.spellcheck = false;
-    if (control instanceof HTMLTextAreaElement) control.rows = Math.min(16, value.split("\n").length);
+    if (control instanceof HTMLTextAreaElement) control.rows = Math.min(16, shown.split("\n").length);
     const copy = button(t("machines.agents.copy"), () => {
       void navigator.clipboard.writeText(value)
         .then(() => say(t("machines.agents.copied", { what: label })))
@@ -286,11 +287,12 @@ function agentsPanel(machine: MachineView, setup: AgentsSetup, say: (text: strin
   const done = button(t("machines.agents.done"), () => { agentSetups.delete(machine.id); redraw(); }, "ghost", "machines.agents.done");
   panel.append(
     h("p", "ui-hint", t("machines.agents.steps")),
-    copyable(t("machines.agents.mount"), setup.mount, false, "machines.agents.mount"),
-    copyable(t("machines.agents.config"), setup.config, true, "machines.agents.config"),
+    copyable(t("machines.agents.mount"), setup.mount, setup.mount, false, "machines.agents.mount"),
+    copyable(t("machines.agents.config"), setup.config, setup.preview, true, "machines.agents.config"),
     h("p", "ui-hint", t("machines.agents.uid", { uid: String(setup.client_uid), local: String(setup.local_uid) })),
     notice(t("machines.agents.secret"), "warning"),
   );
+  if (setup.moved_from) panel.append(notice(t("machines.agents.moved", { path: setup.moved_from }), "warning"));
   if (setup.opened.length) panel.append(notice(t("machines.agents.opened", { folders: setup.opened.join(", ") }), "warning"));
   panel.append(done);
   return panel;

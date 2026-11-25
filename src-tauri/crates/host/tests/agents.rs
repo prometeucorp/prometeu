@@ -542,7 +542,7 @@ fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
     // Reachable by another user's container, writable only by this user; the token stays private.
     assert_eq!(mode(&agents), 0o755);
     assert_eq!(mode(&machine.root.join("agents")), 0o700);
-    let client = agents.join("prometeu-host");
+    let client = agents.join("prometeu-mcp");
     assert_eq!(mode(&client), 0o755);
     assert_eq!(std::fs::read(&client).unwrap(), std::fs::read(BIN).unwrap());
     machine.wait_for("agent socket", || machine.socket().exists());
@@ -560,7 +560,7 @@ fn setup_needs_no_flags_and_the_host_keeps_the_client_current() {
     assert_eq!(setup["token"], machine.token().trim());
     assert_eq!(setup["mount"]["source"], agents.display().to_string());
     assert_eq!(setup["mount"]["target"], "/prometeu");
-    assert_eq!(setup["server"]["command"], "/prometeu/prometeu-host");
+    assert_eq!(setup["server"]["command"], "/prometeu/prometeu-mcp");
     assert_eq!(
         setup["server"]["args"],
         json!(["mcp", "--socket", "/prometeu/agents-v1.sock"])

@@ -21,8 +21,13 @@ pub struct AgentsStatus {
 pub struct AgentsSetup {
     /// The container's bind mount, as a `docker run` option.
     pub mount: String,
-    /// `{"mcpServers": {"prometeu": …}}`, pretty-printed, with the token.
+    /// `{"mcpServers": {"prometeu": …}}`, pretty-printed, with the token: what Copy copies.
     pub config: String,
+    /// The same configuration with the token masked: what the screen shows, so a screenshot
+    /// never carries it.
+    pub preview: String,
+    /// The socket clients used before this setup moved it.
+    pub moved_from: Option<String>,
     /// The host's user ID the configuration expects the client to see, and the real one.
     pub client_uid: u32,
     pub local_uid: u32,
@@ -40,6 +45,8 @@ fn host_command(connection: &Connection, args: &[&str]) -> Result<Value, String>
         .and_then(|r| r.get("root").and_then(Value::as_str).map(str::to_owned))
         .ok_or_else(|| crate::i18n::t(super::connection::OFFLINE))?;
     let program = format!("{root}/host/{}/prometeu-host", binary.hash);
+    // A host retired mid-command could take a new token with it before this app sees it.
+    let _keep = connection.keep_host();
     let mut argv = vec![program.as_str(), "agents"];
     argv.extend_from_slice(args);
     argv.extend_from_slice(&["--json", "--root", &root]);
@@ -69,6 +76,14 @@ pub fn refresh(app: &AppHandle, connection: &Arc<Connection>) {
     }
 }
 
+fn masked(config: &Value) -> Value {
+    let mut masked = config.clone();
+    if let Some(token) = masked.pointer_mut("/mcpServers/prometeu/env/PROMETEU_AGENT_TOKEN") {
+        *token = Value::String("•".repeat(16));
+    }
+    masked
+}
+
 fn setup_view(setup: &Value) -> AgentsSetup {
     let mount = &setup["mount"];
     let config = serde_json::json!({"mcpServers": {"prometeu": setup["server"]}});
@@ -79,7 +94,9 @@ fn setup_view(setup: &Value) -> AgentsSetup {
             mount["source"].as_str().unwrap_or_default(),
             mount["target"].as_str().unwrap_or_default()
         ),
+        preview: serde_json::to_string_pretty(&masked(&config)).unwrap_or_default(),
         config: serde_json::to_string_pretty(&config).unwrap_or_default(),
+        moved_from: setup["moved_from"].as_str().map(str::to_owned),
         client_uid: number("client_uid"),
         local_uid: number("local_uid"),
         opened: setup["opened"]
@@ -144,5 +161,15 @@ mod tests {
         assert_eq!(config["mcpServers"]["prometeu"], setup["server"]);
         assert_eq!((view.client_uid, view.local_uid), (65534, 1000));
         assert_eq!(view.opened, vec!["/home/me".to_string()]);
+        assert!(
+            !view.preview.contains("t0k"),
+            "the screen never shows the token"
+        );
+        let preview: Value = serde_json::from_str(&view.preview).unwrap();
+        assert_eq!(
+            preview["mcpServers"]["prometeu"]["args"],
+            setup["server"]["args"]
+        );
+        assert_eq!(view.moved_from, None);
     }
 }

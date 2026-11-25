@@ -52,8 +52,9 @@ pub fn token_path(root: &Path) -> PathBuf {
 
 /// Where the configuration `agents setup` prints mounts the agent directory inside a container.
 pub const CONTAINER_DIR: &str = "/prometeu";
-/// The client executable the host keeps next to the agent socket.
-pub const CLIENT: &str = "prometeu-host";
+/// The client executable the host keeps next to the agent socket. A distinct name keeps it from
+/// colliding with a `prometeu-host` installed there by other means.
+pub const CLIENT: &str = "prometeu-mcp";
 
 /// The default agent directory, a sibling of the root (`~/.prometeu-remote-agents`). Unlike the
 /// root it is reachable by other users, so a container can mount it. It holds only the socket and
@@ -64,18 +65,36 @@ pub fn default_dir(root: &Path) -> PathBuf {
     root.with_file_name(name)
 }
 
-/// The agent socket's path: `agents.json`'s `socket`, or `agents-v1.sock` in [`default_dir`].
-pub fn socket_path(root: &Path) -> PathBuf {
+fn socket_name() -> String {
+    format!("agents-v{AGENT_PROTOCOL}.sock")
+}
+
+/// `agents.json`: `{ socket, client? }`, written only by `agents setup`.
+fn config(root: &Path) -> Value {
     std::fs::read(root.join(CONFIG))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|config| {
-            config
-                .get("socket")
-                .and_then(Value::as_str)
-                .map(PathBuf::from)
-        })
-        .unwrap_or_else(|| default_dir(root).join(format!("agents-v{AGENT_PROTOCOL}.sock")))
+        .unwrap_or_else(|| json!({}))
+}
+
+fn config_path(root: &Path, key: &str) -> Option<PathBuf> {
+    config(root)
+        .get(key)
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+}
+
+/// The agent socket's path: `agents.json`'s `socket`. Setup always records it; without a record
+/// (an install from before the default moved) it stays at `<root>/agents/agents-v1.sock`, so
+/// existing clients keep working until setup runs again and reports the move.
+pub fn socket_path(root: &Path) -> PathBuf {
+    config_path(root, "socket").unwrap_or_else(|| root.join("agents").join(socket_name()))
+}
+
+/// The client executable that setup installed and the host keeps current. The host never writes
+/// or deletes a file setup did not record.
+fn recorded_client(root: &Path) -> Option<PathBuf> {
+    config_path(root, "client")
 }
 
 /// Agents are enabled while a token exists; without one the host serves no agent socket.
@@ -130,6 +149,38 @@ fn agent_dir(dir: &Path) -> Result<(), String> {
         .create(dir)
         .map_err(|e| e.to_string())?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())
+}
+
+/// Refuse a socket directory that anyone but this user could change or swap for another: whoever
+/// can replace the socket or the client collects the token from the next client. The directory
+/// must belong to this user and be writable by nobody else. Each folder above it must belong to
+/// this user or root and be writable by nobody else, unless it is sticky like `/tmp`, where others
+/// cannot rename what this user owns.
+fn secure_dir(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let dir = std::fs::canonicalize(dir).map_err(|e| e.to_string())?;
+    let meta = std::fs::metadata(&dir).map_err(|e| e.to_string())?;
+    if meta.uid() != uid || meta.mode() & 0o022 != 0 {
+        return Err(format!(
+            "{} must belong to this user and be writable by nobody else",
+            dir.display()
+        ));
+    }
+    for folder in dir.ancestors().skip(1) {
+        let meta = std::fs::metadata(folder).map_err(|e| e.to_string())?;
+        let owner = meta.uid() == uid || meta.uid() == 0;
+        let shared = meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0;
+        if !owner || shared {
+            return Err(format!(
+                "other users can replace {} through {}; choose a folder whose parents only this user or root can change",
+                dir.display(),
+                folder.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Let other users traverse, never list, the folders from `home` down to `dir`'s parent, so a
@@ -201,6 +252,8 @@ pub struct Setup {
     pub client: PathBuf,
     /// Folders made traversable by other users so a container can mount the agent directory.
     pub opened: Vec<PathBuf>,
+    /// The socket clients used before this setup moved it.
+    pub moved_from: Option<PathBuf>,
 }
 
 /// Enable agents: write `agents.json` when `socket` is given, prepare the socket's directory and
@@ -213,29 +266,31 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
             return Err("the socket path must be absolute".into())
         }
         Some(socket) => socket.to_path_buf(),
-        None => socket_path(root),
+        None => {
+            config_path(root, "socket").unwrap_or_else(|| default_dir(root).join(socket_name()))
+        }
     };
     let dir = wanted
         .parent()
         .ok_or("the socket path needs a directory")?
         .to_path_buf();
     agent_dir(&dir)?;
-    // Whoever can replace the socket collects the token from the next client.
-    if std::fs::metadata(&dir)
-        .map_err(|e| e.to_string())?
-        .permissions()
-        .mode()
-        & 0o002
-        != 0
-    {
+    secure_dir(&dir)?;
+    let client = dir.join(CLIENT);
+    let recorded = recorded_client(root);
+    if recorded.as_ref() != Some(&client) && std::fs::symlink_metadata(&client).is_ok() {
         return Err(format!(
-            "{} is writable by every user; choose a folder only this user can write",
-            dir.display()
+            "{} was not installed by `agents setup`; remove it or choose another folder",
+            client.display()
         ));
     }
-    if let Some(socket) = socket {
-        let config = json!({"socket": socket.display().to_string()});
-        registry::write_private(&root.join(CONFIG), config.to_string().as_bytes())?;
+    let previous = socket_path(root);
+    let moved_from = (enabled(root) && previous != wanted).then_some(previous);
+    let config =
+        json!({"socket": wanted.display().to_string(), "client": client.display().to_string()});
+    registry::write_private(&root.join(CONFIG), config.to_string().as_bytes())?;
+    if let Some(old) = recorded.filter(|old| *old != client) {
+        let _ = std::fs::remove_file(old);
     }
     let opened = match std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         Some(home) => open_to_others(Path::new(&home), &dir)?,
@@ -256,18 +311,19 @@ pub fn setup(root: &Path, socket: Option<&Path>, rotate: bool) -> Result<Setup, 
         socket: wanted,
         client,
         opened,
+        moved_from,
     })
 }
 
 /// Disable agents: drop the token, which closes every agent connection at its next request and
-/// makes the host stop serving the socket, and remove the client executable.
+/// makes the host stop serving the socket, and remove the client executable setup installed.
 pub fn disable(root: &Path) -> Result<(), String> {
     match std::fs::remove_file(token_path(root)) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.to_string()),
         _ => {}
     }
-    if let Some(dir) = socket_path(root).parent() {
-        let _ = std::fs::remove_file(dir.join(CLIENT));
+    if let Some(client) = recorded_client(root) {
+        let _ = std::fs::remove_file(client);
     }
     Ok(())
 }
@@ -363,7 +419,12 @@ pub fn listen(host: Arc<Host>) {
                 match bind(&wanted) {
                     Ok(listener) => {
                         eprintln!("prometeu-host agents on {}", wanted.display());
-                        if let Some(dir) = wanted.parent() {
+                        // Only the client setup recorded: never a file someone else put there.
+                        let recorded = recorded_client(&host.root);
+                        if let Some(dir) = wanted
+                            .parent()
+                            .filter(|dir| recorded.as_deref() == Some(&dir.join(CLIENT)))
+                        {
                             if let Err(error) = install_client(dir) {
                                 eprintln!(
                                     "prometeu-host agents: client in {}: {error}",
@@ -475,6 +536,7 @@ fn probe(path: &Path) -> Probe {
 fn bind(path: &Path) -> Result<UnixListener, String> {
     if let Some(parent) = path.parent() {
         agent_dir(parent)?;
+        secure_dir(parent)?;
     }
     match std::fs::symlink_metadata(path) {
         Ok(meta) if !meta.file_type().is_socket() => {
@@ -1748,10 +1810,70 @@ mod tests {
             default_dir(root),
             Path::new("/home/me/.prometeu-remote-agents")
         );
-        assert_eq!(
-            socket_path(Path::new("/nonexistent/.prometeu-remote-dev")),
-            Path::new("/nonexistent/.prometeu-remote-dev-agents/agents-v1.sock")
-        );
+    }
+
+    fn temporary_root(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("pa-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
+        base.join(".prometeu-remote")
+    }
+
+    #[test]
+    fn an_install_from_before_the_move_keeps_its_socket_until_setup_reports_the_move() {
+        let root = temporary_root("legacy");
+        private_dir(&root.join("agents")).unwrap();
+        registry::write_private(&token_path(&root), b"old").unwrap();
+        let legacy = root.join("agents/agents-v1.sock");
+        assert_eq!(socket_path(&root), legacy);
+        let done = setup(&root, None, false).unwrap();
+        assert_eq!(done.token, "old");
+        assert_eq!(done.socket, default_dir(&root).join("agents-v1.sock"));
+        assert_eq!(done.moved_from, Some(legacy));
+        assert_eq!(socket_path(&root), done.socket);
+        assert_eq!(setup(&root, None, false).unwrap().moved_from, None);
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn setup_refuses_shared_folders_and_files_it_did_not_install() {
+        let root = temporary_root("shared");
+        let base = root.parent().unwrap().to_path_buf();
+        let shared = base.join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
+        let error = setup(&root, Some(&shared.join("a.sock")), false)
+            .err()
+            .unwrap();
+        assert!(error.contains("writable by nobody else"), "{error}");
+        // A folder inside a group-writable one could be swapped for another.
+        std::fs::create_dir(shared.join("inner")).unwrap();
+        std::fs::set_permissions(shared.join("inner"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        let error = setup(&root, Some(&shared.join("inner/a.sock")), false)
+            .err()
+            .unwrap();
+        assert!(error.contains("can replace"), "{error}");
+
+        let own = base.join("own");
+        std::fs::create_dir(&own).unwrap();
+        std::fs::set_permissions(&own, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(own.join(CLIENT), b"someone else's").unwrap();
+        let error = setup(&root, Some(&own.join("a.sock")), false)
+            .err()
+            .unwrap();
+        assert!(error.contains("was not installed"), "{error}");
+        assert!(!enabled(&root), "a refused setup creates no token");
+        assert_eq!(std::fs::read(own.join(CLIENT)).unwrap(), b"someone else's");
+
+        // Disabling removes only the client setup installed.
+        let done = setup(&root, Some(&base.join("mine/a.sock")), false).unwrap();
+        assert!(done.client.exists());
+        disable(&root).unwrap();
+        assert!(!done.client.exists());
+        assert!(own.join(CLIENT).exists());
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
