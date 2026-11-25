@@ -245,6 +245,7 @@ pub fn remote_add_project(
         }
     };
     crate::state::publish(&app);
+    super::registry::record_project(&connection, &project);
     Ok(project)
 }
 
@@ -414,6 +415,7 @@ pub fn create(
         tabs: Vec::new(),
         active: None,
         host: Some(machine.to_string()),
+        creator: None,
     };
     {
         let mut board = lock(&state.board);

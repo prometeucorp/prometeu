@@ -256,6 +256,9 @@ export type Workspace = {
   /// The remote machine that owns the checkout and processes (ADR 0101); absent means this computer. Paths name
   /// folders on that machine, and its terminal agents keep running there while this app is closed.
   host?: string;
+  /// The agent that created this remote workspace through its machine's host (ADR 0103), by the name its MCP
+  /// configuration gives (possibly empty); absent for work the person started.
+  creator?: string;
 };
 
 export type Remote = { owner: string; online: boolean };

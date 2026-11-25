@@ -94,6 +94,27 @@ impl Registry {
         project
     }
 
+    /// Record a workspace the desktop created or changed. What the host already holds wins,
+    /// except the title and the desktop's own new conversations: an agent may have opened
+    /// conversations or closed the workspace since the desktop last read the registry.
+    pub fn merge_workspace(&mut self, workspace: Workspace) {
+        let Some(existing) = self.workspace_mut(&workspace.id) else {
+            self.workspaces.push(workspace);
+            return;
+        };
+        existing.title = workspace.title;
+        for conversation in workspace.conversations {
+            match existing
+                .conversations
+                .iter_mut()
+                .find(|c| c.id == conversation.id)
+            {
+                Some(known) => known.title = conversation.title,
+                None => existing.conversations.push(conversation),
+            }
+        }
+    }
+
     /// Insert or replace a workspace record by ID.
     pub fn put_workspace(&mut self, workspace: Workspace) {
         match self.workspace_mut(&workspace.id) {

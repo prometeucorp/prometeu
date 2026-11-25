@@ -820,6 +820,16 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
     let (dead, removed): (Vec<String>, bool) = {
         let mut board = lock(&state.board);
         let removed = board.workspaces.iter().any(|ws| ws.id == id);
+        // The machine's registry keeps listing a remote workspace while its checkout exists;
+        // remember the removal so adoption does not bring it back (ADR 0103).
+        if let Some(machine) = board
+            .workspaces
+            .iter()
+            .find(|ws| ws.id == id && !ws.cleaned)
+            .and_then(|ws| ws.host.clone())
+        {
+            crate::remote::registry::dismiss(&machine, &id);
+        }
         let dead = board
             .workspace_mut(&id)
             .map(|ws| ws.tabs.iter().map(|t| t.id.clone()).collect())
@@ -930,7 +940,10 @@ pub fn cleanup_worktree(
     stop(&state, &dead);
 
     match &remote {
-        Some(connection) => crate::remote::workspace::cleanup(connection, &ws, force)?,
+        Some(connection) => {
+            crate::remote::workspace::cleanup(connection, &ws, force)?;
+            crate::remote::registry::close(connection, &id);
+        }
         None => state.worktree_cleanup.remove(&ws)?,
     }
     analytics::track(Event::WorkspaceActionUsed {
@@ -1335,6 +1348,7 @@ pub(crate) fn create_workspace_owned(
 
     let mut ws = Workspace {
         host: None,
+        creator: None,
         id: uuid::Uuid::new_v4().to_string(),
         title: if draft.title.trim().is_empty() {
             branch.clone()
@@ -1654,6 +1668,7 @@ pub(crate) fn start_remote_conversation(
         ws.tabs.push(tab);
     }
     publish(app);
+    crate::remote::registry::record_later(app, id);
     chat::ready_now(app, &tab_id);
     Ok(())
 }
@@ -1720,6 +1735,7 @@ pub fn new_tab(
         }
     }
     publish(&app);
+    crate::remote::registry::record_later(&app, &workspace);
     crate::telemetry::journey(
         &app,
         generation,
@@ -1748,14 +1764,19 @@ pub fn new_tab(
 #[tauri::command]
 pub fn close_tab(app: AppHandle, state: State<AppState>, workspace: String, tab: String) {
     stop(&state, std::slice::from_ref(&tab));
-    {
+    let machine = {
         let mut board = lock(&state.board);
-        if let Some(ws) = board.workspace_mut(&workspace) {
+        board.workspace_mut(&workspace).and_then(|ws| {
             ws.tabs.retain(|t| t.id != tab);
             if ws.active.as_deref() == Some(tab.as_str()) {
                 ws.active = ws.tabs.first().map(|t| t.id.clone());
             }
-        }
+            ws.host.clone()
+        })
+    };
+    // The machine's registry keeps the conversation; adoption must not reopen the tab.
+    if let Some(machine) = machine {
+        crate::remote::registry::dismiss(&machine, &tab);
     }
     publish(&app);
 }
@@ -2680,6 +2701,7 @@ mod tests {
 
         let mut ws = super::Workspace {
             host: None,
+            creator: None,
             id: "w".into(),
             title: "work".into(),
             project: local.display().to_string(),
@@ -2954,6 +2976,7 @@ mod tests {
     fn bare() -> Workspace {
         Workspace {
             host: None,
+            creator: None,
             id: "w".into(),
             title: "w".into(),
             project: String::new(),
@@ -4336,6 +4359,7 @@ diff --git a/docs/with spaces.md b/docs/with spaces.md
         ];
         let ws = super::Workspace {
             host: None,
+            creator: None,
             id: "w".into(),
             title: "t".into(),
             project: repos[0].path.clone(),

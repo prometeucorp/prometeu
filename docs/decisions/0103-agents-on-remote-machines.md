@@ -157,22 +157,42 @@ environment field of a bot platform's MCP configuration.
 
 ### The desktop
 
-- On every attachment the desktop calls `registry_list` on its own socket. It
-  adds registry projects that are missing as `remote:<machine>:<path>` projects,
-  aliased by origin as in ADR 0101. Registry workspaces that are missing from the
-  board become remote workspaces with the registry's ID, branch and worktree.
-  Their conversations become terminal-mode Claude tabs with the registry's IDs.
-  The existing reattachment then follows running terminals or adopts finished
-  ones. Adopted workspaces show who created them.
+- The desktop synchronizes with `registry_list` on its own socket on every
+  attachment, and again whenever the host sends a `registry` event. The host
+  sends one after each agent request that may add or close an entry, so the board
+  follows the agent's work while the desktop stays attached.
+- It adds registry projects that are missing as `remote:<machine>:<path>`
+  projects, aliased by origin as in ADR 0101. Registry workspaces that are
+  missing from the board become unread remote workspaces with the registry's ID,
+  branch and worktree, and they name the agent that created them. Their
+  conversations become terminal-mode Claude tabs with the registry's IDs. The
+  existing reattachment then follows running terminals or recovers finished ones.
+  A conversation whose terminal is gone (the machine restarted) is bound to its
+  transcript on the machine, so opening it resumes like a conversation the
+  desktop started.
+- A conversation an agent opens in a workspace already on the board becomes a
+  new tab there. An archived workspace returns to the active list, because an
+  agent is working in it again.
 - When the person creates a remote workspace, opens a conversation in one, or
   registers or clones a project on a machine, the desktop records it with
-  `registry_put`, so agents see the person's work too. Removing or cleaning a
-  workspace on the desktop marks it closed in the registry.
-- A workspace an agent closed is marked cleaned and archived on the board at the
-  next attachment. Its transcript stays readable.
+  `registry_put`. The host merges that record into what it holds. The desktop
+  can add conversations and rename the workspace, but it never drops the
+  conversations an agent opened or reopens a closed workspace. A conversation
+  is recorded once its tab is on the board, so a synchronization never adopts
+  one the desktop is still launching. Each synchronization also records the open
+  remote workspaces and conversations that the registry lacks, such as those
+  created before this decision, so agents see them while the laptop is off.
+- Cleaning a remote workspace on the desktop marks it closed in the registry.
+  Removing one from the board leaves its checkout on the machine, and closing a
+  tab leaves its conversation, so the registry keeps listing them. The desktop
+  remembers both in `<root>/remote/<machine>/dismissed.json` and does not adopt
+  them again.
+- A workspace an agent closed is marked cleaned and archived on the board as
+  soon as the desktop hears of it, and its tabs stop. Its transcript stays
+  readable. When the worktree is gone but the branch could not be deleted,
+  `workspace_close` names the branch in `branch_kept`.
 - Agents see every workspace on the machine, including those the person created
-  from the desktop. They are recorded when they are created, so agents see them
-  while the laptop is off. Local workspaces on the laptop never reach the host.
+  from the desktop. Local workspaces on the laptop never reach the host.
 
 ### Scope
 
@@ -191,13 +211,14 @@ Multi-repository workspaces stay desktop-only.
 - The host now knows about projects and workspaces, which ADR 0101 kept on the
   desktop. It stores only what exists on the machine, and the desktop keeps the
   presentation state.
-- Two places launch remote Claude processes. The settings and arguments must stay
-  identical, so the hook configuration moves to a crate shared by both.
+- Two places launch remote Claude processes. Their hook settings must stay
+  identical, so both build them with `prometeu_host::claude_hook_settings`, and the
+  desktop's local Claude terminals use the same function.
 
 ## Evidence
 
-Implemented on the host. The desktop adoption and the OpenBot run are still
-pending, so this decision stays a proposal.
+Implemented on the host and the desktop. The run with OpenBot and the desktop
+following it are still pending, so this decision stays a proposal.
 
 - [Remote host protocol](../contracts/remote-host.md): registry, observed state,
   agent socket and MCP server.
@@ -205,8 +226,12 @@ pending, so this decision stays a proposal.
   workspace and reads, answers and closes it, with no desktop attached and a
   stand-in Claude. The test also covers the token refusal, folder trust, launch
   arguments, hook-derived state, cursors, the dirty-worktree refusal, and the
-  registry as the desktop socket returns it. The MCP server lists tools and relays
-  calls.
+  registry as the desktop socket returns it. The registry event reaches an
+  attached desktop, and the desktop's later record of a workspace keeps the
+  conversations an agent opened. The MCP server lists tools and relays calls.
+- `src-tauri/src/remote/registry.rs`: an agent's registry workspace becomes a
+  terminal-mode board entry that names its creator, and the desktop's records
+  carry the conversations being launched with their permission mode.
 - Manual run on the VPS (2026-11-24) with Claude Code 2.1.331 and a test root.
   Through the agent socket, a workspace was created in a registered project.
   Claude wrote the requested file and answered, a multi-line follow-up typed

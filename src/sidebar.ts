@@ -651,7 +651,7 @@ function renderGroup(
     b.dataset.track = "rail.workspace";
     b.addEventListener("click", () => hooks.open(ws, compact ? ws.tabs[0]?.id : undefined));
     if (!compact && (owner || opts.avatars)) b.children[0].after(template("span", "av", owner ? avatar(owner) : avatars(ws.repos.map((r) => r.name))));
-    const where = machineBadge(ws.host, true);
+    const where = machineBadge(ws.host, true, ws.creator);
     if (where) b.querySelector(".wsidentity")!.after(where);
     if (ws.remote && !ws.remote.online) card.classList.add("off");
     if (!ws.remote) attachMenu(b, ws, hooks, title, "sub");

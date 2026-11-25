@@ -316,7 +316,7 @@ mod tests {
                 limits: Default::default(),
             },
             Box::new(|| {}),
-            Box::new(|_| {}),
+            Box::new(|_, _| {}),
         );
         Remote::new(connection, "t")
     }

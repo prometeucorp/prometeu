@@ -56,6 +56,7 @@ In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
 | remote machines | `<root>/machines.json` | `remote.rs`; private `{ v: 1, machines: [{ id, name, ssh, limits: { memory_max, cpu_quota } }] }`, no credentials; see [ADR 0101](../decisions/0101-remote-machines.md) |
 | remote transcript mirror | `<root>/remote/<machine>/mirror/<remote path>` | `remote/connection.rs`; private append-only copies of a machine's Claude project files, rebuilt from offset zero when missing; see the [remote host protocol](remote-host.md#transcript-mirror) |
+| remote workspaces and tabs removed from the board | `<root>/remote/<machine>/dismissed.json` | `remote/registry.rs`; private JSON array of workspace and conversation IDs that adoption from the machine's registry skips; see [ADR 0103](../decisions/0103-agents-on-remote-machines.md) |
 | derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
 
 Catalog project installation reuses board Project records and stores local paths
@@ -738,6 +739,11 @@ without remote entries load and save unchanged, and an older version ignores
 them. A remote workspace has no reserved `port`. Its tabs always store terminal
 mode. Removing a machine drops its projects from the board and is refused while a
 workspace still names it.
+
+`Workspace.creator` names the agent that created a remote workspace through its
+machine's host ([ADR 0103](../decisions/0103-agents-on-remote-machines.md)), as the
+label its MCP configuration gives, which may be empty. It is written only when set:
+absent means the person created the workspace, and an older version ignores it.
 
 `Project.origin` is the clone's `origin` remote normalized to `host/owner/repo`
 in lowercase, so every URL spelling of one repository compares equal. The app

@@ -229,6 +229,24 @@ fn mirror_transcripts(
     Ok(watch)
 }
 
+/// Bind a conversation an agent started to its transcript on the machine, as its first hook
+/// would have, so opening it resumes that transcript. An existing binding is kept.
+pub fn bind_transcript(machine: &str, home: &str, cwd: &str, session: &str) {
+    use crate::chat::terminal::binding::Binding;
+    let root = crate::paths::root();
+    if Binding::load(&root, session, ProviderId::Claude, session) != Ok(None) {
+        return;
+    }
+    let transcript = mirror_path(
+        machine,
+        &format!(
+            "{home}/.claude/projects/{}/{session}.jsonl",
+            prometeu_host::claude_project_slug(cwd)
+        ),
+    );
+    let _ = Binding::new(session, ProviderId::Claude, session, &transcript).save(&root);
+}
+
 const REMOTE_PROFILE: &str = "remote:";
 
 /// Whether a conversation's profile stands for a machine's own Claude sign-in.
@@ -273,6 +291,17 @@ pub fn launch(
             effective.session
         ),
     );
+    // A conversation resumed on a computer that never mirrored its transcript (one an agent
+    // started) needs the file before deciding how to resume and before observation reads it.
+    if !running && matches!(effective.mode, StartMode::Resume { .. }) && !transcript.exists() {
+        if let Ok(watch) = mirror_transcripts(&connection, machine, &home, &cwd) {
+            let _ = connection.request_timeout(
+                "watch_flush",
+                json!({"id": watch}),
+                Duration::from_secs(10),
+            );
+        }
+    }
     let resume = crate::terminal_agent_launch::previous(&effective).or_else(|| {
         (matches!(effective.mode, StartMode::Resume { .. }) && transcript.exists())
             .then(|| effective.session.clone())
@@ -379,7 +408,7 @@ mod journey {
                 limits: Limits::default(),
             },
             Box::new(|| {}),
-            Box::new(|_| {}),
+            Box::new(|_, _| {}),
         );
         connection.start();
         let deadline = Instant::now() + Duration::from_secs(30);

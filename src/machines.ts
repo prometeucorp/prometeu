@@ -52,15 +52,19 @@ export function aliases(projects: Project[]): Map<string, string> {
 }
 
 /// A compact chip naming the machine a workspace or project runs on, with its connection state. Local work shows none.
-export function badge(host: string | undefined, compact = false): HTMLElement | null {
+/// `creator` names the agent that created the workspace through the machine's host (ADR 0103); empty when it gave no name.
+export function badge(host: string | undefined, compact = false, creator?: string): HTMLElement | null {
   if (!host) return null;
   const machine = machineOf(host);
   const state = machine?.phase ?? "offline";
-  const chip = template("span", `machine-badge ${state === "connected" ? "on" : "off"}${compact ? " compact" : ""}`, `${icon("server", 12)}<span></span>`);
-  chip.querySelector("span")!.textContent = compact ? "" : machineName(host);
-  const title = state === "connected"
+  const byAgent = creator !== undefined;
+  const by = byAgent ? t("remote.createdBy", { name: creator || t("remote.agent") }) : "";
+  const chip = template("span", `machine-badge ${state === "connected" ? "on" : "off"}${compact ? " compact" : ""}`, `${icon(byAgent ? "sparkles" : "server", 12)}<span></span>`);
+  chip.querySelector("span")!.textContent = compact ? "" : [machineName(host), by].filter(Boolean).join(" · ");
+  const where = state === "connected"
     ? t("remote.badge", { name: machineName(host) })
     : t("remote.offline", { name: machineName(host) });
+  const title = [by, where].filter(Boolean).join(" · ");
   chip.title = title;
   chip.setAttribute("aria-label", title);
   return chip;

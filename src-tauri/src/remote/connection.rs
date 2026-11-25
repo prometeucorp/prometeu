@@ -46,8 +46,18 @@ pub enum Phase {
 }
 
 type Callback = Box<dyn FnOnce(Result<Value, String>) + Send>;
-/// Runs after every attachment, once terminals and mirrors are reattached.
-pub type Attached = Box<dyn Fn(&Arc<Connection>) + Send + Sync>;
+
+/// Why the machine needs this app's attention.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Wake {
+    /// A new attachment, once terminals and mirrors are reattached.
+    Attached,
+    /// An agent changed the machine's registry (ADR 0103).
+    Registry,
+}
+
+/// Runs on its own thread after every attachment and registry change.
+pub type Attached = Box<dyn Fn(&Arc<Connection>, Wake) + Send + Sync>;
 enum Pending {
     Wait(mpsc::Sender<Result<Value, String>>),
     /// Runs on the reader thread, before any later frame: used where order matters.
@@ -375,7 +385,7 @@ impl Connection {
                 return;
             }
             this.reattach();
-            (this.attached)(&this);
+            (this.attached)(&this, Wake::Attached);
         });
     }
 
@@ -495,6 +505,10 @@ impl Connection {
                         );
                     }
                 }
+            }
+            Some("registry") => {
+                let this = self.clone();
+                std::thread::spawn(move || (this.attached)(&this, Wake::Registry));
             }
             Some("hook") => {
                 let session = frame["session"].as_str().unwrap_or_default();
