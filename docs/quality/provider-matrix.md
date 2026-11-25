@@ -36,8 +36,8 @@ rule is covered by `src/machines.test.ts`; navigation compatibility by
 journey through machine selection and nested registration without losing the
 workspace prompt. Remote execution remains Claude-only.
 
-Agent clients on the machine (proposed
-[ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
+Agent clients on the machine
+([ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
 without permission prompts; `src-tauri/crates/host/tests/agents.rs` covers them.
 The desktop adopts their workspaces as Claude terminal tabs that run in that
 mode, and `src-tauri/src/remote/registry.rs` covers the adoption.

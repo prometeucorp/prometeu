@@ -160,8 +160,9 @@ machine.
   changing the board format.
 - No input is retried after a lost connection. A keystroke sent while the SSH
   process was already dead has an unknown outcome, like every other lost reply.
-- The desktop must be running for remote work to start. An external client on the
-  machine (for example a bot asking for workspaces) needs a separate decision.
+- Remote work started from the desktop needs the desktop running. Agent clients
+  on the machine start work without it, through the host
+  ([ADR 0103](0103-agents-on-remote-machines.md)).
 
 ## Evidence
 
