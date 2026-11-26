@@ -91,7 +91,11 @@ The wire accepts incoming frames and messages up to 64 MiB, matching the history
 byte ceiling: native user items contain inline image data in live events and
 cold replay. Outbound control messages remain limited to 1 MiB. The client retains
 at most 64 startup messages and 8 MiB during bootstrap, and exposes a 64-message
-live channel. Outbound control has a 32-entry queue and a five-second deadline.
+live channel with a combined 64 MiB serialized-JSON budget. Receiving or dropping
+queued events releases their reserved bytes; a stalled consumer cannot retain
+64 maximum-sized images. A full byte or message budget invalidates the engine
+and its PTY, using the existing explicit overflow path. Outbound control has a
+32-entry queue and a five-second deadline.
 Overflow fails explicitly; an oversized incoming frame reports a limit failure.
 History additionally has a 64 MiB/10,000-turn ceiling, 16 turns per page, and
 shares the startup deadline. Repeated native IDs or malformed pagination fail
@@ -158,6 +162,8 @@ composer is still required.
 check startup ordering, identity/configuration rejection, queue failure,
 inline images larger than 1 MiB in live delivery and cold history replay,
 explicit-only replies, stale IDs, forbidden turn creation and child reaping.
+`terminal_agent_codex/events.rs` checks byte overflow with a stalled consumer
+and budget release on receive, receiver drop and failed delivery.
 `crates/protocols/src/codex/attached_tests.rs` checks the existing decoder's
 attached behavior while retaining the structured adapter's compatibility suite.
 

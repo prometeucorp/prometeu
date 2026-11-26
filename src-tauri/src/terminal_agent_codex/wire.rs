@@ -18,7 +18,7 @@ const MAX_MESSAGE: usize = 1024 * 1024;
 const MAX_INCOMING_MESSAGE: usize = 64 * 1024 * 1024;
 
 #[derive(Debug)]
-pub(super) enum Error {
+pub(crate) enum Error {
     Io,
     Protocol,
     Identity,

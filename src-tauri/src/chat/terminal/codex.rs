@@ -90,7 +90,7 @@ impl Attached {
 
     pub(super) fn poll(
         &self,
-        events: &mpsc::Receiver<Result<Value, String>>,
+        events: &crate::terminal_agent_codex::events::Events,
         transport: &Transport,
         pump: &super::super::Pump,
         context: &host::ConversationHost,
@@ -117,7 +117,7 @@ impl Attached {
 
     fn poll_with<T: prometeu_core::session::output::SessionTelemetry>(
         &self,
-        events: &mpsc::Receiver<Result<Value, String>>,
+        events: &crate::terminal_agent_codex::events::Events,
         transport: &Transport,
         pump: &prometeu_core::session::pump::SessionPump<T>,
         mut accept_user: impl FnMut(&NativeCapture) -> Result<bool, String>,

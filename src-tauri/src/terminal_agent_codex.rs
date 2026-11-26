@@ -18,7 +18,9 @@ use std::{
 
 mod wire;
 use wire::{Client, Error};
+pub(crate) mod events;
 mod lifecycle;
+use events::Events;
 
 /// Tauri exits without necessarily dropping AppState or conversation worker references.
 /// Stop and reap every owned engine before the event loop returns to process exit.
@@ -134,7 +136,7 @@ impl NativeEnginePlan {
             &thread,
         ]);
         let (send, commands) = mpsc::sync_channel(32);
-        let (events, receive) = mpsc::sync_channel(QUEUE_LIMIT);
+        let (events, receive) = events::channel();
         let stopped = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicBool::new(true));
         let stop = stopped.clone();
@@ -275,7 +277,7 @@ pub struct NativeEngine {
     configuration: Value,
     history: Vec<Value>,
     commands: mpsc::SyncSender<Control>,
-    events: Mutex<Option<mpsc::Receiver<Result<Value, String>>>>,
+    events: Mutex<Option<Events>>,
     stopped: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     shutdown: Arc<lifecycle::EngineShutdown>,
@@ -329,7 +331,7 @@ impl NativeEngine {
         self.running.load(Ordering::Acquire)
     }
     /// One consumer must drain this bounded stream; loss is fatal, never silent truncation.
-    pub fn take_events(&self) -> Option<mpsc::Receiver<Result<Value, String>>> {
+    pub(crate) fn take_events(&self) -> Option<Events> {
         lock(&self.events).take()
     }
     /// The attached adapter may query usage, interrupt this thread, or answer a pending native
@@ -417,7 +419,7 @@ fn serve(
     client: &mut Client,
     thread: &str,
     commands: &mpsc::Receiver<Control>,
-    events: &mpsc::SyncSender<Result<Value, String>>,
+    events: &events::Sender,
     stop: &AtomicBool,
     owner: &mut Owner,
 ) -> Result<(), Error> {
