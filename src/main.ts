@@ -932,7 +932,7 @@ desk.init({
   looked: alert.looked,
 });
 viewer.init((m) => say(m, true), ws.fileSaved);
-dock.init($("dockterm"), $("shellterm"));
+dock.init($("dockterm"), $("shellterm"), error => say(fromBack(error), true));
 terminals.init({
   sessions: () => state.terminals ?? [],
   current: ws.terminalSession,

@@ -73,7 +73,7 @@ beforeEach(() => {
   fake.deferWrites = false;
   fake.writes.length = 0;
   dock.detach();
-  dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement);
+  dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement, vi.fn());
 });
 
 it("keeps terminal input in the current workspace when an earlier open finishes late", async () => {
@@ -175,7 +175,7 @@ it("drops composition ends that no composition start opened", () => {
 it("stops lone composition ends at the terminal host before xterm sees them", () => {
   const host = new EventTarget();
   const listen = vi.spyOn(host, "addEventListener");
-  dock.init(new EventTarget() as HTMLElement, host as HTMLElement);
+  dock.init(new EventTarget() as HTMLElement, host as HTMLElement, vi.fn());
   expect(listen).toHaveBeenCalledWith("compositionend", expect.any(Function), true);
 
   const dispatch = (type: string) => {
@@ -191,6 +191,20 @@ it("stops lone composition ends at the terminal host before xterm sees them", ()
 
 const skin = { fontSize: 12, foreground: "#fff", scrollback: 100 };
 const receiver = (event: string) => fake.listen.mock.calls.filter(([name]) => name === event).slice(-1)[0][1];
+
+it.each([0, 1])("reports browser opening failures from supporting terminal %i", async index => {
+  const error = vi.fn();
+  dock.init(new EventTarget() as HTMLElement, new EventTarget() as HTMLElement, error);
+  const failure = new Error("browser unavailable");
+  fake.invoke.mockRejectedValueOnce(failure);
+  const url = "https://example.com/review";
+  fake.terminals[index].options.linkHandler!.activate(
+    { preventDefault() {} } as MouseEvent, url,
+    { start: { x: 1, y: 1 }, end: { x: 5, y: 1 } },
+  );
+  expect(fake.invoke).toHaveBeenCalledExactlyOnceWith("open_external", { url });
+  await vi.waitFor(() => expect(error).toHaveBeenCalledExactlyOnceWith(failure));
+});
 
 it("opens terminal hyperlinks through the system browser and reports failures", async () => {
   const error = vi.fn();
