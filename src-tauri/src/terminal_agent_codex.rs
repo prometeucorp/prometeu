@@ -35,10 +35,34 @@ const QUEUE_BYTES: usize = 8 * 1024 * 1024;
 #[cfg(test)]
 pub const VERIFIED_VERSION: &str = "codex-cli 0.169.0";
 
+/// Whether app exit has begun: engines are being stopped and no new one may start.
+pub fn closing() -> bool {
+    lifecycle::closing()
+}
+
+/// Where an engine runs when it is not this computer's child: a remote machine's host
+/// (ADR 0105). Dropping it releases this app's side; whether the engine itself ends is the
+/// host's policy, since the machine keeps working while this app is away.
+pub(crate) trait EngineHost: Send {
+    /// Start the engine `command` describes, or find the one already running for this
+    /// conversation, and connect to it.
+    fn connect(&mut self, command: &Command, deadline: Instant) -> Result<EngineLink, String>;
+}
+
+/// A connection to an engine an [`EngineHost`] placed.
+pub(crate) struct EngineLink {
+    /// The address the TUI attaches to, as `codex --remote` takes it.
+    pub address: String,
+    /// The relay's newline-delimited JSON, after its announcement.
+    pub reader: Box<dyn io::Read + Send>,
+    pub writer: Box<dyn Write + Send>,
+}
+
 /// Prepared configuration, not a running process. HookBridge must configure `command` first.
 pub struct NativeEnginePlan {
     pub command: Command,
     settings: Settings,
+    host: Option<Box<dyn EngineHost>>,
 }
 
 #[derive(Clone)]
@@ -67,13 +91,23 @@ impl NativeEnginePlan {
                 ask: request.settings.permission == Some(Permission::Ask),
                 plan: request.settings.plan,
             },
+            host: None,
         }
+    }
+
+    /// Run the engine on `host` instead of as this computer's child.
+    pub(crate) fn on(mut self, host: Box<dyn EngineHost>) -> Self {
+        self.host = Some(host);
+        self
     }
 
     /// Starts and verifies the engine before the caller spawns the TUI or admits input.
     /// Failure owns cleanup, including a server that started but never opened its socket.
     pub fn start(self, tui: &mut Command) -> Result<NativeEngine, String> {
         self.start_inner(tui).map_err(|error| {
+            if let Error::Remote(message) = error {
+                return message;
+            }
             // Error categories carry no provider payload, command arguments or account data.
             eprintln!("Native Codex engine startup failed: {error:?}");
             failure()
@@ -92,24 +126,45 @@ impl NativeEnginePlan {
         let _admission = lifecycle::admit()?;
         let deadline = Instant::now() + timeout;
         let incarnation = uuid::Uuid::new_v4().to_string();
-        let directory =
-            PathBuf::from("/tmp").join(format!("prometeu-codex-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
-        let mut owner = Owner {
-            directory,
-            child: None,
+        let (mut owner, mut client, address) = match self.host.take() {
+            Some(mut host) => {
+                let EngineLink {
+                    address,
+                    reader,
+                    writer,
+                } = host
+                    .connect(&self.command, deadline)
+                    .map_err(Error::Remote)?;
+                let owner = Owner {
+                    directory: None,
+                    child: None,
+                    host: Some(host),
+                };
+                (owner, Client::lines(reader, writer, deadline)?, address)
+            }
+            None => {
+                let directory = PathBuf::from("/tmp")
+                    .join(format!("prometeu-codex-{}", uuid::Uuid::new_v4().simple()));
+                std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
+                let mut owner = Owner {
+                    directory: Some(directory.clone()),
+                    child: None,
+                    host: None,
+                };
+                let socket = directory.join("rpc");
+                self.command
+                    .args(["--listen", &format!("unix://{}", socket.display())]);
+                self.command
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .process_group(0);
+                owner.child = Some(self.command.spawn()?);
+                let pid = owner.child.as_ref().ok_or(Error::Closed)?.id();
+                let client = Client::connect(&socket, pid, deadline, || owner.exited())?;
+                (owner, client, format!("unix://{}", socket.display()))
+            }
         };
-        let socket = owner.directory.join("rpc");
-        self.command
-            .args(["--listen", &format!("unix://{}", socket.display())]);
-        self.command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .process_group(0);
-        owner.child = Some(self.command.spawn()?);
-        let pid = owner.child.as_ref().ok_or(Error::Closed)?.id();
-        let mut client = Client::connect(&socket, pid, deadline, || owner.exited())?;
         client.call("initialize", json!({
             "clientInfo": {"name":"prometeu-native", "title":"Prometeu", "version":env!("CARGO_PKG_VERSION")},
             "capabilities":{"experimentalApi":true}
@@ -129,12 +184,7 @@ impl NativeEnginePlan {
 
         // Remote resume rejects permission flags. All semantic settings belong to the engine;
         // the TUI receives only the captured account/environment, cwd and exact native identity.
-        tui.args([
-            "--remote",
-            &format!("unix://{}", socket.display()),
-            "resume",
-            &thread,
-        ]);
+        tui.args(["--remote", &address, "resume", &thread]);
         let (send, commands) = mpsc::sync_channel(32);
         let (events, receive) = events::channel();
         let stopped = Arc::new(AtomicBool::new(false));
@@ -498,12 +548,17 @@ fn failure() -> String {
 }
 
 /// Single mutable owner keeps signaling and reaping serialized; a reaped PID is never signaled.
+/// A remote engine has no child here: its relay's closure ends the connection instead.
 struct Owner {
-    directory: PathBuf,
+    directory: Option<PathBuf>,
     child: Option<Child>,
+    host: Option<Box<dyn EngineHost>>,
 }
 impl Owner {
     fn exited(&mut self) -> Result<bool, Error> {
+        if self.host.is_some() {
+            return Ok(false);
+        }
         if let Some(child) = self.child.as_mut() {
             if child.try_wait()?.is_none() {
                 return Ok(false);
@@ -515,6 +570,9 @@ impl Owner {
 }
 impl Drop for Owner {
     fn drop(&mut self) {
+        let Some(directory) = self.directory.take() else {
+            return;
+        };
         if let Some(mut child) = self.child.take() {
             if child.try_wait().ok().flatten().is_none() {
                 // The dedicated group leader is still owned and unreaped.
@@ -538,8 +596,8 @@ impl Drop for Owner {
             }
             let _ = child.wait();
         }
-        wire::remove_owned_endpoint(&self.directory.join("rpc"));
-        let _ = std::fs::remove_dir_all(&self.directory);
+        wire::remove_owned_endpoint(&directory.join("rpc"));
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }
 

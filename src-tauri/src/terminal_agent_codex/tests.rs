@@ -138,6 +138,7 @@ impl Fixture {
                 ask: true,
                 plan: true,
             },
+            host: None,
         }
     }
     fn records(&self) -> Vec<Value> {

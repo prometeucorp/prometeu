@@ -52,6 +52,7 @@ pub fn valid_id(id: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
+pub mod codex;
 pub mod naming;
 pub mod transcript;
 

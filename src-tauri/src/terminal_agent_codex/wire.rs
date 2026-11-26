@@ -2,12 +2,13 @@ use super::{QUEUE_BYTES, QUEUE_LIMIT};
 use serde_json::Value;
 use std::{
     collections::VecDeque,
-    io,
+    io::{self, Read, Write},
     os::unix::{
         fs::{FileTypeExt, MetadataExt},
         net::UnixStream,
     },
     path::{Path, PathBuf},
+    sync::mpsc,
     time::{Duration, Instant},
 };
 use tungstenite::{protocol::WebSocketConfig, Message, WebSocket};
@@ -19,6 +20,8 @@ const MAX_INCOMING_MESSAGE: usize = 64 * 1024 * 1024;
 
 #[derive(Debug)]
 pub(crate) enum Error {
+    /// A remote engine could not start, with the localized reason to show.
+    Remote(String),
     Io,
     Protocol,
     Identity,
@@ -30,7 +33,10 @@ pub(crate) enum Error {
 }
 impl Error {
     pub fn message(&self) -> String {
-        super::failure()
+        match self {
+            Self::Remote(message) => message.clone(),
+            _ => super::failure(),
+        }
     }
 }
 impl From<io::Error> for Error {
@@ -39,8 +45,18 @@ impl From<io::Error> for Error {
     }
 }
 
+/// The engine's message stream: its own WebSocket on this computer, or the newline-delimited
+/// relay of one that runs on a remote machine (ADR 0105).
+enum Link {
+    Socket(Box<WebSocket<UnixStream>>),
+    Lines {
+        frames: mpsc::Receiver<Value>,
+        writer: Box<dyn Write + Send>,
+    },
+}
+
 pub(super) struct Client {
-    socket: WebSocket<UnixStream>,
+    socket: Link,
     serial: u64,
     queued: VecDeque<Value>,
     queued_bytes: usize,
@@ -89,7 +105,34 @@ impl Client {
             .get_ref()
             .set_read_timeout(Some(Duration::from_millis(20)))?;
         Ok(Self {
-            socket,
+            socket: Link::Socket(Box::new(socket)),
+            serial: 0,
+            queued: VecDeque::new(),
+            queued_bytes: 0,
+        })
+    }
+    /// A remote engine's relay: one JSON object per line once the relay announced itself. The
+    /// relay checked the engine's socket and peer on the machine; the remote host's terminal
+    /// carries the lines in order and without gaps, or ends the stream.
+    pub fn lines(
+        reader: Box<dyn Read + Send>,
+        writer: Box<dyn Write + Send>,
+        deadline: Instant,
+    ) -> Result<Self, Error> {
+        // The engine worker drains this hop at once into its own byte-budgeted queue; a short
+        // bound keeps large native items from piling up here.
+        let (sender, frames) = mpsc::sync_channel(4);
+        let (ready, announced) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("codex-remote-engine".into())
+            .spawn(move || read_lines(reader, ready, sender))?;
+        match announced.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(()) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => return Err(Error::Timeout),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Err(Error::Closed),
+        }
+        Ok(Self {
+            socket: Link::Lines { frames, writer },
             serial: 0,
             queued: VecDeque::new(),
             queued_bytes: 0,
@@ -100,12 +143,32 @@ impl Client {
         if text.len() > MAX_MESSAGE {
             return Err(Error::Limit);
         }
-        self.socket
-            .send(Message::Text(text.into()))
-            .map_err(|_| Error::Closed)
+        match &mut self.socket {
+            Link::Socket(socket) => socket
+                .send(Message::Text(text.into()))
+                .map_err(|_| Error::Closed),
+            Link::Lines { writer, .. } => {
+                let mut line = text.into_bytes();
+                line.push(b'\n');
+                writer
+                    .write_all(&line)
+                    .and_then(|_| writer.flush())
+                    .map_err(|_| Error::Closed)
+            }
+        }
     }
     fn receive(&mut self) -> Result<Option<Value>, Error> {
-        match self.socket.read() {
+        let socket = match &mut self.socket {
+            Link::Socket(socket) => socket,
+            Link::Lines { frames, .. } => {
+                return match frames.recv_timeout(Duration::from_millis(20)) {
+                    Ok(value) => Ok(Some(value)),
+                    Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => Err(Error::Closed),
+                }
+            }
+        };
+        match socket.read() {
             Ok(Message::Text(text)) => {
                 let value: Value = serde_json::from_str(&text).map_err(|_| Error::Protocol)?;
                 if !value.is_object() {
@@ -114,7 +177,7 @@ impl Client {
                 Ok(Some(value))
             }
             Ok(Message::Ping(_) | Message::Pong(_)) => {
-                self.socket.flush().map_err(|_| Error::Closed)?;
+                socket.flush().map_err(|_| Error::Closed)?;
                 Ok(None)
             }
             Ok(_) => Err(Error::Closed),
@@ -182,6 +245,50 @@ impl Client {
             return Err(Error::Conflict);
         }
         Ok(())
+    }
+}
+
+/// Split a relay's output into JSON objects. Lines before the relay's announcement are not part of
+/// the stream. A malformed or oversized line ends it: a frame was lost, so the canonical stream
+/// can no longer be trusted, and the receiver sees the closure.
+fn read_lines(
+    reader: Box<dyn Read + Send>,
+    ready: mpsc::Sender<()>,
+    frames: mpsc::SyncSender<Value>,
+) {
+    use std::io::BufRead;
+    let mut reader = io::BufReader::new(reader);
+    let mut line = Vec::new();
+    let mut announced = false;
+    loop {
+        line.clear();
+        match (&mut reader)
+            .take(MAX_INCOMING_MESSAGE as u64 + 1)
+            .read_until(b'\n', &mut line)
+        {
+            Ok(0) | Err(_) => return,
+            Ok(_) if line.last() != Some(&b'\n') => return,
+            Ok(_) => {}
+        }
+        let text = line.trim_ascii();
+        if !announced {
+            if text == prometeu_host::codex::RELAY_READY.as_bytes() {
+                announced = true;
+                if ready.send(()).is_err() {
+                    return;
+                }
+            }
+            continue;
+        }
+        if text.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(text) else {
+            return;
+        };
+        if !value.is_object() || frames.send(value).is_err() {
+            return;
+        }
     }
 }
 
@@ -297,4 +404,99 @@ fn same_settings(actual: &Value, expected: &Value) -> bool {
             actual["collaborationMode"]["settings"][key]
                 == expected["collaborationMode"]["settings"][key]
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::net::UnixStream;
+
+    /// A relay as the remote host delivers it: bytes in, request lines out.
+    fn relay() -> (
+        UnixStream,
+        BufReader<UnixStream>,
+        Box<dyn Read + Send>,
+        Box<dyn Write + Send>,
+    ) {
+        let (output, reader) = UnixStream::pair().unwrap();
+        let (writer, requests) = UnixStream::pair().unwrap();
+        (
+            output,
+            BufReader::new(requests),
+            Box::new(reader),
+            Box::new(writer),
+        )
+    }
+
+    fn next(client: &mut Client) -> Result<Value, Error> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            assert!(Instant::now() < deadline, "no frame");
+            if let Some(value) = client.next()? {
+                return Ok(value);
+            }
+        }
+    }
+
+    #[test]
+    fn a_remote_relay_is_read_after_its_announcement() {
+        let (mut output, mut requests, reader, writer) = relay();
+        write!(
+            output,
+            "shell noise\r\n{}\n{}\n",
+            prometeu_host::codex::RELAY_READY,
+            serde_json::json!({"method": "hello"})
+        )
+        .unwrap();
+        let mut client =
+            Client::lines(reader, writer, Instant::now() + Duration::from_secs(5)).unwrap();
+        assert_eq!(next(&mut client).unwrap()["method"], "hello");
+        let answer = std::thread::spawn(move || {
+            let mut line = String::new();
+            requests.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "initialize");
+            writeln!(output, "{}", serde_json::json!({"method": "early"})).unwrap();
+            writeln!(
+                output,
+                "{}",
+                serde_json::json!({"id": request["id"], "result": {"ok": true}})
+            )
+            .unwrap();
+            output
+        });
+        let result = client
+            .call(
+                "initialize",
+                serde_json::json!({}),
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap();
+        assert_eq!(result, serde_json::json!({"ok": true}));
+        // A notification that arrived before the reply is kept in order.
+        assert_eq!(next(&mut client).unwrap()["method"], "early");
+        let mut output = answer.join().unwrap();
+        // A broken line means a lost frame: the stream ends instead of skipping it.
+        writeln!(output, "{{\"method\":").unwrap();
+        writeln!(output, "{}", serde_json::json!({"method": "after"})).unwrap();
+        assert!(matches!(next(&mut client), Err(Error::Closed)));
+    }
+
+    #[test]
+    fn a_relay_that_never_announces_itself_times_out() {
+        let (mut output, _requests, reader, writer) = relay();
+        writeln!(output, "{}", serde_json::json!({"method": "hello"})).unwrap();
+        let started = Instant::now();
+        assert!(matches!(
+            Client::lines(reader, writer, started + Duration::from_millis(200)),
+            Err(Error::Timeout)
+        ));
+        let (output, _requests, reader, writer) = relay();
+        drop(output);
+        assert!(matches!(
+            Client::lines(reader, writer, Instant::now() + Duration::from_secs(5)),
+            Err(Error::Closed)
+        ));
+    }
 }

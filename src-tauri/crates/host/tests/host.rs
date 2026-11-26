@@ -907,3 +907,153 @@ fn opening_the_same_conversation_from_two_desktops_starts_one_process() {
     second.detach();
     shutdown(&root);
 }
+
+/// A stand-in for `codex app-server --listen unix://<dir>/rpc`: the endpoint lives in a private
+/// directory under a SHA-256 name and `rpc` is Codex's alias to it. It answers each request with
+/// its own method, and announces `hello` first.
+fn fake_codex_engine(dir: &Path) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+    let private = dir.join("p");
+    std::fs::create_dir_all(&private).unwrap();
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let alias = dir.join("rpc");
+    let canonical = std::fs::canonicalize(dir).unwrap().join("rpc");
+    let target = private.join(format!(
+        "{:x}",
+        Sha256::digest(canonical.as_os_str().as_bytes())
+    ));
+    let listener = std::os::unix::net::UnixListener::bind(&target).unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+    std::os::unix::fs::symlink(&target, &alias).unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut socket = tungstenite::accept(stream).unwrap();
+        socket
+            .send(tungstenite::Message::Text(
+                json!({"method": "hello", "params": {"text": "olá\r\nmundo"}})
+                    .to_string()
+                    .into(),
+            ))
+            .unwrap();
+        while let Ok(message) = socket.read() {
+            let tungstenite::Message::Text(text) = message else {
+                continue;
+            };
+            let request: Value = serde_json::from_str(&text).unwrap();
+            let reply = json!({"id": request["id"], "result": {"method": request["method"]}});
+            if socket
+                .send(tungstenite::Message::Text(reply.to_string().into()))
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    alias
+}
+
+#[test]
+fn the_codex_relay_carries_json_lines_both_ways() {
+    let dir = root();
+    let socket = fake_codex_engine(&dir);
+    let mut relay = Command::new(BIN)
+        .args(["codex-relay", "--socket"])
+        .arg(&socket)
+        .args(["--pid", &std::process::id().to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = relay.stdin.take().unwrap();
+    let mut lines = BufReader::new(relay.stdout.take().unwrap()).lines();
+    assert_eq!(
+        lines.next().unwrap().unwrap(),
+        prometeu_host::codex::RELAY_READY
+    );
+    let hello: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+    assert_eq!(hello["params"]["text"], "olá\r\nmundo");
+    // A partial line left by a lost connection is dropped; the next request still arrives.
+    writeln!(stdin, "{{\"id\":1,\"meth").unwrap();
+    writeln!(stdin, "{}", json!({"id": 2, "method": "initialize"})).unwrap();
+    let reply: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+    assert_eq!(reply, json!({"id": 2, "result": {"method": "initialize"}}));
+    drop(stdin);
+    assert!(relay.wait().unwrap().success());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_codex_relay_refuses_an_engine_it_did_not_start() {
+    let dir = root();
+    let socket = fake_codex_engine(&dir);
+    // The socket is served by this test, which does not run below process 1's direct child.
+    let relay = Command::new(BIN)
+        .args(["codex-relay", "--socket"])
+        .arg(&socket)
+        .args(["--pid", "1"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(!relay.status.success());
+    assert!(relay.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&relay.stderr).contains("another process"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_relay_terminal_is_a_transparent_line_stream_that_survives_detachment() {
+    let root = root();
+    let socket = fake_codex_engine(&root);
+    let mut first = Attached::new(&root);
+    first.call(
+        "terminal_open",
+        json!({"id": "s-rpc-1", "argv": [BIN, "codex-relay", "--socket", socket, "--pid", std::process::id().to_string()],
+               "cwd": std::env::temp_dir(), "cols": 80, "rows": 24}),
+    );
+    let attached = first.call("terminal_attach", json!({"id": "s-rpc-1", "seq": 0}));
+    let (text, _) = first.output_until("s-rpc-1", "hello", decode(&attached["data"]));
+    assert!(text.contains(prometeu_host::codex::RELAY_READY));
+    // Raw mode: nothing is echoed back and no newline becomes CRLF.
+    first.call(
+        "terminal_write",
+        json!({"id": "s-rpc-1", "data": STANDARD.encode(format!("{}\n", json!({"id": "a", "method": "first"})))}),
+    );
+    let (text, seq) = first.output_until("s-rpc-1", "\"first\"", text);
+    assert!(!text.contains("\r"), "{text:?}");
+    assert!(
+        !text.contains("\"id\":\"a\",\"method\""),
+        "echoed: {text:?}"
+    );
+    first.detach();
+
+    // Another attachment writes; the first desktop reads the reply when it comes back.
+    let mut writer = Attached::new(&root);
+    writer.call(
+        "terminal_write",
+        json!({"id": "s-rpc-1", "data": STANDARD.encode(format!("{}\n", json!({"id": "b", "method": "second"})))}),
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    writer.detach();
+    let mut again = Attached::new(&root);
+    let replay = again.call("terminal_attach", json!({"id": "s-rpc-1", "seq": seq}));
+    assert_eq!(replay["reset"], false);
+    let lines: Vec<Value> = decode(&replay["data"])
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        vec![json!({"id": "b", "result": {"method": "second"}})]
+    );
+    again.call(
+        "terminal_signal",
+        json!({"id": "s-rpc-1", "signal": "kill"}),
+    );
+    again.until(|f| f["event"] == "exit" && f["id"] == "s-rpc-1");
+    again.detach();
+    shutdown(&root);
+}

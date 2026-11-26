@@ -2762,6 +2762,8 @@ dependencies = [
  "prometeu-process",
  "serde",
  "serde_json",
+ "sha2",
+ "tungstenite",
 ]
 
 [[package]]

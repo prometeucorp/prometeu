@@ -249,10 +249,8 @@ export function openLauncher(board: Board, opts: Open) {
     if (!remoteMachines.online(draft.host)) return t("launcher.remoteOffline", { name: remoteMachines.machineName(draft.host) });
     if (!draft.project) return t("launcher.remoteNone", { name: remoteMachines.machineName(draft.host) });
     if (!capabilitiesOf(draft.agent).remoteMachines) return t("err.remote.provider");
-    const claude = remoteMachines.machineOf(draft.host)?.claude;
-    if (claude && !claude.installed) return t("machines.claude.missing");
-    if (claude && !claude.loggedIn) return t("launcher.remoteSignIn", { name: remoteMachines.machineName(draft.host) });
-    return "";
+    // Each agent runs with its own sign-in on the machine; only the chosen one has to be ready there.
+    return remoteMachines.readiness(draft.host, draft.agent).problem;
   };
   // Missing projects or an unusable machine come first: the branch picker is hidden until they are fixed.
   const setupProblem = () => remoteProblem() || (draft.project ? "" : t("launcher.localNone"));
@@ -260,7 +258,7 @@ export function openLauncher(board: Board, opts: Open) {
     const setup = setupProblem();
     if (setup) return setup;
     if (needsChoice) return t("models.choose");
-    // On a machine, Claude runs there: this computer may lack it, and then its catalog cannot judge the choice.
+    // On a machine, the agent runs there: this computer may lack it, and then its catalog cannot judge the choice.
     if (!descriptor(draft.agent).installed) return draft.host ? "" : t("models.unavailable");
     const pending = ["idle", "loading"].includes(catalogOf(draft.agent).status);
     if (draft.model && !isKnownModel(draft.agent, draft.model)) return t(pending ? "models.loading" : "models.unavailable");
@@ -412,10 +410,9 @@ export function openLauncher(board: Board, opts: Open) {
   $("d-account-field").append(accountField);
   const drawAccount = () => {
     accountButton.disabled = !!draft.host;
-    // A machine runs Claude with its own sign-in (Settings > Remote machines), not this computer's account.
+    // A machine runs each agent with its own sign-in there (Settings > Remote machines), not this computer's account.
     if (draft.host) {
-      const claude = remoteMachines.machineOf(draft.host)?.claude;
-      accountName.textContent = claude?.loggedIn ? claude.email ?? t("machines.claude.signedIn") : t("machines.claude.signedOut");
+      accountName.textContent = remoteMachines.readiness(draft.host, draft.agent).account;
       accountMeta.textContent = t("launcher.account.onMachine", { name: remoteMachines.machineName(draft.host) });
       accountMeta.hidden = false;
       accountButton.title = "";

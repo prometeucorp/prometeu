@@ -100,6 +100,9 @@ struct RemoteExecution {
     running: bool,
     remote: Arc<Remote>,
     limits: super::Limits,
+    /// The machine's Codex version when this conversation runs Codex (ADR 0105); Claude
+    /// otherwise.
+    codex: Option<String>,
 }
 
 impl RemoteExecution {
@@ -113,6 +116,13 @@ impl Execution for RemoteExecution {
         &self,
         _prepared: &crate::terminal_agent_launch::PreparedTerminalAgent,
     ) -> Result<Vec<PathBuf>, String> {
+        if self.codex.is_some() {
+            // Codex content comes from its engine's RPC stream; no native file is observed.
+            return Ok(vec![mirror_path(
+                &self.machine,
+                &format!("{}/.codex/sessions", self.home),
+            )]);
+        }
         Ok(vec![mirror_path(&self.machine, &self.projects())])
     }
 
@@ -122,6 +132,11 @@ impl Execution for RemoteExecution {
         command: &mut Command,
         _probe: Option<&mut Command>,
     ) -> Result<(), String> {
+        if let Some(version) = &self.codex {
+            // The engine's RPC stream is the conversation's only source and hooks are not
+            // observed for Codex, so none are installed on the machine.
+            return bridge.adopt_remote(version);
+        }
         let version = self
             .connection
             .exec(&["claude", "--version"], None, Duration::from_secs(20))?
@@ -177,6 +192,10 @@ impl Execution for RemoteExecution {
 
     fn adopts_process(&self) -> bool {
         self.running
+    }
+
+    fn keeps_process_on_engine_loss(&self) -> bool {
+        true
     }
 }
 
@@ -296,6 +315,10 @@ pub fn launch(
     let binary =
         super::install::local_binary().ok_or_else(|| crate::i18n::t("err.remote.noBuild"))?;
     let root = format!("{home}/{}", super::install::remote_root());
+    if request.settings.agent == ProviderId::Codex {
+        let host_binary = format!("{root}/host/{}/prometeu-host", binary.hash);
+        return launch_codex(app, request, machine, connection, home, root, host_binary);
+    }
     let listed = connection.request("terminal_list", json!({}))?;
     let terminal = listed
         .as_array()
@@ -428,6 +451,109 @@ pub fn launch(
         root,
         running,
         limits,
+        codex: None,
+    };
+    Ok(prometeu_core::session::launch::Launched {
+        conversation: crate::chat::terminal::launch_on(app, &effective, prepared, &execution)?,
+        resumed,
+    })
+}
+
+/// Start or reattach a Codex conversation in a remote workspace (ADR 0105). Its engine and TUI
+/// run on the machine with the machine's own Codex sign-in; nothing from this computer's Codex
+/// account is used or sent.
+fn launch_codex(
+    app: &AppHandle,
+    request: &LaunchRequest,
+    machine: &str,
+    connection: Arc<Connection>,
+    home: String,
+    root: String,
+    host_binary: String,
+) -> Result<prometeu_core::session::launch::Launched<crate::chat::Chat>, String> {
+    let service = app.state::<super::Service>();
+    let name = service
+        .machine(machine)
+        .map(|m| m.name)
+        .unwrap_or_else(|| machine.to_string());
+    let listed = connection.request("terminal_list", json!({}))?;
+    let running = listed
+        .as_array()
+        .and_then(|list| list.iter().find(|t| t["id"] == json!(request.session)))
+        .is_some_and(|t| t["running"] == json!(true));
+    let status = super::codex::status(&connection)?;
+    super::publish_codex(app, machine, status.clone());
+    // A running conversation is followed whatever its sign-in says now; a new process needs it.
+    let problem = if running {
+        (!status.installed || !status.supported)
+            .then(|| super::codex::problem(&status, &name))
+            .flatten()
+    } else {
+        super::codex::problem(&status, &name)
+    };
+    if let Some(problem) = problem {
+        return Err(problem);
+    }
+    let version = status.version.unwrap_or_default();
+    let effective =
+        crate::chat::terminal::ingestion::resume_request(&crate::paths::root(), request)
+            .map_err(|_| crate::chat::terminal::history(&request.session, "resume_request"))?;
+    let resume = crate::terminal_agent_launch::previous(&effective);
+    if running && resume.is_none() {
+        // Its engine's thread was never recorded here, so this app cannot follow it.
+        return Err(crate::chat::terminal::history(
+            &request.session,
+            "codex_adopt_identity",
+        ));
+    }
+    let (command, plan) = crate::terminal_agent_launch::remote_codex(&effective);
+    let limits = service
+        .machine(machine)
+        .map(|m| m.limits)
+        .unwrap_or_default();
+    let remote = Remote::new(connection.clone(), &effective.session);
+    let engine = super::codex::RemoteEngine::new(
+        app.clone(),
+        connection.clone(),
+        effective.session.clone(),
+        effective.workspace.clone(),
+        root.clone(),
+        home.clone(),
+        host_binary,
+        limits.clone(),
+        running,
+        remote.clone(),
+    );
+    // Codex signs in on the machine, so this computer's account is neither needed nor used.
+    let profile = prometeu_profiles::Profile {
+        id: format!("{REMOTE_PROFILE}{machine}"),
+        provider: ProviderId::Codex,
+        home: mirror_path(machine, &home),
+        managed: false,
+        revision: 0,
+    };
+    let resumed = resume.is_some();
+    let prepared = crate::terminal_agent_launch::PreparedTerminalAgent {
+        command,
+        engine: Some(plan.on(Box::new(engine))),
+        hook_probe: None,
+        profile,
+        resumed,
+        provider_session: resume,
+        initial_instructions: None,
+    };
+    let execution = RemoteExecution {
+        remote,
+        connection,
+        machine: machine.into(),
+        workspace: effective.workspace.clone(),
+        session: effective.session.clone(),
+        helper: String::new(),
+        home,
+        root,
+        running,
+        limits,
+        codex: Some(version),
     };
     Ok(prometeu_core::session::launch::Launched {
         conversation: crate::chat::terminal::launch_on(app, &effective, prepared, &execution)?,
@@ -488,6 +614,7 @@ mod journey {
             root,
             running: false,
             limits: Limits::default(),
+            codex: None,
         };
         let nonce = uuid::Uuid::new_v4().to_string();
         let (bridge, hooks) =

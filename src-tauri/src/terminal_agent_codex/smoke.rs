@@ -169,6 +169,7 @@ fn native_remote_tui_preserves_ask_and_plan_on_fresh_and_cold_resume() {
                 ask: true,
                 plan: true,
             },
+            host: None,
         };
         let mut tui = Command::new("codex");
         tui.current_dir(&cwd)
@@ -398,6 +399,7 @@ fn native_remote_turn_records_rpc_and_rollout_identity() {
             ask: true,
             plan: false,
         },
+        host: None,
     };
     let mut tui = Command::new("codex");
     tui.current_dir(&cwd)
@@ -516,6 +518,7 @@ fn native_remote_turn_records_rpc_and_rollout_identity() {
             ask: true,
             plan: false,
         },
+        host: None,
     }
     .start_inner(&mut Command::new("codex"))
     .unwrap();

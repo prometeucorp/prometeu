@@ -7,6 +7,7 @@
 //! never pass through the app: `ssh` authenticates with the person's own keys and agent.
 pub mod agent;
 pub mod agents;
+pub mod codex;
 pub mod connection;
 pub mod install;
 pub mod login;
@@ -95,6 +96,8 @@ pub struct Service {
     app: Mutex<Option<AppHandle>>,
     /// The last `claude auth status` seen on each machine.
     claude: Mutex<HashMap<String, login::ClaudeStatus>>,
+    /// Whether Codex is installed and signed in on each machine, once checked (ADR 0105).
+    codex: Mutex<HashMap<String, codex::CodexStatus>>,
     /// Whether agents are enabled on each machine, once checked (ADR 0103).
     agents: Mutex<HashMap<String, agents::AgentsStatus>>,
     /// Conversations whose process ended while no desktop was attached: their next launch adopts
@@ -113,6 +116,8 @@ pub struct MachineView {
     pub update_pending: bool,
     /// Claude's sign-in on the machine, once checked.
     pub claude: Option<login::ClaudeStatus>,
+    /// Codex's installation and sign-in on the machine, once checked.
+    pub codex: Option<codex::CodexStatus>,
     pub agents: Option<agents::AgentsStatus>,
 }
 
@@ -171,6 +176,7 @@ impl Service {
 
     pub fn views(&self) -> Vec<MachineView> {
         let claude = lock(&self.claude).clone();
+        let codex = lock(&self.codex).clone();
         let agents = lock(&self.agents).clone();
         let mut views: Vec<MachineView> = lock(&self.connections)
             .values()
@@ -183,6 +189,7 @@ impl Service {
                     host: c.ready(),
                     update_pending: c.update_pending(),
                     claude: claude.get(&c.id).cloned(),
+                    codex: codex.get(&c.id).cloned(),
                     agents: agents.get(&c.id).cloned(),
                 }
             })
@@ -194,6 +201,11 @@ impl Service {
 
 pub(crate) fn publish_claude(app: &AppHandle, id: &str, status: login::ClaudeStatus) {
     lock(&app.state::<Service>().claude).insert(id.into(), status);
+    publish(app);
+}
+
+pub(crate) fn publish_codex(app: &AppHandle, id: &str, status: codex::CodexStatus) {
+    lock(&app.state::<Service>().codex).insert(id.into(), status);
     publish(app);
 }
 
@@ -253,11 +265,14 @@ pub fn fill_origins(app: &AppHandle, machine: Option<&Arc<Connection>>) {
     crate::state::publish(app);
 }
 
-/// Refresh what only changes between attachments: Claude's sign-in, whether agents are enabled
-/// and the clones' origins.
+/// Refresh what only changes between attachments: Claude's and Codex's sign-ins, whether agents
+/// are enabled and the clones' origins.
 fn attached(app: &AppHandle, connection: &Arc<Connection>) {
     if let Ok(status) = login::status(connection) {
         publish_claude(app, &connection.id, status);
+    }
+    if let Ok(status) = codex::status(connection) {
+        publish_codex(app, &connection.id, status);
     }
     agents::refresh(app, connection);
     fill_origins(app, Some(connection));
@@ -279,6 +294,7 @@ fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
                 .collect()
         })
         .unwrap_or_default();
+    end_orphan_engines(connection, &list);
     // An adopted conversation whose process is gone (the machine restarted) resumes from its
     // transcript when opened, like one this app started.
     if let Some(home) = connection.home() {
@@ -289,15 +305,32 @@ fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
         }
     }
     let state = app.state::<AppState>();
-    let tabs: Vec<String> = lock(&state.board)
+    let tabs: Vec<(String, crate::state::ProviderId)> = lock(&state.board)
         .workspaces
         .iter()
         .filter(|ws| ws.host.as_deref() == Some(connection.id.as_str()) && !ws.archived)
-        .flat_map(|ws| ws.tabs.iter().map(|t| t.id.clone()))
+        .flat_map(|ws| {
+            ws.tabs.iter().map(|t| {
+                (
+                    t.id.clone(),
+                    t.choice.as_ref().map_or(ws.agent, |c| c.agent),
+                )
+            })
+        })
         .collect();
     let service = app.state::<Service>();
     for (session, running) in terminals {
-        if !tabs.contains(&session) {
+        let agent = tabs.iter().find(|(id, _)| *id == session).map(|(_, a)| *a);
+        if agent == Some(crate::state::ProviderId::Codex) && !running {
+            // A Codex conversation's content comes from its engine, which ended with it: there is
+            // nothing to collect, and its next launch resumes the thread. A conversation this app
+            // still follows collects the exit itself.
+            if !lock(&state.sessions.conversations).contains_key(&session) {
+                connection.notify("terminal_forget", json!({"id": session}));
+            }
+            continue;
+        }
+        if agent.is_none() {
             // A finished terminal no conversation will read again (an archived workspace, a
             // closed tab, the sign-in) only holds memory on the host.
             if !running {
@@ -314,6 +347,37 @@ fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
         let _ = crate::session::resume_conversation(app, &session);
         lock(&service.recovering).remove(&session);
     }
+}
+
+/// End Codex engines whose conversation's TUI is gone (ADR 0105). An engine ends with its TUI
+/// when this app sees the TUI exit; this covers TUIs that exited while no desktop was attached.
+fn end_orphan_engines(connection: &Connection, list: &Value) {
+    let Some(terminals) = list.as_array() else {
+        return;
+    };
+    let now = now_secs();
+    for engine in terminals {
+        let Some(id) = engine["id"].as_str() else {
+            continue;
+        };
+        let Some(session) = prometeu_host::codex::companion_of(id) else {
+            continue;
+        };
+        if id != prometeu_host::codex::engine_terminal(session) {
+            continue;
+        }
+        let tui = terminals.iter().find(|t| t["id"] == json!(session));
+        if codex::orphan(engine, tui, now) {
+            connection.notify("terminal_signal", json!({"id": id, "signal": "terminate"}));
+        }
+    }
+}
+
+pub(crate) fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[derive(Deserialize)]
@@ -453,6 +517,10 @@ pub fn machine_claude_status(app: AppHandle, id: String) -> Result<login::Claude
     let connection = app.state::<Service>().connected(&id)?;
     let status = login::status(&connection)?;
     publish_claude(&app, &id, status.clone());
+    // "Check again" also covers Codex, which signs in on the machine itself (ADR 0105).
+    if let Ok(codex) = codex::status(&connection) {
+        publish_codex(&app, &id, codex);
+    }
     Ok(status)
 }
 
