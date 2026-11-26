@@ -481,8 +481,10 @@ mod tests {
         assert_eq!(next(&mut client).unwrap()["method"], "early");
         let mut output = answer.join().unwrap();
         // A broken line means a lost frame: the stream ends instead of skipping it.
-        writeln!(output, "{{\"method\":").unwrap();
-        writeln!(output, "{}", serde_json::json!({"method": "after"})).unwrap();
+        // Send both lines together so closing the reader cannot race a second write.
+        output
+            .write_all(b"{\"method\":\n{\"method\":\"after\"}\n")
+            .unwrap();
         assert!(matches!(next(&mut client), Err(Error::Closed)));
     }
 
