@@ -136,9 +136,11 @@ function initFind() {
       closeFind();
     }
   });
-  // The viewer owns Command-F only while an editable code buffer is on screen.
+  // The viewer owns Command-F while an editable code buffer is on screen, except when a project view
+  // gives the key to its file search.
   document.addEventListener("keydown", (e) => {
-    if (e.key.toLowerCase() !== "f" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    // The project file search can take the key first (see projectFindKey in workspace.ts).
+    if (e.defaultPrevented || e.key.toLowerCase() !== "f" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
     if (openFind()) e.preventDefault();
   });
 }

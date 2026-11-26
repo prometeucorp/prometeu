@@ -21,7 +21,8 @@ import { avatar, icon, wave } from "./icons";
 import { fromBack, t, tn } from "./i18n";
 import { fitsEffort, modelLabel } from "./model-choice";
 import { openModelPicker } from "./model-picker";
-import { openQuickOpen } from "./quick-open";
+import { mac } from "./platform";
+import { openQuickOpen, takesProjectFind, type QuickOpen } from "./quick-open";
 import * as menu from "./menu";
 import * as notes from "./notes";
 import * as rename from "./rename";
@@ -74,6 +75,9 @@ const gitRefresh = new GitRefreshPolicy();
 const turns = new TurnSettlePolicy();
 let usage: WorkspaceUsage;
 let nativePending: HTMLButtonElement;
+let projectFind: HTMLButtonElement;
+/// The open file search. Each change of view closes it, so a late answer cannot reach another root.
+let finder: QuickOpen | null = null;
 
 export const id = () => openWs;
 /// Resolve file-tree and viewer roots from either the selected workspace or a directly opened project.
@@ -93,6 +97,15 @@ export function init(context: Ctx) {
   nativePending.setAttribute("aria-haspopup", "dialog");
   nativePending.hidden = true;
   $("wsmore").before(nativePending);
+  // Project view only: the visible twin of Command-F.
+  projectFind = button("", () => findProjectFile(), "ghost", "files.find");
+  projectFind.classList.add("ico", "sm");
+  projectFind.innerHTML = icon("search", 14);
+  projectFind.title = t("quickOpen.project", { keys: mac ? "⌘F" : "Ctrl+F" });
+  projectFind.setAttribute("aria-label", projectFind.title);
+  projectFind.setAttribute("aria-haspopup", "dialog");
+  projectFind.hidden = true;
+  $("wsmore").before(projectFind);
   changesUi.init({
     workspace: current,
     refresh: async () => { if (openWs && hasDiff()) { await loadChanges(openWs); tree.redrawSoon(); } },
@@ -195,7 +208,9 @@ export function init(context: Ctx) {
 /* Workspace entry and exit. */
 
 export async function open(ws: Workspace, tab?: string) {
+  closeFinder();
   proj = null;
+  projectFind.hidden = true;
   // A terminal session left this way keeps running, but it is no longer on screen.
   shellSession = null;
   if (tab && openWs === ws.id) return selectTab(ws.id, tab);
@@ -281,7 +296,9 @@ export function leave() {
   navigation++;
   gitRefresh.clear();
   turns.clear();
+  closeFinder();
   proj = null;
+  projectFind.hidden = true;
   shellSession = null;
   browser.hide();
   restoreBrowserSide();
@@ -1234,11 +1251,46 @@ export async function openFile(path: string) {
 
 /// Command-P lists the open workspace's or project's files by name. Remote shares have no local
 /// index, so the shortcut does nothing for them.
-export function quickOpen() {
+export function quickOpen(anchor: HTMLElement = $("tabbar")) {
   const id = root();
   if (!id || (openWs && team.isRemote(openWs))) return;
+  closeFinder();
+  const before = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   // Open tabs, most recent last, rank first among equal matches.
-  openQuickOpen($("tabbar"), id, [...files(id).open].reverse(), (path) => void openFile(path));
+  finder = openQuickOpen(anchor, id, [...files(id).open].reverse(), {
+    // The picker belongs to the root that opened it, so a path of another root is never opened there.
+    open: (path) => { if (root() === id) void openFile(path); },
+    // Escape gives focus to the anchor. Give it back to the control that had it before the search.
+    closed: () => queueMicrotask(() => {
+      const now = document.activeElement;
+      if (before?.isConnected && root() === id && (now === anchor || now === document.body || !now)) before.focus();
+    }),
+  });
+}
+
+function closeFinder() {
+  finder?.close();
+  finder = null;
+}
+
+/// The project view opens the file search of its clone. Remote clones have no project view.
+export function findProjectFile(): boolean {
+  if (!proj || proj.host || openWs || shellSession) return false;
+  quickOpen(projectFind.hidden ? $("tabbar") : projectFind);
+  return true;
+}
+
+/// Command-F (Control-F outside macOS) searches the files of a local project. Text fields, the file
+/// viewer and terminals keep the key when they have focus.
+export function projectFindKey(e: KeyboardEvent): boolean {
+  const focused = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+  const place = {
+    mac,
+    project: !!proj && !proj.host && !openWs && !shellSession,
+    blocked: !!document.querySelector("dialog[open], .ui-feedback-panel:not([hidden])"),
+    focusOwnsKey: !!focused && (focused.isContentEditable || focused.matches("input, textarea, select") || !!focused.closest("#viewer, .xterm")),
+  };
+  return takesProjectFind(e, place) && findProjectFile();
 }
 
 async function showFile(opened = false) {
@@ -1525,6 +1577,7 @@ let proj: Project | null = null;
 export function openProject(project: Project) {
   leave();
   proj = project;
+  projectFind.hidden = !!project.host;
   tree.reset();
   $("wsView").hidden = false;
   const crumb = $("crumb");

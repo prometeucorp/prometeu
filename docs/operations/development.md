@@ -295,7 +295,7 @@ These items also have no dedicated browser gate:
 - The preferences for tab visibility.
 - The rank of recent files.
 - The find bar of the file viewer.
-- The Command-P file search.
+- The Command-P file search and the Command-F file search of the project view.
 
 These items have coverage in other suites:
 

@@ -1133,6 +1133,7 @@ export const EN: Record<keyof typeof pt.PT, string> = {
   "quickOpen.label": "Open file",
   "quickOpen.search": "Search files by name",
   "quickOpen.empty": "No files found",
+  "quickOpen.project": "Find a file in this project ({keys})",
   "web.back": "Back",
   "web.inspect": "Select element",
   "web.inspecting": "Click the page · Esc cancels",

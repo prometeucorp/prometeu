@@ -909,6 +909,12 @@
       ]
     },
     {
+      "target": "files.find",
+      "sources": [
+        "src/workspace.ts"
+      ]
+    },
+    {
       "target": "files.picker",
       "sources": [
         "src/quick-open.ts"
