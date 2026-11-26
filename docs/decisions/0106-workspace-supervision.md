@@ -55,6 +55,16 @@ completion of a model turn. The receiver deduplicates deliveries, serializes
 decisions per workspace, reads current state through MCP/GitHub, and decides
 whether to request corrections or notify the person. Merge remains manual.
 
+### Receiver compatibility
+
+The Cloud destination can select the existing Prometeu format or OpenBot's
+`type`/`data` envelope and timestamp/delivery-ID/body signature. A receiver-issued
+secret can be supplied or replaced in the account form and stays encrypted.
+OpenBot credential rotation preserves that secret and rotates only host ingestion.
+The format choice stays at the outbound boundary, so host events and MCP clients
+remain receiver-independent. Explicit selection preserves existing destinations;
+a general header/template editor is unnecessary for these two concrete protocols.
+
 ### GitHub routing and trust
 
 The host registers repository/branch metadata and can explicitly associate a PR
