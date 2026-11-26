@@ -13,9 +13,12 @@ use std::{
 use tungstenite::{protocol::WebSocketConfig, Message, WebSocket};
 
 const MAX_MESSAGE: usize = 1024 * 1024;
+// Native user items include inline image data, including during paginated replay.
+// Match the history byte ceiling rather than the small outbound control limit.
+const MAX_INCOMING_MESSAGE: usize = 64 * 1024 * 1024;
 
 #[derive(Debug)]
-pub(super) enum Error {
+pub(crate) enum Error {
     Io,
     Protocol,
     Identity,
@@ -75,8 +78,8 @@ impl Client {
         stream.set_read_timeout(Some(deadline.saturating_duration_since(Instant::now())))?;
         stream.set_write_timeout(Some(Duration::from_secs(1)))?;
         let config = WebSocketConfig::default()
-            .max_message_size(Some(MAX_MESSAGE))
-            .max_frame_size(Some(MAX_MESSAGE))
+            .max_message_size(Some(MAX_INCOMING_MESSAGE))
+            .max_frame_size(Some(MAX_INCOMING_MESSAGE))
             .write_buffer_size(0)
             .max_write_buffer_size(MAX_MESSAGE + 1024);
         let (socket, _) =
@@ -123,6 +126,7 @@ impl Client {
             {
                 Ok(None)
             }
+            Err(tungstenite::Error::Capacity(_)) => Err(Error::Limit),
             Err(_) => Err(Error::Closed),
         }
     }
