@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { icon } from "./icons";
-import { aliases, badge, creatorBadge, projectsOn } from "./machines";
+import { t } from "./i18n";
+import { aliases, badge, codexLine, creatorBadge, projectsOn, readinessOf, type MachineView } from "./machines";
 
 vi.mock("./ipc", () => ({ invoke: vi.fn() }));
 
@@ -12,6 +13,31 @@ it("offers only registered projects on the selected machine, including clones wi
   expect(projectsOn(projects)).toEqual([local]);
   expect(projectsOn(projects, "vps")).toEqual([vps]);
   expect(projectsOn(projects, "empty")).toEqual([]);
+});
+
+it("tells what keeps Codex from running on a machine, in the order to fix it", () => {
+  const ready = { installed: true, version: "codex-cli 0.169.0", supported: true, loggedIn: true, minimum: "0.169.0" };
+  expect(codexLine(ready)).toBe(t("machines.codex.signedIn"));
+  expect(codexLine({ ...ready, loggedIn: false })).toBe(t("machines.codex.signedOut"));
+  expect(codexLine({ ...ready, version: "codex-cli 0.100.0", supported: false, loggedIn: false }))
+    .toBe(t("machines.codex.old", { version: "codex-cli 0.100.0", minimum: "0.169.0" }));
+  expect(codexLine({ installed: false, version: null, supported: false, loggedIn: false, minimum: "0.169.0" }))
+    .toBe(t("machines.codex.missing"));
+});
+
+it("asks only the chosen agent to be ready on the machine", () => {
+  const machine = {
+    id: "vps", name: "VPS", ssh: "vps", limits: {}, phase: "connected", detail: null, host: null, update_pending: false,
+    claude: { installed: true, loggedIn: false, email: null, method: null },
+    codex: { installed: true, version: "codex-cli 0.169.0", supported: true, loggedIn: true, minimum: "0.169.0" },
+  } as unknown as MachineView;
+  expect(readinessOf(machine, "codex")).toEqual({ problem: "", account: t("machines.codex.account") });
+  expect(readinessOf(machine, "claude").problem).toBe(t("launcher.remoteSignIn", { name: "VPS" }));
+  const signedOut = { ...machine, codex: { ...machine.codex!, loggedIn: false } };
+  expect(readinessOf(signedOut, "codex").problem).toBe(t("err.remote.codexSignIn", { name: "VPS" }));
+  // An unchecked machine does not block the launcher; the launch checks again.
+  expect(readinessOf({ ...machine, codex: null }, "codex").problem).toBe("");
+  expect(readinessOf(machine, "cursor").problem).toBe(t("err.remote.provider"));
 });
 
 describe("aliases", () => {

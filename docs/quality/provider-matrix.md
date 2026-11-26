@@ -20,7 +20,7 @@ every combination of providers, states, languages and screen sizes.
 
 Settings lists and ends host-owned processes, including idle conversations and
 Claude sign-in terminals. This adds a guarded stop to the host terminal protocol and
-does not enable remote support for other providers. `src/machine-processes.test.ts`
+does not change which providers run remotely. `src/machine-processes.test.ts`
 checks liveness, machine-scoped labels, confirmation races, legacy hosts and refresh lifetime;
 `stopping_a_listed_process_never_kills_a_replacement_under_the_same_id` verifies
 that stale confirmations cannot kill a resumed conversation;
@@ -30,19 +30,34 @@ listing before and after a targeted kill.
 Several computers can follow the same machine at once
 ([ADR 0104](../decisions/0104-several-computers-on-one-machine.md)). This
 changes the host attachment, not provider support: hooks and permission requests
-are shared as Claude's, the only remote provider, emits them. The host
+are shared as Claude emits them; each computer following a Codex conversation
+reads the engine through its own relay ([ADR 0105](../decisions/0105-codex-on-remote-machines.md)). The host
 integration tests in `src-tauri/crates/host/tests/host.rs` and
 `src/machine-clients.test.ts` cover it.
 
-Only Claude declares `remoteMachines` ([ADR 0101](../decisions/0101-remote-machines.md)):
-its native hooks are relayed by the remote host and its project transcripts are
-mirrored for the observer. Codex, Cursor and Antigravity are rejected for remote
-workspaces until their hooks, stores and engines run on the host. The remote
-Claude invocation is the local terminal one without account profile, MCP or
-plugin arguments: the machine's own Claude login and configuration apply.
-Settings signs Claude in on the machine with `claude auth login --claudeai`, the
-person's browser and a pasted code; the opt-in `vps_claude_login` test covers the
-link on Claude Code 2.1.330.
+Claude and Codex declare `remoteMachines`. Claude's native hooks are relayed by
+the remote host and its project transcripts are mirrored for the observer
+([ADR 0101](../decisions/0101-remote-machines.md)). Codex runs its native engine
+and TUI on the machine, and the desktop reads the engine's RPC through a relay
+terminal on the host ([ADR 0105](../decisions/0105-codex-on-remote-machines.md)).
+Cursor and Antigravity are rejected for remote workspaces until their hooks and
+stores run on the host. Both remote invocations are the local terminal ones
+without account profile, MCP or plugin arguments: the machine's own login and
+configuration apply. Settings signs Claude in on the machine with
+`claude auth login --claudeai`, the person's browser and a pasted code; the
+opt-in `vps_claude_login` test covers the link on Claude Code 2.1.330. Codex is
+signed in by the person on the machine (`codex login --device-auth` over SSH);
+Settings and the launcher show whether it is installed, at least 0.169.0 and
+signed in, and a launch without them fails with the step to take.
+
+| Remote behavior | Claude | Codex | Evidence |
+| --- | --- | --- | --- |
+| observation | relayed hooks and mirrored transcript | engine RPC through the host's `codex-relay` terminal | `host.rs` relay tests, `wire.rs` tests |
+| sign-in | Settings runs `claude auth login` on the machine | `codex login --device-auth` run by the person on the machine; status only | `remote/codex.rs` tests, `src/machines.test.ts` |
+| SSH loss | terminal and hooks replayed | relay lines replayed; a gap over 2 MiB or a lost relay re-adopts from engine history | `remote/codex.rs` tests, `host.rs` detachment test |
+| app restart | adopts the running TUI and transcript binding | adopts the running TUI and engine with a new relay | not exercised against a real machine |
+| exit while away | finished terminal adopted to collect output and transcript | finished TUI forgotten; orphan engine ended at the next attachment | `remote/codex.rs` tests |
+| agent clients (ADR 0103) | listed and resumable | not listed in the machine's registry | `remote/registry.rs` tests |
 
 Project registration is managed in Settings > Projects, filtered by computer.
 The launcher lists only registrations on the selected machine; local origin
@@ -50,7 +65,7 @@ aliases do not hide remote clones or cause implicit installation. This selection
 rule is covered by `src/machines.test.ts`; navigation compatibility by
 `src/settings-navigation.test.ts`. `e2e/projects.spec.ts` covers the browser
 journey through machine selection and nested registration without losing the
-workspace prompt. Remote execution remains Claude-only.
+workspace prompt. Remote execution covers Claude and Codex.
 
 Agent clients on the machine
 ([ADR 0103](../decisions/0103-agents-on-remote-machines.md)) launch Claude only,
@@ -66,7 +81,10 @@ not provider support: execution still launches Claude only.
 
 Evidence: the host integration tests and the opt-in `vps_journey` cover
 transport, reattachment and limits. A live Claude response, completion and
-reattached status on a remote machine remain to be recorded here.
+reattached status on a remote machine remain to be recorded here. Remote Codex
+has not yet run against a real machine with Codex 0.169.0 or newer installed and
+signed in: a fresh response, an interrupt, a request answer, a reconnection and
+an app restart remain to be recorded.
 
 `remote_reattachment_before_first_prompt_preserves_identity_and_requires_empty_history`
 in `src-tauri/src/chat/terminal/ingestion/tests.rs` covers restarting the desktop

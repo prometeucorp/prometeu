@@ -5,7 +5,7 @@ import { iconButton } from "./components/icon-button";
 import { invoke } from "./ipc";
 import * as menu from "./menu";
 import { button, confirmDialog, field, input, notice } from "./ui";
-import type { Project } from "./types";
+import type { Project, ProviderId } from "./types";
 import { h, template } from "./util";
 import { showMachineClients } from "./machine-clients";
 import { showMachineProcesses } from "./machine-processes";
@@ -20,10 +20,12 @@ export type HostInfo = { home: string; user: string; os: string; arch: string; v
   /** The host serves several computers at once (ADR 0104); absent on older hosts. */
   clients?: boolean };
 export type ClaudeStatus = { installed: boolean; loggedIn: boolean; email: string | null; method: string | null };
+/// Codex signs in on the machine itself (ADR 0105); only exit codes and the version line are read there.
+export type CodexStatus = { installed: boolean; version: string | null; supported: boolean; loggedIn: boolean; minimum: string };
 export type AgentsStatus = { enabled: boolean; socket: string; serving: boolean; error: string | null };
 /** Shown once after enabling agents or rotating their token: the local MCP configuration with the token. */
 export type AgentsSetup = { config: string; preview: string; moved_from: string | null };
-export type MachineView = { id: string; name: string; ssh: string; limits: Limits; phase: MachinePhase; detail: string | null; host: HostInfo | null; update_pending: boolean; claude?: ClaudeStatus | null; agents?: AgentsStatus | null };
+export type MachineView = { id: string; name: string; ssh: string; limits: Limits; phase: MachinePhase; detail: string | null; host: HostInfo | null; update_pending: boolean; claude?: ClaudeStatus | null; codex?: CodexStatus | null; agents?: AgentsStatus | null };
 export type MachineInput = { id?: string | null; name: string; ssh: string; limits: Limits };
 export type WorkspaceStats = { memory: number | null; memory_max: number | null; cpu_usec: number | null; cpu_max: string | null };
 export type MachineStats = { workspaces: Record<string, WorkspaceStats>; memory_total: number | null; memory_available: number | null; load: number | null; cpus: number; terminals: number };
@@ -45,6 +47,31 @@ export function onChange(fn: () => void) { listeners.add(fn); return () => liste
 /// The machine's display name; a machine forgotten while a workspace still names it falls back to its id.
 export const machineName = (id: string) => machineOf(id)?.name ?? id;
 export const online = (id: string | undefined) => machineOf(id)?.phase === "connected";
+
+/// Whether an agent can start on a machine, as the launcher shows it: an empty problem when it can, and the sign-in the
+/// agent uses there. Each agent signs in on the machine itself, so only the chosen one has to be ready. An unchecked
+/// machine reports no problem; the launch itself checks again.
+export type MachineReadiness = { problem: string; account: string };
+export function readinessOf(machine: MachineView | undefined, agent: ProviderId): MachineReadiness {
+  const name = machine?.name ?? "";
+  const claude = machine?.claude;
+  const codex = machine?.codex;
+  const byAgent: Partial<Record<ProviderId, () => MachineReadiness>> = {
+    claude: () => ({
+      problem: !claude ? "" : !claude.installed ? t("machines.claude.missing") : !claude.loggedIn ? t("launcher.remoteSignIn", { name }) : "",
+      account: claude?.loggedIn ? claude.email ?? t("machines.claude.signedIn") : t("machines.claude.signedOut"),
+    }),
+    codex: () => ({
+      problem: !codex ? ""
+        : !codex.installed ? t("err.remote.codexMissing", { name })
+        : !codex.supported ? t("err.remote.codexVersion", { name, version: codex.version ?? "", minimum: codex.minimum })
+        : !codex.loggedIn ? t("err.remote.codexSignIn", { name }) : "",
+      account: t(codex?.loggedIn ? "machines.codex.account" : "machines.codex.accountOut"),
+    }),
+  };
+  return byAgent[agent]?.() ?? { problem: t("err.remote.provider"), account: "" };
+}
+export const readiness = (host: string, agent: ProviderId) => readinessOf(machineOf(host), agent);
 
 /** Only registered folders on the selected machine can be chosen for a new workspace. */
 export function projectsOn(projects: Project[], host?: string): Project[] {
@@ -122,6 +149,12 @@ function run(id: string, redraw: () => void, say: (text: string, isError?: boole
     .finally(() => { busy.delete(id); redraw(); });
 }
 
+export function codexLine(codex: CodexStatus): string {
+  if (!codex.installed) return t("machines.codex.missing");
+  if (!codex.supported) return t("machines.codex.old", { version: codex.version ?? "", minimum: codex.minimum });
+  return codex.loggedIn ? t("machines.codex.signedIn") : t("machines.codex.signedOut");
+}
+
 /// One row per machine: what it is and whether it can run work now. Only the action the machine needs shows as a
 /// button; the rest stay in its menu.
 function machineRows(machine: MachineView, say: (text: string, isError?: boolean) => void, redraw: () => void): HTMLElement[] {
@@ -149,6 +182,8 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
       : !claude.installed ? t("machines.claude.missing")
       : claude.loggedIn ? (claude.email ? t("machines.claude.signedInAs", { email: claude.email }) : t("machines.claude.signedIn"))
       : t("machines.claude.signedOut"), claude && !(claude.installed && claude.loggedIn) ? "warn" : "");
+    // Codex is optional on a machine: a missing install is information, a broken one a warning.
+    if (machine.codex) line(codexLine(machine.codex), machine.codex.installed && !(machine.codex.supported && machine.codex.loggedIn) ? "warn" : "");
   }
 
   const working = busy.has(machine.id) || busy.has(`claude:${machine.id}`) || busy.has(`agents:${machine.id}`);

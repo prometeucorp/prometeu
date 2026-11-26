@@ -389,6 +389,26 @@ fn prepare_codex(
     })
 }
 
+/// A Codex conversation on a remote machine (ADR 0105): the local engine and TUI invocations
+/// without account profile, plugins or MCP, so the machine's own Codex sign-in and configuration
+/// apply. Returns the TUI command and the engine plan; the caller decides where the engine runs.
+pub(crate) fn remote_codex(
+    request: &LaunchRequest,
+) -> (Command, crate::terminal_agent_codex::NativeEnginePlan) {
+    let plugins = CodexPlugins {
+        home: None,
+        ids: Vec::new(),
+        hook_ids: Vec::new(),
+    };
+    let mut engine = Command::new("codex");
+    configure_codex(&mut engine, request, &plugins, None);
+    let mut tui = Command::new("codex");
+    tui.current_dir(&request.worktree);
+    let plan =
+        crate::terminal_agent_codex::NativeEnginePlan::new(engine, request, previous(request));
+    (tui, plan)
+}
+
 fn configure_codex(
     command: &mut Command,
     request: &LaunchRequest,
@@ -1198,6 +1218,32 @@ mod tests {
                 .iter()
                 .any(|arg| arg == "approval_policy=\"never\""));
         }
+    }
+
+    #[test]
+    fn remote_codex_uses_the_machines_own_account_and_configuration() {
+        let mut request = request(ProviderId::Codex);
+        request.settings.model = "gpt-5.4".into();
+        request.mode = StartMode::Resume {
+            provider_session: Some("019a0000-0000-7000-8000-000000000001".into()),
+        };
+        let (tui, plan) = remote_codex(&request);
+        assert_eq!(tui.get_program(), "codex");
+        assert_eq!(tui.get_current_dir(), Some(Path::new("/tmp/Work tree")));
+        assert_eq!(tui.get_args().count(), 0);
+        assert_eq!(tui.get_envs().count(), 0);
+        let engine = &plan.command;
+        let arguments = args(engine);
+        assert_eq!(arguments[0], "app-server");
+        assert_eq!(engine.get_current_dir(), Some(Path::new("/tmp/Work tree")));
+        // No account home, plugin home or MCP servers from this computer reach the machine.
+        assert_eq!(engine.get_envs().count(), 0);
+        assert!(!arguments.iter().any(|arg| arg.starts_with("mcp_servers=")));
+        assert!(!arguments.contains(&"plugins".into()));
+        assert!(arguments.iter().any(|arg| arg == "model=\"gpt-5.4\""));
+        assert!(arguments
+            .iter()
+            .any(|arg| arg == "approval_policy=\"never\""));
     }
 
     #[test]

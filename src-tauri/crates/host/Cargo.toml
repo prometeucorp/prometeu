@@ -17,3 +17,5 @@ libc = "0.2"
 portable-pty = "0.9"
 prometeu-core = { path = "../core" }
 prometeu-process = { path = "../process" }
+sha2 = "0.10"
+tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"] }

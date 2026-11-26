@@ -44,6 +44,8 @@ pub struct Remote {
     fresh: AtomicBool,
     /// The watch that mirrors this conversation's transcripts.
     mirror: Mutex<Option<String>>,
+    /// Set once a conversation follows this terminal, opened or adopted.
+    followed: AtomicBool,
 }
 
 impl Remote {
@@ -58,7 +60,18 @@ impl Remote {
             replaying: Arc::new(AtomicBool::new(false)),
             fresh: AtomicBool::new(false),
             mirror: Mutex::new(None),
+            followed: AtomicBool::new(false),
         })
+    }
+
+    /// Whether the process may still run: false once the host reported its exit or lost it.
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
+    }
+
+    /// Whether a conversation followed this terminal; before that it may never have opened.
+    pub fn followed(&self) -> bool {
+        self.followed.load(Ordering::Acquire)
     }
 
     pub fn mirrored_by(&self, watch: &str) {
@@ -108,6 +121,7 @@ impl Remote {
 
     /// Present the remote terminal through the local terminal ports.
     pub fn started(self: &Arc<Self>) -> StartedTerminal {
+        self.followed.store(true, Ordering::Release);
         StartedTerminal {
             input: Box::new(Input(self.clone())),
             output: Box::new(Output {
