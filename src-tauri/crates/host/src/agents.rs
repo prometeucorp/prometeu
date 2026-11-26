@@ -3,7 +3,7 @@
 //! through a second socket that offers only those operations and requires a token, never through
 //! the desktop socket, whose `exec` and file methods amount to a shell.
 use crate::registry::{self, Conversation, Creator, Project, Workspace};
-use crate::server::{now, open, read_line, Host};
+use crate::server::{now, open_reserved, read_line, Host, Reservation};
 use prometeu_core::command::{CommandError, CommandPolicy, CommandRunner, OutputPolicy};
 use prometeu_core::lock::lock;
 use prometeu_host::{
@@ -724,6 +724,9 @@ const MUTATING: &[&str] = &[
     "conversation_send",
     "conversation_interrupt",
     "workspace_close",
+    "workspace_supervisor_set",
+    "workspace_supervisor_remove",
+    "workspace_pr_link",
 ];
 static MUTATIONS: AtomicUsize = AtomicUsize::new(0);
 static STOPPING: AtomicBool = AtomicBool::new(false);
@@ -781,6 +784,9 @@ const CHANGES_REGISTRY: &[&str] = &[
     "workspace_create",
     "conversation_open",
     "workspace_close",
+    "workspace_supervisor_set",
+    "workspace_supervisor_remove",
+    "workspace_pr_link",
 ];
 
 fn call(
@@ -792,6 +798,23 @@ fn call(
     match method {
         "ping" => Ok(json!({})),
         "projects_list" => Ok(json!(host.registry.read()?.projects)),
+        "supervisors_list" => Ok(host.supervision.list()),
+        "workspace_supervisor_set" => {
+            host.set_supervisor(text(params, "id")?, Some(text(params, "supervisor_id")?))?;
+            Ok(json!({}))
+        }
+        "workspace_supervisor_remove" => {
+            host.set_supervisor(text(params, "id")?, None)?;
+            Ok(json!({}))
+        }
+        "workspace_pr_link" => {
+            host.supervision.link_pr(
+                text(params, "id")?,
+                text(params, "repository")?,
+                params["number"].as_u64().ok_or("invalid_pull_request")?,
+            )?;
+            Ok(json!({}))
+        }
         "project_add" => project_add(host, creator, text(params, "path")?),
         "project_clone" => project_clone(
             host,
@@ -834,6 +857,8 @@ fn call(
             }
             // Escape is how a person interrupts Claude's turn in its terminal.
             host.write(id, b"\x1b")?;
+            host.supervision
+                .observe(id, prometeu_core::supervision::Observation::Interrupted)?;
             Ok(json!({}))
         }
         "workspace_close" => workspace_close(
@@ -1033,6 +1058,30 @@ fn launch(
     prompt: Option<&str>,
 ) -> Result<(), String> {
     let _launching = lock(&LAUNCHES);
+    // Desktops and other senders may have resumed it after our caller checked. Reserve before
+    // observing a new execution, so a rejected attempt cannot fail somebody else's execution.
+    let reserved = Reservation::take(host, conversation)?;
+    host.supervision.observe(
+        conversation,
+        prometeu_core::supervision::Observation::Started,
+    )?;
+    let result = launch_inner(host, workspace, conversation, prompt, &reserved);
+    if result.is_err() {
+        host.supervision.observe(
+            conversation,
+            prometeu_core::supervision::Observation::Failed,
+        )?;
+    }
+    result
+}
+
+fn launch_inner(
+    host: &Arc<Host>,
+    workspace: &Workspace,
+    conversation: &str,
+    prompt: Option<&str>,
+    reserved: &Reservation<'_>,
+) -> Result<(), String> {
     let closed = host
         .registry
         .read()?
@@ -1090,7 +1139,7 @@ fn launch(
         "cols": 120,
         "rows": 40,
     });
-    open(host, &params).map(|_| ())
+    open_reserved(host, &params, reserved).map(|_| ())
 }
 
 fn title_from(prompt: &str) -> String {
@@ -1104,6 +1153,10 @@ fn title_from(prompt: &str) -> String {
 
 fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Result<Value, String> {
     let prompt = text(params, "prompt")?;
+    let supervision = params
+        .get("supervisor_id")
+        .map(|_| host.supervision.binding(text(params, "supervisor_id")?))
+        .transpose()?;
     let key = text(params, "project")?;
     let project = host
         .registry
@@ -1196,11 +1249,9 @@ fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Resu
         closed: false,
         keep_branch: existing,
         conversations: vec![conversation.clone()],
+        supervision,
     };
-    let recorded = host.registry.update(|registry| {
-        registry.put_workspace(workspace.clone());
-        Ok(())
-    });
+    let recorded = host.supervision.record_workspace(workspace.clone());
     if let Err(error) = recorded {
         // Nothing refers to the checkout: undo it rather than leave an orphan.
         let _ = git(&repo, &["worktree", "remove", "--force", "--", &worktree]);
@@ -1430,7 +1481,13 @@ fn conversation_send(host: &Arc<Host>, id: &str, message: &str) -> Result<Value,
         return Ok(json!({"resumed": true}));
     }
     let clean = message.replace("\x1b[201~", "");
-    host.submit(id, format!("\x1b[200~{clean}\x1b[201~").as_bytes())?;
+    host.supervision
+        .observe(id, prometeu_core::supervision::Observation::Started)?;
+    if let Err(error) = host.submit(id, format!("\x1b[200~{clean}\x1b[201~").as_bytes()) {
+        host.supervision
+            .observe(id, prometeu_core::supervision::Observation::Failed)?;
+        return Err(error);
+    }
     Ok(json!({"resumed": false}))
 }
 
@@ -1582,12 +1639,7 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
             };
         }
     }
-    host.registry.update(|registry| {
-        if let Some(workspace) = registry.workspace_mut(id) {
-            workspace.closed = true;
-        }
-        Ok(())
-    })?;
+    host.supervision.close(id)?;
     // The worktree is gone either way; the branch may still hold commits worth a look.
     Ok(match kept {
         Some(detail) => json!({"branch_kept": workspace.branch, "detail": detail}),
@@ -1600,6 +1652,7 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
 pub fn registry_view(host: &Host) -> Result<Value, String> {
     let registry = host.registry.read()?;
     let mut value = json!(registry);
+    value.as_object_mut().unwrap().remove("supervision");
     value["workspaces"] = Value::Array(
         registry
             .workspaces
@@ -1636,17 +1689,136 @@ pub fn registry_put(host: &Host, params: &Value) -> Result<Value, String> {
 
 pub fn registry_close(host: &Host, params: &Value) -> Result<Value, String> {
     let id = text(params, "id")?;
-    host.registry.update(|registry| {
-        if let Some(workspace) = registry.workspace_mut(id) {
-            workspace.closed = true;
-        }
-        Ok(json!({}))
-    })
+    host.supervision.close(id)?;
+    Ok(json!({}))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_resumes_do_not_fail_the_execution_started_by_the_other_sender() {
+        const CHILD_ROOT: &str = "PROMETEU_TEST_CONCURRENT_RESUME_ROOT";
+        let Ok(root) = std::env::var(CHILD_ROOT) else {
+            // Isolate the provider override in a subprocess instead of mutating the environment
+            // shared by the parallel unit tests. No real provider or user profile is used.
+            let root = std::env::temp_dir().join(format!("concurrent-resume-{}", uuid().unwrap()));
+            std::fs::create_dir_all(&root).unwrap();
+            let provider = root.join("claude");
+            std::fs::write(
+                &provider,
+                "#!/bin/sh\nwhile IFS= read -r line; do :; done\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&provider, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "agents::tests::concurrent_resumes_do_not_fail_the_execution_started_by_the_other_sender", "--nocapture"])
+                .env(CHILD_ROOT, &root)
+                .env("PROMETEU_HOST_CLAUDE", provider)
+                .output().unwrap();
+            std::fs::remove_dir_all(root).unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        };
+        let root = PathBuf::from(root);
+        let host = crate::server::test_host(&root);
+        host.supervision
+            .configure(
+                &json!({"action":"setup", "url":"https://cloud.example", "token":"test-token",
+            "supervisor":{"id":"supervisor", "name":"Supervisor"}}),
+            )
+            .unwrap();
+        let workspace: Workspace = serde_json::from_value(json!({
+            "id":"workspace", "project":root, "title":"Task", "branch":"feature", "base":"HEAD", "worktree":root,
+            "created_at":1, "created_by":{"kind":"agent"}, "supervision":{"supervisor_id":"supervisor"},
+            "conversations":[{"id":"conversation", "title":"Task", "created_at":1, "permission":"auto"}]
+        })).unwrap();
+        host.supervision
+            .record_workspace(workspace.clone())
+            .unwrap();
+        host.supervision
+            .observe(
+                "conversation",
+                prometeu_core::supervision::Observation::Completed,
+            )
+            .unwrap();
+
+        // A desktop has reserved this conversation but has not yet installed its PTY. The
+        // losing MCP attempt must leave execution state and the durable outbox untouched.
+        let desktop = Reservation::take(&host, "conversation").unwrap();
+        let before = serde_json::to_value(host.registry.read().unwrap()).unwrap();
+        assert!(!host.is_running("conversation"));
+        assert_eq!(
+            launch(&host, &workspace, "conversation", Some("Resume the task")),
+            Err("terminal_exists".into())
+        );
+        assert_eq!(
+            serde_json::to_value(host.registry.read().unwrap()).unwrap(),
+            before
+        );
+        drop(desktop);
+
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let launching = lock(&LAUNCHES);
+        let senders: Vec<_> = (0..2)
+            .map(|_| {
+                let host = host.clone();
+                let workspace = workspace.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    assert!(!host.is_running("conversation"));
+                    barrier.wait();
+                    launch(&host, &workspace, "conversation", Some("Resume the task"))
+                })
+            })
+            .collect();
+        // Both callers have observed the stopped conversation before either can launch it.
+        barrier.wait();
+        drop(launching);
+        let results: Vec<_> = senders
+            .into_iter()
+            .map(|sender| sender.join().unwrap())
+            .collect();
+        let running = host.is_running("conversation");
+        host.supervision
+            .observe(
+                "conversation",
+                prometeu_core::supervision::Observation::Completed,
+            )
+            .unwrap();
+        let saved = serde_json::to_value(host.registry.read().unwrap()).unwrap();
+        host.end("conversation");
+        assert!(running);
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| result
+                    .as_ref()
+                    .is_err_and(|error| error == "terminal_exists"))
+                .count(),
+            1
+        );
+        let events = saved["supervision"]["outbox"].as_array().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event["kind"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec![
+                "workspace.created",
+                "execution.completed",
+                "execution.completed"
+            ]
+        );
+        assert_ne!(events[1]["execution_id"], events[2]["execution_id"]);
+    }
 
     #[test]
     fn tokens_compare_whole() {
@@ -1671,6 +1843,19 @@ mod tests {
         dir
     }
 
+    fn wait_for_stale_socket(path: &Path) {
+        // A parallel test may fork while our listener is open. Its inherited descriptor keeps
+        // the socket alive until pre_exec/exec closes it, even after this test drops its copy.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !matches!(probe(path), Probe::Refused) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "socket is still served after its listener was dropped"
+            );
+            std::thread::yield_now();
+        }
+    }
+
     #[test]
     fn binding_replaces_only_a_stale_socket() {
         let dir = scratch("bind");
@@ -1682,7 +1867,8 @@ mod tests {
         let live = bind(&socket).unwrap();
         assert!(bind(&socket).is_err(), "a served socket is not replaced");
         drop(live);
-        assert!(bind(&socket).is_ok(), "a stale socket is replaced");
+        wait_for_stale_socket(&socket);
+        drop(bind(&socket).expect("a stale socket is replaced"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1705,6 +1891,7 @@ mod tests {
             assert!(matches!(probe(&path), Probe::Unclear));
         }
         drop(listener);
+        wait_for_stale_socket(&path);
         assert!(matches!(probe(&path), Probe::Refused));
         std::fs::remove_dir_all(dir).unwrap();
     }

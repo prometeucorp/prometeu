@@ -25,6 +25,12 @@ An account may link one GitHub identity, at sign-in or later from the Cloud
 settings; the Cloud stores the GitHub user ID and login, never a GitHub token.
 Linked accounts receive metadata-only [GitHub notifications](github-notifications.md).
 
+Optional [workspace supervision](supervision.md) adds destination configuration,
+metadata-only host events and durable outgoing webhooks. Its ingestion token is
+scoped to the supervisor, separate from desktop sessions. The Cloud stores its
+digest and an encrypted callback signing secret, never agent provider credentials.
+The remote host is the first publisher; local supervision is deferred.
+
 The top of the sidebar keeps the Prometeu logo and name. When disconnected, it
 offers "Create account" on the right, on the same line. When connected, it shows
 the person's name below the brand.

@@ -21,7 +21,10 @@ has a small browser-based connection contract.
 The separate `prometeu-cloud` project uses Rails 8.1, Ruby 4.0, SQLite and ERB.
 Authentication starts from Rails' native generator: `has_secure_password`,
 persisted sessions, signed cookies, CSRF protection and Action Mailer. The site
-needs no SPA, no Node on the server, no Redis and no job process.
+needs no SPA, no Node on the server and no Redis. Optional workspace supervision
+adds a persistent SQLite delivery queue and one in-process worker, as specified
+in [ADR 0106](0106-workspace-supervision.md); account and catalog operations do not
+depend on that worker.
 
 The Prometeu account is optional for local work and is separate from provider
 subscriptions. Registration, profile changes and account deletion happen in the
@@ -51,8 +54,8 @@ passwords use Rails/Ruby/bcrypt primitives.
 
 SQLite and in-memory rate limiting assume a single Puma process. Horizontal
 scale requires a shared database and shared limits. SMTP delivery is synchronous
-with a timeout; a durable queue will be needed only when volume/retries justify
-it. SMTP and an HTTPS origin are production requirements.
+with a timeout; the supervision delivery queue does not change mail delivery.
+SMTP and an HTTPS origin are production requirements.
 
 The Node prototype and its rollback image are no longer maintained. Rails
 migrations require a consistent backup and a coordinated rollback of the image,

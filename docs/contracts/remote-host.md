@@ -315,19 +315,25 @@ when idle, as before.
 
 ## Registry
 
-`registry.json` is `{ version: 1, projects, workspaces }`; only the host writes
-it, with an atomic rename through a uniquely named temporary file. A registry
+`registry.json` is `{ version: 2, projects, workspaces, supervision }`; only the host writes
+it, with an atomic rename through a uniquely named temporary file. Version 1
+records remain readable and are upgraded on the next successful write. A registry
 with a newer `version` is refused instead of being rewritten without the fields
 this host does not know. Records:
 
 - project: `{ path, name, origin?, added_at, added_by }`;
 - workspace: `{ id, project, title, branch, base, worktree, created_at,
-  created_by, closed, keep_branch, conversations }`;
+  created_by, closed, keep_branch, conversations, supervision? }`;
 - conversation: `{ id, title, created_at, permission }`, where `id` is the tab,
   Claude session and terminal ID and `permission` is `auto` or `ask`;
 - creator: `{ kind: "desktop" | "agent", name? }`.
 
 Unknown fields are ignored. Times are Unix seconds.
+
+Version 2 protects supervisor bindings and the persistent outbox from older
+hosts that would otherwise discard unknown fields. Downgrading requires keeping
+a host that supports this registry version; the file must not be relabeled as
+version 1 or overwritten to make an older host start.
 
 The desktop synchronizes its board with `registry_list` on every attachment
 and on every `registry` event (`src-tauri/src/remote/registry.rs`). It adopts
@@ -542,6 +548,15 @@ delete survives (the lookup failed without `force`, or `git branch -D` failed),
 the result names it in `branch_kept` with Git's `detail`.
 
 ### MCP server
+
+Remote workspaces can opt into [workspace supervision](supervision.md).
+The host accepts a configured `supervisor_id` when creating a workspace and
+exposes tools to list the configured destination, assign/remove supervision and
+link a GitHub PR. Publication is independent of desktop attachment. The registry
+adds optional workspace `supervision` and defaulted root supervision state for
+execution observations, PR associations and the durable outbox. Desktop merges
+preserve the host's binding. Credentials stay in private `supervision.json`,
+never the registry or MCP responses. Existing callers remain unsupervised.
 
 `prometeu-host mcp [--socket PATH]` speaks MCP over stdio, newline-delimited
 JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.

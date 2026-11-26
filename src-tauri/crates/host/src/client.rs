@@ -51,7 +51,7 @@ fn spawn_server(root: &Path, release: Option<&str>) -> Result<(), String> {
     command.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-fn connect_or_start(root: &Path, release: Option<&str>) -> Result<UnixStream, String> {
+pub(crate) fn connect_or_start(root: &Path, release: Option<&str>) -> Result<UnixStream, String> {
     let path = socket(root);
     if let Ok(stream) = UnixStream::connect(&path) {
         return Ok(stream);
