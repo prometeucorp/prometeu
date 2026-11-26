@@ -16,10 +16,18 @@ does not execute agents.
 ## Destination and host setup
 
 The Cloud account's Supervisor settings configure one HTTPS webhook destination,
-its name, enabled state and event filters. Creating or rotating credentials
-shows an ingestion token and a webhook signing secret once. The ingestion
-token authenticates host publication; the signing secret lets the receiver
-verify callbacks. They have distinct purposes and never enter MCP results.
+its name, enabled state, event filters and webhook format (`prometeu` by default,
+or `openbot`). Creating a Prometeu destination generates a signing secret unless
+one is supplied. OpenBot requires the receiver's signing secret on creation.
+The form accepts secrets of 16 to 1024 characters; editing with an empty secret
+keeps the stored value. Secrets remain encrypted and are never prefilled.
+
+Creating or rotating credentials shows the new ingestion token once. In Prometeu
+mode it also shows the signing secret; in OpenBot mode rotation changes only the
+host token and preserves the receiver's secret. Replace the OpenBot secret through
+the destination form. The ingestion token authenticates host publication; the
+signing secret lets the receiver verify callbacks. They have distinct purposes
+and never enter MCP results.
 
 On the remote machine, `prometeu-host supervision setup --url <cloud-origin>`
 reads the ingestion token from standard input and validates it with the Cloud.
@@ -182,7 +190,7 @@ and `workspace_id: null` because it tests the destination without creating work.
 The event includes `version`, `id`, `supervisor_id`, `kind` and `occurred_at`.
 Receivers should verify and acknowledge this event without starting supervision.
 
-Headers:
+Headers for the default `prometeu` format:
 
 - `Content-Type: application/json`
 - `X-Prometeu-Delivery`: the stable delivery ID.
@@ -198,6 +206,40 @@ signed body's `id`, and deduplicate that signed ID. A retry
 retains the ID and body and receives a fresh timestamp/signature. A `2xx`
 response acknowledges durable receipt; redirects and other statuses do not.
 Store the event before acknowledging it, then process asynchronously.
+
+### OpenBot format
+
+Selecting `openbot` changes only the outbound callback boundary. Host ingestion,
+MCP supervisor identities, metadata filtering and batching remain unchanged.
+The body is `{"type":"prometeu.events","data":<delivery envelope above>}`.
+Individual event kinds remain in `data.events`, including `webhook.test` for the
+settings test. The receiver routes `prometeu.events` and inspects those events.
+
+Headers:
+
+- `Content-Type: application/json`
+- `X-OpenBot-Timestamp`: the attempt's Unix timestamp as decimal text.
+- `X-OpenBot-Delivery-Id`: the stable delivery ID, equal to `data.id`.
+- `X-OpenBot-Signature`: `sha256=` followed by lowercase hexadecimal HMAC-SHA256
+  of `timestamp + "." + delivery_id + "." + raw_request_body`.
+
+Use the supplied secret's literal UTF-8 bytes, including any `whsec_` prefix;
+do not base64-decode it. The signature covers the exact wrapped JSON body sent.
+Retries retain the delivery ID and body and receive a fresh timestamp/signature.
+The same acknowledgement, deduplication and timestamp checks apply.
+
+Editing the format, URL or secret affects subsequent attempts, including queued
+retries; a request already sent cannot be changed. A format change re-encodes the
+same stored metadata envelope using the selected format. Existing destinations
+keep `prometeu` after the additive migration. Before rolling Cloud back to a
+version without OpenBot support, disable OpenBot destinations; older code only
+sends the Prometeu format. Preserve the new column, encrypted secrets and queue.
+
+Cloud browser tests cover create/edit, blank preservation, validation, secret
+filtering and host-token rotation. Delivery tests verify the OpenBot signature,
+wrapped metadata, retries and conversion of a queued Prometeu test delivery.
+The existing producer/consumer fixtures still cover the unchanged Prometeu
+format; desktop and host clients require no update for this receiver option.
 
 Cloud groups nearby events and permits one HTTP delivery attempt at a time.
 Its worker recovers persistent pending deliveries on startup and wakes on
