@@ -74,7 +74,10 @@ SSH rather than adding a host HTTP listener or giving Cloud shell access.
 Provisioning is not atomic across Cloud and SSH. A failure after issuance can
 pause that executor's publication until the user retries; durable events remain
 in its outbox. The form binds its intent to the displayed account and destination
-and refuses stale replacements. A test originates on the configured host and
+and its configuration revision, and refuses stale replacements before issuing a
+token. The revision fingerprints destination settings and encrypted secret material,
+so edits within one timestamp tick also invalidate an open form; checking it under
+the supervisor lock keeps credential issuance bound to that configuration. A test originates on the configured host and
 waits for Cloud's callback receipt, so a browser-only webhook test cannot be
 mistaken for a connected machine. Test polling is bounded and explicit, separate
 from event-driven supervision. This does not install MCP into the receiver or
