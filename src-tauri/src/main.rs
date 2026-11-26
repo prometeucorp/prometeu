@@ -264,6 +264,7 @@ fn main() {
         .manage(machine::Service::new())
         .manage(remote::Service::new())
         .manage(remote::login::Logins::default())
+        .manage(remote::codex_login::CodexLogins::default())
         .invoke_handler(tauri::generate_handler![
             analytics::analytics_track,
             analytics::analytics_enabled,
@@ -479,6 +480,9 @@ fn main() {
             remote::login::machine_claude_login,
             remote::login::machine_claude_code,
             remote::login::machine_claude_login_cancel,
+            remote::codex_login::machine_codex_login,
+            remote::codex_login::machine_codex_login_wait,
+            remote::codex_login::machine_codex_login_cancel,
             remote::workspace::remote_add_project,
             remote::workspace::remote_list_dir,
         ])

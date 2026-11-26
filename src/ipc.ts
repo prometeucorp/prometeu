@@ -134,6 +134,9 @@ export type Commands = {
   machine_claude_login: { args: { id: string }; result: string };
   machine_claude_code: { args: { id: string; code: string }; result: import("./machines").ClaudeStatus };
   machine_claude_login_cancel: { args: { id: string }; result: void };
+  machine_codex_login: { args: { id: string }; result: import("./machines").CodexChallenge | null };
+  machine_codex_login_wait: { args: { id: string }; result: import("./machines").CodexStatus };
+  machine_codex_login_cancel: { args: { id: string }; result: void };
   remote_add_project: { args: { machine: string; path: string; url?: string | null }; result: T.Project };
   remote_list_dir: { args: { machine: string; path?: string | null }; result: import("./machines").RemoteListing };
   mcp_check: { args: { server: T.McpServer }; result: T.McpCheck };

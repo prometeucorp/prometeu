@@ -215,6 +215,7 @@ or the contract. Add the term to this list in the same change.
 | `main window` | The primary Tauri window of the application. |
 | `idle`, `pending` | The observed state of an agent that waits for input, and an item that waits for a decision. |
 | `discovery`, `provenance` | How Prometeu finds a tool, and where a tool in the picker comes from. |
+| `one-time code` | The short value that the device sign-in of an agent CLI shows. The person types it on the web page of the provider. |
 | `connector` | An MCP server of a claude.ai account. |
 | `evaluation` | A request to the TypeSafe service that classifies a context. |
 | `onboarding`, `provisioning` | The setup flow of the remote MCP, and the procedure that configures event publication for a remote host. |

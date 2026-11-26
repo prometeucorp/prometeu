@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { icon } from "./icons";
 import { t } from "./i18n";
-import { aliases, badge, codexLine, creatorBadge, projectsOn, readinessOf, type MachineView } from "./machines";
+import { invoke } from "./ipc";
+import { aliases, badge, cancelCodexLogin, codexChallenge, codexLine, creatorBadge, projectsOn, readinessOf, startCodexLogin, type MachineView } from "./machines";
 
 vi.mock("./ipc", () => ({ invoke: vi.fn() }));
 
@@ -38,6 +39,69 @@ it("asks only the chosen agent to be ready on the machine", () => {
   // An unchecked machine does not block the launcher; the launch checks again.
   expect(readinessOf({ ...machine, codex: null }, "codex").problem).toBe("");
   expect(readinessOf(machine, "cursor").problem).toBe(t("err.remote.provider"));
+});
+
+describe("Codex sign-in on a machine", () => {
+  const challenge = { url: "https://auth.openai.com/codex/device", code: "WXYZ-1234" };
+  const signedIn = { installed: true, version: "codex-cli 0.172.0", supported: true, loggedIn: true, minimum: "0.169.0" };
+  /** Each wait stays open until the test settles it, as the backend does until Codex exits on the machine. */
+  function backend() {
+    const waits: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = [];
+    vi.mocked(invoke).mockReset().mockImplementation(((command: string) => {
+      if (command === "machine_codex_login") return Promise.resolve(challenge);
+      if (command === "machine_codex_login_wait") return new Promise((resolve, reject) => waits.push({ resolve, reject }));
+      return Promise.resolve();
+    }) as never);
+    return waits;
+  }
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  it("shows the challenge until Codex finishes on the machine", async () => {
+    const waits = backend();
+    const done = vi.fn();
+    expect(await startCodexLogin("vps", done)).toBe(true);
+    expect(codexChallenge("vps")).toMatchObject(challenge);
+    expect(invoke).toHaveBeenCalledWith("machine_codex_login_wait", { id: "vps" });
+    waits[0].resolve(signedIn);
+    await settle();
+    expect(codexChallenge("vps")).toBeUndefined();
+    expect(done).toHaveBeenCalledWith({ text: t("machines.codex.signedIn"), error: false });
+  });
+
+  it("reports an expired code as an error and clears the challenge", async () => {
+    const waits = backend();
+    const done = vi.fn();
+    await startCodexLogin("vps", done);
+    waits[0].reject('i18n:{"code":"err.remote.codexLoginExpired"}');
+    await settle();
+    expect(codexChallenge("vps")).toBeUndefined();
+    expect(done).toHaveBeenCalledWith({ text: t("err.remote.codexLoginExpired"), error: true });
+  });
+
+  it("stops the machine's login on cancel and ignores the end of a replaced attempt", async () => {
+    const waits = backend();
+    const first = vi.fn(), second = vi.fn();
+    await startCodexLogin("vps", first);
+    cancelCodexLogin("vps");
+    expect(invoke).toHaveBeenCalledWith("machine_codex_login_cancel", { id: "vps" });
+    expect(codexChallenge("vps")).toBeUndefined();
+    await startCodexLogin("vps", second);
+    waits[0].reject('i18n:{"code":"err.remote.codexLoginCancelled"}');
+    await settle();
+    expect(first).not.toHaveBeenCalled();
+    expect(codexChallenge("vps")).toMatchObject(challenge);
+    waits[1].resolve(signedIn);
+    await settle();
+    expect(second).toHaveBeenCalledOnce();
+  });
+
+  it("starts nothing when Codex is already signed in on the machine", async () => {
+    backend();
+    vi.mocked(invoke).mockImplementation((() => Promise.resolve(null)) as never);
+    expect(await startCodexLogin("vps", vi.fn())).toBe(false);
+    expect(codexChallenge("vps")).toBeUndefined();
+    expect(invoke).not.toHaveBeenCalledWith("machine_codex_login_wait", expect.anything());
+  });
 });
 
 describe("aliases", () => {

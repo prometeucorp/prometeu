@@ -35,12 +35,13 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it("uses host liveness, includes idle and unadopted terminals, and never borrows names from another machine", () => {
-  const terminals = [terminal("idle"), terminal("ended", false), terminal("orphan"), { ...terminal("claude-login-123"), workspace: null }];
+  const terminals = [terminal("idle"), terminal("ended", false), terminal("orphan"), { ...terminal("claude-login-123"), workspace: null }, { ...terminal("codex-login-456"), workspace: null }];
   const rows = runningProcesses(terminals, board, "vps");
-  expect(rows.map(row => row.id).sort()).toEqual(["claude-login-123", "idle", "orphan"]);
+  expect(rows.map(row => row.id).sort()).toEqual(["claude-login-123", "codex-login-456", "idle", "orphan"]);
   expect(rows.find(row => row.id === "idle")).toMatchObject({ title: "Idle conversation", workspaceName: "Remote workspace" });
   expect(rows.find(row => row.id === "orphan")?.title).toBe("orphan");
   expect(rows.find(row => row.id === "claude-login-123")).toMatchObject({ title: "machines.processes.login", workspaceName: "machines.processes.noWorkspace" });
+  expect(rows.find(row => row.id === "codex-login-456")).toMatchObject({ title: "machines.processes.codexLogin" });
   expect(runningProcesses([terminal("idle")], board, "other")[0]).toMatchObject({ title: "idle", workspaceName: "workspace" });
   const unnamed = { ...board, workspaces: [{ ...board.workspaces[0], agent: "claude" as const, model: "", tabs: [{ ...board.workspaces[0].tabs[0], title: "" }] }] };
   expect(runningProcesses([terminal("idle")], unnamed, "vps")[0].title).toBe("model.claude");

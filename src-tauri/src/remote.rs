@@ -8,6 +8,7 @@
 pub mod agent;
 pub mod agents;
 pub mod codex;
+pub mod codex_login;
 pub mod connection;
 pub mod install;
 pub mod login;
@@ -408,6 +409,12 @@ pub fn machine_save(app: AppHandle, machine: MachineInput) -> Result<MachineView
         return Err(crate::i18n::t("err.remote.limits"));
     }
     let mut machines = load();
+    if let Some(id) = machine.id.as_deref() {
+        // A sign-in started for an earlier destination must not continue on the new one.
+        if machines.iter().any(|m| m.id == id && m.ssh != ssh) {
+            codex_login::abandon(&app, id);
+        }
+    }
     let id = machine
         .id
         .filter(|id| prometeu_host::valid_id(id))
@@ -483,6 +490,7 @@ pub fn machine_remove(app: AppHandle, state: State<AppState>, id: String) -> Res
             .retain(|p| p.host.as_deref() != Some(id.as_str()));
     }
     crate::state::publish(&app);
+    codex_login::abandon(&app, &id);
     let service = app.state::<Service>();
     if let Some(connection) = lock(&service.connections).remove(&id) {
         connection.stop();
