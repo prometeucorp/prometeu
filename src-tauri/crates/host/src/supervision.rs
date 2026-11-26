@@ -47,6 +47,7 @@ pub(crate) struct State {
 
 pub(crate) struct Supervision {
     root: PathBuf,
+    executor_id: String,
     registry: Arc<Store>,
     config: Mutex<Option<Config>>,
     generation: Mutex<u64>,
@@ -163,10 +164,12 @@ pub(crate) fn command(
             result["pending_events"] = json!(Store::new(root).read()?.supervision.outbox.len());
             return Ok(result);
         }
+        Some("identity") => json!({"action":"identity"}),
+        Some("test") => return test_connection(root),
         Some("disable") => json!({"action":"disable"}),
         Some("reset") if discard_pending => json!({"action":"reset", "discard_pending":true}),
         Some("reset") => return Err("supervision reset requires --discard-pending; it removes supervision bindings and undelivered events, never workspaces or code".into()),
-        _ => return Err("usage: prometeu-host supervision setup --url ORIGIN < token-file | status | disable [--root DIR]".into()),
+        _ => return Err("usage: prometeu-host supervision setup --url ORIGIN < token-file | identity | status | test | disable [--root DIR]".into()),
     };
     let mut stream = crate::client::connect_or_start(root, None)?;
     stream
@@ -185,6 +188,65 @@ pub(crate) fn command(
         Some(error) => Err(error.to_string()),
         None => Ok(response["result"].clone()),
     }
+}
+
+/// Only an explicit setup diagnostic polls delivery receipts; the publisher remains event-driven.
+fn test_connection(root: &Path) -> Result<Value, String> {
+    let config = load(root)?.ok_or("supervisor_not_available")?;
+    let token = config.token.as_deref().ok_or("supervisor_not_available")?;
+    let client = http()?;
+    let id = crate::agents::uuid()?;
+    let decode = |response: reqwest::blocking::Response| -> Result<Value, String> {
+        if !response.status().is_success() {
+            return Err(format!(
+                "Cloud supervision test returned HTTP {}",
+                response.status().as_u16()
+            ));
+        }
+        let mut bytes = Vec::new();
+        response
+            .take(16_385)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "could not read supervision test response")?;
+        if bytes.len() > 16_384 {
+            return Err("supervision test response is too large".into());
+        }
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|_| "invalid supervision test response")?;
+        if value["id"] != id
+            || !matches!(
+                value["status"].as_str(),
+                Some("pending" | "sending" | "delivered" | "cancelled")
+            )
+        {
+            return Err("invalid supervision test response".into());
+        }
+        // Never forward arbitrary response fields or destination errors to the desktop.
+        Ok(json!({"status": value["status"], "failed": value["last_error"].is_string()}))
+    };
+    let mut result = decode(
+        client
+            .post(format!("{}/api/supervision/tests", config.url))
+            .bearer_auth(token)
+            .json(&json!({"id": id, "executor_id": config.executor_id}))
+            .send()
+            .map_err(|_| "Cloud supervision test failed")?,
+    )?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while matches!(result["status"].as_str(), Some("pending" | "sending"))
+        && result["failed"] != true
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_secs(1));
+        result = decode(
+            client
+                .get(format!("{}/api/supervision/tests/{id}", config.url))
+                .bearer_auth(token)
+                .send()
+                .map_err(|_| "Cloud supervision test failed")?,
+        )?;
+    }
+    Ok(result)
 }
 
 fn status(config: Option<&Config>) -> Value {
@@ -229,10 +291,34 @@ fn github_repository(value: &str) -> Option<String> {
 
 impl Supervision {
     pub(crate) fn new(root: &Path, registry: Arc<Store>) -> Result<Arc<Self>, String> {
+        let config = load(root)?;
+        let identity_path = root.join("supervision-executor");
+        let executor_id = if let Some(config) = &config {
+            config.executor_id.clone()
+        } else {
+            match std::fs::read_to_string(&identity_path) {
+                Ok(id)
+                    if !id.is_empty()
+                        && id.len() <= 128
+                        && id
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b)) =>
+                {
+                    id
+                }
+                Ok(_) => return Err("invalid supervision executor identity".into()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    crate::agents::uuid()?
+                }
+                Err(_) => return Err("could not read supervision executor identity".into()),
+            }
+        };
+        registry::write_private(&identity_path, executor_id.as_bytes())?;
         let instance = Arc::new(Self {
             root: root.into(),
+            executor_id,
             registry,
-            config: Mutex::new(load(root)?),
+            config: Mutex::new(config),
             generation: Mutex::new(0),
             changed: Condvar::new(),
         });
@@ -253,6 +339,7 @@ impl Supervision {
     pub(crate) fn configure(&self, request: &Value) -> Result<Value, String> {
         let mut current = lock(&self.config);
         let next = match request["action"].as_str() {
+            Some("identity") => return Ok(json!({"executor_id": self.executor_id})),
             Some("setup") => {
                 let url = origin(request["url"].as_str().ok_or("missing Cloud origin")?)?;
                 let token = request["token"]
@@ -279,10 +366,7 @@ impl Supervision {
                     url,
                     token: Some(token.into()),
                     supervisor,
-                    executor_id: match current.as_ref() {
-                        Some(old) => old.executor_id.clone(),
-                        None => crate::agents::uuid()?,
-                    },
+                    executor_id: self.executor_id.clone(),
                 })
             }
             Some("disable") => current.clone().map(|mut config| {
@@ -868,6 +952,112 @@ mod tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn executor_identity_survives_setup_disable_restart_and_legacy_configuration() {
+        let fixture = Fixture::new("https://cloud.example");
+        let identity = fixture
+            .supervision
+            .configure(&json!({"action":"identity"}))
+            .unwrap();
+        assert_eq!(
+            identity["executor_id"],
+            status(load(&fixture.root).unwrap().as_ref())["executor_id"]
+        );
+        fixture
+            .supervision
+            .configure(&json!({"action":"disable"}))
+            .unwrap();
+        let reopened = Supervision::new(&fixture.root, fixture.store.clone()).unwrap();
+        assert_eq!(
+            reopened.configure(&json!({"action":"identity"})).unwrap(),
+            identity
+        );
+        // Configurations created before the identity file retain their executor ID.
+        std::fs::remove_file(fixture.root.join("supervision-executor")).unwrap();
+        let legacy = Supervision::new(&fixture.root, fixture.store.clone()).unwrap();
+        assert_eq!(
+            legacy.configure(&json!({"action":"identity"})).unwrap(),
+            identity
+        );
+        std::fs::remove_file(fixture.root.join(CONFIG)).unwrap();
+        let unconfigured = Supervision::new(&fixture.root, fixture.store.clone()).unwrap();
+        assert_eq!(
+            unconfigured
+                .configure(&json!({"action":"identity"}))
+                .unwrap(),
+            identity
+        );
+        assert!(unconfigured.list().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn host_test_requires_a_receiver_receipt_and_never_exposes_credentials() {
+        use std::io::BufRead;
+        for delivered in [true, false] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let fixture = Fixture::new(&format!("http://{}", listener.local_addr().unwrap()));
+            let executor = fixture.supervision.executor_id.clone();
+            let peer = std::thread::spawn(move || {
+                let mut test_id = String::new();
+                for attempt in 0..=usize::from(delivered) {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .unwrap();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut request = String::new();
+                    reader.read_line(&mut request).unwrap();
+                    let mut length = 0;
+                    let mut authorized = false;
+                    loop {
+                        let mut header = String::new();
+                        reader.read_line(&mut header).unwrap();
+                        if header == "\r\n" {
+                            break;
+                        }
+                        if let Some(value) = header.to_lowercase().strip_prefix("content-length:") {
+                            length = value.trim().parse::<usize>().unwrap();
+                        }
+                        authorized |= header
+                            .to_lowercase()
+                            .starts_with("authorization: bearer private-ingest-token");
+                    }
+                    assert!(authorized);
+                    if attempt == 0 {
+                        assert!(request.starts_with("POST /api/supervision/tests "));
+                        let mut body = vec![0; length];
+                        reader.read_exact(&mut body).unwrap();
+                        let value: Value = serde_json::from_slice(&body).unwrap();
+                        assert_eq!(value["executor_id"], executor);
+                        test_id = value["id"].as_str().unwrap().to_owned();
+                    } else {
+                        assert!(
+                            request.starts_with(&format!("GET /api/supervision/tests/{test_id} "))
+                        );
+                    }
+                    let body = json!({"id":test_id, "status": if attempt == 0 { "pending" } else { "delivered" },
+                        "last_error": if delivered { None } else { Some("http_error") }, "secret":"never-forward"}).to_string();
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                }
+            });
+            let result = test_connection(&fixture.root).unwrap();
+            peer.join().unwrap();
+            assert_eq!(
+                result["status"],
+                if delivered { "delivered" } else { "pending" }
+            );
+            assert_eq!(result["failed"], !delivered);
+            assert!(!result.to_string().contains("never-forward"));
+            assert!(fixture.events().is_empty());
         }
     }
 

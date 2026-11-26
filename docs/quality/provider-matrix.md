@@ -18,6 +18,14 @@ every combination of providers, states, languages and screen sizes.
 
 ## Remote machines
 
+Remote MCP onboarding can provision event delivery and test the host-to-receiver
+path in the same flow. This is independent of the receiver (OpenBot or Prometeu
+format); it does not expand execution-provider support. Existing MCP tokens remain
+unchanged when adding events. `src/machine-supervision.test.ts`, native
+`remote/supervision.rs`, host supervision tests and Cloud's
+`supervision_connections_test.rb` cover consent, credentials and delivery receipts.
+Live deployment and receiver MCP installation are not certified by those tests.
+
 Optional [workspace supervision](../contracts/supervision.md) publishes metadata
 from the remote Claude host to the Cloud and generic signed webhook receivers.
 Codex, Cursor and Antigravity do not publish supervision events; local supervisor

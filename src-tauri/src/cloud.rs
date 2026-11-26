@@ -321,6 +321,28 @@ pub(crate) fn api_as(
     )))
 }
 
+/// Provisioning is bound to the account shown when the connection dialog opened.
+/// The account Bearer never goes to the executor.
+pub(crate) fn connect_supervisor(
+    account: &str,
+    body: Value,
+) -> Result<(String, u16, Value), String> {
+    let saved = load()?.ok_or_else(|| i18n::t("err.catalog.disconnected"))?;
+    if account != format!("{}#{}", saved.origin, saved.user.id) {
+        return Err(i18n::t("err.supervision.changed"));
+    }
+    let (status, value) = http(
+        &saved.origin,
+        Method::POST,
+        "/api/supervisor/connections",
+        Some(&saved.token),
+        Some(body),
+        16_384,
+        Duration::from_secs(15),
+    )?;
+    Ok((saved.origin, status, value))
+}
+
 pub(crate) fn connected() -> bool {
     load().ok().flatten().is_some()
 }

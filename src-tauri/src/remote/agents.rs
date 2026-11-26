@@ -97,8 +97,12 @@ pub fn machine_agents_enable(
     app: AppHandle,
     id: String,
     rotate: bool,
+    supervision: Option<super::supervision::Setup>,
 ) -> Result<AgentsSetup, String> {
     let connection = app.state::<super::Service>().connected(&id)?;
+    if let Some(setup) = supervision {
+        super::supervision::enable(&connection, setup)?;
+    }
     let mut args = vec!["setup"];
     if rotate {
         args.push("--rotate");

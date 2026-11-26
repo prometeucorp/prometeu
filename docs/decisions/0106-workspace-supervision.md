@@ -55,6 +55,31 @@ completion of a model turn. The receiver deduplicates deliveries, serializes
 decisions per workspace, reads current state through MCP/GitHub, and decides
 whether to request corrections or notify the person. Merge remains manual.
 
+### Provisioning in the MCP connection flow
+
+Remote MCP setup offers event delivery in the same form, and an existing MCP can
+add events without rotating its MCP token. The desktop reuses its account session
+and SSH access to provision the selected host. Users no longer transport ingestion
+tokens between Cloud and a VPS. Credentials retain separate authorities: the
+account manages destinations, the MCP token authorizes agent actions, and the
+host ingestion token publishes metadata. The signing secret belongs to the
+receiver and Cloud, never to the host or MCP configuration.
+
+A digest per supervisor/executor permits adding or repairing one machine without
+revoking other machines. The existing destination token remains valid for manual
+installations. Explicit destination credential rotation revokes both credential
+forms. An executor keeps a stable ID before its first setup. Pairing uses existing
+SSH rather than adding a host HTTP listener or giving Cloud shell access.
+
+Provisioning is not atomic across Cloud and SSH. A failure after issuance can
+pause that executor's publication until the user retries; durable events remain
+in its outbox. The form binds its intent to the displayed account and destination
+and refuses stale replacements. A test originates on the configured host and
+waits for Cloud's callback receipt, so a browser-only webhook test cannot be
+mistaken for a connected machine. Test polling is bounded and explicit, separate
+from event-driven supervision. This does not install MCP into the receiver or
+change per-workspace supervision consent.
+
 ### Receiver compatibility
 
 The Cloud destination can select the existing Prometeu format or OpenBot's

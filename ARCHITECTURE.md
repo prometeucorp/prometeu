@@ -104,7 +104,8 @@ Remote workspaces can opt into an external supervisor. The shared core owns
 metadata events and execution observation rules; the host persists an outbox
 and publishes to the Cloud, which also routes GitHub changes and sends generic
 signed webhooks. The supervisor reads and acts through the existing host MCP.
-Local supervisor selection and reverse MCP transport are deferred. See the
+Remote MCP onboarding provisions the host through the existing account and SSH
+connection, and tests delivery from the host to the receiver. Local supervisor selection and reverse MCP transport are deferred. See the
 [supervision contract](docs/contracts/supervision.md) and
 [ADR 0106](docs/decisions/0106-workspace-supervision.md).
 

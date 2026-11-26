@@ -1081,6 +1081,22 @@ const mockGitHubFeed: import("./types").GitHubNotification[] = [
   { id: "4", kind: "ci_failed", repository: "prometeucorp/prometeu", number: 436, subject: "pr", actor: "mock-user", target: "workflow_run", target_id: "79", url: "https://github.com/prometeucorp/prometeu/actions/runs/79", created_at: "2026-10-05T10:20:00Z" },
 ];
 
+const mockSupervisors = new Map<string, NonNullable<import("./machine-supervision").SupervisionOptions["supervisor"]>>();
+const mockSupervisedMachines = new Set<string>();
+function mockEnableEvents(id: string, setup: import("./machine-supervision").SupervisionSetup) {
+  if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
+  if (!mockCloud().user) throw 'i18n:{"code":"err.catalog.disconnected"}';
+  if (setup.account !== `${mockCloud().origin}#${mockCloud().user!.id}`) throw 'i18n:{"code":"err.supervision.changed"}';
+  let mockSupervisor = mockSupervisors.get(setup.account);
+  if (mockSupervisor && setup.supervisor_id !== mockSupervisor.id) throw 'i18n:{"code":"err.supervision.changed"}';
+  if (!mockSupervisor) {
+    if (!setup.destination?.url.startsWith("https://") || setup.destination.signing_secret.length < 16) throw 'i18n:{"code":"err.supervision.invalid"}';
+    const { name, url, webhook_protocol } = setup.destination;
+    mockSupervisor = { id: crypto.randomUUID(), name, url, webhook_protocol, enabled: true };
+    mockSupervisors.set(setup.account, mockSupervisor);
+  }
+  mockSupervisedMachines.add(id);
+}
 let mockMachines: import("./machines").MachineView[] = [];
 const mockClients: import("./machine-clients").MachineClient[] = [
   { device: "mock-this-mac", label: "This Mac", connected: 1_700_000_000, current: true },
@@ -2655,7 +2671,8 @@ const mockCommands: IpcHandlers = {
     return machine?.claude ?? { installed: true, loggedIn: false, email: null, method: null };
   },
   machine_claude_login() { return "https://claude.ai/oauth/authorize?mock"; },
-  machine_agents_enable({ id }) {
+  machine_agents_enable({ id, supervision }) {
+    if (supervision) mockEnableEvents(id, supervision);
     const machine = mockMachines.find(m => m.id === id);
     if (!machine || machine.phase !== "connected") throw 'i18n:{"code":"err.remote.offline"}';
     const home = machine.host?.home ?? "/home/me";
@@ -2668,6 +2685,16 @@ const mockCommands: IpcHandlers = {
     const masked = { ...server, env: { ...server.env, PROMETEU_AGENT_TOKEN: "•".repeat(16) } };
     return { config: JSON.stringify({ mcpServers: { prometeu: server } }, null, 2),
       preview: JSON.stringify({ mcpServers: { prometeu: masked } }, null, 2), moved_from: null };
+  },
+  machine_supervision_options() {
+    const cloud = mockCloud();
+    const account = cloud.user ? `${cloud.origin}#${cloud.user.id}` : null;
+    return { account, supervisor: account ? mockSupervisors.get(account) ?? null : null };
+  },
+  machine_supervision_enable({ id, setup }) { mockEnableEvents(id, setup); },
+  machine_supervision_test({ id }) {
+    if (!mockSupervisedMachines.has(id)) throw 'i18n:{"code":"err.supervision.unavailable"}';
+    return { status: "delivered" as const, failed: false };
   },
   machine_agents_disable({ id }) {
     const machine = mockMachines.find(m => m.id === id);
