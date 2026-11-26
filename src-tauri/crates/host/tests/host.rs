@@ -908,6 +908,8 @@ fn opening_the_same_conversation_from_two_desktops_starts_one_process() {
     shutdown(&root);
 }
 
+// The relay runs only on the Linux host (ADR 0105).
+#[cfg(target_os = "linux")]
 /// A stand-in for `codex app-server --listen unix://<dir>/rpc`: the endpoint lives in a private
 /// directory under a SHA-256 name and `rpc` is Codex's alias to it. It answers each request with
 /// its own method, and announces `hello` first.
@@ -954,6 +956,7 @@ fn fake_codex_engine(dir: &Path) -> PathBuf {
     alias
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_codex_relay_carries_json_lines_both_ways() {
     let dir = root();
@@ -984,6 +987,7 @@ fn the_codex_relay_carries_json_lines_both_ways() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_codex_relay_refuses_an_engine_it_did_not_start() {
     let dir = root();
@@ -1004,6 +1008,7 @@ fn the_codex_relay_refuses_an_engine_it_did_not_start() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn a_relay_terminal_is_a_transparent_line_stream_that_survives_detachment() {
     let root = root();
