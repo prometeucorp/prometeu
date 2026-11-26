@@ -1,8 +1,7 @@
 # Terminal state helper
 
-Private, provider-neutral terminal emulation for the native conversation host.
-It owns no PTY, account, provider process or canonical transcript. The package
-is consumed by the guarded desktop native transport.
+This package is a private terminal emulator for the native conversation host. It is the same for all providers. It does not own a PTY, an account, a provider
+process or the canonical transcript. The native transport of the desktop uses the package behind a feature gate.
 
 ```sh
 npm ci --prefix packages/terminal-state
@@ -11,31 +10,45 @@ npm run typecheck --prefix packages/terminal-state
 npm start --prefix packages/terminal-state
 ```
 
-`src/cli.ts` starts the process. `src/stdio.ts` reads bounded NDJSON requests and writes only NDJSON responses.
-`src/service.ts` also exposes the ordered service without process I/O.
-`src/types.ts` owns browser-safe wire types; `src/protocol.ts` owns validation and limits. The browser-safe
-`src/replay.ts` produces the restore sequence; its caller must reset/resize,
-gate input through the parser callback, seed the UTF-8 tail, and discard live
-output at or before the snapshot sequence.
+`src/cli.ts` starts the process. `src/stdio.ts` reads NDJSON requests that have a limit and writes only NDJSON responses.
+`src/service.ts` also gives access to the ordered service without process I/O.
+`src/types.ts` owns the protocol types, which are safe in a browser. `src/protocol.ts` owns the validation and the limits.
 
-The host is the single owner of terminal query responses. Only a live `write`
-returns `replies`, encoded as base64. Forward them once to that generation's
-PTY. Renderer-generated responses must never also reach the process.
+`src/replay.ts` is also safe in a browser. It makes the sequence that builds the screen again. Its
+caller must do these steps:
 
-The renderer and headless xterm are pinned to `5.5.0`; serialize `0.13.0` is the
-addon from that upstream release. Tests compare the installed renderer version,
-screen cells, cursors, input modes, hyperlinks and continuation after replay in
-a second emulator. `xterm-state.ts` is the only owner of version-specific
-internals. Upgrade these dependencies together and rerun the differential tests.
+1. Set the terminal to its initial state and change its dimensions.
+2. Send the input through the parser callback, which controls it.
+3. Give the UTF-8 tail to the terminal.
+4. Discard the live output at or before the snapshot sequence.
 
-The protocol, restoration limits and integration obligations are documented in
-[the terminal state contract](../../docs/contracts/terminal-state.md).
-The escape scanner is adapted from Orca; see
-[third-party notices](THIRD_PARTY_NOTICES.md).
+The host is the only owner of the responses to terminal queries. Only a live
+`write` returns `replies`, encoded as base64. Send them one time to the PTY of
+that generation. The responses that the renderer makes must not also go to the
+process.
 
-Those commands use the development Node installation. The SEA build
-bundles Node 24.14.0 and dependencies into one executable, with verified archive
-hashes and bundled license notices:
+The renderer and headless xterm are pinned to `6.0.0`. Serialize `0.14.0` is the
+addon from that upstream release. The tests compare these items in a second
+emulator after the replay:
+
+- the installed renderer version
+- the screen cells
+- the cursors
+- the input modes
+- the hyperlinks
+- the continuation
+
+`xterm-state.ts` is the only owner of the internals that change with the
+version. Upgrade these dependencies together, and run the differential tests
+again.
+
+[The terminal state contract](../../docs/contracts/terminal-state.md) gives the
+protocol, the limits of the replay and the obligations of the
+integration. The escape scanner is an adaptation of code from Orca. See
+[the third-party notices](THIRD_PARTY_NOTICES.md).
+
+Those commands use the Node installation for development. The SEA build bundles
+Node 24.14.0 and the dependencies into one executable. It records the archive hashes that it examined and bundles the license notices:
 
 ```sh
 npm run build:sea --prefix packages/terminal-state
@@ -46,16 +59,24 @@ npm run app
 npm run build:app -- --debug --bundles app --config src-tauri/tauri.dev.conf.json
 ```
 
-On macOS the standard app/build wrapper installs the helper's locked dependencies,
-builds it, provides its explicit debug path and adds the
-Tauri sidecar/resource overlay. The packaged helper lives beside the application
-binary and needs no installed Node. Native macOS arm64 bundling and signing are
-locally verified; the Linux x64 build recipe is not locally verified. CI checks the package, self-contained executable
-and host protocol; the macOS release includes and verifies the helper and notices.
-The Linux release does not consume it, and native conversation mode remains
-disabled there.
+On macOS, the standard wrapper for the app and the build does these steps:
 
-The macOS helper currently adds about 113 MiB before compression. It runs with
-`--jitless`, so the existing app signing entitlements also work for the nested
-executable. Runtime options cannot be injected through `NODE_OPTIONS` or command
-line flags. Build metadata records Node and executable hashes in ignored `dist/`.
+1. It installs the locked dependencies of the helper.
+2. It builds the helper.
+3. It gives the explicit debug path of the helper.
+4. It adds the Tauri overlay for the sidecar and its resources.
+
+The packaged helper is adjacent to the application binary. It does not use an
+installed Node. The native macOS arm64 bundle and its signature have a local
+verification. The Linux x64 build procedure does not have a local verification.
+
+CI checks the package, the self-contained executable and the host protocol. The
+macOS release includes the helper and the notices, and it examines them. The
+Linux release does not use the helper. The native conversation mode stays
+disabled on Linux.
+
+The macOS helper adds approximately 113 MiB before compression. It does not run
+with `--jitless`. The build signs it with the entitlements of the app, which let V8 use its JIT under the hardened runtime. Tauri uses the same entitlements
+when it signs the bundled sidecar. `NODE_OPTIONS` and command line flags cannot
+add runtime options. The build metadata records the Node hashes and the
+executable hashes in the ignored `dist/` folder.

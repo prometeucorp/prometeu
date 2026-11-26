@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0039 — Organization catalogs available on the desktop"
-description: "Organization catalogs available on the desktop."
+description: "The desktop shows the catalogs of the organizations of a person and installs an item only when the person selects it."
 status: stable
 ---
 
@@ -9,56 +9,64 @@ status: stable
 
 Date: 2026-09-11
 
-Defines desktop discovery and installation for the organization catalogs in
-[ADR 0021](0021-cloud-organizations.md).
+This ADR specifies how the desktop finds and installs items from the
+organization catalogs of [ADR 0021](0021-cloud-organizations.md).
 
 ## Context
 
-The organization's catalog already contains portable definitions, but requiring
-a copy in the browser prevents its discovery in the place where the person
-installs tools.
+The catalog of the organization contains portable definitions at this time. But
+the person had to copy them in the browser first. Thus, the person did not
+find them in the area where the person installs tools.
 
 ## Decision
 
-The desktop lists plugins, MCPs and skills of every organization with an
-accepted membership, next to the existing hubs, with the organization's name and
-`Install here`. The organization active in the relay does not filter those
-definitions. Installation is explicit and creates an independent local record,
-without writing to the personal or institutional catalog and without enabling
+The desktop shows the plugins, MCPs and skills of each organization with an
+accepted membership. They are adjacent to the current hubs, with the name of the
+organization and `Install here`. The organization that is active in the relay
+does not filter those definitions. The person must select the installation. The
+installation makes a local record that does not change with the catalog. It does not write to the
+personal catalog or to the catalog of the organization, and it does not enable
 tools in conversations.
 
-Each catalog is read with a Bearer on its own route, respecting the 256 KB limit
-per document and authorization through the current membership. The existing
-refresh updates availability. Before installing, the desktop checks the access
-and the displayed definition again; changes require reviewing the updated list.
+The desktop reads each catalog with a Bearer on the path of that catalog. It
+obeys the limit of 256 KB for each document and the authorization through the
+current membership. The current refresh updates the availability. Before the
+installation, the desktop examines the access and the shown definition again. If
+they changed, the person must review the updated list.
 
-The cache keeps the installed local IDs per organization, type and item. Taken
-names get another ID, using the existing collision rule. Organization updates do
-not replace installed code, configuration or credentials. Revocation removes the
-availability on the next refresh, preserving installations. An equivalent local
-plugin, MCP or skill satisfies availability; the desktop neither suggests nor
-creates a duplicate installation. Comparison excludes local MCP credential
-values but preserves executable configuration. Plugin sources on GitHub compare
-owner and repository case-insensitively, as GitHub resolves them; other Git
-hosts compare exactly.
+The cache keeps the installed local IDs for each organization, type and item:
+
+- If a different item has the name, the item gets a different ID through the current
+  collision rule.
+- Updates from the organization do not replace installed code, configuration or
+  credentials.
+- A revocation removes the availability at the next refresh. The installations
+  stay.
+- An equivalent local plugin, MCP or skill makes the item available. The desktop
+  does not suggest or make a second installation.
+- When the desktop compares items, it ignores the values of local MCP credentials, but it compares
+  the executable configuration.
+- For plugin sources on GitHub, the desktop compares the owner and the
+  repository. As GitHub does, it ignores the difference between uppercase and
+  lowercase letters. For other Git hosts, the desktop compares them accurately.
 
 ## Alternatives and consequences
 
-Copying through the browser is still available, but is no longer a requirement.
-Merging organizations into the personal document would confuse authorization,
-revisions and ownership. Synchronizing installations continuously would require
-resolving local edits and changed sources; this change is limited to discovery
-and direct installation.
+A person can continue to copy items through the browser, but it is not
+necessary. If we put the organizations into the personal document, the
+authorization, the revisions and the ownership are not clear. A continuous
+synchronization of installations must resolve local edits and changed
+sources. This change is only for the discovery and the installation from the desktop.
 
-There is no server migration. Publish the Cloud first and then the desktop. An
-old Cloud answers 404 and keeps the personal catalog working. Old clients ignore
-the cache's additive field; installed files stay local.
+There is no server migration. Publish the Cloud first, and then the desktop. A
+Cloud from a previous version answers 404, and the personal catalog continues to operate. Clients from a
+previous version ignore the added field of the cache. Installed files stay local.
 
 ## Evidence
 
-- `src-tauri/src/catalog.rs`: collisions, credentials, local installation and an
-  old cache.
-- The optional discovery and installation form has no dedicated browser
-  scenario; native installation rules remain covered in `catalog.rs`.
+- `src-tauri/src/catalog.rs`: collisions, credentials, local installation and a
+  cache from a previous version.
+- The optional form for discovery and installation has no browser scenario. The
+  tests in `catalog.rs` continue to cover the native installation rules.
 - Cloud, `test/integration/organizations_test.rb`: Bearer, membership,
-  revocation and isolation.
+  revocation and isolated organizations.

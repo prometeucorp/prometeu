@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0061 — Separate display sleep from agent work"
-description: "Explicit system-only inhibition while a macOS agent works."
+description: "An explicit macOS option that keeps only the system on while an agent operates."
 status: stable
 ---
 
@@ -11,39 +11,45 @@ Date: 2026-09-25
 
 ## Context
 
-The original keep-awake switch started `caffeinate -d -i -s -w` whenever it
-was always on or any local agent tab was working. The display assertion can
-keep the screen lit for a long background turn. Some people need remote work
-to continue while allowing their display to sleep, but the saved `agent`
-choice has always promised that the display stays awake. Changing its meaning
-would surprise existing installations. A turn remains active through native
-background children under [ADR 0056](0056-background-tasks-hold-completion.md).
+The initial keep-awake switch started `caffeinate -d -i -s -w` in two
+conditions: when the switch was always on, or when a local agent tab operated.
+The display assertion can keep the screen on during a long background turn.
+Some persons want remote work to continue while the display goes to sleep. But
+the saved `agent` selection always promised that the display stays on. If
+Prometeu changes its meaning, the behavior of current installations changes
+without a warning. A turn stays active while native background children operate,
+as [ADR 0056](0056-background-tasks-hold-completion.md) specifies.
 
 ## Decision
 
 Keep the saved `off`, `on` and `agent` values and their display behavior. Add
-an explicit macOS `agent-system` value. It holds an idle-system assertion only
-while a local tab is `rodando`, using `caffeinate -i -s -w <app pid>` without
-`-d`. The existing modes use the display assertion. The command receives an
-explicit `off`, `system` or `display` mode and changes its child only when the
-requested mode changes. Normal exit stops the child; `-w` bounds unexpected
-exit. Power-source changes never alter the person's selected policy.
+an explicit macOS value, `agent-system`. This value keeps an idle-system
+assertion only while a local tab is `rodando`. It uses
+`caffeinate -i -s -w <app pid>` without `-d`. The current modes use the display
+assertion.
 
-Linux retains the prior options and its `systemd-inhibit` behavior until a
-reliable distinction between system and display inhibition is verified across
-supported desktops. The frontend does not offer `agent-system` there. Its
-desktop compositor may still interpret the existing inhibition differently.
+The command receives an explicit `off`, `system` or `display` mode. It changes
+its child process only when the requested mode changes. A usual exit stops the
+child. If the app stops unexpectedly, `-w` stops the child. A change of the
+power source does not change the policy that the person selected.
+
+Linux keeps the previous options and its `systemd-inhibit` behavior. This
+continues until Prometeu can make sure that the system and the display
+inhibition operate differently on the desktops that it supports. On Linux, the
+frontend does not show `agent-system`. The desktop compositor can also apply
+the current inhibition differently.
 
 ## Consequences
 
-The preference remains local to the desktop webview and is not synchronized.
-`agent-system` makes no claim about user-initiated sleep, lid closure or power
-policy overrides; it only prevents idle system sleep while the app and agent
-are active. The visible tab state, including background children, remains the
-source of agent activity. Provider processes and sharing are unaffected by
-the UI sleep selection.
+The setting stays local to the desktop webview. Prometeu does not send it to
+other devices. `agent-system` does not change sleep that the user starts, the closed lid or
+other power policies. It only prevents system sleep when there is no input, while the app and the
+agent are active. The tab state on the screen, with its background children,
+stays the source of the agent activity. The sleep setting in the UI does not
+change provider processes or shared sessions.
 
-Tests: `src/statusbar.test.ts` covers all saved-mode mappings;
-`src-tauri/src/awake.rs` checks both macOS command lines, replacement,
-idempotence and release. Native `pmset` confirmation on AC and battery is
-tracked in [the energy profile](../quality/energy-profile.md).
+Tests: `src/statusbar.test.ts` examines how each saved mode changes into a command mode.
+`src-tauri/src/awake.rs` examines the two macOS command lines, the replacement,
+a second request with the same mode and the release. [The energy
+profile](../quality/energy-profile.md) records the native `pmset` confirmation
+on AC power and on battery.

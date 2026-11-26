@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0020 — Catalog in the SaaS and explicit sharing on the desktop"
-description: "Catalog in the SaaS and explicit sharing on the desktop."
+description: "The catalog is in the SaaS, and the desktop shares an item only when a person tells it to."
 status: stable
 ---
 
@@ -11,77 +11,85 @@ Date: 2026-09-07
 
 ## Context
 
-The previous catalog had persistence in the SaaS, but authoring stayed
-exclusively on the desktop. Connecting an account published the local hubs;
-portable MCPs and plugins could not stay private by choice.
+The SaaS stored the previous catalog, but a person was able to write items only
+on the desktop. When a person connected an account, the desktop published the
+local hubs. A person was not able to keep a portable MCP or plugin private.
 
-The need is to register MCPs, plugins and skills in the browser, receive them on
-the desktops and combine that set with optional local definitions. Organization
-catalogs use the same document model under
-[ADR 0021](0021-cloud-organizations.md).
+A person must be able to add MCPs, plugins and skills in the browser and
+receive them on the desktops. The desktop must also use that set together with
+optional local definitions. Organization catalogs use the same document model
+under [ADR 0021](0021-cloud-organizations.md).
 
 ## Options considered
 
-1. Just add forms to the previous document. It offers no local privacy.
-2. Immediately create organizations, teams, permissions and offline
-   synchronization with merge.
-3. Keep the account as the personal catalog's owner, add web authoring and
-   explicit links between remote definitions and local records.
+1. Add only forms to the previous document. This option gives no local privacy.
+2. Make organizations, teams, permissions and offline synchronization with merge
+   immediately.
+3. Keep the account as the owner of the personal catalog. Let persons write
+   items in the browser, and add explicit links between remote definitions and
+   local records.
 
 ## Decision
 
-Adopt option 3. Desktop creations are private by default. Sharing is an explicit
-action; editing a linked definition publishes it to the account. A local copy
-gets another ID and does not change the shared item.
+Use option 3. An item that a person makes on the desktop is private by
+default. To share an item is an explicit action. A change to a linked definition
+publishes it to the account. A local copy gets a different ID and does not
+change the shared item.
 
-MCP connection checks and OAuth are local operations on an installed definition,
-independent of catalog editing or revision checks. They never publish or create
-a local copy. The desktop exposes these actions directly in the hub and keeps
-credentials on each Mac; connection changes in the editor require an explicit
-save before authentication.
+An MCP connection check and OAuth are local operations on an installed
+definition. They do not use catalog changes or revision checks. They do not
+publish an item or make a local copy at any time. The desktop shows these
+actions directly in the hub and keeps the credentials on each Mac. After a
+connection change in the editor, the person must save it before authentication.
 
-The SaaS uses conventional Rails, Design System forms, cookies and CSRF. The
-desktop keeps the Bearer. The existing revisioned document is still the storage
-unit; web operations change only the chosen item, preserving the other
-collections. Conflicts are visible and keep drafts. No stale edit is
-automatically resent over a new revision.
+The SaaS uses standard Rails, Design System forms, cookies and CSRF. The desktop
+keeps the Bearer. The current document with revisions continues to be the
+storage unit. A web operation changes only the selected item and keeps the other
+collections. When two changes do not agree, the SaaS shows this and keeps the
+drafts. The SaaS does not automatically send a change from a previous revision
+again on top of a new revision.
 
-Skills are text definitions, materialized as packages to reuse the existing
-plugin adapters and selectors. Plugin code still comes from a remote source
-through an explicit installation; there is no directory upload.
+Skills are text definitions. The desktop writes them as packages so that the
+current plugin adapters and selectors can use them. Plugin code continues to
+come from a remote source through an explicit installation. There is no folder
+upload.
 
-An unlinked private item equivalent to a personal definition satisfies it
-without a link, so its edits stay private. Sharing such a plugin or skill links
-it to the existing definition instead of publishing a duplicate. The desktop
-lists each resource once, with every catalog that offers it as a source; a
-same-name definition that differs is flagged on the installed row rather than
-listed again.
+A private item without a link can be equivalent to a personal definition. Then
+it satisfies that definition without a link, and its changes stay private. When
+a person shares such a plugin or skill, the desktop links it to the current
+definition. It does not publish a duplicate. The desktop shows each resource one
+time, with each catalog that supplies it as a source. A definition with the same
+name and different content gets a flag on the installed row. The desktop does
+not show it again.
 
-Receiving definitions does not enable tools in conversations. Remote deletion
-does not delete files or credentials from the Macs. Private names are preserved
-through a link map that separates the account's ID from the ID in the local hub.
+When the desktop receives definitions, it does not enable tools in
+conversations. A remote delete operation does not delete files or credentials
+from the Macs. A link map keeps the private names. The map connects the ID of
+the account to the ID in the local hub.
 
 ## Consequences
 
-- Management in the browser and local choice work without a new service,
+- Management in the browser and local selection operate without a new service,
   dependency or database migration.
-- The whole JSON and its 256 KB limit remain. Concurrent edits on different
-  items may also require an explicit retry.
-- Old clients preserve new skills by omitting the collection; their old
-  automatic publication behavior only changes when the desktop is updated.
-- A plugin copy shares the clone's files, but not its online definition. Copied
-  skills have independently materialized content.
-- Legacy Actions stay synchronized as before and get no web editor at this
-  stage.
-- Personal and organization catalogs have separate ownership and revisions.
-  Direct organization installation follows
-  [ADR 0039](0039-organization-catalog-on-desktop.md); it creates an independent
-  local record and does not subscribe it to later organization edits.
-- A rollback restores the previous code while keeping the JSON and local files.
-  An old desktop ignores skills; do not use a rollback as a way to remove new
+- The full JSON and its limit of 256 KB stay. Concurrent changes on different
+  items can also make an explicit retry necessary.
+- Previous clients keep new skills because they do not write the collection.
+  Their previous behavior of automatic publication changes only when the person
+  updates the desktop.
+- A plugin copy shares the files of the clone, but not its online definition.
+  Each copied skill has its own written content.
+- Legacy Actions continue to go to all desktops as before. They do not get a web
+  editor at this stage.
+- Personal catalogs and organization catalogs have different owners and
+  revisions. Installation directly from an organization follows
+  [ADR 0039](0039-organization-catalog-on-desktop.md). It makes a local record.
+  Changes that the organization makes after that do not go to that record.
+- A rollback puts back the previous code and keeps the JSON and the local files.
+  A previous desktop version ignores skills. Do not use a rollback to remove new
   data.
 
 ## Evidence
 
-The [catalog contract](../contracts/cloud-catalog.md) describes formats,
-compatibility, observable behavior and tests in both repositories.
+The [catalog contract](../contracts/cloud-catalog.md) gives the formats, the
+compatibility, the behavior that a person can see, and the tests in the two
+repositories.

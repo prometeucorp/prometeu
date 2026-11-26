@@ -1,257 +1,366 @@
 ---
 type: Contract
 title: "Native terminal state helper"
-description: "Ordered emulation, generation-scoped snapshots and terminal query ownership."
+description: "The emulation in sequence, the snapshots for each generation and the ownership of terminal queries."
 status: stable
 ---
 
 # Native terminal state helper
 
-`packages/terminal-state` implements a private, provider-neutral emulation
-service. It consumes PTY bytes; it does not spawn the provider, read its
-transcript, change the board or infer agent activity. The macOS native transport
-owns one helper per native PTY, applies its bytes before publishing live output,
-and exposes its ordered screen snapshot. The Linux release does not consume
-the helper. Native conversation mode is selectable on macOS; helper and CLI
-tests remain distinct from full Tauri app conformance. See
-[conversation transport identity](../decisions/0100-conversation-transport-identity.md)
-and [agent runtime](agent-runtime.md).
+`packages/terminal-state` is a private emulation service. It is the same for all
+providers. It receives PTY bytes. It does not start the provider, read its
+transcript, change the board or find the activity of the agent. The native macOS
+transport has one helper for each native PTY. The transport applies the bytes to
+the helper before it publishes the live output. It also gives the screen
+snapshot of the helper in sequence. The Linux release does not use the helper.
 
-The implementation pins `@xterm/headless` and the renderer package to `6.0.0`,
-with `@xterm/addon-serialize` `0.14.0` from the same upstream release. It uses the
-same default Unicode provider. Version-specific buffer, hyperlink and mode
-access stays in `src/xterm-state.ts`; the rest of the host uses the protocol.
+A person can select the native conversation mode on macOS. The helper tests and
+the CLI tests do not prove that the full Tauri app agrees with this contract.
+See [conversation transport
+identity](../decisions/0100-conversation-transport-identity.md) and [agent
+runtime](agent-runtime.md).
+
+The implementation pins `@xterm/headless` and the renderer package to `6.0.0`.
+It pins `@xterm/addon-serialize` to `0.14.0` from the same upstream release. It
+uses the same default Unicode provider. The code that reads the buffer, the
+hyperlinks and the modes changes with the xterm version. This code stays in
+`src/xterm-state.ts`. The remaining code of the host uses the protocol.
 
 ## Framing and identity
 
-The helper reads UTF-8 NDJSON on stdin and writes only NDJSON responses to
-stdout. Requests carry `v: 1`, a correlation `id`, `session`, `generation` and
-`op`. Identifiers are 1–128 ASCII letters, digits, dots, underscores, colons or
-hyphens. The host generates a fresh, never-reused generation for each PTY
-incarnation. A helper restart does not create evidence that an old screen was
-recovered.
+The helper reads UTF-8 NDJSON on stdin. It writes only NDJSON responses to
+stdout. Each request has `v: 1`, a correlation `id`, `session`, `generation` and
+`op`. An identifier has 1 to 128 characters. The permitted characters are ASCII
+letters, digits, dots, underscores, colons and hyphens. The host makes a new
+generation for each PTY incarnation and does not use it again. A new start of
+the helper does not prove that the helper got a previous screen back.
 
-`src/types.ts` is the browser-safe typed source; `src/protocol.ts` validates requests and limits. Successful responses are
-`{v:1,id,ok:true,result}`; failures are
-`{v:1,id,ok:false,error:{code}}`. Malformed input may have `id: null`. Error
-responses contain no terminal contents, paths or payload excerpts. The error
-vocabulary is `invalid_request`, `limit`, `not_found`, `stale_generation`,
-`sequence`, `already_exists`, `snapshot_unavailable`, `closed` and `internal`.
+`src/types.ts` is the typed source that a browser can use. `src/protocol.ts`
+validates requests and limits. A correct response is `{v:1,id,ok:true,result}`.
+A failure is `{v:1,id,ok:false,error:{code}}`. A response to malformed input can
+have `id: null`. Error responses do not contain terminal contents, paths or text
+from payloads. The error codes are `invalid_request`, `limit`, `not_found`,
+`stale_generation`, `sequence`, `already_exists`, `snapshot_unavailable`,
+`closed` and `internal`.
 
-| Operation | Additional fields | Result and rule |
+| Operation | More fields | Result and rule |
 | --- | --- | --- |
-| `create` | `cols`, `rows`, optional `scrollback` | `{seq:0}`; refuses an existing session, including a different generation |
-| `write` | canonical base64 `data`, `seq` | `{seq,replies:string[]}`; `seq` must equal previous seq plus decoded byte length |
-| `resize` | `cols`, `rows`, `seq` | `{seq}`; requires the current byte sequence and preserves pending decoder/parser state |
-| `snapshot` | optional boolean `view` | the structured snapshot below, after preceding writes and resizes finish; with `view: true`, buffer `ansi` is empty and `links` is `[]` |
-| `dispose` | none | `{seq}`; disposes only the matching generation |
+| `create` | `cols`, `rows`, optional `scrollback` | `{seq:0}`. Refuses a session that is there, also with a different generation. |
+| `write` | canonical base64 `data`, `seq` | `{seq,replies:string[]}`. `seq` must be the previous seq plus the length of the decoded bytes. |
+| `resize` | `cols`, `rows`, `seq` | `{seq}`. The current byte sequence is necessary. Keeps the state of the decoder and the parser that waits. |
+| `snapshot` | optional boolean `view` | The structured snapshot below, after the previous writes and resizes are complete. With `view: true`, the buffer `ansi` is empty and `links` is `[]`. |
+| `dispose` | none | `{seq}`. Disposes only the generation that agrees. |
 
-All operations share one ordered queue, including create/dispose, resize and
-snapshot barriers. A stale generation cannot write, resize, snapshot or dispose
-its replacement. A byte gap or duplicate nonempty write is rejected. The host
-must not retry uncertain writes: reestablish a snapshot boundary or retire the
-generation. An `internal` error is not an assertion that an operation had no
-effect; the host must retire that helper state.
+All operations use one queue in sequence. This includes the operations that make
+and dispose a session, the resize operations and the snapshot barriers. A
+previous generation cannot write, resize, snapshot or dispose its replacement.
+The helper refuses missing bytes in the sequence or a duplicate write that is
+not empty. The host must not try an uncertain write again. It must make a new
+snapshot boundary or stop the generation. An `internal` error does not tell that
+the operation had no effect. The host must stop that helper state.
 
-Stdio applies backpressure by awaiting each parser operation and stdout drain.
-It accepts a final complete JSON line without a newline. A malformed JSON line
-gets an error and processing continues; an oversized frame gets a `limit`
-response and closes that helper stream. EOF disposes the emulators after
-queued work completes. The in-process service exposes the same ordering.
+Stdio applies backpressure. It waits for each parser operation and for the
+stdout drain. It accepts a last complete JSON line without a newline. A
+malformed JSON line gets an error, and the processing continues. A frame that
+is too large gets a `limit` response, and the helper closes that stream. At
+EOF, the helper disposes the emulators after the work in the queue is complete.
+The service in the process gives the same sequence.
 
 ## Screen snapshot and replay
 
-The snapshot carries `v`, `session`, `generation`, `seq`, dimensions,
-`scrollback`, active buffer, separate normal/alternate `Screen` records,
-`modes`, `rehydrate`, `title`, `titleTruncated`, OSC8 `links`, `viewportLines`,
-`viewportCharacterColumns`, `viewportStyles`, `appearance`, `pendingEscape`
-and base64 `pendingUtf8`. A `Screen` contains ANSI contents, cursor position,
-wrap-pending state, scroll margins, saved cursor position/SGR, and the final
-cell needed to restore a pending wrap. `alternate` is null while normal is
-active; xterm clears its alternate buffer when leaving it.
+The snapshot contains these items:
 
-`viewportLines` contains exactly `rows` strings from the active buffer at
-`baseY + row`, using `translateToString(true)`. It excludes scrollback and
-trailing unoccupied cells while preserving explicit spaces. Consumers can
-inspect a current native prompt without reparsing ANSI. This content has the
-same privacy boundary as the screen and must not enter logs or telemetry.
+- `v`, `session`, `generation` and `seq`.
+- The dimensions and `scrollback`.
+- The active buffer, and different `Screen` records for the normal buffer and
+  the alternate buffer.
+- `modes`, `rehydrate`, `title` and `titleTruncated`.
+- The OSC8 `links`.
+- `viewportLines`, `viewportCharacterColumns` and `viewportStyles`.
+- `appearance`, `pendingEscape` and the base64 `pendingUtf8`.
 
-`viewportCharacterColumns` maps every Unicode scalar in each `viewportLines`
-string to its zero-based xterm column. It has exactly `rows` arrays, each with
-the same length as its line's scalar count; columns are nondecreasing and below
-`cols`. Scalars combined into one cell repeat its column; a wide character has
-one entry at its starting column. This records the pinned renderer's actual
-widths, rather than a separate Unicode-width approximation. The total map is
-bounded to 262,144 entries; exceeding it fails the snapshot explicitly. The
-native UI edge can locate a painted cursor amid emoji or combining text.
+A `Screen` contains these items:
 
-`viewportStyles` exposes dim/inverse flags and foreground/background colors as
-contiguous runs per active viewport row. Each run has zero-based `start` and
-exclusive `end` columns; runs cover `[0, cols)` and the outer array has `rows`
-entries. Color mode is `default` with value `-1`, `palette` with index `0..255`,
-or `rgb` with value `0..0xffffff`. Attributes come from xterm cells, including
-wide-cell continuation columns. The existing snapshot size limit bounds this
-metadata too. The native UI edge can distinguish painted placeholder styling
-from literal input with identical text without decoding provider ANSI itself.
+- The ANSI contents.
+- The cursor position and the wrap-pending state.
+- The scroll margins.
+- The saved cursor position and SGR.
+- The last cell that is necessary to restore a pending wrap.
 
-Normal ANSI includes retained scrollback. Links are serialized into OSC8
-sequences as well as exposed as ranges, so a reconstructed emulator still owns
-the links after subsequent output and resize. An open hyperlink pen is restored
-for following bytes. Its implicit underline is not converted into an explicit
-underline that would leak after link closure. The saved cursor keeps position
-and ordinary SGR attributes; saved charset state is outside this version.
+`alternate` is null while the normal buffer is active. xterm deletes the
+contents of its alternate buffer when it goes out of it.
 
-Modes cover application cursor/keypad, bracketed paste, insertion, origin,
-reverse wrap, focus reporting, wraparound, mouse protocol and SGR/SGR-pixel encoding,
-cursor visibility, style and blink. This matches the pinned xterm renderer's
-current input modes; adding a newer keyboard protocol requires upgrading and
-validating the renderer and helper together.
+`viewportLines` contains `rows` strings, not more and not less, from the active
+buffer at `baseY + row`. The helper uses `translateToString(true)`. The lines do
+not include the scrollback or the empty cells at the end of a line. They keep
+explicit space characters. Consumers can read a current native prompt without a
+new parse of the ANSI. This content has the same privacy boundary as the screen.
+It must not go into logs or telemetry.
 
-The browser-safe `src/replay.ts` builds the restoration sequence. Its caller
-must perform these steps in order:
+`viewportCharacterColumns` gives the zero-based xterm column for each Unicode
+scalar in each `viewportLines` string. It has `rows` arrays, not more and not
+less. Each array has the same length as the number of scalars in its line. The
+columns do not decrease, and they are less than `cols`. Scalars in one cell have
+the same column. A wide character has one entry at its first column.
 
-1. Subscribe to live output and hold matching-generation frames.
-2. Obtain the snapshot, drain old parser writes, reset xterm and apply the
-   snapshot dimensions and scrollback policy.
-3. Disable all writes back to the PTY while parsing the complete replay. Restore
-   normal/alternate buffers, saved/current cursor and modes, then title and the
-   incomplete escape suffix last. Await xterm's parser callback.
-4. Seed a fresh streaming UTF-8 decoder with `pendingUtf8`, without displaying
-   a replacement character. These pending bytes already count toward `seq`.
-5. Apply only live output after `seq` from the same generation; never treat a
-   sequence number as a process identity. Resize again only at the corresponding
-   ordered host boundary if the current viewport requires another size.
+This map records the actual widths of the pinned renderer. It does not calculate
+Unicode widths independently. The full map has a maximum of 262,144 entries. If
+the map is larger, the snapshot stops with an explicit error. The native UI edge
+can find a painted cursor between emoji or combining characters.
 
-An incomplete CSI/OSC can cross any PTY chunk boundary. The escape tracker
-retains it so the next live byte completes the original sequence. C0 controls
-already executed inside an incomplete CSI/ESC are not executed again during
-replay. UTF-8 keeps at most three incomplete bytes; invalid sequences use the
-standard decoder replacement behavior.
+`viewportStyles` gives the dim and inverse flags and the foreground and
+background colors. They are in continuous runs for each row of the active
+viewport. Each run has a zero-based `start` column and an exclusive `end`
+column. The runs cover `[0, cols)`, and the outer array has `rows` entries.
+The color mode is one of these values:
 
-The helper preserves the screen represented by this contract, rather than
-exporting every private xterm object. Custom charset registers, custom tab
-stops, arbitrary addon state, indexed palette mutations and newer protocols absent from
-the pinned renderer are not reconstructed here. Restoration guarantees are
-limited to the state represented by this contract and the replay tests below;
-they do not certify every native CLI interaction.
+- `default` with the value `-1`.
+- `palette` with an index `0..255`.
+- `rgb` with a value `0..0xffffff`.
+
+The attributes come from the xterm cells. This includes the continuation columns
+of wide cells. The current limit on the snapshot dimensions also applies to this
+metadata. The native UI edge can find the difference between a painted
+placeholder style and the same text that a person typed. It does not decode the
+ANSI of the provider for this.
+
+The normal ANSI includes the scrollback that the helper keeps. The helper
+serializes links into OSC8 sequences and also gives them as ranges. Thus, an
+emulator that the caller makes again continues to own the links after more
+output and a resize. The helper restores an open hyperlink pen for the bytes
+that follow. It does not change the implicit underline of the link into an
+explicit underline, because an explicit underline continues after the link
+closes. The saved cursor keeps the position and the usual SGR attributes. This
+version does not include the saved charset state.
+
+The modes include these items:
+
+- Application cursor and application keypad.
+- Bracketed paste, insertion and origin.
+- Reverse wrap, focus reports and wraparound.
+- The mouse protocol, and the SGR and SGR-pixel encodings.
+- Cursor visibility, cursor style and cursor blink.
+
+This agrees with the current input modes of the pinned xterm renderer. To add a
+newer keyboard protocol, upgrade and validate the renderer and the helper
+together.
+
+The browser-safe `src/replay.ts` makes the restoration sequence. Its caller
+must do these steps in this sequence:
+
+1. Subscribe to the live output and keep the frames of the same generation.
+2. Get the snapshot. Let the previous parser writes complete.
+3. Reset xterm. Apply the snapshot dimensions and the scrollback policy.
+4. Disable all writes back to the PTY while xterm parses the full replay.
+5. Restore the normal and alternate buffers.
+6. Restore the saved cursor, the current cursor and the modes.
+7. Restore the title. Then restore the suffix of the escape sequence that is
+   not complete. Do this step last.
+8. Wait for the parser callback of xterm.
+9. Give `pendingUtf8` to a new streaming UTF-8 decoder. Do not show a
+   replacement character.
+10. Apply only the live output after `seq` from the same generation.
+11. If the current viewport must have different dimensions, resize again. Do
+    this only at the related host boundary in the sequence.
+
+These UTF-8 bytes that wait are part of `seq` at this time. Do not use a
+sequence number as the identity of a process.
+
+A CSI or OSC sequence that is not complete can go across a PTY chunk boundary.
+The escape tracker keeps it, so that the next live byte completes the initial
+sequence. The xterm parser can do C0 controls in a CSI or ESC sequence that is
+not complete. The replay does not do these controls again. UTF-8 keeps a maximum
+of three bytes that are not complete. For incorrect sequences, the standard
+decoder puts a replacement character.
+
+The helper keeps the screen that this contract specifies. It does not export
+all private xterm objects. The helper does not restore these items:
+
+- Custom charset registers.
+- Custom tab stops.
+- The state of other addons.
+- Changes to the indexed palette.
+- Newer protocols that the pinned renderer does not have.
+
+The restoration guarantees apply only to the state in this contract and the
+replay tests below. They do not prove that all native CLI interactions operate
+correctly.
 
 ## Terminal query ownership
 
-The headless emulator is the single query-response authority. Only live
-`write` operations capture xterm's `onData`; their result contains base64
-`replies`. Snapshot and resize never send input themselves. The host forwards
-each returned reply once to the matching generation's PTY, after accepting the
-write result. No unsolicited reply event exists.
+The headless emulator is the only authority that answers queries. Only live
+`write` operations capture `onData` of xterm. Their result contains base64
+`replies`. Snapshot and resize do not send input. After the host accepts the
+write result, it sends each returned reply one time to the PTY of the same
+generation. There is no event for a reply that the host did not request.
 
-Both replayed and live renderer-generated automatic replies must be suppressed
-when this helper owns replies. User keyboard/paste input still reaches the PTY
-through the existing authority. Keeping the old generic xterm `onData` sink
-unchanged would duplicate live replies and is therefore not a valid integration.
-Native foreground, background and cursor defaults come from the browser-safe
-`src/appearance.ts`, shared with the native renderer. The helper consumes xterm's
-parsed OSC10/11/12 requests, answers reports with those current colors and
-tracks set/reset operations. `appearance` records the resulting colors and
-replay restores them before the screen. Indexed palette and pixel-geometry
-queries remain unsupported; the helper does not invent renderer measurements.
+When this helper owns the replies, the renderer must not send automatic replies.
+This applies to the replay and to the live output. The keyboard input and the
+paste input of the person continue to go to the PTY through the current
+authority. If the previous generic xterm `onData` sink does not change, it sends
+the live replies two times. Thus, that integration is not correct.
 
-Native conversation presentation uses a neutral dark background (`#282c34`),
-white foreground and cursor, and a complete ANSI theme with blue selection
-(`#5a7898`). Its macOS font starts with SF Mono at 14 px, normal/bold weights
-500/700 and line height 1, with system monospace fallbacks. These are visual
-defaults over the pinned xterm 6.0.0 renderer, drawn by its WebGL addon with a
-DOM fallback. Explicit native OSC color changes remain authoritative through replay.
-A helper already running retains its current colors until its normal
-replacement; rebuilding the packaged executable does not rewrite live state or
-restart a provider to apply a theme.
+The native foreground, background and cursor defaults come from the browser-safe
+`src/appearance.ts`. The native renderer uses the same file. The helper receives
+the OSC10, OSC11 and OSC12 requests that xterm parses. It answers the reports
+with the current colors. It also records the operations that set and reset the
+colors. `appearance` records the colors that result. The replay restores them
+before the screen. The helper does not answer queries for the indexed palette or
+the pixel geometry. It does not make renderer measurements.
 
-In the pinned renderer, keyboard, IME, paste and SGR mouse data are marked as
-user input by `CoreService.triggerDataEvent`. Focus notifications are not marked
-that way and must still be forwarded as view events. Default mouse encoding uses
-`onBinary`, whose byte-valued string requires a byte-preserving IPC path rather
-than UTF-8 encoding. `src/terminal-input.ts` wraps the pinned core's synchronous
-user-input marker; `Term` suppresses automatic replies, forwards focus and raw
-binary input, and serializes input promises with captured session/generation.
-An attachment change rejects queued obsolete input. Blocking all `onData` while
-live output parses would lose concurrent input.
+The native conversation presentation uses these defaults:
+
+- A neutral dark background (`#282c34`).
+- A white foreground and a white cursor.
+- A full ANSI theme with a blue selection (`#5a7898`).
+- On macOS, the font list starts with SF Mono at 14 px. The regular weight is
+  500 and the bold weight is 700. The line height is 1. System monospace fonts
+  are the fallbacks.
+
+These visual defaults apply to the pinned xterm 6.0.0 renderer. Its WebGL addon
+shows the terminal, with a DOM fallback. Explicit native OSC color changes
+continue to apply first through the replay. A helper that operates keeps its
+current colors until its usual replacement. When you build the packaged
+executable again, the live state does not change. The provider does not start
+again to apply a theme.
+
+In the pinned renderer, `CoreService.triggerDataEvent` identifies keyboard, IME,
+paste and SGR mouse data as user input. It does not identify focus
+notifications. The terminal must continue to send focus notifications as view
+events. The default mouse encoding uses `onBinary`. Its string has byte values,
+so it must go through an IPC path that keeps the bytes. It must not go through a
+UTF-8 encoder.
+
+`src/terminal-input.ts` puts a wrapper around the synchronous user-input marker
+of the pinned core. `Term` does these operations:
+
+- It does not send automatic replies.
+- It sends the focus input and the raw binary input.
+- It serializes the input promises with the session and generation that it
+  captured.
+
+An attachment change refuses input in the queue that is not current. If the
+terminal stops all `onData` while it parses live output, the terminal does not
+get the input that occurs at the same time.
 
 ## Desktop lifecycle
 
-`chat/terminal/screen.rs` orders writes, resizes and snapshots under one emulator
-mutex outside the conversation capture/PTY output locks. Native resize runs
-inside that same boundary. Helpers consume byte offsets; the desktop wrapper
-also retains the corresponding complete PTY chunk sequence for IPC. The empty
-process-exit chunk consumes a chunk sequence too. Readiness and controls read
-view snapshots: serializing the whole history takes tens of milliseconds and
-holds the mutex the PTY reader needs, so only restoring a view and freezing ask
-for the full snapshot. A cached full snapshot also answers a view, never the
-reverse. After exit, the host freezes
-the last snapshot and disposes/reaps the helper, so closed conversation tabs
-do not retain one Node process each. A helper failure refuses restoration and
-stops that native process; it never presents the raw tail as a successfully
-restored full screen. Its native transcript can be resumed.
+`chat/terminal/screen.rs` puts writes, resizes and snapshots in sequence under
+one emulator mutex. This mutex is not one of the locks for the conversation
+capture or the PTY output. A native resize operates in the same boundary. The
+helpers use byte offsets. The desktop wrapper also keeps the related sequence
+of complete PTY chunks for IPC. The empty chunk at the end of the process also
+uses a chunk number.
 
-Release resolution uses the packaged executable beside the app binary. Debug
-accepts the explicit `PROMETEU_TERMINAL_STATE_HELPER` path supplied by the
-development script. Neither path discovers or requires a customer-installed
-Node. The desktop screen lifecycle's ignored test exercises the actual packaged
-helper, resize, query replies, UTF-8 continuation and frozen snapshots.
-The SEA builder signs and verifies a temporary executable before atomically
-replacing the destination. Subsequent launches use that executable; existing
-helper processes continue with their original code and state.
+The readiness checks and the controls read view snapshots. The serialization of
+the full history uses tens of milliseconds. During this time, it holds the mutex
+that the PTY reader must have. Thus, only the restoration of a view and the
+freeze request the full snapshot. A full snapshot in the cache can also answer a
+request for a view. A view snapshot cannot answer a request for a full snapshot.
+
+After the process stops, the host freezes the last snapshot. Then it disposes
+and reaps the helper. Thus, closed conversation tabs do not each keep one Node
+process. If the helper has a failure, the host refuses the restoration and stops
+that native process. It does not show the raw tail as a full screen that it
+restored correctly. The app can resume its native transcript.
+
+A release build uses the packaged executable adjacent to the app binary. A
+debug build accepts the explicit `PROMETEU_TERMINAL_STATE_HELPER` path from the
+development script. These two paths do not look for a Node that the customer
+installed. Node is not necessary on the computer of the customer. An ignored
+test of the desktop screen lifecycle runs the actual packaged helper. It
+examines resize, query replies, UTF-8 continuation and frozen snapshots.
+
+The SEA builder signs and examines a temporary executable. Then it replaces the
+destination in one atomic operation. Subsequent launches use that executable.
+Helper processes that operate at that time continue with their initial code
+and state.
 
 ## Limits and evidence
 
-Defaults and enforced bounds are explicit in `LIMITS`: 32 sessions, 500 columns,
-300 rows, 5,000 scrollback rows (default 1,000), one million nominal cells per
-session and four million in total, accounting for both screen buffers. Writes
-are at most 256 KiB decoded, input lines 512 KiB, and snapshots 16 MiB JSON.
-The library queue accepts at most 128 pending requests. Grid admission and
-resize limits are checked before mutation.
+`LIMITS` gives the defaults and the maximum values:
 
-An incomplete escape over 4,096 characters makes snapshots unavailable until
-the sequence terminates; emulation continues. The tail is never silently
-truncated into a valid restore point. Title metadata is explicitly truncated
-at 4,096 characters and marked. Large repeated OSC8 URLs are bounded before
-ANSI expansion; snapshots over the result limit are refused. These are screen
-retention limits, not transcript truncation policies.
+- 32 sessions.
+- 500 columns and 300 rows.
+- 5,000 scrollback rows. The default is 1,000.
+- One million nominal cells for each session and four million in total. This
+  includes the two screen buffers.
+- 256 KiB of decoded data for each write.
+- 512 KiB for each input line.
+- 16 MiB of JSON for each snapshot.
+- 128 requests in the library queue.
 
-`test/state.test.ts` compares cells, colors, styles, cursor, buffers, links,
-modes and continued output against a second headless instance after restoration.
-Cases include alternate screen exit, saved cursor, margins, wrap-pending wide
-characters, hyperlinks in scrollback, split CSI/OSC/UTF-8, resize/reflow and
-query replies. `test/protocol.test.ts` covers the real stdio executable,
-concurrent request ordering, generation replacement, byte gaps, duplicate
-writes and admission limits. Provider differences remain in the
-[provider matrix](../quality/provider-matrix.md); these tests invoke no agent.
+The helper examines the grid limits and the resize limits before it changes
+the state.
 
-Run `npm ci --prefix packages/terminal-state`, then the package's `test` and
-`typecheck` scripts. `build:sea` downloads and verifies the pinned Node 24.14.0
-archive, bundles the helper and dependencies, injects its SEA blob into that
-same runtime, and records archive/executable hashes. V8 keeps its JIT: every PTY
-chunk waits for the helper, and `--jitless` made writes and snapshots about 3.5x
-slower. On macOS the build signs it with `src-tauri/Entitlements.plist`, the same
-file Tauri applies when it re-signs the bundled sidecar, which grants
-`com.apple.security.cs.allow-jit` under the hardened runtime. Runtime argument
-extension is disabled.
-`test:sea` runs with an empty PATH and invalid injected Node options. Native
-macOS arm64 is locally verified; the Linux x64 recipe is not locally verified.
+If an escape sequence that is not complete has more than 4,096 characters,
+snapshots are not available until the sequence is complete. The emulation
+continues. The helper does not silently cut the tail to make a restore point.
+The helper cuts the title metadata at 4,096 characters, and the snapshot tells
+that it cut the title. The helper limits large OSC8 URLs that occur many times
+before it expands the ANSI. It refuses a snapshot that is more than the result
+limit. These are limits on what the screen keeps. They are not rules that cut
+the transcript.
+
+`test/state.test.ts` makes a second headless instance after the restoration. It
+compares these items with that instance: cells, colors, styles, the cursor,
+buffers, links, modes and the subsequent output. The tests include these
+conditions:
+
+- An exit from the alternate screen.
+- A saved cursor and margins.
+- Wide characters with a wrap that waits.
+- Hyperlinks in the scrollback.
+- CSI, OSC and UTF-8 sequences that are divided between chunks.
+- Resize and reflow.
+- Query replies.
+
+`test/protocol.test.ts` examines the actual stdio executable and the sequence of
+requests that occur at the same time. It also examines the replacement of a
+generation, missing bytes, duplicate writes and the admission limits. The
+differences between providers stay in the [provider
+matrix](../quality/provider-matrix.md). These tests do not start an agent.
+
+Run `npm ci --prefix packages/terminal-state`. Then run the `test` and
+`typecheck` scripts of the package.
+
+`build:sea` downloads and examines the pinned Node 24.14.0 archive. It bundles
+the helper and its dependencies. It puts the SEA blob into the same runtime.
+It records the hashes of the archive and the executable. V8 keeps its JIT,
+because each PTY chunk waits for the helper. With `--jitless`, writes and
+snapshots were approximately 3.5x slower.
+
+On macOS, the build signs the executable with `src-tauri/Entitlements.plist`.
+Tauri applies the same file when it signs the bundled sidecar again. This file
+grants `com.apple.security.cs.allow-jit` under the hardened runtime. The build
+disables the runtime argument extension. `test:sea` runs with an empty PATH and
+with incorrect Node options in the environment. The native macOS arm64 build has
+a local verification. The Linux x64 procedure does not have a local
+verification.
 
 On macOS, `npm run app`, `npm run build:app` and `npm run app:bundle` use
-`scripts/terminal-state-app.mjs`: it installs the helper's own locked dependencies,
-builds the SEA, and adds `tauri.terminal-state.conf.json` to the Tauri invocation.
-The overlay bundles the executable and licenses; development supplies its explicit path.
-A local debug `.app` bundle passed strict signature verification and executed
-the bundled helper without installed Node. The current helper is about 113 MiB
-before compression. `npm run terminal-state:check`, included after the frontend
-build in `npm run check`, validates the package, SEA and exact host wire/screen
-tests without invoking an agent. Linux CI runs that gate too; the Linux release
-does not yet consume the helper. The macOS release build uses the same wrapper,
-then verifies the packaged executable and notices before notarizing the DMG.
-Native conversation mode is enabled separately by the macOS execution host and
-Settings capability. Packaging tests do not establish full application
-conformance or authorize publication.
+`scripts/terminal-state-app.mjs`. This script installs the locked dependencies
+of the helper. Then it builds the SEA and adds `tauri.terminal-state.conf.json`
+to the Tauri command. The overlay bundles the executable and the licenses. In
+development, the script gives the explicit path of the executable.
 
-The incomplete-escape scanner is adapted from Orca commit
-`6ee09ca1c9901c58e45df966cadd6f2a86e268f0`; its MIT license and attribution are
-retained in `packages/terminal-state/THIRD_PARTY_NOTICES.md`. The sidecar overlay
-includes those notices and the Node/xterm licenses.
+A local debug `.app` bundle had no errors in the strict signature verification.
+It ran the bundled helper without an installed Node. The current helper is
+approximately 113 MiB before compression.
+
+`npm run terminal-state:check` runs after the frontend build in `npm run check`.
+It validates the package and the SEA. It also runs the host tests for the
+protocol format and the screen. It does not start an agent. Linux CI also runs
+that check. The Linux release does not use the helper at this time. The macOS
+release build uses the same wrapper. Then it examines the packaged executable
+and the notices before it notarizes the DMG.
+
+The macOS execution host and the Settings capability enable the native
+conversation mode. The packaging tests do not enable it. These tests do not
+prove that the full application agrees with this contract. They do not authorize
+publication.
+
+The scanner for escape sequences that are not complete comes from Orca commit
+`6ee09ca1c9901c58e45df966cadd6f2a86e268f0`. Its MIT license and attribution
+are in `packages/terminal-state/THIRD_PARTY_NOTICES.md`. The sidecar overlay
+includes those notices and the Node and xterm licenses.

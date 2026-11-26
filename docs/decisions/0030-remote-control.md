@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0030 — remote control independent of sharing"
-description: "Remote control independent of sharing."
+description: "Remote control is a personal permission and it is not a share with other persons."
 status: stable
 ---
 
@@ -9,59 +9,68 @@ status: stable
 
 Date: 2026-09-08
 
-Extends [ADR 0027](0027-companion-devices.md) and
-[ADR 0028](0028-mobile-web-app.md), without changing
+This ADR adds to [ADR 0027](0027-companion-devices.md) and
+[ADR 0028](0028-mobile-web-app.md). It does not change
 [relay v4](../contracts/relay-v4.md).
 
 ## Context
 
-The phone belongs to the same person who runs the workspace on the Mac, but the
-sharing menu offers only other people or the whole organization. So reaching
-one's own workspace from the phone required exposing it to someone else.
+The phone belongs to the person who operates the workspace on the Mac. But the
+share menu shows only other persons or the full organization. Thus, to get
+access to the workspace from the phone, the person had to share it with a
+different person.
 
-Personal access must also be revocable without changing who already received the
-workspace through the team's collaboration.
+The person must also be able to remove the personal access. This removal must
+not change the persons who got the workspace through the collaboration of the
+team.
 
 ## Options considered
 
-1. Show the person themselves in the audience menu. It solves exclusive access,
-   but mixes personal devices with collaboration and does not allow turning the
-   phone off when the audience is the whole organization.
-2. Create another kind of share in the relay. It separates the concepts, but
-   duplicates storage, comments and streaming.
-3. Persist a personal permission in the workspace and reuse the existing share.
+1. Show the person in the audience menu. This gives exclusive access. But it
+   mixes personal devices with collaboration. Also, the person cannot disable
+   the phone when the audience is the full organization.
+2. Make a different type of share in the relay. This keeps the concepts
+   apart. But it makes a second copy of the storage, the comments and the
+   stream.
+3. Keep a personal permission in the workspace and use the current share again.
 
 ## Decision
 
-Adopt option 3. `Workspace.remote_control` records separate consent. The
-conversation's footer shows **Controle remoto** in Portuguese and **Remote
-control** in English when a Cloud organization is active.
+Use option 3. `Workspace.remote_control` records a consent apart from the
+audience. When a
+Cloud organization is active, the footer of the conversation shows **Controle
+remoto** in Portuguese and **Remote control** in English.
 
-The workspace still has a single announcement. Before encrypting, the owner adds
-their companion devices to the recipients only when `remote_control` is active.
-The team's audience stays independent. A workspace with remote control and no
-team audience uses `audience: []` locally; in the outer frame, the explicit
-audience contains only the authorized devices.
+The workspace continues to have one announcement. Before the owner encrypts it,
+the owner adds the owner's companion devices to the recipients. The owner does
+this only when `remote_control` is active. The audience of the team does not
+change. A workspace with remote control and no team audience uses
+`audience: []` locally. In the outer frame, the explicit audience contains only
+the approved devices.
 
 ## Consequences
 
-- Enabling remote control does not share the workspace with other people.
-- Enabling remote control approves the input of the owner's devices that exist
-  then; a device added or changed later waits for the owner's answer on the Mac
+- When the owner enables remote control, the application does not share the
+  workspace with other persons.
+- When the owner enables remote control, the application gives approval to the input
+  of the current devices of the owner. A device that the owner adds or changes
+  after that time waits for the answer of the owner on the Mac
   ([ADR 0090](0090-approved-remote-input.md)).
-- Remote control gives the owner's devices the three rights of ADR 0090: view
-  and comment, send messages and control. Teammates receive the last two only
-  per person.
-- Disabling it revokes the personal devices without removing the team's
-  audience.
-- Old boards receive `remote_control: false` by default.
-- The Mac still runs the agent and must stay with Prometeu open.
-- The relay receives the same v4 frames and still does not know about the local
-  permission.
+- Remote control gives the devices of the owner the three rights of ADR 0090:
+  view and comment, send messages and control. The owner gives the last two
+  rights to each teammate separately. Many teammates can have the same right at
+  the same time.
+- When the owner disables remote control, the application removes the personal
+  devices. The audience of the team does not change.
+- Boards from a previous version get `remote_control: false` as the default value.
+- The Mac continues to operate the agent. Prometeu must stay open on the Mac.
+- The relay gets the same v4 frames. The relay continues to have no data about
+  the local permission.
 
 ## Evidence
 
-- `src/team-channel.test.ts`: the owner's device does not receive the share
-  before the permission and receives it afterwards.
-- `src/team-organizations.test.ts`: independent persistence and boxes encrypted
-  only for the owner and their device.
+- `src/team-channel.test.ts`: the device of the owner does not get the share
+  before the permission, and it gets the share after the permission.
+- `src/team-organizations.test.ts`: the application keeps the permission
+  independently and encrypts the boxes only for the owner and the device of the
+  owner.

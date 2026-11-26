@@ -1,29 +1,34 @@
 # Antigravity stream fixtures
 
-`tool.ndjson`, `resume.ndjson`, and `interrupted.ndjson` were recorded from the
-installed Antigravity CLI 1.2.7 on 2026-09-19, using its existing external account
-in an empty temporary workspace. Only the conversation identity and working
-directory were replaced with fixture constants.
+`tool.ndjson`, `resume.ndjson`, and `interrupted.ndjson` are recordings from the
+installed Antigravity CLI 1.2.7 on 2026-09-19. The CLI used its current external
+account in an empty temporary workspace. We replaced only the conversation
+identity and the work folder with fixture constants.
 
-The first prompt requested only `echo AGY_TOOL_OK` and a matching reply. The
-second process resumed that native conversation and recalled the marker. The
-third received SIGINT after its first step. Version 1.2.7 returned `ERROR` with
-`error: "interrupted"`, which the adapter maps to an interrupted turn.
+The first prompt told the agent to run only `echo AGY_TOOL_OK` and to send a
+reply with the same marker. The second process resumed that native conversation
+and gave the marker again. The third process got SIGINT after its first step.
+Version 1.2.7 returned `ERROR` with `error: "interrupted"`. The adapter changes
+this result into an interrupted turn.
 
-`canonical-events.json` runs all three live recordings through the adapter for
-cross-language V1 validation. Each recording uses a fresh adapter instance, with
-the original session identity shared by the tool and resume recordings. The
-independent interrupted conversation receives a distinct fixture identity. Event
-timestamps and turn durations are zeroed for deterministic comparison. Regenerate it with
+`canonical-events.json` is the output of the adapter for the three live
+recordings. Tests in different languages use it for the V1 validation. Each
+recording uses a new adapter instance. The tool recording and the resume
+recording share the initial session identity. The interrupted conversation is independent and has a different fixture
+identity. The event timestamps and the turn times are zero. Thus, the comparison always
+gives the same result.
+To make the file again, run
 `PROMETEU_UPDATE_ANTIGRAVITY_FIXTURE=1 cargo test antigravity::tests::canonical_events_match_cross_language_fixture`
 from `src-tauri/`.
 
-`permission-denied.ndjson` minimizes a real 1.2.7 recording in a dedicated empty
-diagnostic directory, with the application's default launch flags. It preserves
-the `ERROR` tool state and `SUCCESS` result with nonempty `denied_actions`. The
-command was not executed; no denial was bypassed. These events must produce a
-visible permission failure rather than an empty successful turn.
+`permission-denied.ndjson` is a smaller version of a 1.2.7 recording from the CLI. The
+recording used an empty diagnostic folder and the default launch flags of the
+application. The fixture keeps the `ERROR` tool state and the `SUCCESS` result
+with `denied_actions` that is not empty. The command did not run, and the agent
+did not go around a denial. These events must show a permission failure to the
+person. They must not show an empty turn that completed correctly.
 
-`usage.tsv` records `agy -p /usage`: remaining quotas and reset timestamps by
-model group. It contains no identity or credentials. Tests convert remaining to
-used, preserve groups and reject malformed readings without replacing the cache.
+`usage.tsv` is a recording of `agy -p /usage`. It contains the remaining quotas
+and the reset timestamps for each model group. It does not contain an identity
+or credentials. The tests change the remaining values into used values and keep
+the groups. They reject incorrect data and do not replace the cache.

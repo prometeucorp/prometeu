@@ -11,76 +11,90 @@ Date: 2026-09-19
 
 ## Context
 
-People repeat Git clones and project registration on each Mac. The account and
-organization catalogs already distribute portable definitions with revisions.
+Persons clone the same repositories and add the same projects again on each Mac.
+The catalogs of accounts and organizations send portable definitions with
+revisions at this time.
 
 ## Decision
 
-Add `projects` to the existing catalog document and browser tabs. Each definition
-contains a stable name, remote Git source and optional description. Reuse catalog
-authorization, revision checks, local cache and board project registration.
+Add `projects` to the current catalog document and to the browser tabs. Each
+definition contains a stable name, a remote Git source and an optional
+description. Use the current catalog authorization, revision checks, local
+cache and project registration on the board.
 
-The desktop offers multiple selection and one destination directory. It clones
-each selected project into its named subdirectory and registers successful clones.
-It can instead link an existing repository after checking its root and origin.
-Repositories already registered with the same origin do not appear as available;
-a stale installation action reuses their path. Retries preserve completed
-projects; conflicting folders remain untouched.
+The desktop lets the person select many projects and one destination directory.
+It clones each selected project into a subdirectory with the project name. It
+adds each clone that completes correctly to the board. As an alternative, it
+can link a repository that is on the disk. Before it does this, it examines the
+root and the origin of that repository. A repository that is on the board with
+the same origin does not show as available. An expired installation action uses the
+path of that repository. When the person tries again, the completed projects
+stay. Prometeu does not change a folder that has different contents.
 
-Cloning uses Git installed on the Mac and local authentication. HTTPS and SSH are
-the only accepted transports; credentials, local paths and executable transport
-helpers cannot enter the document. Git hooks are disabled during clone. Prometeu
-does not execute setup, install dependencies or select tools during registration.
+The clone operation uses the Git installation on the Mac and the local
+authentication. HTTPS and SSH are the only transports that Prometeu accepts.
+The document cannot contain credentials, local paths or executable transport
+helpers. Prometeu disables Git hooks during a clone. During registration,
+Prometeu does not run setup, install dependencies or select tools.
 
 ## Consequences
 
-Cloud stores definitions, never source files or Git credentials. Local project
-paths live in board state and catalog installation links. Losing a definition,
-membership or account connection never removes registered projects or files.
+The Cloud stores definitions. It does not store source files or Git
+credentials. The local project paths are in the board state and in the catalog
+installation links. If a definition, a membership or an account connection
+stops, Prometeu does not remove the projects on the board or their files.
 
-Older documents decode with an empty projects collection. Older desktop PUTs
-that omit projects preserve stored definitions; an explicit empty collection
-removes them. Publish Cloud support before the new desktop. Rolling back the
-desktop preserves definitions; rolling back Cloud code requires a version that
-still accepts stored projects. No schema migration is needed.
+Older documents decode with an empty collection of projects. Older desktop PUT
+requests that do not contain projects keep the stored definitions. An
+explicit empty collection removes them. Publish the Cloud changes before the
+new desktop. If Prometeu installs an older desktop version again, the
+definitions stay. If Prometeu installs older Cloud code again, that version must
+accept stored projects. A schema migration is not necessary.
 
-Existing catalog synchronization serializes installation operations and local
-project additions/removals, so registration cannot change between the origin
-check and the catalog installation. Project commands wait on worker threads,
-without holding the board lock. Large clones can delay catalog refresh and local
-project edits, as plugin installations already delay catalog refresh. Board reads
-and unrelated workspace edits stay available. No background job system or
-automatic setup is introduced.
+The current catalog synchronization puts installation operations and local
+project changes in sequence. Thus the registration cannot change between the
+origin check and the catalog installation. Project commands wait on worker
+threads and do not hold the board lock. Large clones can make the catalog
+refresh and local project changes wait. Plugin installations make the catalog
+refresh wait in the same procedure. Board reads and changes to other workspaces stay
+available. This decision does not add a background job system or an automatic
+setup.
 
-The [catalog contract](../contracts/cloud-catalog.md) specifies wire behavior.
-[Rust tests](../../src-tauri/src/catalog/projects.rs) use a local Git upload-pack
-fixture for cloning, retry, existing-folder registration and file preservation.
-[Browser tests](../../e2e/projects.spec.ts) cover selection, partial failure and
-retry in Chromium, plus a representative layout and focus check in WebKit.
+The [catalog contract](../contracts/cloud-catalog.md) specifies the wire
+behavior. The [Rust tests](../../src-tauri/src/catalog/projects.rs) use a local
+Git upload-pack fixture. They examine the clone, a second try, the registration
+of a current folder and that the files stay. The
+[browser tests](../../e2e/projects.spec.ts) examine selection, a failure of some projects
+and a second try in Chromium. They also do a representative check of layout
+and focus in WebKit.
 
 ## Local creation
 
-The same Projects dialog also creates a local project without a Cloud account.
-It accepts a name and parent directory, initializes a new empty Git repository
-through the shared native Git adapter, and reuses board registration. The
-desktop exposes the additive `create_project` command described in the
-[IPC contract](../contracts/ipc.md). Existing registration and catalog formats
-are unchanged.
+The same Projects dialog also makes a local project without a Cloud account. It
+accepts a name and a parent directory. It makes a new empty Git repository
+through the shared native Git adapter. Then it uses the current board
+registration. The desktop has the new `create_project` command that the
+[IPC contract](../contracts/ipc.md) specifies. The current registration and
+catalog formats do not change.
 
-Creation refuses existing paths instead of initializing or overwriting them.
-Git templates and inherited repository-location overrides cannot populate or
-redirect the new repository. Failed initialization registers nothing; cleanup
-only removes an empty directory, preserving partial state or concurrent writes.
-An initialized directory remains on disk if subsequent registration fails.
+Prometeu rejects a path that is on the disk. It does not initialize that path or
+replace its contents. Git templates and inherited overrides of the repository location
+cannot add files to the new repository or move it. If a failure occurs during the
+initialization, Prometeu adds no project to the board. The cleanup removes only
+an empty directory. Thus it keeps a state that is not complete, or files that a different
+process writes at the same time. If a failure occurs during the registration
+after the initialization, the initialized directory stays on the disk.
 
-No initial commit is invented: that would require an identity or write authored
-history on the person's behalf. The launcher opens a repository without branch
-references directly in its project folder until the first commit, preserving
-the saved worktree preference for subsequent launches. No setup, remote,
-dependencies or provider process starts during project creation.
+Prometeu does not make an initial commit. For a commit, an identity is necessary,
+or Prometeu must write history for the person. Until the first commit, the
+launcher opens a repository that has no branches directly in its project
+folder. The saved worktree preference stays for subsequent launches. Project
+creation does not start setup, a remote, dependencies or a provider process.
 
-Tests in `crates/git/src/tests.rs` cover empty initialization, invalid names,
-existing paths and symlinks. `e2e/projects.spec.ts` adds the project-to-first-
-conversation journey, including focus and retention of typed input after a
-creation failure. Existing clone scenarios do not exercise this nested dialog or
-its launcher integration; native tests cannot prove browser focus behavior.
+The tests in `crates/git/src/tests.rs` examine empty initialization, incorrect
+names, paths that are on the disk and symlinks. `e2e/projects.spec.ts` adds the
+full path from a new project to its first conversation. This test also
+examines the focus, and it makes sure that typed input stays after a creation
+failure. The current clone scenarios do not operate this nested dialog or its
+launcher integration. Native tests cannot prove the focus behavior of the
+browser.

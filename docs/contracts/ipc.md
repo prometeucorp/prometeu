@@ -1,491 +1,581 @@
 ---
 type: Contract
 title: "TypeScript ↔ Rust IPC contract"
-description: "Typed desktop commands, events, browser mocks and serialization compatibility."
+description: "Typed desktop commands, events, browser mocks and the compatibility of serialization."
 status: stable
 ---
 
 # TypeScript ↔ Rust IPC contract
 
-Current contract; TypeScript commands and browser handlers share typed
-arguments and results. Rust bindings remain manually synchronized.
+This is the current contract. TypeScript commands and browser handlers share
+typed arguments and results. A person must keep the Rust bindings aligned
+manually.
 
 ## Sources and guarantees
 
-The preview, element inspection and captures use the
-[browser contract](browser.md). Those commands are additive and do not open
-general IPC to the inspected page.
+The preview, the element inspection and the captures use the
+[browser contract](browser.md). Those commands are additive. They do not give
+general IPC access to the inspected page.
 
-- `src/ipc.ts` owns `Commands`, with one argument/result pair for each command.
-  `invoke` infers the result from the command and checks its arguments. Callers
-  cannot supply an arbitrary result generic. `IpcArgs`, `IpcArguments`,
-  `IpcResult`, `IpcCall`, and `IpcHandlers` support typed consumers and wrappers.
-  Command unions must travel with their corresponding arguments as an `IpcCall`
-  tuple; widening the command generic cannot bypass required arguments.
-- `src/mock.ts` implements `IpcHandlers`. TypeScript checks every command's
-  arguments and result. The browser's dynamic Tauri bridge performs one dispatch
-  cast after checking that the command belongs to the handler map; plugin
-  commands stay outside the application contract.
-- `src-tauri/src/main.rs` registers Rust handlers in `generate_handler!`.
-  `src-tauri/tests/mock.rs` checks exact name parity across this registration,
-  the TypeScript map, and browser handlers.
-- `src/ipc.test.ts` checks invocation forwarding and compile-time rejection of
-  missing/invalid arguments, unknown commands, arbitrary result types, and
-  incorrect mock results. `npm run typecheck` checks the entire frontend.
+- `src/ipc.ts` owns `Commands`, with one pair of argument and result for each
+  command. `invoke` gets the result type from the command and examines its
+  arguments. Callers cannot supply a result generic of their choice. `IpcArgs`,
+  `IpcArguments`, `IpcResult`, `IpcCall`, and `IpcHandlers` are for typed
+  consumers and wrappers. A command union must go with its arguments as an
+  `IpcCall` tuple. A wider command generic cannot bypass mandatory arguments.
+- `src/mock.ts` implements `IpcHandlers`. TypeScript examines the arguments and
+  the result of each command. The dynamic Tauri bridge of the browser does one
+  dispatch cast after it makes sure that the command is in the handler map.
+  Plugin commands are not part of the application contract.
+- `src-tauri/src/main.rs` registers the Rust handlers in `generate_handler!`.
+  `src-tauri/tests/mock.rs` makes sure that this registration, the TypeScript
+  map and the browser handlers have the same names.
+- `src/ipc.test.ts` examines the forwarding of calls. It also makes sure that
+  compilation rejects missing or incorrect arguments, unknown commands, result
+  types that the caller selects, and incorrect mock results. `npm run typecheck`
+  examines the full frontend.
 
-These checks do not generate Rust DTOs or validate runtime payloads. Rust
-argument names, serde behavior, and serialized results must still match the
-map and the existing boundary tests. Untrusted relay/control input remains
-subject to backend validation. Errors keep their existing rejection format.
-See [ADR 0024](../decisions/0024-typed-ipc.md).
+These checks do not make Rust DTOs or validate payloads at runtime. The Rust
+argument names, the serde behavior and the serialized results must continue to
+agree with the map and with the current boundary tests. The backend continues
+to validate relay and control input that is not trusted. Errors keep their
+current rejection format. See [ADR 0024](../decisions/0024-typed-ipc.md).
 
 ## Conversation mode
 
-`set_conversation_mode({ mode: "chat" | "terminal" })` saves the default for
-new conversations and publishes the existing `board` event; it returns no
-value. It does not modify saved tabs or restart processes. Unknown mode values
-fail deserialization. The browser mock preserves the same default and applies
-it to new tabs, workspace conversations and actions. The macOS desktop accepts
-both modes and exposes the preference in Settings / General. Linux accepts
-`chat` and rejects `terminal` with `err.terminalAgent.unsupported` before
-saving or preparing a process; their preference control stays hidden. Desktop
-workspace creation resolves and validates the mode before publishing its
-preparing card or changing the filesystem. Persistence defaults are defined in
-the [board contract](persistence.md#board), and producer/consumer examples
-include both an omitted chat mode and an explicit terminal mode.
+`set_conversation_mode({ mode: "chat" | "terminal" })` saves the default for new
+conversations and publishes the current `board` event. It returns no value. It
+does not change saved tabs or start processes again. Unknown mode values cause a
+deserialization failure. The browser mock keeps the same default and applies it
+to new tabs, workspace conversations and actions.
 
-The same `board`/`load_board` payload may include
-`Tab.native_dispatch: { id: string, text: string }` for one native input awaiting
-durable acceptance. Older tabs omit it. The interface displays its text before
-`pending_prompt`, including after interrupted delivery; the opaque ID is not a
-visible control or a new IPC argument. The desktop queue owns retries and
-receipt reconciliation. The typed Board and browser mock retain this additive
-state. See [pending session input](persistence.md#pending-session-input).
+The macOS desktop accepts the two modes and shows the preference in Settings /
+General. Linux accepts `chat`. It rejects `terminal` with
+`err.terminalAgent.unsupported` before it saves or prepares a process. On
+Linux, the preference control stays hidden. The desktop workspace creation
+resolves and validates the mode before it publishes its preparation card or
+changes the file system. The [board contract](persistence.md#board) gives the
+storage defaults. The producer and consumer examples include a chat mode that is not
+written and an explicit terminal mode.
 
-The macOS native surface uses `agent_terminal_snapshot({ session })` for
-`{ data: number[], seq: number, running: boolean, generation?: string, screen?: Snapshot, queryReplies?: "host" }` and
-`agent_terminal_resume({ session })` to resume without submitting an artificial
-prompt. Opening a local terminal tab invokes resume automatically if the snapshot
-is stopped, then fetches its new snapshot. Concurrent view requests are coalesced;
-the command is idempotent for a connected process under the session input gate.
-Failures leave a manual retry instead of an automatic retry loop. Tests in
-`src/terminal-conversation.test.ts` cover resume, concurrent views and stale
-navigation/disposal results. A retained native process has a generation even after exit; no process
-has none. Agent `pty` events add that generation as a fourth tuple member, and
-`pty-closed` adds it as a third member. Native `pty_write` and `pty_resize`
-require the matching optional `generation` argument. Existing dock terminal
-tuples and callers omit it. The frontend rejects delayed output and
-exit from a replaced process; the backend rejects its stale input and resize.
-`pty_write` accepts exactly one of `data: string` and `bytes: number[]`; binary
-input preserves bytes rather than UTF-8 encoding the xterm `onBinary` string.
-Native input is serialized per attachment; queued writes for an obsolete
-generation are rejected. Resize and input handlers run outside the GUI thread.
-`agent-terminal-started` carries `[session, generation]` after the process and
-tab are published, including account handoffs that leave the tab ready. The
-view uses it only to request the current snapshot, never as proof that the
-event's process is still current. An in-flight attachment coalesces these
-invalidations and releases the subscription when disposed.
-`screen` follows the [terminal state contract](terminal-state.md). Its `seq`
-is a byte offset; the outer `seq` remains the corresponding PTY chunk sequence.
-When `screen` exists, `data` is empty and `queryReplies` is `host`. The renderer
-restores dimensions, buffers and modes, seeds pending UTF-8, and filters live
-chunks by the outer sequence. It suppresses automatic replies while preserving
-keyboard, IME, paste, focus and binary input. Helper failure refuses restoration
-instead of presenting a raw tail as a complete screen. Tests in `src/term.test.ts`
-cover these boundaries, overlap, generations, disposal and resize ordering;
-the browser mock keeps distinct native generations without invoking a provider CLI.
+The same `board`/`load_board` payload can include
+`Tab.native_dispatch: { id: string, text: string }` for one native input that
+waits for durable acceptance. Older tabs do not have it. The interface shows its
+text before `pending_prompt`. This also applies after an interrupted delivery.
+The ID is not a control on the screen or a new IPC argument, and the interface does not
+parse it. The desktop queue owns the retries and the comparison of receipts.
+The typed Board and the browser mock keep this additive state. See
+[pending session input](persistence.md#pending-session-input).
+
+The macOS native surface uses these commands:
+
+- `agent_terminal_snapshot({ session })` returns
+  `{ data: number[], seq: number, running: boolean, generation?: string, screen?: Snapshot, queryReplies?: "host" }`.
+- `agent_terminal_resume({ session })` resumes without an artificial prompt.
+
+When a person opens a local terminal tab and the snapshot shows a stopped
+process, the tab calls resume automatically. Then it gets the new snapshot. The
+app combines view requests that occur at the same time. The command is idempotent
+for a connected process under the session input gate. A failure gives a manual
+retry. It does not start an automatic retry loop. Tests in
+`src/terminal-conversation.test.ts` examine the resume, views at the same time and
+results that come after navigation or after the view is removed.
+
+A native process that the app keeps has a generation, also after it exits. If
+there is no process, there is no generation. Agent `pty` events add that
+generation as a fourth item of the tuple. `pty-closed` adds it as a third item.
+Native `pty_write` and `pty_resize` must have the optional `generation`
+argument with the same value. The current dock terminal tuples and callers do not have
+it. The frontend rejects late output and exit events from a replaced process.
+The backend rejects input and resize requests for a previous generation.
+
+`pty_write` accepts exactly one of `data: string` and `bytes: number[]`. Binary
+input keeps the bytes. It does not encode the xterm `onBinary` string as UTF-8.
+The app sends native input one write at a time for each attachment. It rejects
+writes in the queue for a generation that is not current. Resize and input
+handlers do not operate on the GUI thread.
+
+`agent-terminal-started` sends `[session, generation]` after the app publishes
+the process and the tab. This includes account changes that keep the tab ready.
+The view uses this event only to request the current snapshot. The view does
+not use it as a proof that the process of the event is current. An attachment
+that is not complete combines these events. It releases the subscription when the
+view is removed.
+
+`screen` follows the [terminal state contract](terminal-state.md). Its `seq` is
+a byte offset. The outer `seq` stays the sequence of the related PTY chunk.
+When `screen` is there, `data` is empty and `queryReplies` is `host`. The
+renderer sets again the dimensions, the buffers and the modes. It fills the
+pending UTF-8 and filters live chunks by the outer sequence. It stops automatic
+replies, but it keeps keyboard, IME, paste, focus and binary input.
+
+If the helper has a failure, the renderer does not restore the screen. It does
+not show a raw tail as a full screen. Tests in `src/term.test.ts` examine these
+boundaries, overlap, generations, the removal of the view and the sequence of
+resize events. The browser mock keeps different native generations and does not
+call a provider CLI.
 
 ## Archive launch admission
 
-Desktop archive/finish excludes new-tab and resumed process launches while the
-hook runs, returning `err.session.archiving` through the existing string-error
-format. Once archived, launches return `err.session.archived` until restoration.
-Concurrent manual cleanup uses the same gate. Success payloads and persisted
-workspace shapes do not change. Tests in `src-tauri/src/session.rs` cover
-admission during teardown and publication of in-flight launches before archive
-collects its final stop targets.
+While the archive or finish hook runs, the desktop does not accept new-tab
+launches or resumed process launches. It returns `err.session.archiving`
+through the current string-error format. After the archive, launches return
+`err.session.archived` until the workspace is restored. A manual cleanup at the
+same time uses the same gate. The success payloads and the stored workspace
+shapes do not change. Tests in `src-tauri/src/session.rs` examine the admission
+during the shutdown. They also examine the publication of launches that are not
+complete before the archive collects its last stop targets.
 
 ## Executable serialization examples
 
-`src-tauri/src/boundary_contract.rs` serializes real board, snapshot, model and
-capability types, plus output from synthetic Claude/Codex adapter scenarios,
-into `fixtures/backend-contract.json`. Its normal Rust test requires exact
-fixture equality. `npm run contracts:update` explicitly regenerates it; review
-the diff before accepting a contract change.
+`src-tauri/src/boundary_contract.rs` serializes the production board, snapshot, model
+and capability types into `fixtures/backend-contract.json`. It also serializes the
+output of synthetic Claude and Codex adapter scenarios. Its usual Rust test
+must find that the fixture is fully equal. `npm run contracts:update` makes
+the fixture again explicitly. Examine the diff before you accept a contract
+change.
 
-`npm run test:contracts` checks those JSON literals against command-derived
-TypeScript result types and canonical event types, then feeds events through
-the production validator and timeline. The check preserves literal enum values
-and nullability while allowing extra backend fields. Both producer freshness
-and consumer checks run in `npm run check`. Frontend-only runs do not establish
-that the fixture still matches Rust.
+`npm run test:contracts` compares those JSON literals with the TypeScript
+result types of the commands and with the canonical event types. Then it sends
+the events through the production validator and the timeline. The check keeps
+literal enum values and nullability, and it accepts more backend fields.
+`npm run check` runs the producer check and the consumer check. A run of only
+the frontend does not prove that the fixture agrees with Rust.
 
-Coverage includes populated/empty workspaces, all tab statuses and provider
-IDs, inherited/replaced tool selections, nullable fields, omitted kickoff,
-model camelCase fields and representative conversation events. Empty action and
-delegation collections do not prove their nested contracts. These examples are
-not exhaustive schema generation, live provider certification, or invocation
-through a running Tauri webview. Command arguments and unrepresented results
-still require their existing focused tests.
+The coverage includes these items:
 
-Local Rust workspaces omit `remote`. The TypeScript presentation field is
-optional (or null for browser fixtures); collaboration supplies it only for
-remote workspaces. No backend field or persisted format is added.
+- Workspaces with tabs and empty workspaces.
+- All tab statuses and provider IDs.
+- Inherited and replaced tool selections.
+- Nullable fields and a kickoff that is not written.
+- Model fields in camelCase.
+- Typical conversation events.
+
+Empty action and delegation collections do not prove their nested contracts.
+These examples are not a full schema generation, a live certification of
+providers or a call through a Tauri webview that operates. Command arguments and
+results that the examples do not show must continue to have their current
+tests.
+
+Local Rust workspaces do not have `remote`. The TypeScript presentation field
+is optional, or null for browser fixtures. The collaboration supplies it only
+for remote workspaces. The change adds no backend field or stored format.
 
 `create_project` receives `{ directory: string, name: string }` and returns the
-existing `Project` shape. The parent must be an existing absolute directory
-(desktop expands `~/`).
-The trimmed name must be one directory component: empty names, `.`, `..`, `.git`
-(case-insensitive), slashes, backslashes and control characters are rejected.
-The native Git adapter canonicalizes the parent and exclusively creates the child,
-rejecting existing files, folders and symlinks without altering them. It runs
-`git init --template=` with repository-location environment overrides removed,
-then registers the result and publishes `board`. It creates no commit, remote,
-workspace or project files. No Git identity or Cloud account is required.
-On Git failure, registration does not occur; cleanup removes only an empty child,
-preserving any partial Git state or concurrently written files for inspection.
-If later registration fails, the initialized directory remains available for
-**Add local folder**. Existing `add_project` behavior and persisted formats stay
-unchanged. Native tests are in `crates/git/src/tests.rs`.
+current `Project` shape. The parent must be an absolute folder that is there.
+The desktop expands `~/`. The trimmed name must be one folder component. These
+names are rejected:
 
-`reorder_projects` receives `{ ids: string[] }`, returns empty and reorders the
-board's `projects` to match. Projects absent from `ids` keep their relative
-order after the listed ones and unknown IDs are ignored, so a project registered
-during a drag is not lost. The change reaches the frontend through the `board`
-event; the browser mock applies the same rule. Test:
+- Empty names, `.` and `..`.
+- `.git`, with capital letters or small letters.
+- Names with slashes, backslashes or control characters.
+
+The native Git adapter makes the parent path canonical and makes the child
+folder exclusively. It rejects current files, folders and symlinks and does not
+change them. It runs `git init --template=` without the environment overrides
+for the repository location. Then it registers the result and publishes
+`board`. It makes no commit, remote, workspace or project files. A Git identity
+or a Cloud account is not necessary.
+
+If Git has a failure, the registration does not occur. The cleanup removes only
+an empty child folder. It keeps Git state that is not complete, or files that a
+different process wrote at the same time, for inspection. If the registration
+has a failure after the initialization, the initialized folder stays available
+for **Add local folder**. The current `add_project` behavior and the stored
+formats do not change. The native tests are in `crates/git/src/tests.rs`.
+
+`reorder_projects` receives `{ ids: string[] }`, returns empty and changes the
+sequence of the board `projects` to agree with the list. Projects that are not
+in `ids` keep their relative sequence after the listed projects. The command
+ignores unknown IDs. Thus a project that a person adds during a drag is not
+lost. The change goes to the frontend through the `board` event. The browser
+mock applies the same rule. Test:
 `project_order_follows_ids_and_keeps_unlisted_projects_last` in
 `src-tauri/src/session.rs`.
 
 `group_projects` receives `{ ids: string[], group: string | null }`, returns
-empty and sets `group` on the listed projects. The name is trimmed; an empty or
-null name takes the projects out of their folder. Moving a project, renaming a
-folder (all its members get the new name) and dissolving it are the same
-command, so there is no separate folder entity. Unknown IDs are ignored. The
-change reaches the frontend through the `board` event; the browser mock applies
-the same rule. Test: `project_folders_persist_trimmed_and_clear_on_empty_names`
-in `src-tauri/crates/core/src/projects.rs`.
+empty and sets `group` on the listed projects. The command trims the name. An
+empty or null name removes the projects from their folder. This command moves a
+project, renames a folder (all its members get the new name) and removes a
+folder. Thus there is no separate folder entity. The command ignores unknown
+IDs. The change goes to the frontend through the `board` event. The browser mock
+applies the same rule. Test:
+`project_folders_persist_trimmed_and_clear_on_empty_names` in
+`src-tauri/crates/core/src/projects.rs`.
 
-Local notification commands and the `notification-open` event are described in
-the [notification contract](notifications.md).
+The [notification contract](notifications.md) gives the local notification
+commands and the `notification-open` event.
 
 The `typesafe_status`, `typesafe_save_key`, `typesafe_remove_key`,
-`typesafe_set_enabled` and `context_evaluate` commands are additive and
-described in the [context evaluation contract](context-evaluation.md). No
-command returns the API key; failures use `err.evaluation.*` codes and the
-browser mock answers without a key or network.
+`typesafe_set_enabled` and `context_evaluate` commands are additive. The
+[context evaluation contract](context-evaluation.md) gives them. No command
+returns the API key. Failures use `err.evaluation.*` codes. The browser mock
+answers without a key or a network.
 
 ## Command rules
 
-- names use `snake_case` and must be unique;
-- TypeScript arguments use the keys expected by Tauri's deserialization;
-- a Rust return value must implement `Serialize`;
-- a Rust argument must implement `Deserialize`;
-- a fallible operation returns `Result<Response, Error>`;
-- a domain error uses a stable code translated by the frontend;
-- an external or I/O detail may accompany the code without becoming fixed UI
-  text;
-- a heavy operation does not block the main thread.
+- Names use `snake_case` and must be unique.
+- TypeScript arguments use the keys that the Tauri deserialization expects.
+- A Rust return value must implement `Serialize`.
+- A Rust argument must implement `Deserialize`.
+- An operation that can fail returns `Result<Response, Error>`.
+- A domain error uses a stable code that the frontend translates.
+- An external or I/O detail can go with the code. It does not become permanent UI
+  text.
+- A slow operation does not block the main thread.
 
-The commands for status, diffs, branches, commits and conflict resolution are in
-[`git.md`](git.md). The retired `workspace_diff`, `resume_tab` and
-`catalog_refresh` commands are no longer registered; see
+[`git.md`](git.md) gives the commands for the status, the diffs, the branches,
+the commits and the conflict resolution. The retired `workspace_diff`,
+`resume_tab` and `catalog_refresh` commands are not registered. See
 [ADR 0043](../decisions/0043-retire-unused-ipc.md). The desktop frontend and
-backend ship together. Persisted state and relay clients are unaffected.
+backend ship together. This does not change the stored state or the relay
+clients.
 
-The `actions_save` and `action_start` commands are described in
-the [actions contract](actions.md). They use the existing `board` event.
+The [actions contract](actions.md) gives the `actions_save` and `action_start`
+commands. They use the current `board` event.
 
 `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills` return
-empty on success and validate the supplied selection before changing state.
-Saving during a turn preserves every tab and existing process. The selection
-applies at the next spawn or resume of a stopped process; sending another
-message to an idle process alone does not reload tools. The browser mock
-preserves the same validation and state-update behavior.
+empty on success. They validate the supplied selection before they change the
+state. A save during a turn keeps all tabs and the current processes. The
+selection applies at the next start or resume of a stopped process. A new
+message to an idle process alone does not load the tools again. The browser
+mock keeps the same validation and state update behavior.
 
 ## Model catalogs
 
-`agents` returns installation/capability descriptors with empty `models` lists.
-`agent_models` accepts `{ agent: ProviderId }` and returns
+`agents` returns the installation and capability descriptors with empty
+`models` lists. `agent_models` accepts `{ agent: ProviderId }` and returns
 `{ models: AgentModel[], fetchedAt: number }`, independently for each provider.
-`AgentModel.additional` defaults to false when absent. Failures reject with an
-object `{ code: string }` in the `err.modelsCatalog.*` namespace, never raw CLI
-output. The catalog UI translates these errors, distinguishes an empty success
-and retains the last known list only within the current account generation.
+`AgentModel.additional` is false when it is missing. Failures reject with an
+object `{ code: string }` in the `err.modelsCatalog.*` namespace. They do not
+return raw CLI output. The catalog UI translates these errors and shows an empty
+success differently. It keeps the last known list only in the current account
+generation.
 
-The former `claude_models` command is replaced; frontend, backend and mock ship
-together, so no cross-version IPC support is required. The persisted board and
-relay are unchanged. Native discovery, timeouts and freshness are specified in
-[the runtime contract](agent-runtime.md#model-discovery).
+This command replaces the previous `claude_models` command. The frontend, the
+backend and the mock ship together. Thus IPC between different versions is not
+necessary. The stored board and the relay do not change.
+[The runtime contract](agent-runtime.md#model-discovery) gives the native
+discovery, the timeouts and the age of the data.
 
 ## Private E2EE state
 
-- `team_security`: no arguments, returns the security envelope or `null` only
-  when the file does not exist. An invalid read returns an error.
-- `team_security_set`: receives `{ state }`, validates the version and the 8 MiB
-  limit and atomically writes the private file; returns empty or an error. An
-  existing unreadable file is not overwritten.
+- `team_security`: no arguments. It returns the security envelope, or `null`
+  only when the file is not there. A read that is not correct returns an error.
+- `team_security_set`: receives `{ state }`. It validates the version and the
+  limit of 8 MiB and writes the private file atomically. It returns empty or an
+  error. It does not write over a current file that it cannot read.
 
-The commands exist in Rust, in the typed registry and in the mock. The webview
-needs the private identity for WebCrypto; it does not cross the WebSocket. The
-scopes' internal schema belongs to `team-security.ts`; the payloads stay
-`unknown` in the IPC map until that runtime validation; see
+The commands are in Rust, in the typed registry and in the mock. The webview
+must have the private identity for WebCrypto. The identity does not go through
+the WebSocket. `team-security.ts` owns the internal schema of the scopes. The
+payloads stay `unknown` in the IPC map until that runtime validation. See
 [persistence](persistence.md).
 
 ## Events currently emitted
 
-The `cloud_status`, `cloud_login_start`, `cloud_login_poll`,
-`cloud_login_cancel` and `cloud_logout` commands are in the
-[account contract](cloud-account.md); `catalog_state` is in the
-[catalog contract](cloud-catalog.md). Catalog refresh runs through
-`cloud_status` with `refresh: true`. They do not return a Bearer or a
-password to the webview. `cloud_organizations`, `cloud_relay_ticket`, the
-`remoteControl`, `team` and `rights` arguments of `set_shared` and
-`set_confirm_messages` are in the [organizations contract](cloud-organizations.md);
-only the short ticket crosses IPC to authenticate the WebSocket.
+The [account contract](cloud-account.md) gives the `cloud_status`,
+`cloud_login_start`, `cloud_login_poll`, `cloud_login_cancel` and
+`cloud_logout` commands. The [catalog contract](cloud-catalog.md) gives
+`catalog_state`. The catalog refresh operates through `cloud_status` with
+`refresh: true`. These commands do not return a Bearer token or a password to
+the webview. The [organizations contract](cloud-organizations.md) gives
+`cloud_organizations`, `cloud_relay_ticket`, and the `remoteControl`, `team`
+and `rights` arguments of `set_shared` and `set_confirm_messages`. Only the
+short ticket goes through IPC to authenticate the WebSocket.
 
 | Event | Emitter | Emitted payload |
 | --- | --- | --- |
-| `board` | `state.rs` | the complete `Board` |
+| `board` | `state.rs` | the full `Board` |
 | `chat` | `chat.rs` | `[session, conversationEventV1JsonLine, seq]` |
 | `chat-closed` | `chat.rs` | the session id |
 | `pty` | `pty.rs` | `[session, bytes, seq]` |
 | `pty-closed` | `pty.rs` | `[session, exitCode]` |
-| `usage` | `usage.rs` | usage snapshot per local account ID |
-| `telemetry-changed` | `telemetry.rs` | `null`; local completed-turn, app-call or PR-history capture finished |
-| `accounts` | `accounts.rs` | registry, per-provider selection and pending login |
-| `account-error` | `chat.rs` | a translatable error from a switch while sending the pending message |
-| `machine` | `machine.rs` | machine state |
+| `usage` | `usage.rs` | the usage snapshot for each local account ID |
+| `telemetry-changed` | `telemetry.rs` | `null`. The local capture of a completed turn, an app call or the PR history is complete. |
+| `accounts` | `accounts.rs` | the registry, the selection for each provider and the pending login |
+| `account-error` | `chat.rs` | a translatable error from an account change during the send of the pending message |
+| `machine` | `machine.rs` | the machine state |
 | `linear` | `linear.rs` | `LinearStatus` |
 | `plugin-make` | `plugins.rs` | `[run, step]` |
 | `plugin-made` | `plugins.rs` | `[run, error]` |
 | `browser:url` | `browser.rs` | `[workspace, url]` |
-| `workspace-preview` | `delegation.rs`, main webview only | `{ workspace_id, conversation_id }`, authorized local MCP navigation request |
-| `file-drag` | `file_drop.rs`, main webview | `{ type, paths, position?, id?, error? }` |
+| `workspace-preview` | `delegation.rs`, only the main webview | `{ workspace_id, conversation_id }`, an authorized local MCP navigation request |
+| `file-drag` | `file_drop.rs`, the main webview | `{ type, paths, position?, id?, error? }` |
 
-`linear_issues({ force })` returns assigned and available issues with a fetch
-time and optional `available_error` when discovery fails after Mine succeeds.
-`linear_claim({ id })` returns the newly assigned issue after Linear
-confirms its mutation. `linear_status` and `linear` include `can_assign` to
-identify credentials granted the `write` scope. See [Linear issues](linear-issues.md).
+`linear_issues({ force })` returns the assigned and the available issues with a
+fetch time. It also returns an optional `available_error` when the discovery
+has a failure after Mine is correct. `linear_claim({ id })` returns the issue
+that it assigned after Linear confirms the change. `linear_status` and `linear`
+include `can_assign`. This value identifies credentials that have the `write`
+scope. See [Linear issues](linear-issues.md).
 
 `github_status`, `github_connect`, `github_disconnect`, `github_issues`,
-`github_claim`, `github_issue_open`, `github_projects` and `github_prepare` expose
-the GitHub App connection, normalized discovery, claiming, validated source
-navigation and PR worktree preparation; the `github` event carries connection
-status. See [GitHub issues](github-issues.md). `github_feed`, `github_subjects`
-and `github_detail` read the Cloud notification feed and fetch titles and text on
-demand; see [GitHub notifications](github-notifications.md).
+`github_claim`, `github_issue_open`, `github_projects` and `github_prepare` give
+these functions:
 
-`paste_files` completes that path for the clipboard: with no arguments, it reads
-the system clipboard and returns paths. On macOS it reads the general
-pasteboard: files copied in Finder keep the original path; an image is written
-as PNG in `<root>/attachments/<uuid>/pasted.png`, converting TIFF when that is
-the only available representation. On Linux it reads the GTK clipboard and
-writes an image, converted to PNG, to the same path; copied files are not read.
-A clipboard with neither a file nor an image returns an empty list. AppKit
-reads synchronously on the main thread. GTK requests the image asynchronously
-on the main thread; a worker converts and writes it. Linux rejects images above
-64 MiB of pixel data or PNG output and fails after 5 seconds if the clipboard
-owner does not respond. Elsewhere, it returns an empty list.
+- The GitHub App connection.
+- The normalized discovery and the claim.
+- The validated navigation to the source.
+- The preparation of PR worktrees.
 
-`src/paste.ts` calls it when the paste event carries files, and also when the
-event carries no type at all: WebKitGTK hides a pasted image from the page that
-way. A paste with text types keeps the browser's own paste.
+The `github` event sends the connection status. See
+[GitHub issues](github-issues.md). `github_feed`, `github_subjects` and
+`github_detail` read the Cloud notification feed. They get titles and text when
+it is necessary. See [GitHub notifications](github-notifications.md).
 
-`file-drag` adapts the native drag without changing Tauri's internal events. The
-ordinary-file registration uses `on_webview_event`, filtering the `main` webview: with the
-`unstable` feature, the runtime creates even the main webview as a child of the
-window and does not deliver its drag to the `WindowEvent` listeners.
-`enter`, `over`, `leave` and `drop` represent the gesture; `paths` is always a
-list. `position` contains `{ x, y }` in the runtime's coordinates: on
-macOS/wry 0.55 they are logical window points, without division by DPR.
+`paste_files` completes that path for the clipboard. It has no arguments. It
+reads the system clipboard and returns paths:
 
-For a macOS promise, reception starts synchronously in the main native view's
-`performDragOperation:` callback, before AppKit ends the drop operation. The
-queued Tauri event is too late to request reception. A handled promise bypasses
-Wry's ordinary drop callback, so it produces no duplicate `drop` event.
-`pending` replaces `drop`, with a unique `id` and the final position. The frontend captures the target draft at that instant. The draft
-counts pending receipts and blocks sending in all of its presentations;
-completion or an error releases sending when the count reaches zero. `received`
-completes the same `id` with the materialized local paths and an optional
-`error`; it may bring valid files even when another one fails. Unknown or
-duplicate receipts are ignored. The native wait has a 30-second limit, without
-blocking the UI. `src/mock.ts` simulates the same phases.
+- On macOS, it reads the general pasteboard. Files that a person copied in
+  Finder keep the initial path. The command writes an image as PNG in
+  `<root>/attachments/<uuid>/pasted.png`. It changes TIFF to PNG when TIFF is
+  the only available format.
+- On Linux, it reads the GTK clipboard. It changes an image to PNG and writes it
+  to the same path. It does not read copied files.
+- On other systems, it returns an empty list.
 
-The contract is additive, internal to the app/frontend bundle. There is no
-change to `chat_send`, to V1 or to the relay: the agent still receives path
-mentions. See [ADR 0018](../decisions/0018-native-file-promises.md).
+A clipboard without a file or an image returns an empty list. AppKit reads
+synchronously on the main thread. GTK requests the image asynchronously on the
+main thread, and a worker changes it and writes it. Linux rejects images with
+more than 64 MiB of pixel data or PNG output. If the clipboard owner does not
+answer in 5 seconds, the command has a failure.
 
-The `accounts`, `account_select`, `account_remove`, `account_login` and
-`account_login_cancel` commands are defined in [`accounts.md`](accounts.md).
+`src/paste.ts` calls the command when the paste event has files. It also calls
+it when the event has no type, because WebKitGTK hides a pasted image from the
+page in this way. A paste with text types keeps the paste of the browser.
 
-The snapshot of the `usage` event and command is a map per local account ID. The
-old `claude` and `codex` keys represent the original CLIs' accounts; additional
-accounts use UUIDs, without changing the format of the values. Each entry has
-`{ windows, at }`; each window has `{ kind, pct, resets, scope?, label? }`.
-`scope` identifies independent quotas so that sparse updates for one model do
-not erase the others, and `label` is optional external text for display.
-Consumers must accept both fields being absent for compatibility with the
-previous cache.
-`usage_refresh({ provider? })` requests a bounded immediate attempt for stale
-selected profiles, without returning quota data or credentials. The native
-scheduler publishes the existing `usage` and `accounts` events when values
-actually change; the browser mock implements the command as a no-op.
+`file-drag` changes the native drag into an app event. It does not change the
+internal events of Tauri. The registration for usual files uses
+`on_webview_event` and filters the `main` webview. With the `unstable` feature,
+the runtime makes the main webview as a child of the window. Then the
+`WindowEvent` listeners do not receive its drag. `enter`, `over`, `leave` and
+`drop` show the gesture. `paths` is always a list. `position` contains
+`{ x, y }` in the coordinates of the runtime. On macOS/wry 0.55, these are
+logical window points, without division by DPR.
 
-Tauri events are dynamic; the generic passed to `listen<T>` does not validate
-the Rust payload at build time. A new event needs a test of the emitter and of
-the consumer.
+For a macOS file promise, the reception starts synchronously in the
+`performDragOperation:` callback of the main native view. This occurs before
+AppKit ends the drop operation. The Tauri event in the queue is too late to
+request the reception. A processed promise bypasses the usual drop callback of
+Wry. Thus it does not make a duplicate `drop` event.
 
-`background_context` returns `{ visible, focused, power, revision }`, where
-`power` is `ac`, `battery`, or `unknown`. The `background-context` event has the
-same shape and is emitted only when the observed native state changes. The
-frontend subscribes before requesting the snapshot and ignores an older
-revision if the event arrives first. `visible` is false for a hidden or
-minimized main window; `focused` is true only when that native window is both
-visible and focused. macOS reads the IOKit power-source snapshot; Linux reads
-`/sys/class/power_supply`, ignores peripheral batteries (`scope` `Device`) and
-treats any online Mains, USB or wireless supply as AC; unsupported or failed
-readings are `unknown` and use the battery budget for discretionary work.
-Window events refresh promptly, with a five-second visibility fallback read on
-the event-loop thread and a 60-second power fallback; each writer changes only
-the fields it observed. Native samplers are woken directly on every change, so
-their return to the foreground does not depend on the webview. This context is
-advisory for UI refresh only: agent processes, transcript capture, terminals,
-and sharing continue independently.
-If the native context never starts, Git presentation uses the document's
-visibility and focus as a fallback; transcript painting remains enabled.
+`pending` replaces `drop`, with a unique `id` and the last position. The
+frontend captures the target draft at that time. The draft counts the pending
+receipts and blocks the send in all of its presentations. When the count is 0
+after a completion or an error, the send is available again. `received`
+completes the same `id` with the local paths of the files and an optional
+`error`. It can bring correct files also when a different file has a failure. The
+frontend ignores unknown or duplicate receipts. The native wait has a limit of
+30 seconds, and it does not block the UI. `src/mock.ts` simulates the same
+phases.
 
-`set_awake` accepts `{ mode: "off" | "system" | "display" }`. `display` starts
-the macOS `caffeinate -d -i -s -w <app pid>` assertion used by existing choices;
-`system` starts `-i -s -w` without `-d`; `off` stops either. The app also stops
-the child on normal exit, while `-w` ties it to the app PID on an unexpected
-exit. Linux offers only `off` and `display` through the UI; its existing
-`systemd-inhibit` implementation remains desktop-dependent. The command is
-idempotent for an already-running mode and replaces an assertion when modes
-change. The desktop IPC is shipped atomically with its frontend, so no older
-`{ on: boolean }` caller remains supported.
+The contract is additive and internal to the app and the frontend bundle. It
+does not change `chat_send`, V1 or the relay. The agent continues to receive
+path mentions. See [ADR 0018](../decisions/0018-native-file-promises.md).
 
-`set_resource_detail({ open: boolean })` reports whether the native process
-panel is open and wakes the resource sampler to reconsider its deadline; the
-status bar sends it when the panel opens and closes. The existing `machine`
-command and event keep `{ rss, cpu, procs, terms, ports }`; each process still
-has a numeric `hist` array. The command returns the cached process snapshot
-with current terminal and port counts. Starting or ending a dock PTY, or assigning
-or replacing a workspace port, emits that snapshot when its counts or ports change,
-without a `ps` sample, even while the native window is unfocused. Foreground compact
-sampling uses 15 seconds on AC or 30 on battery/unknown power; an open panel
-uses 3 or 5 seconds. A hidden, minimized or unfocused native window starts no
-`ps` sample and takes one on return. CPU uses actual elapsed time. A gap longer
-than twice the cadence that produced the samples, such as a hidden window or a
-sleeping Mac, resets each sparkline history; compact samples keep their history,
-so the panel opens with the recent compact points before the detailed ones. The
-frontend updates changed resource text and process fields without replacing
-unrelated status controls.
+[`accounts.md`](accounts.md) gives the `accounts`, `account_select`,
+`account_remove`, `account_login` and `account_login_cancel` commands.
 
-`chat_snapshot.text` may mix V1 and legacy lines after an import. `Timeline`
-validates V1 and sends the rest to the legacy reader; historical
-`prometheusV1Mirror` projections are ignored by the current reader. Prometeu
-does not produce those projections in new logs. Snapshots are built by the
-portable conversation stream; its
+The snapshot of the `usage` event and command is a map with one entry for each
+local account ID. The previous `claude` and `codex` keys are the accounts of the
+initial CLIs. Other accounts use UUIDs, and the format of the values does not
+change. Each entry has `{ windows, at }`. Each window has
+`{ kind, pct, resets, scope?, label? }`. `scope` identifies independent quotas.
+Thus an update for only one model does not erase the others. `label` is
+optional external text for the display. Consumers must accept that the two
+fields are not there, for compatibility with the previous cache.
+
+`usage_refresh({ provider? })` requests one immediate attempt, with a limit, for
+selected profiles whose data is not current. It does not return quota data or credentials.
+The native scheduler publishes the current `usage` and `accounts` events when
+the values change. The browser mock implements the command as an empty
+operation.
+
+Tauri events are dynamic. The generic in `listen<T>` does not validate the Rust
+payload during the build. A new event must have a test of the emitter and a
+test of the consumer.
+
+`background_context` returns `{ visible, focused, power, revision }`. `power` is
+`ac`, `battery` or `unknown`. The `background-context` event has the same shape.
+The app sends it only when the native state that it sees changes. The frontend
+subscribes before it requests the snapshot. It ignores an older revision if the
+event comes first. `visible` is false for a main window that is hidden or
+minimized. `focused` is true only when that native window shows on the screen
+and has the focus.
+
+macOS reads the IOKit snapshot of the power sources. Linux reads
+`/sys/class/power_supply`. It ignores the batteries of peripheral devices
+(`scope` `Device`). It thinks that a Mains, USB or wireless supply that is online
+is AC. If the app cannot read the supply, or the read has a failure, the value is
+`unknown`. Then optional work uses the battery budget.
+
+Window events refresh the context quickly. A fallback reads the visibility each
+five seconds on the event-loop thread. A different fallback reads the power each
+60 seconds. Each writer changes only the fields that it read. The app wakes the
+native samplers directly on each change. Thus their return to the foreground
+occurs also without the webview. The UI uses this context only to select when it refreshes.
+Agent processes, transcript capture, terminals and sharing continue
+independently. If the native context does not start, the Git presentation uses
+the visibility and focus of the document as a fallback. The transcript paint
+stays enabled.
+
+`set_awake` accepts `{ mode: "off" | "system" | "display" }`:
+
+- `display` starts the macOS `caffeinate -d -i -s -w <app pid>` assertion that
+  the current selections use.
+- `system` starts `-i -s -w` without `-d`.
+- `off` stops the two modes.
+
+The app also stops the child process on a usual exit. On an exit that is not
+expected, `-w` connects the child process to the PID of the app. On Linux, the UI
+offers only `off` and `display`. Its current `systemd-inhibit` implementation
+depends on the desktop environment. The command is idempotent for a mode that
+operates at that time. It replaces an assertion when the mode changes. The
+desktop IPC ships with its frontend at the same time. Thus the app does not
+accept an older `{ on: boolean }` caller.
+
+`set_resource_detail({ open: boolean })` tells if the native process panel is
+open. It wakes the resource sampler to calculate its next time again. The
+status bar sends it when the panel opens and closes. The current `machine`
+command and event keep `{ rss, cpu, procs, terms, ports }`. Each process
+continues to have a numeric `hist` array. The command returns the cached process
+snapshot with the current terminal and port counts.
+
+A dock PTY can start or stop, and a workspace port can change. Then the app
+sends that snapshot if its counts or ports change. It does not
+take a `ps` sample. This also applies while the native window does not have the
+focus. The compact sample in the foreground occurs each 15 seconds on AC, or
+each 30 seconds on battery or unknown power. An open panel uses 3 or 5 seconds.
+A native window that is hidden, minimized or without the focus starts no `ps`
+sample. It takes one sample when it comes back.
+
+The CPU value uses the measured time between samples. If the interval is more
+than two times the usual interval, each sparkline history starts again. This occurs,
+for example, with a hidden window or a Mac in sleep. Compact samples keep their
+history. Thus the panel opens with the recent compact points before the
+detailed points. The frontend updates the changed resource text and process
+fields. It does not replace other status controls.
+
+`chat_snapshot.text` can mix V1 and legacy lines after an import. `Timeline`
+validates V1 and sends the other lines to the legacy reader. The current reader
+ignores historical `prometheusV1Mirror` projections. Prometeu does not write
+those projections in new logs. The portable conversation stream builds the
+snapshots. Its
 [compatibility tests](../../src-tauri/crates/core/src/conversation/stream/tests.rs)
-cover mixed history, sequence resets and the snapshot shape. A retired terminal
-suppresses late output and close events before a replacement uses its key.
+examine mixed history, sequence resets and the snapshot shape. A retired terminal
+stops late output and close events before a replacement uses its key.
 
 ## Root of the file commands
 
-`list_dir`, `tree_git_status`, `tree_restore`, `file_base`, `read_file`, `read_bytes`, `write_file`,
-`create_path`, `rename_path`, `trash_path`, `find_paths` and `reveal_path` receive in `id` the workspace **or** the project. A workspace resolves in its
-working directory: a dedicated worktree, the clone itself, or the common parent
-of multiple worktrees. A project resolves in the registered clone's folder, which is what
-supports reading and editing a repository with no workspace on it at all. The
-two id spaces do not collide, and `session.rs::cwd_in`, behind `cwd_of`, is the
-only function that performs that resolution — `dock.rs` imports it instead of
-repeating the rule. A
-path outside the root is still refused.
+`list_dir`, `tree_git_status`, `tree_restore`, `file_base`, `read_file`,
+`read_bytes`, `write_file`, `create_path`, `rename_path`, `trash_path`,
+`find_paths` and `reveal_path` receive the workspace **or** the project in `id`.
+A workspace resolves to its working folder. This is a dedicated worktree, the
+clone, or the common parent of more than one worktree. A project resolves to the
+folder of the registered clone. Thus a person can read and edit a repository
+that has no workspace. The two id spaces do not collide.
+`session.rs::cwd_in`, behind `cwd_of`, is the only function that does that
+resolution. `dock.rs` imports it and does not repeat the rule. The commands
+continue to refuse a path that is not in the root.
 
-`find_paths` returns at most 40 ranked entries, files and directories alike.
-The optional `files: true` argument drops directories before candidate trimming
-and that row limit, so Command-P quick open never loses a matching file to
-better-ranked directories. Omitting it keeps the composer's `@` completion
-behaviour; an older frontend that never sends it is unaffected, and
-`crates/files/src/search.rs` tests that directories cannot crowd out files.
+`find_paths` returns a maximum of 40 ranked entries, files and folders. The
+optional `files: true` argument removes folders before the candidate limit and
+that row limit. Thus Command-P quick open does not lose a file that agrees with the
+query to folders with a better rank. If the argument is not there, the `@` completion
+of the composer keeps its behavior. An older frontend that does not send it
+continues to operate. `crates/files/src/search.rs` examines that folders cannot
+push out files.
 
-`read_bytes` returns an `ArrayBuffer` with the complete regular file, up to
-100 MiB, and never a partial buffer.
+`read_bytes` returns an `ArrayBuffer` with the full regular file, with a maximum
+of 100 MiB. It does not return a buffer that is not complete.
 
-`reveal_path` requires `rel`: an empty string opens the root, while a nonempty
-path shows one entry of the tree or, from the Changes panel, a changed file,
-whose repository-relative path the frontend prefixes with the repository's
-folder under the workspace root. Keeping `rel` required preserves one IPC shape
-for both uses. Finder selects a file with `-R`; systems served by `xdg-open` have no
-selection flag, so a file there opens the folder holding it rather than the file,
-which would launch another application over it. Resolution canonicalizes the
-root, so a symlinked root opens its target and a missing root fails before the
-file manager starts.
+`reveal_path` must have `rel`. An empty string opens the root. A path that is not
+empty shows one entry of the tree. From the Changes panel, it shows a changed
+file. The frontend adds the repository folder under the workspace root before
+the path relative to the repository. Because `rel` is mandatory, the two uses
+have one IPC shape.
+
+Finder selects a file with `-R`. Systems that use `xdg-open` do not have a
+selection flag. Thus, on these systems, the command opens the folder that holds
+the file. It does not open the file, because that opens a different
+application. The resolution makes the root canonical. Thus a root that is a
+symlink opens its target, and a missing root has a failure before the file manager
+starts.
 
 ### File tree actions
 
-The side tree works like a file manager through three commands, all relative to
-that root:
+The side tree operates like a file manager through three commands. All paths
+are relative to that root:
 
 | Command | Arguments | Effect |
 | --- | --- | --- |
-| `create_path` | `rel`, `dir` | creates an empty file or a folder; never replaces an existing entry |
-| `rename_path` | `from`, `to` | renames or moves an entry; refuses an existing target and moving a folder into itself |
-| `trash_path` | `rel` | moves the entry to the system trash instead of deleting it |
+| `create_path` | `rel`, `dir` | makes an empty file or a folder. It does not replace a current entry. |
+| `rename_path` | `from`, `to` | renames or moves an entry. It refuses a target that is there, and it refuses to move a folder into itself. |
+| `trash_path` | `rel` | moves the entry to the system trash. It does not delete the entry. |
 
-The last component of a path must be one plain name: empty, `.`, `..`, `/`,
-`\` and NUL answer `err.files.name`, and an existing target answers
-`err.files.exists` with `name`. Git metadata is off limits at any depth: a
-`.git` component anywhere in the path (in any case), or a parent that resolves
-into one through a symlink, answers `err.files.name` for the new entry, both
-ends of a rename and the trashed entry. Only the parent folder is resolved
-through symlinks and must stay inside the root; the entry itself is not
-followed, so renaming or trashing a symlink acts on the link.
+The last component of a path must be one plain name. Empty, `.`, `..`, `/`, `\`
+and NUL answer `err.files.name`. A target that is there answers
+`err.files.exists` with `name`. Git metadata is not permitted at all depths. A
+`.git` component at a location in the path (with capital or small letters), or
+a parent that resolves into one through a symlink, answers `err.files.name`.
+This applies to the new entry, to the two ends of a rename and to the entry for
+the trash. Only the parent folder resolves through symlinks, and it must stay
+in the root. The app does not follow the entry itself. Thus a rename or a move
+to the trash of a symlink changes the link.
 
-A case change of the same name in the same folder is the only rename allowed
-onto a name that answers as existing. On a case-insensitive disk, the macOS
-default, the new spelling finds the source itself; the rename is
-allowed when the folder lists no entry spelled exactly that way, so a second,
-distinct entry (two symlinks to one file included) is still refused. Such a
-rename goes through a random temporary name in the same folder, since some file
-systems ignore a rename that changes only case, and is undone if the second
-step fails. Case-only renames run one at a time, so two concurrent detours can
-never meet on the same temporary name and replace a file. The same test covers both kinds of disk: on Linux CI
-(case-sensitive) it checks the listing check and the refusal of a second
-entry, and on macOS CI (case-insensitive) it checks the case-only rename in
-both directions. Trash is used so
-untracked work, which Git cannot bring back, is still recoverable; a failure
-answers `err.files.trash` with the system's `cause`. `trash_path` is async
-because the platform trash can be slow, notably through Finder on macOS.
+A rename to a name that answers as present is permitted only in one condition.
+The change is only between capital and small letters of the same name in the
+same folder. On a disk that
+ignores capital and small letters, which is the macOS default, the new spelling
+finds the source itself. The rename is permitted when the folder lists no entry
+with the same spelling. Thus the app continues to refuse a second, different
+entry. This includes two symlinks to one file.
 
-The UI moves the open file tabs and unsaved drafts of a renamed entry and drops
-those of a trashed one, in the workspace or project where the action started.
-The commands are new and additive: frontend and backend ship together, no
-persisted field changes, and relay clients never see them. `src/mock.ts` edits
-its sample tree with the same refusals for names and conflicts.
+Such a rename goes through a random temporary name in the same folder. Some
+file systems ignore a rename that changes only capital and small letters. If
+the second step has a failure, the app cancels the first step. These renames operate
+one at a time. Thus two renames at the same time cannot use the same temporary
+name and replace a file.
 
-The former `reveal` command is retired under the bundled IPC policy in
-[ADR 0043](../decisions/0043-retire-unused-ipc.md). Frontend and backend ship
-together, so no cross-version IPC shim applies; persisted state and relay
-clients are unchanged.
+The same test examines the two types of disk. On Linux CI, which makes a
+difference between capital and small letters, it examines the list check and
+the refusal of a second entry. On macOS CI, which does not make a difference,
+it examines the rename in the two directions. The app uses the trash because
+Git cannot put back untracked work. Thus that work stays recoverable. A failure
+answers `err.files.trash` with the `cause` of the system. `trash_path` is async
+because the system trash can be slow, for example through Finder on macOS.
 
-`open_dock` accepts a project id only for a terminal: the shell only needs the
-folder, and without a workspace there is no script variable to pass. Setup and
-Run still require a workspace and answer `err.session.noWorkspace`.
-`workspace_scripts` and `dock_state` already tolerated an id without a workspace
-— they return an empty catalog and no port.
+The UI moves the open file tabs and the unsaved drafts of a renamed entry. It
+discards those of an entry in the trash. It does this in the workspace or
+project where the action started. The commands are new and additive. The
+frontend and the backend ship together, no stored field changes, and relay
+clients do not see the commands. `src/mock.ts` edits its sample tree with the
+same refusals for names and conflicts.
 
-`remove_project` stops the project's shells, as archiving, cleaning up or
-removing a workspace stops its docks, so adding the same folder again starts with
-none. `open_dock` resolves a shell's folder and inserts the new shell under the
-PTY lock that the removal takes to stop docks, so a shell starting during the
-removal is stopped too, and one asked for afterwards finds no folder. Dock keys
-are `<owner>:<kind>`, and a project owner is a folder path that may contain `:`;
-`prometeu_core::terminal::dock_kind` gives an owner only the keys whose remaining
-kind has no `:`. A shell that exits while its owner is off screen
-can still be reported by `dock_state` with `alive: false`, but it gets no tab;
-exited Setup and Run keep their output. Tests:
+The previous `reveal` command is retired under the bundled IPC policy in
+[ADR 0043](../decisions/0043-retire-unused-ipc.md). The frontend and the backend
+ship together. Thus no IPC shim between versions applies. The stored state and
+the relay clients do not change.
+
+`open_dock` accepts a project id only for a terminal. The shell must have only the
+folder, and without a workspace there is no script variable to send. Setup and
+Run must continue to have a workspace and answer `err.session.noWorkspace`.
+`workspace_scripts` and `dock_state` accepted an id without a workspace before
+this change. They return an empty catalog and no port.
+
+`remove_project` stops the shells of the project. This is the same as when an
+archive, a cleanup or a removal of a workspace stops its docks. Thus when a
+person adds the same folder again, it starts with no shells. `open_dock`
+resolves the folder of a shell. It adds the new shell under the PTY lock that
+the removal uses to stop docks. Thus a shell that starts during the removal also
+stops, and a shell that a person requests after the removal finds no folder.
+
+Dock keys are `<owner>:<kind>`. A project owner is a folder path that can
+contain `:`. `prometeu_core::terminal::dock_kind` gives an owner only the keys
+whose remaining kind has no `:`. A shell that exits while its owner is not on
+the screen can show in `dock_state` with `alive: false`, but it gets no tab.
+Setup and Run keep their output after they exit. Tests:
 `dock_keys_belong_only_to_their_exact_owner` in
 `crates/core/src/terminal/tests.rs`,
 `removing_a_project_stops_its_shells_and_keeps_other_docks` and
@@ -494,209 +584,233 @@ exited Setup and Run keep their output. Tests:
 
 ## Terminal sessions
 
-Terminal sessions are local shells owned by the app
+Terminal sessions are local shells that the app owns
 ([ADR 0096](../decisions/0096-terminal-sessions.md)). The board lists them in
-`Board.terminals`, and the `board` event carries every change.
+`Board.terminals`, and the `board` event sends each change.
 
 | Command | Arguments | Effect |
 | --- | --- | --- |
-| `terminal_create` | `folder`: an absolute path or `null` | adds a session in that folder, or in the home folder for `null`, and returns it; starts no shell |
-| `terminal_rename` | `id`, `name`: `null` or blank clears it | sets the name shown instead of the folder's |
-| `terminal_close` | `id` | stops the session's shell and removes the session; an id that is no session changes nothing |
+| `terminal_create` | `folder`: an absolute path or `null` | adds a session in that folder, or in the home folder for `null`, and returns it. It does not start a shell. |
+| `terminal_rename` | `id`, `name`: `null` or blank clears it | sets the name that shows in place of the name of the folder |
+| `terminal_close` | `id` | stops the shell of the session and removes the session. An id that is not a session changes nothing. |
 
-`terminal_create` answers `err.dock.noFolder` with `path` for anything but an
-existing absolute folder, and registers nothing as a project. The shell is an
-ordinary dock: `open_dock` with the session id and `kind: "terminal"` starts it
-in the session's folder or reattaches to the running one, and `pty_*`,
-`close_dock` and `dock_state` work by its `<id>:terminal` key. A session is not a
-file root; the file commands still accept only workspaces and projects. For every
-owner, `open_dock` answers `err.dock.noFolder` when a shell's folder no longer
-exists, instead of letting the native PTY start in the home folder.
+`terminal_create` answers `err.dock.noFolder` with `path` for all values that
+are not an absolute folder that is there. It does not register a project. The
+shell is a usual dock. `open_dock` with the session id and `kind: "terminal"`
+starts it in the folder of the session, or attaches again to the shell that
+operates. `pty_*`, `close_dock` and `dock_state` use its `<id>:terminal` key. A
+session is not a file root. The file commands continue to accept only
+workspaces and projects. For all owners, `open_dock` answers
+`err.dock.noFolder` when the folder of a shell is not there. It does not let the
+native PTY start in the home folder.
 
-The frontend ends a session when `pty-closed` arrives for its key, so `exit`
-closes it as × does. The desktop emits no `pty-closed` for a shell it killed, and
-quitting emits nothing, so sessions outlive a quit. The browser mock keeps the
-same rules in memory. Tests: `src-tauri/src/terminal_sessions.rs`,
+The frontend stops a session when `pty-closed` comes for its key. Thus `exit`
+closes it as × does. The desktop does not send `pty-closed` for a shell that it
+stopped, and a quit sends no event. Thus sessions stay after a quit. The browser
+mock keeps the same rules in memory. Tests: `src-tauri/src/terminal_sessions.rs`,
 `src/terminals.test.ts` and `fixtures/backend-contract.json`.
 
 ## Remote machines
 
-Remote machines ([ADR 0101](../decisions/0101-remote-machines.md)) are kept by
-`remote.rs`. The `machines` event carries the full list after every connection
-change.
+`remote.rs` keeps the remote machines
+([ADR 0101](../decisions/0101-remote-machines.md)). The `machines` event sends
+the full list after each connection change.
 
 | Command | Arguments | Effect |
 | --- | --- | --- |
-| `machines` | none | `[{ id, name, ssh, limits, phase, detail, host, update_pending, claude?, agents? }]`; `agents` is `{ enabled, socket, serving, error }`, read after every attachment; `phase` is `offline`, `connecting`, `connected`, `not_installed`, `replaced` or `failed`; `host` is the host's ready frame |
-| `machine_save` | `machine: { id?, name, ssh, limits }` | adds or edits a machine and reconnects; rejects an `ssh` that is not one argument (`err.remote.destination`) or limits outside systemd syntax (`err.remote.limits`) |
-| `machine_remove` | `id` | forgets the machine and its projects; refused with `err.remote.inUse` while a workspace runs there |
-| `machine_install` | `id` | installs or replaces the host build, then waits up to 20 s for the connection |
-| `machine_connect` | `id` | retries the connection now |
-| `machine_stats` | `id` | the host's `stats` for that machine's workspaces |
-| `machine_claude_status` | `id` | `{ installed, loggedIn, email, method }` from `claude auth status` on the machine; also refreshed after every attachment and carried as `claude` in `machines` |
-| `machine_claude_login` | `id` | runs `claude auth login --claudeai` in a host terminal and returns its authorization link (`claude.ai`/`claude.com`, `/oauth/authorize`) once printed in full, within 30 s |
-| `machine_claude_code` | `id`, `code` | writes the code to that login, waits up to 90 s for it to exit and returns the new status; `err.remote.loginExpired` without a login in progress |
-| `machine_claude_login_cancel` | `id` | ends the login in progress |
-| `machine_agents_enable` | `id`, `rotate` | runs `agents setup --json` (with `--rotate` when asked) on the machine. Returns `{ config, preview, moved_from }` after waiting up to 8 s for the socket to answer or fail; `config` is a local stdio MCP configuration with the token for copying, `preview` masks it for the screen, and Settings never stores either. Setup does not change home permissions or configure deployment infrastructure (ADR 0103) |
-| `machine_agents_disable` | `id` | runs `agents disable` on the machine; the host closes the agent socket |
-| `remote_add_project` | `machine`, `path` (absolute), `url?` | clones `url` into `path` when given, registers the repository root as a project with `host`, and returns it |
-| `remote_list_dir` | `machine`, `path?` | `{ path, home, entries: [{ name, git }] }`: the folder's visible subfolders (the home folder without `path`), with `git` set on repositories; the launcher browses with it and registers the ticked repositories one by one |
+| `machines` | none | `[{ id, name, ssh, limits, phase, detail, host, update_pending, claude?, agents? }]`. `agents` is `{ enabled, socket, serving, error }`, and the app reads it after each attachment. `phase` is `offline`, `connecting`, `connected`, `not_installed`, `replaced` or `failed`. `host` is the ready frame of the host. |
+| `machine_save` | `machine: { id?, name, ssh, limits }` | adds or edits a machine and connects again. It rejects an `ssh` that is not one argument (`err.remote.destination`) and limits that do not agree with the systemd syntax (`err.remote.limits`). |
+| `machine_remove` | `id` | deletes the machine and its projects. It refuses with `err.remote.inUse` while a workspace operates there. |
+| `machine_install` | `id` | installs or replaces the host build. Then it waits a maximum of 20 s for the connection. |
+| `machine_connect` | `id` | tries the connection again immediately |
+| `machine_stats` | `id` | the `stats` of the host for the workspaces of that machine |
+| `machine_claude_status` | `id` | `{ installed, loggedIn, email, method }` from `claude auth status` on the machine. The app also refreshes it after each attachment and sends it as `claude` in `machines`. |
+| `machine_claude_login` | `id` | runs `claude auth login --claudeai` in a host terminal. It returns the authorization link (`claude.ai`/`claude.com`, `/oauth/authorize`) when the terminal shows it fully, in a maximum of 30 s. |
+| `machine_claude_code` | `id`, `code` | writes the code to that login, waits a maximum of 90 s for it to exit and returns the new status. It returns `err.remote.loginExpired` if there is no login that is not complete. |
+| `machine_claude_login_cancel` | `id` | stops the login that is not complete |
+| `machine_agents_enable` | `id`, `rotate` | runs `agents setup --json` (with `--rotate` on request) on the machine. It waits a maximum of 8 s for the socket to answer or fail. Then it returns `{ config, preview, moved_from }`. `config` is a local stdio MCP configuration with the token, for a copy. `preview` hides the token for the screen. Settings does not store these values. The setup does not change the permissions of the home folder or configure the deployment infrastructure (ADR 0103). |
+| `machine_agents_disable` | `id` | runs `agents disable` on the machine. The host closes the agent socket. |
+| `remote_add_project` | `machine`, `path` (absolute), `url?` | if `url` is given, clones it into `path`. It registers the root of the repository as a project with `host` and returns it. |
+| `remote_list_dir` | `machine`, `path?` | `{ path, home, entries: [{ name, git }] }`: the visible subfolders of the folder (the home folder without `path`). `git` is set on repositories. The launcher uses it to show the folders, and it registers the selected repositories one by one. |
 
-`create_workspace` with `draft.host` creates the workspace on that machine and
-forces terminal mode. Its `draft.project` may be a remote project ID, or a local
-project ID: the workspace then uses the machine's clone with the same origin, or
-preparation clones the local project's `origin` into `~/code/<folder>` first
-(`err.remote.noOrigin` without an origin, `err.remote.cloneTaken` when that folder
-holds something else). `list_branches` takes an optional `host` and runs Git on
-the machine for a remote project ID, or for the machine's clone of a local project.
-Agents without the `remoteMachines` capability, extra repositories and delegated
-creation are rejected. Remote workspaces have no file, Git, diff, dock or script
-commands yet; the interface hides those panels. The browser mock implements every
-command in memory.
+`create_workspace` with `draft.host` makes the workspace on that machine and
+sets the terminal mode. Its `draft.project` can be a remote project ID or a
+local project ID. For a local project, the workspace uses the clone on the
+machine with the same origin. If there is no clone, the preparation first clones
+the `origin` of the local project into `~/code/<folder>`. Without an origin,
+the result is `err.remote.noOrigin`. If that folder contains a different item,
+the result is `err.remote.cloneTaken`.
+
+`list_branches` accepts an optional `host`. It runs Git on the machine for a
+remote project ID, or for the clone of a local project on the machine. The app
+rejects agents without the `remoteMachines` capability, more repositories
+and delegated creation. Remote workspaces do not have file, Git, diff, dock or
+script commands at this time. The interface hides those panels. The browser mock
+implements each command in memory.
 
 ## Ending the app
 
-`running_terminals` takes no arguments and returns how many terminals quitting
-or restarting would cut off: Setup and Run while their script runs, and a shell
-or terminal session while it runs a command, as a foreground job or in place of
-the shell through `exec`. A shell waiting at its prompt does not count. The interface adds the board's working and waiting
-conversations and the workspaces being prepared before asking
+`running_terminals` has no arguments. It returns the number of terminals that a
+quit or a restart stops:
+
+- Setup and Run while their script operates.
+- A shell or terminal session while it runs a command, as a foreground job or
+  in place of the shell through `exec`.
+
+A shell that waits at its prompt does not count. The interface adds the
+conversations of the board that work or wait, and the workspaces in
+preparation. Then it asks the person
 ([ADR 0097](../decisions/0097-ask-before-ending-the-app.md)). The browser mock
 counts live Setup and Run docks. Tests: `src-tauri/src/dock.rs`,
 `crates/process/src/terminal/tests.rs` and `src/quit.test.ts`.
 
 ## Tool selection
 
-The global, project and workspace layers of MCP, plugin and skill selection
-([ADR 0045](../decisions/0045-layered-tool-selection.md)) travel as one shape:
+The global, project and workspace layers of the MCP, plugin and skill selection
+([ADR 0045](../decisions/0045-layered-tool-selection.md)) use one shape:
 
 ```ts
 type Selection = null | { base: "none" | "inherit"; add: string[]; remove: string[] };
 ```
 
-- `set_tools_global`: receives `{ mcp?, plugins?, skills? }`, each an optional
-  `Selection`. An absent axis is not changed; `null` returns it to inherit. The
-  global layer is a board field, so the result reaches the frontend through the
-  existing `board` event and the command returns nothing on success.
+- `set_tools_global`: receives `{ mcp?, plugins?, skills? }`. Each is an
+  optional `Selection`. An axis that is not there does not change. `null` sets it
+  to inherit again. The global layer is a board field. Thus the result goes to
+  the frontend through the current `board` event, and the command returns
+  no value on success.
 - `set_workspace_mcp`, `set_workspace_plugins` and `set_workspace_skills`:
-  receive `{ id }` plus the axis value as a `Selection`, replacing the previous
-  `string[] | null`. Absent keeps the current value; `null` inherits. Native
-  handlers inspect the JSON request body so Tauri cannot collapse null into an
-  absent argument; the wire shape is unchanged (ADR 0047).
-- All four setters validate the payload before writing and answer an i18n-coded
-  error instead of storing garbage: a malformed `Selection` fails with
-  `err.tools.badPayload`, and an id on the wrong axis — a `skill-<id>` package
-  on `plugins`, or a plain plugin on `skills` — fails with `err.tools.badAxis`.
-- `workspace_tools`: receives `{ id, agent? }` and returns the effective set per
-  axis,
-  each item with its provenance — inherited, added, removed, or `cli` for the
-  MCP servers the person's Claude configuration loads (ADR 0046) — and the
-  project-declared items whose trust is pending or was rejected. An unknown
-  workspace answers `err.session.noWorkspace`. It exists so the picker shows the
-  result without reading the three layers. `agent` selects the displayed tab's
-  provider; omission uses the workspace provider, preserving existing callers.
-- `mcp_inherited`: receives `{ id, agent? }` of a workspace and returns the MCP
-  servers
-  discovered from the CLI configuration for its working directory that the hub
-  lacks, empty for other providers. The optional provider has the same default
-  as `workspace_tools`; the frontend cache includes both workspace and provider.
-  It is the visible inherited base of the workspace picker (ADR 0046).
-- `project_tools`: receives the `{ id }` of a project or a workspace and returns
-  the `[tools]` declared by the primary repository, the settings file that
-  declared it, the SHA-256 of that section and the stored decision, if any.
-  `pending` is true only while no decision — approval or rejection — exists for
-  the current hash, so an explicit rejection quiets the prompt until the
+  receive `{ id }` and the axis value as a `Selection`. This replaces the
+  previous `string[] | null`. A value that is not there keeps the current value.
+  `null` inherits. The native handlers examine the JSON request body, thus Tauri
+  cannot change null into an argument that is not there. The wire shape does not
+  change (ADR 0047).
+- The four setters validate the payload before they write. They answer an error
+  with an i18n code and do not store incorrect data. A malformed `Selection`
+  causes `err.tools.badPayload`. An id on the incorrect axis causes
+  `err.tools.badAxis`. Examples are a `skill-<id>` package on `plugins`, or a
+  plain plugin on `skills`.
+- `workspace_tools`: receives `{ id, agent? }` and returns the effective set for
+  each axis. Each item has its source: inherited, added, removed, or `cli`. The last
+  value is for the MCP servers that the Claude configuration of the person loads
+  (ADR 0046). The result also has the items that the project declares whose
+  trust is pending or rejected. An unknown workspace answers
+  `err.session.noWorkspace`. The command lets the picker show the result
+  without a read of the three layers. `agent` selects the provider of the tab on
+  the screen. If it is not there, the command uses the provider of the
+  workspace. Thus the current callers do not change.
+- `mcp_inherited`: receives the `{ id, agent? }` of a workspace. It returns the
+  MCP servers that the CLI configuration for its working folder gives and that
+  the hub does not have. For other providers, it returns empty. The optional
+  provider has the same default as `workspace_tools`. The frontend cache
+  includes the workspace and the provider. The workspace picker shows this inherited base (ADR 0046).
+- `project_tools`: receives the `{ id }` of a project or a workspace. It returns
+  the `[tools]` that the primary repository declares and the settings file that
+  declares it. It also returns the SHA-256 of that section and the stored
+  decision, if there is one. `pending` is true only while there is no decision (approval or rejection)
+  for the current hash. Thus an explicit rejection stops the prompt until the
   declaration changes.
-- `project_tools_trust`: receives `{ id, hash, approved }`, where `hash` is the
-  version displayed by the dialog. The backend derives repository identity and
-  current hash from `id`, compares the displayed hash, and records a decision
-  only on a match. A changed or removed declaration returns `err.tools.changed`
-  without writing. Missing hash arguments fail closed. The dialog must reopen
-  before deciding on a new version. One decision per repository: a matching new
-  verdict replaces the previous one. See [ADR 0047](../decisions/0047-tool-selection-boundaries.md).
+- `project_tools_trust`: receives `{ id, hash, approved }`. `hash` is the
+  version that the dialog shows. The backend gets the repository identity and
+  the current hash from `id`. It compares the hash from the dialog and records a
+  decision only if the two agree. A changed or removed declaration returns
+  `err.tools.changed` and does not write. If the hash argument is missing, the
+  command has a failure and does not write. The dialog must open again before a decision
+  on a new version. There is one decision for each repository. A new decision
+  with an agreeing hash replaces the previous one. See
+  [ADR 0047](../decisions/0047-tool-selection-boundaries.md).
 
-The trust entry uses `project_tools.pending`, not the presence of pending items.
-Project and workspace menus also open declarations independently of the hub,
-including declarations containing only removals or an empty replacement.
+The trust entry uses `project_tools.pending`. It does not use the pending items. Project and workspace menus also open declarations independently
+of the hub. This includes declarations with only removals or an empty
+replacement.
 
-There is no new event: the global layer and the trust decisions are board
-fields, and the workspace layer already was. `Selection` is a typed shape in
-`src/types.ts`, and the mock implements every command above. ADR 0045 introduces
-them in its interface phase; the parity test in `src-tauri/tests/mock.rs` is what
-makes each one real.
+There is no new event. The global layer and the trust decisions are board
+fields, and the workspace layer was a board field before. `Selection` is a typed
+shape in `src/types.ts`, and the mock implements each command above. ADR 0045
+adds them in its interface phase. The parity test in `src-tauri/tests/mock.rs`
+makes sure that each one is there.
 
 ## Workspace branch selection
 
-`list_branches` returns `local` alongside its existing `all`, `default` and
-`git` fields. Older clients can ignore `local`. `create_workspace` accepts
-optional `draft.newBranch` and `draft.source`; omitted `newBranch` keeps branch
-creation behavior for older callers. With a worktree and `newBranch: false`,
-`source` must identify an existing local branch or remote ref. The backend
-refuses missing refs before publishing a workspace card.
+`list_branches` returns `local` with its current `all`, `default` and `git`
+fields. Older clients can ignore `local`. `create_workspace` accepts the optional
+`draft.newBranch` and `draft.source`. If `newBranch` is not there, the branch
+creation behavior stays the same for older callers. With a worktree and
+`newBranch: false`, `source` must identify a current local branch or remote ref.
+The backend refuses missing refs before it publishes a workspace card.
 
-When reference discovery finds a Git repository with no branches, the launcher
-starts in the project directory with `worktree: false` and `newBranch: false`.
-Branch, worktree and additional-repository controls remain disabled while that
-project is selected. Selecting a project with branches in the same launcher
-restores the worktree and new-branch choices from before the restriction, including
-choices edited during that launch. Explicit worktree or branch choices, or adding
-another repository while references are loading, supersede the saved choices so
-a late response cannot turn off worktrees required by the selected repositories.
-Prometeu does not create an initial commit or change the saved worktree
-preference. Reopening the launcher after the first commit also restores those options.
+If the reference discovery finds a Git repository with no branches, the
+launcher starts in the project folder with `worktree: false` and
+`newBranch: false`. The branch, worktree and other repository controls stay
+disabled while that project is selected. Then the person can select a project with
+branches in the same launcher. The launcher then sets again the worktree and
+new branch selections from before the limit. This includes selections that the
+person edited during that launch.
+
+Explicit worktree or branch selections, or the addition of a repository while
+the references load, replace the saved selections. Thus a late response cannot
+disable worktrees that are necessary for the selected repositories. Prometeu does not make
+an initial commit or change the saved worktree preference. When the person opens
+the launcher again after the first commit, the launcher also sets those
+options again.
 
 ## Starting from a skill
 
-- `plugin_skills`: no arguments; returns `{ plugin, name, description }[]` for
-  the skills shipped by installed local-folder plugins, excluding standalone
-  skill packages. See the [plugin hub](plugin-marketplace.md#skills-inside-packages).
-- `create_workspace`: `draft.kickoff` is an optional `<package>/<skill>` string;
-  absent or empty starts without a skill, so older callers and the delegation
-  payload keep working. An unknown skill rejects with `err.kickoff.missing` and
-  a provider without `workspacePluginSelection` with `err.kickoff.unsupported`,
-  both before the card is published.
+- `plugin_skills`: no arguments. It returns `{ plugin, name, description }[]`
+  for the skills that installed local-folder plugins contain. It does not
+  include standalone skill packages. See the
+  [plugin hub](plugin-marketplace.md#skills-inside-packages).
+- `create_workspace`: `draft.kickoff` is an optional `<package>/<skill>` string.
+  If it is not there or is empty, the workspace starts without a skill. Thus
+  older callers and the delegation payload continue to operate. An unknown skill
+  rejects with `err.kickoff.missing`. A provider without
+  `workspacePluginSelection` rejects with `err.kickoff.unsupported`. The two
+  rejections occur before the app publishes the card.
 
-The browser mock mirrors the catalog from its fixture plugins and the same
-validation. Semantics are in the
+The browser mock makes the same catalog from its fixture plugins and uses the
+same validation. The
 [runtime contract](agent-runtime.md#skill-kickoff) and
-[ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md).
+[ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md) give the
+meaning.
 
 ## Legacy import
 
-`legacy_import_plan` does not change state. It returns the source, one of the
-situations `ready | missing | imported | targetNotEmpty | invalid`, the preview
-counts and, when applicable, the error, timestamp and backup path.
+`legacy_import_plan` does not change the state. It returns these items:
 
-`legacy_import_run` does not receive paths from the presentation: source and
-destination are resolved by the backend. It repeats every validation, refuses an
-open Prometheus and an occupied destination, runs the import and returns the
-same DTO in the `imported` state. The board change is still published through
-the `board` event.
+- The source.
+- One of the situations `ready | missing | imported | targetNotEmpty | invalid`.
+- The preview counts.
+- When applicable, the error, the timestamp and the backup path.
+
+`legacy_import_run` does not receive paths from the presentation. The backend
+resolves the source and the destination. It does all validations again. It
+refuses an open Prometheus and a destination that is not empty. It runs the
+import and returns the same DTO in the `imported` state. The app continues to
+publish the board change through the `board` event.
 
 ## Change checklist
 
-When creating or changing a command:
+To make or change a command, do these steps:
 
-1. change the Rust function and its error type;
-2. register the handler in `main.rs`;
-3. update the command name, argument shape, and result in `src/ipc.ts`;
-4. implement it or consciously refuse it in `src/mock.ts`;
-5. update every TypeScript consumer;
-6. add a test of the argument and return shape;
-7. document compatibility when persisted state is involved.
+1. Change the Rust function and its error type.
+2. Register the handler in `main.rs`.
+3. Update the command name, the argument shape and the result in `src/ipc.ts`.
+4. Implement the command in `src/mock.ts`, or refuse it there intentionally.
+5. Update each TypeScript consumer.
+6. Add a test of the argument shape and the return shape.
+7. If the command changes stored state, write the compatibility.
 
-When creating or changing an event:
+To make or change an event, do these steps:
 
-1. define the payload and its ownership;
-2. test serialization in the emitter;
-3. validate the payload in the consumer when it comes from an untrusted
-   boundary;
-4. make sure listeners are torn down along with the screen's lifecycle;
-5. update the table above.
+1. Define the payload and its owner.
+2. Test the serialization in the emitter.
+3. If the payload comes from a boundary that is not trusted, validate it in the
+   consumer.
+4. Make sure that the listeners stop when the screen closes.
+5. Update the table above.
 
 ## Direction of evolution
 
-The implemented map requires no new dependency:
+The implemented map does not have a new dependency:
 
 ```ts
 type Commands = {
@@ -705,94 +819,109 @@ type Commands = {
 };
 ```
 
-A future step may generate bindings from Rust DTOs. The tool must be chosen in
-an ADR after a small proof covering:
+A future step can make bindings from the Rust DTOs. An ADR must select the tool
+after a small proof. The proof must examine these items:
 
-- enums with `serde(rename_all)`;
-- `Option` and default fields;
-- serialized errors;
-- events, in addition to commands;
-- integration with Tauri 2 and the Rust version used in the project.
+- Enums with `serde(rename_all)`.
+- `Option` and default fields.
+- Serialized errors.
+- Events, and also commands.
+- The integration with Tauri 2 and the Rust version of the project.
 
-Generating types for whole internal structs is not the goal. Only boundary DTOs
-should appear in the binding.
+The goal is not to make types for full internal structs. Only boundary DTOs
+must be in the binding.
 
 ## Feedback
 
-`feedback_capture` is additive, takes no arguments, and returns a base64 PNG or
+`feedback_capture` is additive and has no arguments. It returns a base64 PNG or
 `null`. See [capture and limits](feedback.md). The mock returns a fictional
 image.
 
-`feedback_send` receives `{ report }` and returns no value. The backend delivers
-it to the Cloud with the account credential, which never enters the webview, and
-returns an error with an i18n code: `feedback.needAccount` without an account or
-on 401, `feedback.rateLimit` at the limit, `feedback.uncertain` with `{id}` on
-uncertain delivery and `feedback.sendError` for the rest. The mock records the
-report and nothing leaves the machine.
+`feedback_send` receives `{ report }` and returns no value. The backend sends
+the report to the Cloud with the account credential. The credential does not go
+into the webview. The backend returns an error with an i18n code:
+
+- `feedback.needAccount` if there is no account, or on 401.
+- `feedback.rateLimit` at the limit.
+- `feedback.uncertain` with `{id}` if the delivery is not sure.
+- `feedback.sendError` for all other errors.
+
+The mock records the report, and no data goes out of the machine.
 
 ## Board recovery
 
-`board_recovery` takes no arguments and returns `null`, or
-`{source, folder, error}` when the last load did not come from a readable
-`board.json`: `source` is `backup` or `reset`, `folder` is the absolute path of
-the private recovery folder once it holds copies of the unreadable files, and
-`error` is the cause while copying fails and saves stay blocked.
-`board_recovery_open` opens that fixed folder in the system file manager and
-returns an `err.session.openFailed` error when it cannot. Both are local-only.
-The browser mock
-returns the value stored in `localStorage["mock:boardRecovery"]`. See
+`board_recovery` has no arguments. It returns `null`, or `{source, folder, error}`
+when the last load did not come from a `board.json` that the app can read:
+
+- `source` is `backup` or `reset`.
+- `folder` is the absolute path of the private recovery folder, after it
+  contains copies of the files that the app cannot read.
+- `error` is the cause while the copy has a failure and saves stay blocked.
+
+`board_recovery_open` opens that folder, which does not change, in the file manager of the
+system. If it cannot, it returns an `err.session.openFailed` error. The two
+commands are only local. The browser mock returns the value in
+`localStorage["mock:boardRecovery"]`. See
 [unreadable state](persistence.md#unreadable-state).
 
 ## Built-in MCP catalog entry
 
 `mcp_hub`, `mcp_save` and `mcp_remove` return the virtual `prometeu` entry with
-`config: {type: "stdio", builtin: true}` in addition to mutable registry items.
-The built-in cannot be overwritten or removed (`err.mcp.builtin`). It contains
-no executable path or credential. `load_board` includes additive
-`delegations`, defaulting to an empty list in Rust. There are no new IPC
-commands; the browser mock mirrors the catalog and selection behavior, and
-does not execute MCP agents. See [embedded MCP](embedded-mcp.md).
+`config: {type: "stdio", builtin: true}` and the registry items that a person
+can change. A person cannot write over the built-in entry or remove it
+(`err.mcp.builtin`). It does not contain an executable path or a credential.
+`load_board` includes the additive `delegations`. In Rust, its default is an
+empty list. There are no new IPC commands. The browser mock makes the same
+catalog and selection behavior, and it does not run MCP agents. See
+[embedded MCP](embedded-mcp.md).
 
-`workspace-preview` is additive and local-only. The emitter checks delegation
-ownership and workspace availability. The application-lifetime listener reloads
-the local board and rechecks the exact workspace/conversation before opening
-the existing preview. The browser mock can emit the same event for E2E tests.
-It contains no URL or arbitrary action and does not cross the relay.
+`workspace-preview` is additive and only local. The emitter examines the
+delegation ownership and the availability of the workspace. The listener, which
+operates for the life of the application, loads the local board again. It
+examines the exact workspace and conversation again before it opens the current
+preview. The browser mock can send the same event for E2E tests. The event does
+not contain a URL or a different action, and it does not go through the relay.
 
 ## Local telemetry
 
 `telemetry_summary`, `telemetry_insights`, `telemetry_turns`, `telemetry_events`,
-`telemetry_export` and `telemetry_clear`
-are local-only queries/export/erasure commands. Filters, cursor, coverage and
-return values are typed in `src/telemetry.ts`; Rust handlers and the browser mock
-share command names. No arbitrary SQL or native provider objects cross this
-boundary. The export destination comes from the native save dialog and is a
-`.jsonl` file. Erasure always clears the entire telemetry dataset. See the
-[telemetry contract](telemetry.md) for query cohorts and privacy guarantees.
+`telemetry_export` and `telemetry_clear` are only local commands. They query,
+export and erase data. `src/telemetry.ts` gives the types of the filters, the
+cursor, the coverage and the return values. The Rust handlers and the browser
+mock share the command names. No SQL from the caller and no native provider
+objects go through this boundary. The export destination comes from the native
+save dialog and is a `.jsonl` file. Erasure always clears the full telemetry
+dataset. See the [telemetry contract](telemetry.md) for the query cohorts and
+the privacy guarantees.
 
-`telemetry_insights({ filter })` returns the existing summary plus consumption
-and groups by conversation, observed model and source, with separately qualified
-PR attribution. Context occupancy/window are not summed; peak occupancy is a
-maximum. `telemetry_turns({ conversation, messageIds })` looks up at most 500
-requested assistant IDs and returns only exact completed matches, with duration
-and canonical usage. Unknown/legacy replies have no fabricated measurement.
-The native query hashes the conversation/reply pair; raw provider identifiers
-are not persisted as telemetry content. Frontend consumers ignore stale results
-after navigation or confirmed history deletion.
+`telemetry_insights({ filter })` returns the current summary and also the
+consumption and the groups by conversation, observed model and source. It gives
+the PR attribution with its own qualification. The app does not add the context
+occupancy and window values. The peak occupancy is a maximum.
 
-`telemetry-changed` is a content-free local invalidation event. Conversation
-completion emits it even when child activity keeps the tab running. Naming and
-plugin maker emit it after capture finishes, including failed calls; PR discovery emits
-it once after committing the entire observed snapshot and releasing the capture
-mutex. Workspace consumers coalesce invalidations and query their current scope.
-It is not a relay event and does not carry records or identifiers. Turn capture
-commits before its existing board publication; refresh does not depend on a
-visible status change.
+`telemetry_turns({ conversation, messageIds })` looks for a maximum of 500
+requested assistant IDs. It returns only exact completed matches, with the
+duration and the canonical usage. Unknown and legacy replies do not get an incorrect
+measurement. The native query calculates a hash of the conversation and reply
+pair. The app does not store raw provider identifiers as telemetry content.
+Frontend consumers ignore previous results after navigation or after a confirmed
+deletion of history.
+
+`telemetry-changed` is a local invalidation event without content. The
+completion of a conversation sends it also when child activity keeps the tab
+running. The naming function and the plugin maker send it after the capture is
+complete. This includes calls with a failure. The PR discovery sends it one time
+after it commits the full observed snapshot and releases the capture mutex.
+Workspace consumers join the events and query their current scope. It is not a
+relay event, and it does not send records or identifiers. The turn capture
+commits before its current board publication. The refresh occurs also without a
+status change on the screen.
 
 ## Delegated conversation admission
 
-`new_tab` and agent `action_start` reject delegated workspaces with
-`err.session.delegated` before creating a conversation. Signatures and return
-formats are unchanged. Existing delegated conversations and legacy extra tabs
-remain usable; see [sub-workspaces](embedded-mcp.md#sub-workspace-navigation).
-The browser mock and native entry points apply the same restriction.
+`new_tab` and the agent `action_start` reject delegated workspaces with
+`err.session.delegated` before they make a conversation. The signatures and the
+return formats do not change. The current delegated conversations and the
+legacy extra tabs stay available. See
+[sub-workspaces](embedded-mcp.md#sub-workspace-navigation). The browser mock and
+the native entry points apply the same limit.

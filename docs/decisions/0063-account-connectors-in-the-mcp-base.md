@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0063 — Account connectors belong to the inherited MCP base"
-description: "The account's claude.ai connectors join the inherited MCP base."
+description: "The claude.ai connectors of the account are part of the inherited MCP base."
 status: stable
 ---
 
@@ -9,137 +9,155 @@ status: stable
 
 Date: 2026-09-28
 
-Extends the Discovery section of
-[ADR 0046](0046-cli-inherited-mcp-base.md); the rest of that decision stands.
+This ADR adds to the Discovery section of
+[ADR 0046](0046-cli-inherited-mcp-base.md). The other sections of that decision
+stay in effect.
 
 ## Context
 
-ADR 0046 made the CLI's own MCP set a visible inherited base and defined
-discovery as a read of configuration files: the `mcpServers` of
+ADR 0046 made the MCP set of the CLI an inherited base that the picker shows.
+It specified discovery as a read of configuration files: the `mcpServers` of
 `~/.claude.json` (user and project scope) and the `.mcp.json` of the working
-directory and its ancestors.
+directory and its parent directories.
 
-Claude Code since then loads a second source that is in no file. The
-connectors the person enables on claude.ai are fetched from the account at
-every start (`GET /v1/mcp_servers`, header
-`anthropic-beta: mcp-servers-2025-12-04`) and mounted under the CLI's own
-`claudeai` scope; `~/.claude.json` keeps only a list of names ever connected.
-On this checkout's machine `/mcp` in the terminal lists 44 servers — one from
-the user scope and 42 from the account — while the Prometeu picker listed one.
+After that decision, Claude Code started to load a second source that is not in
+a file. Each time the CLI starts, it gets the connectors that the person enabled
+on claude.ai from the account (`GET /v1/mcp_servers`, header
+`anthropic-beta: mcp-servers-2025-12-04`). The CLI puts them under its own
+`claudeai` scope. `~/.claude.json` keeps only a list of the names that the
+person connected before. On the machine of this checkout, `/mcp` in the
+terminal lists 44 servers: one from the user scope and 42 from the account. The
+Prometeu picker listed one.
 
-Two consequences follow, and both were observed:
+This causes two problems. Prometeu saw the two problems:
 
-- the picker hides what the CLI shows, so the base is no longer "the same set
-  the picker shows" that ADR 0046 promised;
-- `--strict-mcp-config` makes the CLI skip the account fetch entirely, so the
-  first declared selection drops every connector without saying so. A headless
-  session with an empty strict file reports zero MCP servers and zero MCP
-  tools, against 43 servers and 206 tools without the flag.
+- The picker does not show the servers that the CLI shows. Thus the base is not
+  "the same set the picker shows", as ADR 0046 promised.
+- With `--strict-mcp-config`, the CLI does not get the connectors from the
+  account. Thus the first declared selection removes all the connectors without
+  a message. A headless session with an empty strict file reports 0 MCP
+  servers and 0 MCP tools. Without the flag, it reports 43 servers and 206
+  tools.
 
 ## Options considered
 
-1. Keep discovery file-only and warn in the picker that choosing any MCP turns
-   the account connectors off.
-2. Never pass `--strict-mcp-config` while the selection only adds to the CLI's
-   set, so the connectors survive.
-3. Discover the connectors from the account with the active login's own
-   credential, treat them as part of the inherited base, and materialize them
-   in the strict file as the `claudeai-proxy` entries the CLI itself creates.
+1. Keep discovery only for files. Show a warning in the picker that a selection
+   of an MCP server turns off the account connectors.
+2. Do not send `--strict-mcp-config` while the selection only adds to the set of
+   the CLI. Thus the connectors stay.
+3. Find the connectors from the account with the credential of the active
+   login. Use them as part of the inherited base. Write them in the strict file
+   as the `claudeai-proxy` entries that the CLI makes.
 
-Option 1 documents the loss instead of repairing it, and leaves a selection
-that silently costs 42 servers. Option 2 keeps the base incomplete: the picker
-still cannot show or remove a connector, and any removal on another axis
-reintroduces the loss. Option 3 was adopted: it restores the invariant that the
-picker's universe is what the session will load.
+Option 1 tells about the loss but does not repair it. A selection then removes
+42 servers without a message. Option 2 keeps a base that is not complete. The
+picker continues to be not able to show or remove a connector. Also, a removal on a
+different axis causes the loss again. Prometeu selected option 3. With this
+option, the set in the picker is again the set that the session will load.
 
 ## Decision
 
-The connectors of the active Claude account join the `mcp` axis's inherited
-base, alongside the configuration files of ADR 0046:
+The connectors of the active Claude account are part of the inherited base of
+the `mcp` axis, together with the configuration files of ADR 0046:
 
-- **Discovery.** `mcp.rs::connectors` asks the account API with the credential
-  of the active Claude profile — the same one `usage.rs` reads, file first and
-  macOS Keychain second — and never asks the person to log in again. The
-  request honors `ANTHROPIC_BASE_URL`. Discovery stays read-only: nothing is
-  imported and nothing is written to the CLI's files.
-- **Identity.** A connector's ID is `claude.ai <display name>`, with a numeric
-  suffix on a repeated name, so it matches what the CLI calls the same server
-  and a persisted layer keeps resolving. Its note is `claude.ai`, which the
-  picker shows as the row's origin.
-- **Precedence.** The account comes last in the base: a configuration file the
-  person controls shadows a connector of the same name, as local scope already
-  shadows user scope. A hub server still shadows both.
-- **Materialization.** A kept connector enters the strict file as
-  `{ "type": "claudeai-proxy", "url": …, "id": … }`, which the CLI accepts as a
-  dynamic server and connects with the account's own authentication; Prometeu
-  never handles the connector's token.
-- **Freshness.** The list is cached for five minutes and warmed at startup, so
-  neither the picker nor a spawn waits on the network in the common case. The
-  cache belongs to the login that produced it — the account id and its revision
-  — so switching accounts or logging in again never shows another account's
-  connectors. The cache retains one revision per account; a late fetch from an
-  older revision cannot replace the newer one. A failed fetch re-reads the
-  cache, so a concurrent success remains available. Network failures keep that
-  login's last known list.
-- **Unknown is not empty.** Without an account or without its credential the
-  list is empty and complete: the CLI would load no connector either. An
-  unreadable or malformed credential without a valid Keychain fallback, or a
-  failed fetch with no successful result for that login, leaves the list unknown.
-  The picker degrades to the file base. A declared selection that still inherits
-  the account base refuses to spawn while the list is unknown: strict mode would
-  silently drop connectors
-  the person kept. A `base: "none"` replacement at any layer excludes that base,
-  so its strict configuration can start even when the account lookup fails.
-  An explicitly added account connector retains its ID through resolution; if
-  discovery cannot supply its configuration, materialization refuses the spawn
-  instead of silently dropping that selection.
+- **Discovery.** `mcp.rs::connectors` sends a request to the account API with
+  the credential of the active Claude profile. This is the same credential that
+  `usage.rs` reads: from the file first, and from the macOS Keychain second.
+  Prometeu does not tell the person to log in again. The request obeys
+  `ANTHROPIC_BASE_URL`. Discovery only reads data. It does not import data, and
+  it does not write to the files of the CLI.
+- **Identity.** The ID of a connector is `claude.ai <display name>`. If a name
+  occurs again, the ID gets a number at its end. Thus the ID agrees with the
+  name that the CLI gives to the same server, and a saved layer continues to
+  resolve. Its note is `claude.ai`. The picker shows this note as the origin of
+  the row.
+- **Precedence.** The account is the last source in the base. If a
+  configuration file that the person controls has a server with the same name
+  as a connector, Prometeu uses the server from the file. The local scope
+  replaces the user scope in the same manner. A hub server continues to replace
+  the two.
+- **Configuration.** A kept connector goes into the strict file as
+  `{ "type": "claudeai-proxy", "url": …, "id": … }`. The CLI accepts this entry
+  as a dynamic server. It connects the server with the authentication of the
+  account. Prometeu does not use the token of the connector.
+- **Cache.** Prometeu keeps the list in a cache for five minutes. It fills the
+  cache when the app starts. Thus, usually, the picker and the agent start do
+  not wait for the network. The cache is for the login that made it, which is
+  the account id and its revision. Thus, when the person changes the account or
+  logs in again, Prometeu does not show the connectors of a different account.
+  The cache keeps one revision for each account. A late response for an older
+  revision cannot replace the newer revision. If a request has a failure,
+  Prometeu reads the cache again. Thus a correct response from a parallel request stays
+  available. After a network failure, Prometeu keeps the last known list of that
+  login.
+- **Unknown is not empty.** Without an account or without its credential, the
+  list is empty and complete. In that condition, the CLI also loads no
+  connector. These conditions make the list unknown:
+  - Prometeu cannot read the credential, or it has an incorrect format, and there is no
+    correct Keychain fallback.
+  - A request has a failure, and there is no correct result for that login.
 
-Scope: Claude only, like ADR 0046. Codex has no account connector source.
+  When the list is unknown, the picker shows only the file base. If a declared
+  selection continues to inherit the account base, Prometeu does not start the
+  agent while the list is unknown. The cause is that the strict mode removes
+  the connectors that the person kept, without a message. A `base: "none"`
+  replacement in a layer removes that base. Thus its strict configuration can
+  start also when the account lookup has a failure. An account connector that the
+  person added explicitly keeps its ID through the resolution. If discovery
+  cannot give its configuration, the configuration step does not start the
+  agent. It does not remove that selection without a message.
+
+Scope: only Claude, as in ADR 0046. Codex has no source of account connectors.
 
 ## Consequences
 
 Positive:
 
-- the picker lists every server the CLI would load, and a connector can be
-  removed for one workspace as an ordinary layer delta;
-- a declared selection no longer costs the person their account connectors;
-- no import, no duplicated configuration and no second login.
+- The picker lists all the servers that the CLI loads. The person can remove a
+  connector for one workspace as a usual change in the layer.
+- A declared selection does not remove the account connectors of the person.
+- There is no import, no duplicate configuration and no second login.
 
 Negative:
 
-- Prometeu now depends on an account endpoint and its beta header, neither of
-  which it owns; a shape change degrades discovery to the file-only base;
-- the base varies with the active account and with edits made on claude.ai, so
-  a layer may reference an ID that comes and goes — tolerated, as ADR 0046
-  already tolerates for CLI files;
-- the credential is read for a second purpose, widening the reasons Prometeu
-  touches the Claude login;
-- a five-minute cache can show a connector removed on claude.ai minutes ago;
-- a conversation that inherits account connectors does not start while their
-  list is unknown, which trades an offline start for never losing connectors in
-  silence.
+- With this decision, Prometeu uses an account endpoint and its beta header. Prometeu
+  does not own them. If the format changes, discovery uses only the file base.
+- The base changes with the active account and with edits on claude.ai. Thus a
+  layer can refer to an ID that the account adds and removes. Prometeu accepts this,
+  as ADR 0046 accepts it for CLI files.
+- Prometeu reads the credential for a second purpose. Thus it uses the Claude
+  login for more purposes.
+- A cache of five minutes can show a connector that the person removed on
+  claude.ai a short time before.
+- A conversation that inherits account connectors does not start while their
+  list is unknown. Thus an offline start is not possible, but Prometeu does not
+  remove connectors without a message.
 
 ## Evidence
 
-- `mcp.rs`: `account_connectors_join_the_inherited_base` — CLI naming with the
-  numbered repeat, the entry an incomplete server does not produce, a
-  configuration file shadowing a connector, and the `claudeai-proxy` entry in
-  the strict configuration.
-- `mcp.rs`: `unknown_account_connectors_prevent_materialization` — inherited
-  connectors require a known list; `account_cache_keeps_current_revision_and_observes_overlapping_fetch`
-  checks revisions and concurrent fetches.
+- `mcp.rs`: `account_connectors_join_the_inherited_base`. This test examines the
+  CLI names with the number for a name that occurs again. It also examines
+  these items: a server that is not complete makes no entry, and a
+  configuration file replaces a connector. It also examines the
+  `claudeai-proxy` entry in the strict configuration.
+- `mcp.rs`: `unknown_account_connectors_prevent_materialization` shows that
+  inherited connectors must have a known list.
+  `account_cache_keeps_current_revision_and_observes_overlapping_fetch`
+  examines revisions and parallel requests.
 - `session.rs`: `explicit_account_connector_survives_replacement_until_materialization`
-  checks replacement without the base and failure for a missing explicit connector.
+  examines a replacement without the base, and the failure for a missing
+  explicit connector.
 - `usage.rs`: `unreadable_claude_file_uses_keychain_token` and
-  `malformed_and_unreadable_claude_credentials_are_unknown` distinguish Keychain
-  fallback, read failures and a missing credential.
-- `mcp.rs`: the existing `inherited_base_combines_user_project_and_repository_configuration`
-  still describes the file scopes, now with an explicit empty account.
-- Web: `src/mock.ts` mirrors the base with a connector row that the import menu
-  does not offer, since connectors live in no file.
-- `mcp.rs`: `lists_real_account_connectors`, ignored like the server probe, asks
-  the real account and prints the base the picker will show, so a change in the
-  endpoint or in its naming is caught by hand.
-- Manual, against the real CLI 2.1.272: a strict file carrying one
-  `claudeai-proxy` entry reports the server `connected` with its tools, while
-  an empty strict file reports no servers at all.
+  `malformed_and_unreadable_claude_credentials_are_unknown` show the difference
+  between the Keychain fallback, read failures and a missing credential.
+- `mcp.rs`: the current `inherited_base_combines_user_project_and_repository_configuration`
+  continues to examine the file scopes, with an explicit empty account.
+- Web: `src/mock.ts` has a copy of the base with a connector row. The import
+  menu does not show this row, because connectors are not in a file.
+- `mcp.rs`: `lists_real_account_connectors` has the ignore mark, as the server
+  probe test has. It sends a request to the account of the person and prints the base that the picker
+  will show. Thus a person can find a change in the endpoint or in its names
+  manually.
+- Manual test with the installed CLI 2.1.272: a strict file with one
+  `claudeai-proxy` entry reports the server as `connected` with its tools. An
+  empty strict file reports no servers.

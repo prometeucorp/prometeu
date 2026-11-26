@@ -1,52 +1,57 @@
 # Desktop components
 
-This directory is the entry point for agents and people composing Desktop UI.
-The application and gallery use these implementations. Stories contain sample
-data and callbacks, never a parallel implementation of a component.
+This folder is the entry point for agents and persons that compose Desktop UI.
+The application and the gallery use these implementations. Stories contain
+sample data and callbacks. They do not contain a parallel implementation of a
+component.
 
 ## Find and inspect a component
 
-1. List this directory or read [`catalog.json`](catalog.json). Every entry names
-   its source, exports, production consumers and available states.
-2. Run `npm run dev`. Open `/design-system.html` to search the catalog.
-3. Open `/design-system.html?component=chat-block&state=error` for a component
-   and state. Add `&embed=1` for a canvas without navigation, useful for browser
-   agents, screenshots and visual comparisons.
-4. Follow the manifest's `source` path to the typed API. `stories.ts` shows
-   runnable inputs; `consumers` identifies real integration code.
+1. List this folder or read [`catalog.json`](catalog.json). Each entry gives its
+   source, exports, production consumers and available states.
+2. Run `npm run dev`. To find a component in the catalog, open `/design-system.html`.
+3. For one component and one state, open
+   `/design-system.html?component=chat-block&state=error`.
+4. For a canvas without navigation, add `&embed=1`. This canvas is good for
+   browser agents, screenshots and visual comparisons.
+5. Follow the `source` path of the manifest to the typed API.
+6. Read `stories.ts` for inputs that you can run. `consumers` gives the integration code in production.
 
-The gallery also links to the JSON manifest as a build asset. URLs work in
-Vite dev and the production preview. No Storybook runtime or backend is needed.
-The same state identifiers are stable navigation keys and machine-readable data.
+The gallery also has a link to the JSON manifest as a build asset. The URLs
+operate in the Vite development server and in the production preview. A
+Storybook runtime or a backend is not necessary. The same state identifiers are
+stable navigation keys and data that a machine can read.
 
 ## Ownership
 
 | Family | Source | Production adoption |
 | --- | --- | --- |
-| Buttons, fields, selection, dialogs, notices | `primitives.ts`, `menu.ts` | Existing Desktop imports route through `src/ui.ts` and `src/menu.ts` |
-| Icons, file icons, provider marks, avatars | `icons.ts`, `icon-button.ts` | Existing `src/icons.ts` facade, chat composer, Git toolbar |
+| Buttons, fields, selection, dialogs, notices | `primitives.ts`, `menu.ts` | Current Desktop imports go through `src/ui.ts` and `src/menu.ts` |
+| Icons, file icons, provider marks, avatars | `icons.ts`, `icon-button.ts` | The current `src/icons.ts` facade, the chat composer, the Git toolbar |
 | Headers, toolbars, rows, list states | `compositions.ts` | Resources and Actions |
 | Resource library | `resource-view.ts` | Settings Resources |
-| Local usage and session details | `usage-history.ts` | Settings Analytics |
+| Local usage and the data of each session | `usage-history.ts` | Settings Analytics |
 | Tool, reasoning, text, work and error blocks | `chat/blocks.ts` | `ChatView` in workspace and desk |
-| Questions, plans, permissions | `chat/requests.ts` | `ChatView`; callbacks send canonical responses in the host |
-| Teammate message waiting for the owner | `chat/pending.ts` | `ChatView`; the collaboration core holds, sends and drops the message |
-| Composer and attachments | `chat/composer.ts` | `ChatView`; host owns drafts, completion, voice and transport |
-| User message, browser context, tool input, context report | `chat/content.ts` | Desktop and existing mobile consumers via compatibility facade |
-| Markdown and fenced code | `chat/markdown.ts` | Existing consumers via `src/markdown.ts`; preserves escaping and copy behavior |
+| Questions, plans, permissions | `chat/requests.ts` | `ChatView`. Callbacks send canonical responses in the host |
+| Teammate message that waits for the owner | `chat/pending.ts` | `ChatView`. The collaboration core keeps, sends and discards the message |
+| Composer and attachments | `chat/composer.ts` | `ChatView`. The host owns drafts, completion, voice and transport |
+| User message, browser context, tool input, context report | `chat/content.ts` | Desktop and current mobile consumers through a compatibility facade |
+| Markdown and fenced code | `chat/markdown.ts` | Current consumers through `src/markdown.ts`. It keeps the escape behavior and the copy behavior |
 | Git file rows, groups, commit form | `git/file-row.ts`, `git/group.ts`, `git/commit-form.ts` | Workspace Changes |
-| Review notes, editor and summary | `git/review-note.ts`, `git/review-summary.ts` | Diff reader and Workspace review controller |
+| Review notes, editor and summary | `git/review-note.ts`, `git/review-summary.ts` | The diff reader and the Workspace review controller |
 | Review message tag | `chat/review-context.ts` | Chat drafts and portable history |
-| Diff reader | `git/diff-view.ts` | `src/diff.ts` adapter; review persistence remains there |
+| Diff reader | `git/diff-view.ts` | `src/diff.ts` adapter. The storage of reviews stays there |
 
-`primitives.ts` and `menu.ts` re-export the existing design-system package; there
-is one implementation, not a Desktop fork. The manifest records that package
-as `implementation`. Desktop-specific components remain here. Pure diff parsing
-and signatures are in `git/patch.ts` and retain their existing unit tests.
+`primitives.ts` and `menu.ts` export the current design-system package again.
+There is one implementation, not a Desktop fork. The manifest records that
+package as `implementation`. The components only for the Desktop stay in this
+folder. The pure parse of diffs and the signatures are in `git/patch.ts`, and
+they keep their current unit tests.
 
-`styles.css` provides the Desktop component baseline. The app's `style.css`
-imports it and adds shell layout. Chat and Git styles sit beside their component
-families; the gallery loads the app stylesheet to expose the real CSS cascade.
+`styles.css` gives the base styles of the Desktop components. The `style.css`
+of the app imports it and adds the layout of the shell. The Chat styles and the
+Git styles are adjacent to their families of components. The gallery loads the
+stylesheet of the app to show the CSS cascade of the app.
 
 ## Compose and integrate
 
@@ -63,35 +68,41 @@ host.append(itemRow({
 }).root);
 ```
 
-The example assumes a caller in `src/`. The host supplies translated `labels`,
-presentation data, callbacks and the target DOM node. Domain-specific components
-may use the Desktop i18n adapter; this reads the existing language preference,
-not application data. Shared compositions accept already-translated labels.
+The example uses a caller in `src/`. The host supplies the translated `labels`,
+the presentation data, the callbacks and the target DOM node. Components for a
+specified domain can use the Desktop i18n adapter. This adapter reads the
+current language preference, not application data. Shared compositions accept labels that the caller translated.
 
-Components may render and manage transient interaction state. They must not
-invoke IPC, load provider catalogs, write business storage or make network
-requests. Hosts decide authorization and availability. A disabled control is
-presentation, not authorization. The host still validates actions at execution.
+Components can render and manage temporary interaction state. They must not
+call IPC, load provider catalogs, write business storage or send network
+requests. Hosts make the decisions about authorization and availability. A
+disabled control is presentation, not authorization. The host continues to
+validate actions at execution.
 
-Fresh-node components need no subscription cleanup. Close an owned menu before
-removing its trigger. `resourceView` exposes `update` and `destroy`. Each
-`diffView` instance owns its observer, cache and collapsed state; call `destroy`
-when retiring it. Review state is supplied through `isSeen` and `setSeen`, so
-multiple readers and gallery examples cannot modify each other's storage.
-Composer returns named controls for host updates without replacing typed input.
+Components that make new nodes do not have subscriptions to clean. Close an
+owned menu before you remove the button that opens it. `resourceView` gives
+`update` and `destroy`. Each `diffView` instance owns its observer, its cache
+and its collapsed state. Call `destroy` when you stop the use of the instance.
+The host supplies the review state through `isSeen` and `setSeen`. Thus, many
+readers and gallery examples cannot change the storage of each other. The
+composer returns named controls for host updates, and it does not replace typed
+input.
 
 ## Add or extract a component
 
-- Keep a cohesive responsibility in the appropriate family. A product-specific
-  component does not need an artificial second screen to justify isolation.
-- Change the real consumer to call it and remove the previous markup there.
-- Add its manifest entry and stories using the production export. Show relevant
-  states and meaningful callbacks, with deterministic sample data.
-- Preserve existing layout, keyboard behavior, selection, drafts and contracts.
-- Run the closest tests, `npm run architecture:check`, then `npm run check` for
-  changes spanning layers. The catalog test verifies production reachability.
+- Put a component with one clear responsibility in the applicable family. For a component only for one product, an artificial second screen is not
+  necessary to isolate it.
+- Change the production consumer so that it calls the component. Remove the previous
+  markup from the consumer.
+- Add the manifest entry and the stories of the component with the production
+  export. Show the applicable states and useful callbacks, with sample data that
+  does not change.
+- Keep the current layout, keyboard behavior, selection, drafts and contracts.
+- Run the nearest tests and `npm run architecture:check`.
+- For changes across layers, then run `npm run check`. The catalog test makes
+  sure that production code uses each component.
 
-The [presentation contract](../../docs/contracts/desktop-presentation.md) defines
-compatibility. The [composition recipe](../../docs/architecture/desktop-composition.md)
-explains the integration boundary. Remaining app-specific layouts do not become
-catalog components merely by being moved to a new filename.
+The [presentation contract](../../docs/contracts/desktop-presentation.md) gives
+the compatibility rules. The [composition recipe](../../docs/architecture/desktop-composition.md)
+gives the integration boundary. If you move a layout only for the app to a new
+file name, it does not become a catalog component.

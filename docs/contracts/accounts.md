@@ -1,58 +1,67 @@
 ---
 type: Contract
 title: "Agent accounts"
-description: "Accounts, login, global selection and quota isolation between agents."
+description: "Accounts, login, the global selection and isolated quota limits for each agent."
 status: stable
 ---
 
 # Agent accounts
 
-Implemented; decisions in ADRs [0012](../decisions/0012-provider-accounts.md)
-and [0013](../decisions/0013-remove-provider-accounts.md).
+The app obeys this contract. ADRs [0012](../decisions/0012-provider-accounts.md)
+and [0013](../decisions/0013-remove-provider-accounts.md) record the decisions.
 
 ## Selection and conversation
 
-The selection is local to this Mac and global per provider. It does not belong
-to the workspace, the board or the relay. Each process captures the account ID
-and revision when it is born. A turn in progress continues with that account;
-the next message uses the current selection, resuming the same transcript when
-the process has to be swapped. A message sent during that transition stays in
-`pending_prompt` until the end of the turn. Answers to questions and permissions
-stay in the process that made the request. Action tasks follow the same account
-selection, keeping the model, instructions, permissions and tools profile
-captured at creation time.
+The selection is local to this Mac. It is global for each provider. It is not
+part of the workspace, the board or the relay. When a process starts, it
+records the account ID and the revision. A turn that operates continues with
+that account. The next message uses the current selection. If the app must
+replace the process, the new process resumes the same transcript. A message that
+a person sends during that change stays in `pending_prompt` until the end of
+the turn. Answers to questions and permissions stay in the process that sent the
+request.
 
-Connecting an account does not activate it. The person clicks the account in the
-panel after logging in; the whole card is clickable and its outline indicates the
-selection. Connected inactive cards explicitly offer “Use this account”. The launcher
-shows the selected account and opens these same cards when no account is active,
-preserving the draft until the person selects one. Workspace creation also checks
-the global selection before publishing a card or preparing directories, including
-callers that bypass the launcher. No persisted format changes are involved.
+Action tasks use the same account selection. They keep the model, the
+instructions, the permissions and the tools of the profile that the app
+recorded when it made the task.
 
-Reconnecting increments the revision, making idle processes resume
-before the next message, even when the ID stays the same. Reconnection is refused
-during a turn that uses that account. Login failures do not change the selection.
+When a person connects an account, the app does not make it active. After the
+login, the person clicks the account in the panel. The person can click all of
+the card, and its border shows the selection. Connected cards that are not
+active show “Use this account”. The launcher shows the selected account. When
+no account is active, the launcher opens these same cards and keeps the draft
+until the person selects one. Before the app makes a workspace, it also
+examines the global selection. It does this before it publishes a card or
+prepares folders, also for callers that do not use the launcher. No stored
+format changes.
 
-Any account can be removed, including the one inherited from the terminal.
-Removing the active account clears that provider's selection, without activating
-another one automatically. The turn in progress finishes with its captured
-profile; new messages require selecting an account. Removing an inactive account
-preserves the current selection. There is no removal during a pending login: the
-attempt must be completed or cancelled.
+A new connection increases the revision. Thus, processes that do not operate
+resume before the next message, also when the ID does not change. The app refuses a new
+connection during a turn that uses that account. A login failure does not change
+the selection.
+
+A person can remove all accounts, also the account that came from the terminal.
+When a person removes the active account, the app removes the selection for that
+provider. It does not make a different account active automatically. The turn
+that operates continues to its end with its recorded profile. New messages
+cannot start until the person selects an account. When a person removes an
+account that is not active, the current selection does not change. During a
+login that is not completed, a person cannot remove an account. The person must
+complete or cancel the login first.
 
 ## Registry ownership
 
-Registry, selection and login rules live in `prometeu-core::accounts`, with
-storage (`prometeu-files::accounts`) and native authentication (`account_login.rs`)
-injected. `accounts.rs` keeps the desktop facade, executor, quota effects and
-events; provider adapters keep credentials, and only identity metadata returns
-from authentication. Failure, concurrency and cleanup obligations are in the
-[core contract](application-core.md#accounts-and-profiles).
+The rules for the registry, the selection and the login are in
+`prometeu-core::accounts`. The desktop supplies the storage
+(`prometeu-files::accounts`) and the native authentication (`account_login.rs`).
+`accounts.rs` keeps the desktop facade, the executor, the quota effects and the
+events. The provider adapters keep the credentials. Only identity metadata comes
+back from the authentication. The obligations for failures, concurrency and
+clean-up are in the [core contract](application-core.md#accounts-and-profiles).
 
 ## Registry and IPC
 
-`<root>/accounts.json` stores `{ accounts, active }` through a private, atomic
+`<root>/accounts.json` stores `{ accounts, active }` with a private, atomic
 write. Each account contains:
 
 ```ts
@@ -73,232 +82,273 @@ type Accounts = {
 };
 ```
 
-The `accounts` event and the command return values use `Accounts`. `login` is
-ephemeral and never reaches disk. The IDs `claude` and `codex` represent the
-accounts of the already-installed CLIs. Additional IDs are UUIDs generated by
-the backend. The interface identifies accounts by email or by a translated label
-while there is no login. The old `label` field is ignored when reading and is no
-longer written. The registry accepts empty lists and providers without a
-selection; only a missing file imports the two initial external profiles.
-Restarting does not restore removed accounts.
+The `accounts` event and the return values of the commands use `Accounts`.
+`login` is temporary, and the app does not write it to the disk.
+The IDs `claude` and `codex` are the accounts of the CLIs that a person
+installed before Prometeu. The backend makes UUIDs for all other IDs. When there is no
+login, the interface identifies an account by its email or by a translated
+label. The app ignores the previous `label` field when it reads the registry, and it
+does not write that field. The registry accepts empty lists and providers
+without a selection. Only when the file is missing does the app import the two
+initial external profiles. When the app starts again, it does not add removed accounts again.
 
-An older binary keeps account entries from providers it does not recognize as
-opaque JSON, together with their entries in `active`. They remain in the same
-`{ accounts, active }` shape when a recognized account changes, but they are not
-returned through IPC, queried, selected or otherwise used by that binary.
-Recognized providers still receive full validation; forward compatibility does
-not make malformed Claude or Codex entries valid. This preservation starts with
-versions that implement it: if an earlier binary has already rejected or
-overwritten a newer provider's entry, upgrading cannot reconstruct that lost
-data retroactively.
+An older binary keeps the account entries of providers that it does not know as
+JSON that it does not read. It also keeps their entries in `active`. When a known account
+changes, these entries stay in the same `{ accounts, active }` shape. That
+binary does not return them through IPC, query them, select them or use them
+for a different purpose. The binary continues to fully validate the providers that it
+knows. Forward compatibility does not make incorrect Claude or Codex entries
+correct. This function starts with the versions that have it. If an earlier
+binary rejected or replaced the entry of a newer provider, an upgrade cannot
+make that data again.
 
 | Command | Arguments | Return |
 | --- | --- | --- |
 | `accounts` | none | `Accounts` |
 | `account_select` | `{ id }` | `Accounts` |
 | `account_remove` | `{ id }` | `Accounts` |
-| `account_login` | `{ provider, id: string \| null, method?: string }` | `Accounts` on completion |
+| `account_login` | `{ provider, id: string \| null, method?: string }` | `Accounts` when the login is completed |
 | `account_login_cancel` | `{ id }` | empty |
-| `usage_refresh` | `{ provider?: ProviderId }` | empty; schedules stale selected profile probes |
+| `usage_refresh` | `{ provider?: ProviderId }` | empty. It schedules quota queries for selected profiles with expired data |
 
-`id: null` creates a disconnected profile before starting the login, allowing it
-to be reconnected after a cancellation, an error or an app restart. There is one
-login at a time; the process has a ten-minute deadline and supports cancellation.
-The app terminates the auxiliary process when the operation finishes or fails.
-Tokens, stdout, stderr and provider authentication payloads never cross IPC, the
-transcript or the relay. There is no API-key entry command.
+`id: null` makes a disconnected profile before the login starts. Thus, a person
+can connect the profile again after a cancellation, an error or a new start of the
+app. Only one login can operate at a time. The process has a deadline of ten
+minutes, and a person can cancel it. The app stops the auxiliary process when
+the operation is completed or has a failure. Tokens, stdout, stderr and the
+authentication payloads of the provider do not go through IPC, the transcript
+or the relay. There is no command to enter an API key.
 
-If the automatic resume fails after the previous turn, `account-error` presents
-the translatable error and the message stays in `pending_prompt`.
+If the automatic resume has a failure after the previous turn, `account-error`
+shows the translatable error, and the message stays in `pending_prompt`.
 
-A missing registry preserves the existing CLIs. An invalid registry returns an
-error and does not silently switch to another account. The selection requires a
-registered account of the correct provider. The terminal account is still
-managed externally: Prometeu does not run login or logout on the original
-profile. Removal takes the account out of the registry and out of the next
-identity/quota queries. It does not delete the profile directory, credentials,
-Keychain or history: already-open processes can still use them. Removal is not a
-login revocation. A query or event already in progress may finish, but it does
-not re-register the removed account. With no selection, `accounts::active`
-returns `err.account.noActive`; the adapters never silently use a removed
-terminal account.
+If the registry is missing, the app keeps the current CLIs. If the registry is
+incorrect, the app returns an error. It does not change to a different account
+silently. A selection must point to an account in the registry with the correct
+provider. The terminal account stays under external control. Prometeu does not
+run a login or a logout on the initial profile. A removal removes the account from
+the registry and from the next identity and quota queries. It does not
+delete the profile folder, the credentials, the Keychain or the history.
+Processes that operate at that time can continue to use them. A removal does
+not revoke a login. It is possible that a query or an event that operates
+completes, but it does not add the removed account to the registry again. When
+there is no selection, `accounts::active` returns `err.account.noActive`. The
+adapters do not silently use a removed terminal account.
 
 ## Profiles and credentials
 
-`prometeu-profiles` implements the profiles below; the desktop injects it into
-provider startup and native authentication.
+`prometeu-profiles` has the profiles that follow. The desktop gives it to the
+start of the provider and to the native authentication.
 
-Managed profiles live in `<root>/accounts/<uuid>/`, with a `0700` directory.
-They explicitly share history, skills and plugins; they never share inference
-credentials. The environment is applied to the child process, without changing
-the app's environment or overwriting the CLI's global login.
+Managed profiles are in `<root>/accounts/<uuid>/`, with a `0700` folder. They
+explicitly share the history, the skills and the plugins. They do not share the
+inference credentials. The app applies the environment to the child
+process. It does not change the environment of the app, and it does not replace
+the global login of the CLI.
 
 ### Claude
 
-The adapter uses `CLAUDE_CONFIG_DIR` and `claude auth login --claudeai`; the CLI
-opens the browser and manages the tokens. `claude auth status --json` provides
-the identity. On macOS, the CLI uses a Keychain entry specific to the directory;
-the `.credentials.json` fallback also belongs to the profile.
+The adapter uses `CLAUDE_CONFIG_DIR` and `claude auth login --claudeai`. The CLI
+opens the browser and controls the tokens. `claude auth status --json` gives the
+identity. On macOS, the CLI uses a different Keychain entry for each
+folder. The `.credentials.json` fallback is also part of the profile.
 
-`projects` points to the same directory as the original Claude, preserving
-`--resume` and the old UI paths. Plugins and shareable resources also use links.
-Preferences, MCPs and project trust are materialized without copying the
-identity or the inference credentials. The global configuration is not rewritten.
-Inherited alternative credentials are removed from the environment and from the
-derived preferences. Before opening a managed conversation, the adapter checks
-the authentication in the project directory and refuses an alternative source
-that would replace the selected subscription.
+`projects` points to the same folder as the initial Claude profile. Thus,
+`--resume` and the previous UI paths continue to operate. Plugins and resources that
+profiles can share also use links. The adapter writes the preferences, the MCP
+servers and the project trust into the profile. It does not copy the identity
+or the inference credentials. The adapter does not write the global
+configuration again. The adapter removes the alternative credentials that the
+environment and the derived preferences got from the parent. Before the adapter
+opens a managed conversation, it examines the authentication in the project
+folder. It refuses an alternative source that can replace the selected
+subscription.
 
 ### Codex
 
-The adapter uses a per-account `CODEX_HOME` and the app-server's official
-protocol: `account/login/start`, `account/login/completed`, `account/read` and
-`account/rateLimits/read`. The app opens the official URL in the browser; it
-does not implement token exchange or renewal. These operations do not open
-threads and do not send prompts.
+The adapter uses a `CODEX_HOME` for each account and the official protocol of
+the app-server: `account/login/start`, `account/login/completed`,
+`account/read` and `account/rateLimits/read`. The app opens the official URL in
+the browser. It does not interchange tokens or make new tokens. The CLI does these
+operations. These
+operations do not open threads and do not send prompts.
 
 Managed profiles use `cli_auth_credentials_store = "file"`, with a private
-`auth.json` inside the profile. The configuration is derived from the original
-one, with the OpenAI provider and without replacing the global configuration.
-Rollouts and the SQLite index stay shared, allowing `thread/resume` under
-another account. The model cache belongs to the account. The plugin layer is
-separated per workspace (or task session) **and account**; the authentication
-link of a process that is still alive is never repointed. See
-[plugins](plugin-marketplace.md).
+`auth.json` in the profile. The adapter makes the configuration from the initial
+configuration, with the OpenAI provider. It does not replace the global
+configuration. Rollouts and the SQLite index stay shared. Thus, `thread/resume`
+can operate under a different account. The model cache is part of the account.
+The plugin layer is different for each workspace (or task session) **and
+account**. The adapter does not change the authentication link of a process
+that continues to operate. See [plugins](plugin-marketplace.md).
 
 ## Quotas and catalog
 
-The `usage` map is indexed by the account's local ID. The old `claude` and
-`codex` keys remain valid for the original profiles; each value preserves
-`{ windows, at }`. Process events update the account captured at spawn time,
-even when the selection has already changed. The footer shows only the limits
-of the selected account, or a dash when there is no selection. Emails and
-controls stay in the panel, which presents the provider's accounts with their
-own quotas.
+The local ID of the account is the key of the `usage` map. The previous `claude` and
+`codex` keys stay correct for the initial profiles. Each value keeps
+`{ windows, at }`. Process events update the account that the process recorded
+at its start, also when the selection changed after that. The footer shows only
+the limits of the selected account, or a dash when there is no selection. The
+emails and the controls stay in the panel. The panel shows the accounts of the
+provider, each with its quotas.
 
-The native quota scheduler queries registered profiles independently and
-preserves the last reading when a provider does not answer. Selected profiles
-have a 60-second AC or 120-second battery foreground budget; inactive profiles
-have 10- or 20-minute budgets. Hidden, minimized or unfocused windows extend
-those budgets to 15 minutes for selected and 30 minutes for other profiles.
-Unknown power uses the battery budget. Failed attempts back off at 1, 2, 5,
-15 and 30 minutes per account. Opening the account panel, selecting an account
-or returning to the foreground can request an immediate attempt if its last
-attempt is at least 30 seconds old. A visible selected quota can refresh at a
-known reset boundary sooner than its ordinary interval. These are dispatch
-budgets; provider execution has its own timeout.
+The native quota scheduler queries each profile in the registry independently.
+When a provider does not answer, the scheduler keeps the last quota values. The
+scheduler uses these intervals:
 
-At most one current-generation probe per account is scheduled at once.
-Invalidated probes may finish, but their results are discarded. A per-account
-generation rejects a late probe after removal or reconnection, and live events
-take precedence over an in-flight probe. Entering login invalidates an older
-quota probe and pauses new probes for that account. Every login exit, including cancellation, failure
-and refusal during an active turn, synchronizes and wakes the scheduler after
-clearing the pending login. The account becomes eligible immediately, including
-inactive accounts whose revision did not change; a failed login preserves its
-cached quota. Removing an account clears its cached quota; a process that
-was already running may finish its turn, but its late quota event cannot
-recreate a removed or reconnected account's reading. Scheduler timestamps and
-failures are runtime-only; `usage.json` retains the original per-account
-`{ windows, at }` format, and `at` changes only when the reading changes.
-Claude still depends on the internal quota endpoint; Codex prefers the
-app-server, with the previous endpoint as a fallback. Antigravity uses its
-native `/usage` report. Missing quotas are not a zero percentage. Cursor's
-dashboard quota queries use the external CLI login;
-weekly unified quotas take precedence over legacy monthly summaries. See the
-[Cursor contract](cursor.md#account-quotas). The model catalog
-is reloaded when switching accounts; late catalog responses from the previous
-selection are discarded.
+- A selected profile in the foreground: 60 seconds on AC power or 120 seconds on
+  a battery.
+- A profile that is not active in the foreground: 10 minutes on AC power or 20
+  minutes on a battery.
+- A window that a person cannot see or that does not have the focus: 15
+  minutes for selected profiles and 30 minutes for other profiles.
+- An unknown power source: the intervals for a battery.
+
+After a failure, the scheduler waits 1, 2, 5, 15 and 30 minutes for each
+account. Some actions of a person request a new try immediately, if the last try
+occurred 30 seconds ago or before. These actions are: the person opens the
+account panel, selects an account or moves the app back to the foreground. A selected quota that a person can see can refresh at a known reset
+time, before its usual interval. These intervals tell when the scheduler sends
+a probe. The
+execution of the provider has its own timeout.
+
+The scheduler starts a maximum of one probe of the current generation for each
+account at a time. It is possible that a probe that the scheduler cancelled
+completes, but the scheduler discards its result. A generation for each account rejects a late
+probe after a removal or a new connection. Live events are more important than
+the result of a probe that operates. When a login starts, the scheduler cancels
+the older quota probe and stops new probes for that account.
+
+Each end of a login, also a cancellation, a failure or a refusal during an
+active turn, first removes the login that waits. Then it updates the scheduler
+and starts it. The account becomes available for a probe immediately. This also
+applies to accounts that are not active, when their revision did not change.
+After a login failure, the quota of the account stays in the cache. When a
+person removes an account, the app removes its quota from the cache. A process that operated before the
+removal can complete its turn. But its late quota event cannot add again the
+quota values of an account that a person removed or connected again.
+
+The time values and failures of the scheduler are only in memory. `usage.json`
+keeps the initial `{ windows, at }` format for each account. `at` changes only
+when the quota values change. Claude continues to use the internal quota endpoint.
+Codex uses the app-server first, and the previous endpoint is the fallback.
+Antigravity uses its native `/usage` report. A missing quota is not a
+percentage of 0. The dashboard quota queries of Cursor use the external CLI
+login. Unified weekly quotas are more important than the previous monthly
+summaries. See the
+[Cursor contract](cursor.md#account-quotas). When the account changes, the app
+loads the model catalog again. It discards late catalog responses from the
+previous selection.
 
 ## Evidence and verification limits
 
-- `crates/core/src/accounts/login/tests.rs`: login and reconnection ordering,
-  active-turn refusal, cancellation, authentication/persistence failures, busy
-  restrictions and external attachment through injected effects.
+- `crates/core/src/accounts/login/tests.rs`: these tests use injected effects.
+  They examine the sequence of login and new connection, and the refusal during
+  an active turn. They also examine cancellation, authentication and storage
+  failures, limits when the account is busy, and the external connection.
 - `crates/core/src/accounts/tests.rs`: registry failures, concurrent updates,
-  revision checks, empty selection and opaque-provider compatibility through
-  injected storage; `account_store.rs` checks private files and corrupt storage.
-- `crates/core/src/auxiliary.rs` and `crates/process/src/auxiliary/tests.rs`: private
-  authentication transport, cancellation/deadline policies and native cleanup;
-  provider edges inject the Unix launcher. See the
+  revision checks, an empty selection and compatibility with providers that the
+  binary does not know, through injected storage. `account_store.rs` examines
+  private files and damaged storage.
+- `crates/core/src/auxiliary.rs` and `crates/process/src/auxiliary/tests.rs`: the
+  private authentication transport, the rules for cancellation and deadlines,
+  and native clean-up. The provider adapters inject the Unix launcher. See the
   [core contract](application-core.md#processes-terminals-and-commands).
-- `accounts.rs`: compatibility with old registries, removal of every account,
-  persistence of the empty selection and cancellation with process termination.
+- `accounts.rs`: compatibility with previous registries, the removal of all
+  accounts, the storage of the empty selection and cancellation that stops the
+  process.
 - `claude.rs`, `codex/account.rs`: native authentication and identity fixtures.
-- `crates/profiles/src/claude.rs`, `codex.rs` and `tests.rs`: separate credentials,
-  shared history, explicit roots, environment isolation and preparation failures,
-  independently of Tauri. `account_profiles.rs` checks private desktop writes;
-  `agent_launch.rs` and `account_login.rs` check injected preparation failures.
-- `crates/core/src/session/tests.rs`: account handoffs and queued-input recovery
-  through injected account/runtime ports; `chat/host.rs` supplies real account
-  state. `usage.rs` covers quota isolation.
-- `usage_scheduler.rs`: login invalidation and immediate resumption after
-  cancellation or failure, for selected and inactive accounts.
-- `plugins.rs`: cleanup of per-account layers without following links.
-- `src/agents.test.ts`: late catalog response.
-- `e2e/accounts.spec.ts`: selection persisted per provider, cancellation,
-  reconnection, removal of every account, old registry without
-  nicknames, email escaping, and launcher draft preservation before explicit account selection.
-- The `empty_profiles_do_not_inherit_terminal_login` tests, run separately, query
-  the real CLIs without login or prompts.
+- `crates/profiles/src/claude.rs`, `codex.rs` and `tests.rs`: isolated
+  credentials, shared history, explicit roots, an isolated environment and
+  preparation failures, without Tauri. `account_profiles.rs` examines private
+  desktop writes. `agent_launch.rs` and `account_login.rs` examine injected
+  preparation failures.
+- `crates/core/src/session/tests.rs`: account changes and the recovery of queued
+  input through injected account and runtime ports. `chat/host.rs` supplies the
+  account state of the app. `usage.rs` examines the isolated quotas.
+- `usage_scheduler.rs`: the cancellation of probes at a login. It also
+  examines a new start immediately after a cancellation or a failure. It does
+  this for selected accounts and for accounts that are not active.
+- `plugins.rs`: clean-up of the layers of each account. It does not follow links.
+- `src/agents.test.ts`: a late catalog response.
+- `e2e/accounts.spec.ts`: a stored selection for each provider, cancellation, a
+  new connection and the removal of all accounts. It also examines a previous
+  registry without nicknames and emails with special characters.
+  Then it examines the draft that the launcher keeps until the person selects
+  an account.
+- The `empty_profiles_do_not_inherit_terminal_login` tests query the installed
+  CLIs without a login or prompts. Run them independently.
 
-The automated suite does not prove an OAuth round with two real accounts, nor
-the continuation of an authenticated conversation between them. That
-verification requires the person's logins on both providers; fixtures and mocks
-do not replace it.
+The automated suite does not prove a full OAuth sequence with two actual
+accounts. It
+also does not prove that an authenticated conversation continues between them.
+That verification is possible only with the logins of a person on the two
+providers. Fixtures and mocks do not replace it.
 
 ## Shared account interface
 
-Settings lists every provider, including unavailable installations, and reuses
-the quick switcher's cards and operations. The footer links to that page. A
-provider with multiple methods opens a method dialog; a single browser method
-continues directly. Connecting focuses the new card without selecting it.
-Secondary actions use the shared menu. Removing an active account requires
-confirmation explaining the empty selection; inactive removal remains one step.
-Visible account state, errors and controls use i18n and Design System primitives.
+Settings shows all providers, also the installations that are not available. It
+uses the same cards and operations as the account switcher. The footer links to
+that page. A provider with more than one method opens a dialog where the person
+selects a method. A provider with only one browser method continues directly.
+After a new connection, the new card gets the focus, but the app does not select
+it. Secondary actions use the shared menu. The removal of an active account
+shows a confirmation that tells about the empty selection. The removal of an
+account that is not active stays one step. The account state, the errors and
+the controls that a person can see use i18n and the primitives of the Design
+System.
 
-The cards keep the complete identity visible with wrapping, place the plan and
-selection state together, and show each quota on its own meter with usage and
-reset labels. Popovers place Add account and Manage accounts in the same footer
-row when space permits. Once the external agy profile is attached, attachment
-status replaces the redundant disabled attachment button; removing it makes
-the attachment action available again. The selector uses the same cards inside
-a scrolling dialog body with fixed confirmation actions. Selection, login and
-removal semantics remain unchanged; this presentation needs no format migration.
-`e2e/launcher-layout.spec.ts` covers narrow layouts, long identities and the
-selector's focus restoration, with representative WebKit checks.
+The cards show all of the identity, on more than one line when necessary. They put the plan and the
+selection state together. They show each quota on its own meter, with a label for
+the usage and a label for the reset time. When there is sufficient space, the popovers put Add
+account and Manage accounts in the same footer row. After the external agy
+profile is connected, the connection status replaces the disabled connection
+button. When a person removes the profile, the connection action becomes
+available again. The selector uses the same cards in a dialog body that scrolls,
+with confirmation actions that do not move. The rules for selection, login and removal do
+not change. This presentation does not make a format migration necessary.
+`e2e/launcher-layout.spec.ts` examines narrow layouts, long identities and the
+return of the focus in the selector, with some WebKit checks.
 
 ## Antigravity
 
-`account_login` with provider `antigravity` and method `external` explicitly
-attaches the single external profile, ID `antigravity`; it does not perform
-OAuth or change selection. `connected: false` and null identity fields mean
-identity was not probed, not that the CLI account was rejected. External cards
-remain selectable. A removed external profile is not recreated on startup.
-No managed UUID profiles or API-key method are accepted for this provider.
+`account_login` with the provider `antigravity` and the method `external`
+explicitly connects the single external profile, with the ID `antigravity`. It
+does not do OAuth, and it does not change the selection. `connected: false` and
+identity fields with the value null tell that the app did not query the
+identity. They do not tell that the CLI rejected the account. A person can
+select external cards. The app does not make a removed external profile again at
+the start. This provider does not accept managed UUID profiles or an API-key
+method.
 
-The child uses agy's existing environment and keyring. The app does not isolate
-or change that identity, and cannot guarantee identity continuity if the user
-switches accounts outside the app. The official interactive agy handles login
-and browser consent. There is no proven browser-only login API for Prometeu.
-Quotas are read from `agy -p /usage` once per minute without inference. The
-TSV fields are group, window name, remaining percentage, and RFC3339 reset. The
-adapter converts remaining to used (`100 - remaining`) and preserves separate
-model groups in the existing window scope/label fields. Malformed or failed
-queries retain the cache; absent data stays unavailable, never zero. The panel
-displays used and remaining percentages. The catalog reads `agy models`.
+The child process uses the current environment and keyring of agy. The app does
+not isolate or change that identity. If the user changes accounts in a different
+application, the app cannot make sure that the identity stays the same. The official
+interactive agy does the login and the consent in the browser. There is no
+proven login API for Prometeu that uses only the browser. The adapter reads the
+quotas from `agy -p /usage` one time each minute, without inference. The TSV
+fields are the group, the window name, the remaining percentage and the RFC3339
+reset time. The adapter changes the remaining value to the used value
+(`100 - remaining`). It keeps different model groups in the current scope and
+label fields of the window. If a query has a failure or incorrect data, the
+adapter keeps the cache. Data that is not there stays not available. It does
+not become 0. The panel shows the used and the remaining
+percentages. The catalog reads `agy models`.
 
-Former Gemini accounts and active selections are opaque preserved entries, not
-usable accounts. Their directories, credentials and native histories remain
-untouched. See [ADR 0052](../decisions/0052-antigravity-runtime.md).
+The previous Gemini accounts and active selections are entries that the app keeps
+but does not read. A person cannot use them as accounts. The app does not touch their
+folders, credentials and native histories. See
+[ADR 0052](../decisions/0052-antigravity-runtime.md).
 
 ## Cursor
 
-Provider `cursor` attaches the single external CLI account, also named `cursor`,
-with method `external`. Attachment and selection remain separate. No managed
-UUID profile, credential copy or API-key form is accepted. Its unknown identity
-fields do not prevent selecting the external card. Removal stays removed across
-restart and does not run logout. Cursor owns account switching outside Prometeu.
-Quota queries read the existing CLI credential without copying or renewing it,
-then normalize the dashboard's account limits into the shared usage windows.
-See the [Cursor contract](cursor.md#account-quotas).
+The provider `cursor` connects the single external CLI account, also with the
+name `cursor`, with the method `external`. The connection and the selection stay
+different operations. The provider does not accept a managed UUID profile, a
+copy of the credentials or an API-key form. Its unknown identity fields do not
+stop the selection of the external card. A removal stays after the app starts again, and
+it does not run a logout. Cursor controls the account changes, not Prometeu.
+Quota queries read the current CLI credential. They do not copy it or make a
+new one.
+Then they change the account limits of the dashboard into the shared usage
+windows. See the [Cursor contract](cursor.md#account-quotas).

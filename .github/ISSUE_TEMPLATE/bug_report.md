@@ -1,12 +1,12 @@
 ---
 name: Bug report
-about: Report a reproducible problem in Prometeu
+about: Report a problem in Prometeu that you can make occur again
 labels: bug
 ---
 
 ## What happened?
 
-Describe the problem and what you expected instead.
+Give the problem. Tell which result you thought was correct.
 
 ## Steps to reproduce
 
@@ -18,12 +18,12 @@ Describe the problem and what you expected instead.
 
 - Prometeu version:
 - Operating system and architecture:
-- Agent and CLI version (Claude Code / Codex / Antigravity, if relevant):
+- Agent and CLI version (Claude Code / Codex / Antigravity, if applicable):
 
 ## Screenshots or logs
 
-Attach only what helps reproduce the problem. Remove credentials, private paths,
-prompts and conversation content.
+Attach only the data that helps us make the problem occur again. Remove
+credentials, private paths, prompts and the content of conversations.
 
-<!-- Search existing issues first. For vulnerabilities, use
-https://github.com/prometeucorp/prometeu/security/advisories/new instead. -->
+<!-- First, examine the current issues. For a vulnerability, use
+https://github.com/prometeucorp/prometeu/security/advisories/new as an alternative. -->

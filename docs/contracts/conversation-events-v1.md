@@ -1,22 +1,23 @@
 ---
 type: Contract
 title: "Conversation Events v1"
-description: "Canonical protocol owned by Prometeu."
+description: "The canonical protocol that Prometeu owns."
 status: stable
 ---
 
 # Conversation Events v1
 
-Contract in force since 2026-09-03.
+This contract is in force from 2026-09-03.
 
-Claude, Codex, Antigravity and Cursor have different external protocols. The adapters translate them
-into events and commands owned by Prometeu before the buffer, IPC, new
-persistence or collaboration. The contract's executable sources are
-`src/conversation.ts` and `src-tauri/src/conversation.rs`.
+Claude, Codex, Antigravity and Cursor have different external protocols. The
+adapters translate them into events and commands that Prometeu owns. They do
+this before the buffer, IPC, new storage or collaboration. The executable
+sources of the contract are `src/conversation.ts` and
+`src-tauri/src/conversation.rs`.
 
 ## Envelope and transport
 
-Each event is a JSON object on a single line:
+Each event is a JSON object on one line:
 
 ```ts
 type EventBase<T extends string> = {
@@ -26,18 +27,20 @@ type EventBase<T extends string> = {
 };
 ```
 
-Session and sequence are not in the event. IPC and the relay carry the line in
-the existing transport envelope: `[session, line, seq]`. The sequence joins the
-snapshot and the live stream, but it is not a durable identity.
+The session and the sequence are not in the event. IPC and the relay send the
+line in the current transport envelope: `[session, line, seq]`. The sequence
+connects the snapshot and the live stream, but it is not a durable identity.
 
-Unknown fields are ignored. An invalid version, type or required field discards
-only that line. An unknown type is a no-op and does not end the session.
+The reader ignores unknown fields. An incorrect version, type or mandatory
+field discards only that line. An unknown type has no effect and does not stop
+the session.
 
-The [serialization checks](ipc.md#executable-serialization-examples) feed
-synthetic Claude/Codex adapter output through the same TypeScript validator and
-timeline. The existing Antigravity fixture separately covers recorded NDJSON
-translation. Canonical fixtures normalize timestamps and numeric durations;
-they do not change production event values or durable sequence semantics.
+The [serialization checks](ipc.md#executable-serialization-examples) send
+synthetic Claude and Codex adapter output through the same TypeScript validator
+and timeline. The current Antigravity fixture examines the translation of
+recorded NDJSON independently. Canonical fixtures normalize timestamps and
+numeric time values. They do not change the event values in production or the
+meaning of the durable sequence.
 
 ## Common content
 
@@ -59,22 +62,22 @@ type BackgroundTask = {
 };
 ```
 
-The current contract sends attachments to the provider as path mentions inside
-the text. Image and file metadata are reserved for an implementation that
-transports attachments separately; bytes and local paths do not enter the shared
+The current contract sends attachments to the provider as path mentions in the
+text. We keep the image and file metadata for a future implementation that sends
+attachments independently. Bytes and local paths do not go into the shared
 transcript by inference.
 
-The mentions open the text as their own paragraph, separated from the rest by a
-blank line (`src/mentions.ts`). The presentation reads back only that opening
-paragraph, and only when it consists entirely of mentions: images become
-numbered tags (`Image #1`, `Image #2`) and other files show their name, with
-the path in the tooltip. The transcript and the provider keep the paths as
-they are; a mention typed inside the text stays text.
+The mentions start the text as a paragraph of their own. An empty line divides
+them from the remaining text (`src/mentions.ts`). The presentation reads back
+only that first paragraph, and only when it contains only mentions. Images
+become numbered tags (`Image #1`, `Image #2`). Other files show their name, with
+the path in the tooltip. The transcript and the provider keep the paths without
+changes. A mention that a person types in the text stays text.
 
-Browser element contexts use an additive textual convention inside `text`,
-without a new event or command type. The presentation turns only valid blocks
-into tags; the reducer, the adapters and the transcript preserve the complete
-string. See the [browser contract](browser.md#context-in-the-message-text).
+Browser element contexts use an additive text convention in `text`, without a
+new event type or command type. The presentation changes only correct blocks
+into tags. The reducer, the adapters and the transcript keep the full string.
+See the [browser contract](browser.md#context-in-the-message-text).
 
 ## Persistent events
 
@@ -126,75 +129,92 @@ type ConversationEventV1 =
   | (EventBase<"context.reported"> & { markdown: string });
 ```
 
-`assistant.block` is authoritative per `(messageId, index)`. Blocks with the
-same `messageId` form one visual message. A result for an unknown tool or the
-closing of an unknown request is a no-op; it never breaks the replay.
-An authoritative block revision may arrive after a later turn: it updates the
-existing item and preserves its position, timestamp and completion state.
-It does not reopen historical activity. Streaming drafts remain scoped to the
-current response. `src/timeline.test.ts` checks positional keys across this case.
+`assistant.block` is authoritative for each `(messageId, index)`. Blocks with
+the same `messageId` make one visual message. A result for an unknown tool or
+the close of an unknown request has no effect. It does not stop the replay. An authoritative block revision can come after a subsequent turn. It
+updates the current item and keeps its position, timestamp and completion
+state. It does not open historical activity again. Stream drafts stay in the
+scope of the current response. `src/timeline.test.ts` examines the position
+keys in this condition.
 
-`request.opened.kind` determines the question, plan or approval interaction and
-the accepted response. The timeline preserves it as `Ask.requestKind`; neither
-rendering nor remote response validation infers it from `tool`, which may be
-unfamiliar or `null`. Legacy transcript adaptation supplies the same canonical
-kind. `src/timeline.test.ts`, `e2e/conversation-requests.spec.ts` and the Rust
-remote-control tests cover those cases without changing the V1 wire format.
+`request.opened.kind` sets the interaction (question, plan or approval) and the
+accepted response. The timeline keeps it as `Ask.requestKind`. The rendering
+and the validation of remote responses do not guess it from `tool`, because
+that field can be unknown or `null`. The adaptation of legacy transcripts supplies
+the same canonical kind. `src/timeline.test.ts`,
+`e2e/conversation-requests.spec.ts` and the Rust remote-control tests examine
+those conditions. They do not change the V1 wire format.
 
-A `system.notice` with `code: "background.completed"` reports a finished
-background task. Its `detail` is the task's one-line summary; when a subagent
-returns a report, the report follows as Markdown after a blank line. Adapters
-decode the XML escaping Claude applies to `<task-notification>` text, and the
-chat folds long notices behind their first line.
+A `system.notice` with `code: "background.completed"` reports a completed
+background task. Its `detail` is the summary of the task on one line. When a
+subagent returns a report, the report follows as Markdown after an empty line.
+Adapters decode the XML character codes that Claude adds to the
+`<task-notification>` text. The chat shows only the first line of long notices
+until a person opens them.
 
-`request.closed.outcome = "resolved"` means the provider confirmed that the
-request is no longer pending but did not disclose the decision. It closes the
-card and notification state without inferring allowance, denial, an answer or
-cancellation. Existing outcomes keep their meaning. The parser/replay fixture
-in `codex/fixtures/native-request-resolved.json`, `src/conversation.test.ts`
-and `src/alert.test.ts` cover this additive value and legacy closures. Older
-renderers that reject unknown outcome values may retain the card until another
-settlement event; the backend still rejects its stale response ID.
+`request.closed.outcome = "resolved"` tells that the provider closed the
+request but did not tell the decision. It closes the card and the notification
+state. It does not tell if the provider permitted, denied, answered or cancelled
+the request. The current outcomes keep their meaning. The parser and replay
+fixture in `codex/fixtures/native-request-resolved.json`,
+`src/conversation.test.ts` and `src/alert.test.ts` examine this additive value
+and legacy closures. It is possible that older renderers reject unknown outcome
+values and keep the card until a different event closes it. The backend
+continues to reject the expired response ID.
 
-`turn.completed` ends the turn and any visual compaction, but it does not end
-background tasks. Consumers treat the conversation as working until the turn has
-ended and `background.changed` reports no task; only `interrupted` ends both at
-once. A terminal that arrives with tasks still running is held, never dropped. Cost stays in the common event as an optional number: Claude
-may fill it in and Codex may use `null` without introducing a provider extension
-into the history.
+`turn.completed` stops the turn and all visual compaction. But it does not stop
+background tasks. Consumers think that the conversation operates until the
+turn stops and `background.changed` reports no task. Only `interrupted` stops
+the two at the same time. If a last event comes while tasks continue to operate,
+the consumer keeps it and does not discard it. The cost stays in the shared
+event as an optional number. Claude can supply it, and Codex can use `null`.
+Thus, the history gets no extension for one provider only.
 
-The optional `usage` extension uses the application-owned measurement shape
-from the [telemetry contract](telemetry.md#usage-and-model-attribution): nullable
-inclusive input/output counts, their cache/reasoning subsets, observed model
-rows, explicit coverage/scope, current context and a normalized per-turn cost.
-`messageId` identifies the final assistant message when the adapter can prove it.
-The presentation attaches this metadata only to the completed turn's last text
-block. Old completions without either field retain their existing behavior.
-Malformed optional usage is ignored without discarding a valid completion.
-`context.compacted.trigger` is optional and reports automatic/manual compaction
-only when the provider supplies that distinction; absent or unknown triggers do
-not acquire a label by inference.
-Native transcript capture receipts compaction observations as metadata, including
-when no model turn exists. `context.compacted` remains in append-only history;
-replay and late metadata revisions do not reopen execution, emit a completion,
-or repeat telemetry. `context.compaction` remains ephemeral.
+The optional `usage` extension uses the measurement shape that the application
+owns, from the [telemetry contract](telemetry.md#usage-and-model-attribution).
+It contains these items:
 
-The existing top-level `costUsd` remains a legacy provider-reported value whose
-scope can be cumulative. It is preserved for compatibility and never summed or
-used as a fallback for the new footer. Only `usage.usage.costUsd` is a turn
-estimate; unknown is null, including unverifiable restored spend. There is no
-Prometeu price table or billing guarantee. `usage.updated` remains ephemeral
-account quota information and is unrelated to persisted turn consumption.
+- Nullable counts for all input and output. These counts include the cache
+  tokens and the reasoning tokens.
+- The rows of the models that the adapter saw.
+- An explicit coverage and scope.
+- The current context.
+- A normalized cost for each turn.
 
-Canonical completion usage follows the conversation's existing encrypted
-sharing boundary, including the CLI estimate already permitted by the legacy
-event. The local SQLite history, app-call origins and reply lookup are never
-published to the relay or Cloud. Clearing local history does not rewrite
-transcripts or copies of conversation events already shared.
+`messageId` identifies the last assistant message when the adapter can prove
+it. The presentation attaches this metadata only to the last text block of the
+completed turn. Previous completions without these two fields keep their
+current behavior. The reader ignores optional usage that is incorrect, and it
+keeps a correct completion.
+
+`context.compacted.trigger` is optional. It reports automatic or manual
+compaction only when the provider supplies that difference. When the field is
+missing or unknown, the app does not guess a label. The native transcript
+capture records compaction observations as metadata, also when there is no
+model turn. `context.compacted` stays in the append-only history. The replay
+and late metadata revisions do not open the execution again, do not send a
+completion and do not record telemetry again. `context.compaction` stays
+temporary.
+
+The current top-level `costUsd` stays a legacy value that the provider reports.
+Its scope can be cumulative. The app keeps it for compatibility. The app does
+not add it to other values and does not use it as a fallback for the new
+footer. Only `usage.usage.costUsd` is an estimate for one turn. An unknown cost
+is null. This includes a cost from a stored session that the app cannot examine.
+Prometeu has no price table and gives no guarantee about the invoice. `usage.updated` stays temporary
+account quota information. It is not related to the stored consumption of a
+turn.
+
+Canonical completion usage follows the current encrypted sharing boundary of
+the conversation. This includes the CLI estimate that the legacy event
+permitted. The app does not publish the local SQLite history, the app-call
+origins or the reply lookup to the relay or the Cloud. When a person removes
+the local history, the app does not write transcripts again. It also does not
+change copies of conversation events that it shared before.
 
 ## Ephemeral events
 
-These are not written to the transcript:
+The app does not write these events to the transcript:
 
 ```ts
 type ConversationEphemeralV1 =
@@ -242,72 +262,96 @@ type ConversationEphemeralV1 =
     });
 ```
 
-Deltas run ahead of the presentation; `assistant.block` replaces the draft of
-the same index. Ephemeral events still receive a transport sequence so that the
-snapshot and the live stream keep the same order.
+Deltas come before the presentation. `assistant.block` replaces the draft of the
+same index. Temporary events also get a transport sequence. Thus, the snapshot
+and the live stream keep the same sequence.
 
-`execution.observed` is a read-only observation of native execution, independent
-of assistant content. `activityId` identifies one process-scoped activity cycle;
-`blockId` identifies one blocking episode and is required only for `blocked`.
-Both identifiers are nonempty and at most 256 characters. Other states require
-`blockId: null` and `kind: null`. The optional blocking kind and detail describe
-observed facts; neither creates a request, answer route, tool call or assistant
-message. Background observations do not reopen the root turn or invalidate a
-completion held for those same children. `idle` reports availability, without
-completion or new unread attention. `unknown` reports lost evidence and cancels
-a pending completion before any ambiguous background removal is published.
+`execution.observed` is a read-only observation of the native execution. It is
+not related to assistant content. `activityId` identifies one activity cycle in
+the scope of one process. `blockId` identifies one blocked period and is
+mandatory only for `blocked`. The two identifiers are not empty and have a
+maximum of 256 characters. Other states must have `blockId: null` and
+`kind: null`. The optional kind and detail fields tell about facts that the app saw. They
+do not make a request, a path for an answer, a tool call or an assistant
+message.
 
-The native execution projector accepts only explicit root working/blocked to
-done/error transitions as completion candidates. The host must finish reading
-the native transcript before committing one; a canonical completion received
-during that drain cancels the candidate. Repeated completion/status reports
-cannot reopen a closed cycle. A new accepted submission or distinct native
-generation proven by the host can. First activity may precede the corresponding
-transcript prompt: its first accepted input claims that still-open provisional
-cycle without resetting activity evidence. The host must correlate or order
-input before final publication; a prompt arriving after a closed cycle cannot
-be identified as the earlier prompt by text alone. Replay never enters this
-projector or notification tracking. Clear, idle, record eviction, process exit,
-and a stop hook that does not prove finality never imply successful completion.
+Background observations do not open the root turn again. They do not cancel a
+completion that the app holds for those same child tasks. `idle` reports
+availability, without a completion or a new unread indication. `unknown` reports
+that the evidence is not available. It cancels a completion that waits, before the app
+publishes an ambiguous removal of background tasks.
 
-A native root error also publishes root `idle` immediately. It ends observed
-activity without waiting for successful-completion evidence. Source content that
-arrives later stays readable without restarting activity. Active children keep
-their own status until they drain. The error completion candidate remains
-separate; a native retry can report working again without another user prompt
-and invalidates that candidate. This uses existing V1 fields and does not add a
-persisted event or a success notification.
+The native execution projector accepts only explicit root changes from the
+working or blocked state to the done or error state as possible completions. The host must read all of
+the native transcript before it commits one. If a canonical completion comes
+during that read, it cancels the possible completion. More completion or
+status reports cannot open a closed cycle again. A new accepted submission can
+open it again. A different native generation that the host proves can also
+open it again.
 
-The event is additive in V1: older readers ignore it; it consumes a live
-transport sequence but no persisted transcript position. `src/conversation.test.ts`,
-`src/alert.test.ts`, core session/work tests and protocol
-`terminal_execution/tests.rs` cover compatibility, scope, uncertain drains and
-single completion delivery. Native terminal availability and provider-specific
-control channels are described in [ADR 0100](../decisions/0100-conversation-transport-identity.md).
+The first activity can come before the related transcript prompt. Its first
+accepted input then claims that temporary cycle, which continues to be open,
+and keeps the activity evidence. The host must correlate the input or put it
+in sequence before the last publication. If a prompt comes after a
+closed cycle, the text alone cannot identify it as the earlier prompt. Replay
+does not go into this projector or into the notification monitor. These events
+do not tell that a completion was correct:
 
-In the live local stream, `chat.rs` emits `session.state` with `starting` when
-starting a process and with `busy` after the `message.send` write is accepted.
-That `busy` precedes `user.message`, local echoes and concurrent responses,
-under the same publication lock; a failed write does not emit it. Answers to
-requests and provider echoes do not represent another accepted message. The
-snapshot may synthesize `busy`, `ready` or `stopped` to present the current
-state, but it does not start a new execution in the Dock's pending tracking.
-`stopped` means no process is behind the conversation, including after a
-restart: replay keeps a turn the transcript left unfinished visibly cut off,
-with the partial reply marked incomplete, open requests closed without an
-answer and an `interrupted` notice, while `ready` still settles them as before.
-The snapshot also places `stopped` after each line count in `Tab.cuts`, where
-the app cut a turn off before the conversation continued. Older readers treat
-`stopped` like `ready`. These events stay ephemeral, with no change to the
-envelope, the persisted format or the contract's version.
-Optional local notifications use these same live events without changing V1.
-Notifications and sound start disabled; see the
+- Clear.
+- Idle.
+- The eviction of a record.
+- A process exit.
+- A stop hook that does not prove the end.
+
+When an agent sends `Error` for its `root` record, `ExecutionProjector` sends
+`execution.observed` with `root` scope and `idle` state. This event stops the
+indication that the primary agent is active, without a `turn.completed` event. The app keeps
+transcript data that comes after the error. This data does not start the
+indication again. Each active child task keeps its state until it stops.
+
+The `idle` state of the `root` record does not remove or use the pending
+`CompletionTicket` for the error.
+The agent can try again after its usage limit without a new prompt. A `Working`
+report cancels that `CompletionTicket` and starts the indication again. The app
+uses the current V1 fields. It does not record a new event in the transcript or
+tell the person that the turn completed.
+
+The event adds to V1. Older readers ignore it. It uses a live transport
+sequence but no stored transcript position. These tests examine the compatibility, the
+scope, the reads with an unsure result and the delivery of one completion only:
+`src/conversation.test.ts`, `src/alert.test.ts`, the core session and work
+tests, and the protocol tests in `terminal_execution/tests.rs`.
+[ADR 0100](../decisions/0100-conversation-transport-identity.md) tells about the
+availability of the native terminal and the control channels of each provider.
+
+In the live local stream, `chat.rs` sends `session.state` with `starting` when
+it starts a process. It sends the same event with `busy` after the process
+accepts the `message.send` write. That `busy` comes before `user.message`, local
+echoes and concurrent responses, under the same publication lock. If the write has a
+failure, this event does not occur. Answers to requests and provider echoes are not a new accepted
+message. The snapshot can make `busy`, `ready` or `stopped` to show the current
+state. But it does not start a new execution in the monitor of the Dock.
+
+`stopped` tells that no process operates the conversation. This also applies
+after the app starts again. In this condition, the replay shows a turn that the transcript
+did not completed as cut off:
+
+- The reply that is not completed has a mark that tells this.
+- Open requests close without an answer.
+- An `interrupted` notice shows.
+
+`ready` continues to close them as before. The snapshot also puts `stopped`
+after each line count in `Tab.cuts`, where the app cut off a turn before the
+conversation continued. Older readers read `stopped` as `ready`. These events
+stay temporary. The envelope, the stored format and the version of the contract
+do not change. Optional local notifications use these same live events and do
+not change V1. At the start, the app disables notifications and sound. See the
 [notification contract](notifications.md) and
 [ADR 0054](../decisions/0054-local-notifications.md).
 
-`usage.updated` identifies the provider because a quota is account information
-and the external payloads do not have enough common semantics. That payload goes
-straight to the usage adapter, not to the timeline or the transcript.
+`usage.updated` identifies the provider, because a quota is account information
+and the external payloads do not have sufficient shared meaning. That payload
+goes directly to the usage adapter, not to the timeline or the transcript.
 
 ## Commands
 
@@ -328,61 +372,69 @@ type ConversationCommandV1 =
   | { v: 1; type: "commands.list" };
 ```
 
-Slash commands are still `message.send` text: the interpretation belongs to the
-adapter, since availability and implementation vary. The autocomplete list uses
-`commands.list` and `commands.updated`.
+Slash commands continue to be `message.send` text. The adapter interprets them,
+because the availability and the implementation are different for each
+provider. The autocomplete list uses `commands.list` and `commands.updated`.
 
-Model, effort, MCP and plugins configure the session outside this contract.
-`permission.mode.set` is offered only when the provider's capability allows it.
+The model, the effort, the MCP servers and the plugins configure the session.
+This contract does not include them. The app shows `permission.mode.set` only when the
+capability of the provider lets it operate.
 
 ## Security
 
-- remote control is validated on the Mac that owns the process;
-- a remote `request.respond` is valid only for a request open in the buffer;
-- approval input is rebuilt from the original request, never accepted from the
-  client;
-- question answers accept only keys present in the request;
-- unrestricted mode cannot be enabled remotely;
-- events do not grant filesystem access by themselves.
+- The Mac that owns the process validates the remote control.
+- A remote `request.respond` is correct only for a request that is open in the
+  buffer.
+- The app makes the approval input again from the initial request. It does not
+  accept it from the client.
+- Question answers accept only keys that are in the request.
+- A remote client cannot enable the mode without permission prompts.
+- Events alone do not give access to the file system.
 
 ## Persistence and legacy
 
-Previous transcripts are not rewritten. `LegacyConversationAdapter` translates
-old lines during replay, outside the reducer. Claude's transcript still belongs
-to the CLI; live events already arrive normalized.
+The app does not write previous transcripts again.
+`LegacyConversationAdapter` translates previous lines during the replay,
+before the reducer. The CLI continues to own the transcript of Claude. Live events come
+normalized.
 
-Prometeu writes only the V1 event in the managed log for Codex. The reader still
-ignores projections marked with `prometheusV1Mirror` and translates the legacy
-`type: "prometheus"` discriminant; those names belong to the previous product's
-historical format and are not emitted in new logs. The change in rollback policy
-is recorded in ADR 0004.
+For Codex, Prometeu writes only the V1 event in the managed log. The reader
+continues to ignore projections with the `prometheusV1Mirror` mark. It
+translates the legacy `type: "prometheus"` discriminant. Those names come from
+the historical format of the previous product, and new logs do not contain them.
+ADR 0004 records the change in the rollback policy.
 
 ## Evidence
 
-- `src/conversation.test.ts`: parser, V1 replay and equivalence with the legacy
-  format;
-- `src/timeline.test.ts`: streaming, tools, requests, background and compaction;
-- `claude.rs` tests: stream-json translation, commands and unknown events;
-- `conversation.rs` tests: the V1 envelope;
-- `codex.rs` tests: V1 commands, the JSON-RPC protocol and direct V1 output;
-- `chat.rs` tests: persistence, sequence and safe reconstruction of remote
-  control.
+- `src/conversation.test.ts`: the parser, the V1 replay and the equivalence with
+  the legacy format.
+- `src/timeline.test.ts`: streams, tools, requests, background tasks and
+  compaction.
+- `claude.rs` tests: the stream-json translation, commands and unknown events.
+- `conversation.rs` tests: the V1 envelope.
+- `codex.rs` tests: V1 commands, the JSON-RPC protocol and V1 output without a
+  translation.
+- `chat.rs` tests: storage, sequence and a safe new build of the remote
+  control state.
 
 ## Local telemetry observations
 
-Adapters can attach normalized `telemetry` measurements and nullable
-`providerDurationMs` to `turn.completed` before Pump capture. These internal fields
-follow the [telemetry contract](telemetry.md); Pump strips them before transcript
-persistence, live UI publication and sharing. Existing timeline parsers read the
-original completion fields. Claude's `costUsd` now reflects an attributable
-per-turn estimate, or null when only an unverified cumulative value exists.
+Adapters can attach normalized `telemetry` measurements and a nullable
+`providerDurationMs` to `turn.completed` before the capture of the session output. These internal
+fields follow the [telemetry contract](telemetry.md). The capture removes them
+before the transcript storage, the live UI publication and the share. The
+current timeline parsers read the initial completion fields. At this time, the
+`costUsd` of Claude gives an estimate for each turn. It is null when only a
+cumulative value that the app cannot examine is available.
 
 The internal `telemetry.usage` observation uses the same adapter envelope and
-Pump ordering gate, but never enters the conversation buffer, transport sequence,
-transcript or relay. It is consumed only by the owner's local event store.
-Quota `usage.updated` and context `context.updated` retain their existing meanings.
-Replay cannot capture new telemetry.
+the same sequence gate of the capture. But it does not go into the
+conversation buffer, the transport sequence, the transcript or the relay. Only the local
+event store of the owner uses it. The quota event `usage.updated` and the
+context event `context.updated` keep their current meanings. Replay cannot
+record new telemetry.
 
-Cursor ACP uses existing V1 text/thinking, tool, request and completion events;
-no provider messages cross this boundary. Its recorded translation fixture is
-validated by `src/conversation.test.ts`. See [Cursor](cursor.md).
+Cursor ACP uses the current V1 events for text, the reasoning of the model,
+tools, requests and completions. No provider messages go through this boundary.
+`src/conversation.test.ts` validates its recorded translation fixture. See
+[Cursor](cursor.md).

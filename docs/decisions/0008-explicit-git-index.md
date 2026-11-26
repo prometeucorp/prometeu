@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0008 — explicit Git index and per-repository operations"
-description: "Explicit Git index and per-repository operations."
+description: "The interface shows the Git index, the worktree and the conflicts, and it does the Git operations for each repository."
 status: stable
 ---
 
@@ -11,51 +11,61 @@ Date: 2026-09-05
 
 ## Context
 
-Changes gathered the branch's commits and local modifications into a diff from
-the merge base. The dirty-file filter did not change the patches' base. That
-model served review, but it did not describe the index needed to prepare a
-commit. Agent sessions may also keep editing while the person reviews, and a
-workspace may contain several independent repositories.
+The Changes view put the commits of the branch and the local changes into one
+diff from the merge base. The filter for changed files did not change the base
+of the patches. That model was satisfactory for a review. But it did not show
+the index, which is necessary to prepare a commit. Agent sessions can
+also continue to change files while the person does the review. A workspace can
+also contain many independent repositories.
 
 ## Options considered
 
-1. Add a stage to the existing diff, keeping patches mixed together.
-2. Expose index, worktree and conflicts separately, preserving branch review and
-   history as explicit comparisons.
-3. Delegate every operation to the agent or to an external Git client.
+1. Add a stage to the current diff, and keep the patches mixed.
+2. Show the index, the worktree and the conflicts independently. Keep the branch
+   review and the history as explicit comparisons.
+3. Give each operation to the agent or to an external Git client.
 
 ## Decision
 
-Adopt the second option. The UI stages and commits per repository, and separates
-a local commit from a push. The backend resolves paths from the workspace and
-owns the Git operations; the presentation does not run shell commands. The new
-commands use `workspace_git_*`; the mixed-diff IPC has been removed as described
-in [ADR 0043](0043-retire-unused-ipc.md). The current operations are described in
+Use the second option. The interface stages and commits for each repository.
+It keeps a local commit and a push as two different operations. The backend
+finds the paths from the workspace, and it owns the Git operations. The
+presentation does not run shell commands. The new commands use
+`workspace_git_*`. The project removed the IPC of the mixed diff, as
+[ADR 0043](0043-retire-unused-ipc.md) tells. The current operations are in
 [`../contracts/git.md`](../contracts/git.md).
 
-Branch selection reuses the launcher and the worktree lifecycle. It does not
-switch the checkout of a workspace that has running conversations. The colored
-initial avatar remains the repository's visual identity.
-The launcher can attach a new worktree to an existing local branch or create a
-local branch from a remote ref. The branch must be free in Git's worktree list.
-This keeps checkout selection explicit and leaves the source clone unchanged.
+The branch selection uses the launcher and the worktree lifecycle again. It does
+not change the checkout of a workspace that has conversations that operate. The
+colored avatar with the initial letter stays the visual identity of the
+repository. The launcher can attach a new worktree to a current local branch.
+It can also make a local branch from a remote ref. The branch must not be in
+the worktree list of Git. Thus, the checkout selection stays explicit, and the
+source clone does not change.
 
 ## Consequences
 
-- Partially staged files appear in both groups, with specific patches. New agent
-  edits stay out of the commit.
-- Local counters and upstream counters have distinct meanings.
-- Git errors are explicit; a failing repository does not look clean.
-- The UI keeps drafts and protects actions against old navigation responses.
-- The app does not become a complete Git client: it does not add a checkout on
-  top of agents, force-push, line staging or rebase completion.
-- Discarding unstaged work is offered per file, confirmed, limited to the
-  worktree side and refused while an agent runs; staged content and conflicts
-  are never discarded.
-- There is no change in persistence, agent contracts or the relay.
+- Partially staged files show in the two groups, each with its own patch. New
+  changes from the agent stay out of the commit.
+- Local counters and upstream counters have different meanings.
+- Git errors are explicit. A repository with a failure does not look clean.
+- The interface keeps drafts. It ignores the
+  responses of a previous navigation.
+- The application does not become a full Git client. It does not add these
+  operations:
+  - A checkout under a running agent.
+  - A force-push.
+  - The staging of single lines.
+  - The completion of a rebase.
+- A person can discard unstaged work for one file at a time, after a
+  confirmation. The discard applies only to the worktree side. The application
+  refuses the discard while an agent runs. The application does not discard
+  staged content or conflicts at any time.
+- The decision does not change the storage, the agent contracts or the relay.
 
 ## Evidence
 
-Real tests in `src-tauri/crates/git/src/tests.rs`, UI in `e2e/git.spec.ts` and
-IPC parity in `src-tauri/tests/mock.rs`. Visual approval happened in a temporary
-prototype; that artifact is not part of the versioned documentation.
+Tests with Git repositories are in `src-tauri/crates/git/src/tests.rs`. The
+interface tests are in `e2e/git.spec.ts`. The IPC parity test is in
+`src-tauri/tests/mock.rs`. The visual approval used a temporary prototype. That
+prototype is not part of the versioned documentation.

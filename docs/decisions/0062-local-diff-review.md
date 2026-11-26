@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0062 — local review notes and explicit batch submission"
-description: "Local review notes and explicit batch submission."
+description: "Local review notes that the person sends together in one explicit submission."
 status: stable
 ---
 
@@ -11,50 +11,68 @@ Date: 2026-09-26
 
 ## Context
 
-Reading a diff and asking an agent to change it previously required manually
-copying locations into the composer. Notes must survive app restarts, follow
-code conservatively and remain private until the person sends them. They are
-not the shared human comments governed by ADR 0007.
+Before this decision, a person read a diff and told an agent to change it. To
+do this, the person had to copy the locations into the composer manually. Notes
+must stay after the app starts again. They must follow the code carefully. They
+must stay private until the person sends them. They are not the shared human
+comments that ADR 0007 controls.
 
 ## Options considered
 
-- Backend files and new IPC: stronger ownership and future external readers,
-  but expands the first version beyond the existing frontend review workflow.
-- Ephemeral notes: simple, but loses the person's writing on restart.
-- Protected localStorage plus a versioned message-text envelope: preserves the
-  current transports and reuses ADR 0038's portable presentation pattern.
+- Backend files and new IPC. The ownership is stronger, and external readers
+  can use the files in a subsequent version. But the first version becomes
+  larger than the current review workflow in the frontend.
+- Temporary notes. This is simple, but the text of the person is not kept when
+  the app starts again.
+- localStorage with protection, together with a versioned envelope in the message
+  text. This keeps the current transports. It also uses the portable
+  presentation pattern of ADR 0038 again.
 
 ## Decision
 
-Use bounded, versioned localStorage for pending notes, an explicit exception to
-backend-owned persistence. Invalid/unknown records block writes; failed saves
-retain memory and show an error. Serialize mutations and pruning across windows
-with an origin-wide Web Lock, reread under the lock, and reject stale note revisions.
-This preserves the v1 record without adding a backend or an operation log; runtimes
-without Web Locks refuse writes. Failed in-memory writes cannot overwrite disk
-changes from another window. Keep storage outside isolated components.
+Use versioned localStorage, with a limit on the quantity of data, for the notes
+that wait. Usually the backend owns saved data, but this decision explicitly
+does not obey that rule. These rules
+apply:
 
-Use immutable original anchors and derived per-scope placement, with bounded
-full-selection evidence separate from abbreviated quotes. Exact matching is
-conservative; ambiguity, missing code and missing files remain visible. Never
-automatically resolve notes.
+- If a record is not correct or is unknown, Prometeu does not write.
+- If a failure occurs during a save, Prometeu keeps the notes in memory and shows an error.
+- An origin-wide Web Lock puts changes and removals in sequence across windows.
+  Prometeu reads the data again under the lock. It rejects expired revisions of
+  a note.
 
-Send an immutable revision snapshot to a chosen conversation draft as one tag.
-Only explicit submission serializes `<prometeu-review v="1">` into ordinary
-text. A later edit cannot be consumed by sending an older snapshot. Submitted
-records the user's action, not provider receipt: the existing queue may survive
-a failed process restart. Preserve notes and require explicit retry/reopening.
-The detailed contract is [Local diff review](../contracts/diff-review.md).
+This keeps the v1 record without a backend or an operation log. If the runtime
+does not have Web Locks, Prometeu does not write. A write in memory that has a failure
+cannot replace changes on the disk from a different window. Do not put the storage
+in the isolated components.
+
+Use initial anchors that do not change. Calculate the position for each scope
+from them. Keep the evidence of the full selection, with a limit on its length, apart
+from the short quotations. Prometeu finds a note position only when the code
+agrees accurately. The interface shows ambiguity, missing code and missing files. Prometeu does not resolve notes automatically.
+
+Send a snapshot of one revision, which does not change, to the draft of a
+selected conversation as one tag. Only an explicit submission changes the
+snapshot into `<prometeu-review v="1">` in usual text. If the person edits a
+note after the snapshot, the older snapshot cannot send that edit. The
+"submitted" state records the action of the user. It does not tell that the
+provider received the notes. The current queue can stay after a failure
+when the process starts again. Keep the notes, and let the person try again or open them
+again explicitly. The [Local diff review](../contracts/diff-review.md) contract
+gives more information.
 
 ## Consequences
 
-V1, IPC and relay are unchanged; the same text works for all supported providers.
-Older clients show raw text. Submitted content follows transcript sharing;
-unsent notes have no collaboration channel. Browser-origin storage lacks backend
-backup and can run out of space. A future backend migration must preserve this
-version and the write-failure guarantees, not silently discard it.
+V1, IPC and the relay do not change. The same text operates for all the
+providers that Prometeu supports. Older clients show the text without changes.
+The content that the person sent follows the rules for shared transcripts. Notes that the
+person did not send have no collaboration channel. The storage of the browser
+origin has no copy in the backend, and it can become full. A subsequent
+migration to the backend must keep this version and the guarantees for write
+failures. It must not discard the data without a message.
 
 ## Evidence
 
 `review-comments.test.ts`, `review-context.test.ts`, `review-store.test.ts`, the
-Git keyboard journey and mobile mixed-context journey cover the boundaries.
+Git keyboard journey and the mobile journey with mixed context examine these
+boundaries.

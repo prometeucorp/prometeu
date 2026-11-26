@@ -1,114 +1,146 @@
 ---
 type: Contract
 title: "Reusable actions and agents"
-description: "Reusable commands, profiles, execution and waiting for external events."
+description: "Commands and profiles that a person can use again, the execution of tasks and the PR discovery."
 status: stable
 ---
 
 # Reusable actions and agents
 
-Implemented; decision in [ADR 0009](../decisions/0009-reusable-actions.md).
+The app obeys this contract. [ADR 0009](../decisions/0009-reusable-actions.md)
+records the decision.
 
 ## Registry and entries
 
 `Board.actions` contains `profiles`, `commands`, `overrides`, `pr_action` and
-`defaults_initialized`. On first open, earlier catalogs receive the editable
-**Code review** profile and the `/review` command. The profile reports bugs and
-risks without modifying files or publishing a PR. The initialization is recorded
-so later removals and customizations are respected; existing names or identities
-are not overwritten. The source JSON is in
-[`action-defaults.json`](../../src/action-defaults.json). The registry is local,
-reusable across projects, and is not sent to the relay.
+`defaults_initialized`. When the app opens an earlier catalog for the first
+time, it adds the **Code review** profile and the `/review` command. A person
+can edit them. The profile reports bugs and risks. It does not change files and
+does not publish a PR. The app records this initialization. Thus, it does not
+add again the items that a person removed or changed, and it does not replace
+the current names or identities. The source JSON is in
+[`action-defaults.json`](../../src/action-defaults.json). The registry is local.
+All projects can use it, and the app does not send it to the relay.
 
 - A command has `name`, `description`, `kind: prompt | agent`, `prompt` and an
-  optional `profile`. Names are unique, with 1–64 lowercase ASCII letters,
-  digits or hyphens; `compact` and `context` are reserved.
-- `prompt` expands text in the current box without sending it. The remaining
-  text follows the expansion and stays editable.
-- `agent` starts a task in another tab. The request contains the command text,
-  the title, the workspace's repositories/bases and the context written by the
-  person.
+  optional `profile`. Each name is unique and has 1–64 lowercase ASCII letters,
+  digits or hyphens. The app keeps the names `compact` and `context` for its own use.
+- `prompt` adds the expanded text to the current box and does not send it. The
+  remaining text follows the expansion, and the person can edit it.
+- `agent` starts a task in a different tab. The request contains the text of
+  the command, the title, the repositories and bases of the workspace, and the
+  context that the person wrote.
 - `/name` and the **Actions** menu use the same registry. If the provider also
-  exposes `/name`, its command keeps the name and the app's command uses
-  `/prometeu:name`. The explicit namespace also works without a collision.
-  Suggestions for commands registered in the app show the **Prometeu** tag;
-  the provider's commands and skills do not get that tag.
-- `pr_action: null` keeps the PR request in the current conversation, including
-  the preference for the repository's skill. A configured name points to an
-  `agent` command and serves the **Open PR / Update PR** button.
+  has a `/name` command, the provider command keeps the name, and the app
+  command uses `/prometeu:name`. The explicit namespace also operates when the
+  names are different. The suggestions for the commands that the app keeps in its registry
+  show the **Prometeu** tag. The commands and skills of the provider do not get
+  that tag.
+- `pr_action: null` keeps the PR request in the current conversation, and the
+  agent continues to prefer the skill of the repository. A configured name
+  points to an `agent` command, and the **Open PR / Update PR** button uses
+  that command.
 
 ## Profile and execution
 
-A profile has identity, name, prompt, `choice` (provider/model/effort), MCP,
-plugins, skill names and `permission: ask | auto`.
-`overrides[project][profile]` fully replaces a profile for that project. It does
-not change the global profile.
+A profile has an identity, a name, a prompt, `choice` (provider, model and
+effort), MCP servers, plugins, skill names and `permission: ask | auto`.
+`overrides[project][profile]` replaces all of a profile for that project. It
+does not change the global profile.
 
-Each `Tab.task` stores a copy of the resolved profile, the command name and the
-execution state. `null` MCP/plugins inherit the workspace selection at the
-start; empty lists are explicit selections. If the workspace is also `null`, the
-provider's external configuration remains. The catalog contains no secrets:
-credentials stay in the existing hubs.
+Each `Tab.task` stores a copy of the resolved profile, the name of the command
+and the execution state. If MCP or plugins are `null`, the task uses the
+selection of the workspace at the start. An empty list is an explicit
+selection. If the workspace value is also `null`, the external configuration of
+the provider stays. The catalog contains no secrets. Credentials stay in the
+current hubs.
 
-Changing the profile or the workspace selection does not change that copy.
-Resuming uses the same profile. Changing the model through a task's footer is
-refused; edit the profile for future executions. Codex plugins and MCP use a
-configuration derived per task session, so the selection of another conversation
-is not changed.
+A change to the profile or to the selection of the workspace does not change
+that copy. When the agent resumes, it uses the same profile. The app refuses a
+change to the model from the footer of a task. To change the model, edit the
+profile for the subsequent executions. For Codex plugins and MCP, each task
+session gets its own configuration. Thus, the selection of a different
+conversation does not change.
 
-Skills are names instructed to the agent, available in the installation or in
-the selected plugins. That list is not an allowlist and does not disable the
-provider's other skills. If a skill is not available, the instruction is to stop
-and report. The app does not promise automatic detection of that textual result.
+Skills are names that the app gives to the agent as instructions. They come
+from the installation or from the selected plugins. That list is not an
+allowlist, and it does not disable the other skills of the provider. If a skill
+is not available, the instruction tells the agent to stop and report it. The app
+does not promise to find that text result automatically.
 
-Permissions are materialized by the adapter: Claude uses its normal approval
-mode under `ask`; Codex uses `approvalPolicy: untrusted`. `auto` keeps the
-existing bypass. These options do not constitute worktree isolation.
+The adapter applies the permissions:
 
-A task finishes when its turn finishes. Repeating the same command with a task
-still open returns the existing tab. If there is additional context, the app
-refuses and preserves the draft so it can be sent in the task's tab. Starting
-another task requires that no conversation is working, waiting for an answer or
-holding a pending message.
+- With `ask`, Claude uses its usual approval mode, and Codex uses
+  `approvalPolicy: untrusted`.
+- `auto` keeps the current bypass.
+
+These options do not isolate the worktree.
+
+A task is completed when its turn is completed. If a person starts the same
+command again before the task is completed, the app returns the current tab. If the
+person added context, the app refuses and keeps the draft. The person can then
+send the draft in the tab of the task. A new task can start only when no
+conversation operates, waits for an answer or holds a message that it did not
+send.
 
 ## PR discovery
 
-There is no automatic PR follow-up: the app does not poll a task's PR comments
-or CI and does not start agent turns on its own. General PR discovery starts
-when the app opens, scans one clone once for all of its eligible workspace
-branches, and is scheduled every three minutes on foreground AC, five minutes
-on foreground battery or unknown power, and 15 minutes while hidden or
-unfocused. Returning to the foreground requests a scan immediately when the
-last request is at least one minute old; otherwise the schedule continues.
-Opening a workspace also refreshes its own repositories immediately, and a turn
-that settles in the open workspace refreshes them again, at most every 20
-seconds per workspace, so a PR the agent created appears promptly. Turn state is
-observed even while a menu or rename input defers redraws; the next allowed redraw
-consumes the pending refresh once. Archived, cleaned and branchless workspaces
-are excluded from general discovery; recorded PRs
-remain available on archived workspaces. A second general request during a
-scan queues one follow-up. Each general `gh pr list` has a 15-second deadline
-and a 2 MiB output cap. Failed, timed-out, empty or incomplete results preserve
-known PR metadata.
+The app does not follow a PR automatically. It does not read the PR comments or
+the CI of a task at intervals, and it does not start agent turns itself.
+
+The general PR discovery starts when the app opens. For each clone, one scan
+examines all the workspace branches that apply. The app schedules the scan at
+these intervals:
+
+- At intervals of three minutes when the app is in the foreground and the
+  computer uses AC power.
+- At intervals of five minutes when the app is in the foreground and the
+  computer uses a battery or the power source is unknown.
+- At intervals of 15 minutes when a person cannot see the app or the app does
+  not have the focus.
+
+When the app comes back to the foreground, it requests a scan immediately if
+the last request occurred one minute ago or before. If not, the schedule continues.
+
+When a person opens a workspace, the app also refreshes the repositories of
+that workspace immediately. When a turn in the open workspace becomes stable,
+the app refreshes them again. These refreshes occur a maximum of one time in
+20 seconds for each workspace. Thus, a PR that the agent made shows quickly.
+The app monitors the turn state also when a menu or a rename field stops the
+redraws for a short time. The next redraw that the app lets occur does the
+refresh that waits, one time.
+
+The general discovery does not include archived workspaces, cleaned
+workspaces or workspaces without a branch. Recorded PRs stay available on archived workspaces. If a
+second general request comes during a scan, the app puts one more scan in the
+queue. Each general `gh pr list` has a deadline of 15 seconds and an output
+limit of 2 MiB. The app keeps the known PR metadata in these
+conditions:
+
+- The command has a failure.
+- The deadline goes by.
+- The result is empty or not completed.
 
 ## IPC and compatibility
 
-- `actions_save({ catalog }) -> void`: validates references, names and limits;
-  persists to the board and publishes the `board` event.
+- `actions_save({ catalog }) -> void`: validates the names, the limits and the
+  items that the catalog refers to. It stores the catalog in the board and publishes the `board`
+  event.
 - `action_start({ workspace, name, context }) -> Tab`: resolves the profile,
-  creates a local session and starts the request. A spawn error stays in the tab
-  for inspection.
+  makes a local session and starts the request. If the process does not start,
+  the error stays in the tab, and a person can examine it.
 
-New fields are additive with defaults in persistence. Boards written by earlier
-versions may contain a profile `watch` and task `seen`/`prs` cursors from the
-removed PR monitor; they are ignored on load and dropped on the next save.
-Tasks started by those versions (non-zero `checked_at`) are marked done once on
-load, so the same command can start again; a queued message stays visible in the
-tab and is never sent automatically. Tasks
-still write `paused`, `turns` and `checked_at` (always idle values) so earlier
-versions can read the board. Ordinary sessions do not
-change their launch configuration. The web mock implements the registry and tab
-creation, but does not query GitHub and does not run models. Evidence:
+New fields add to the format and have default values in the stored data.
+Boards from earlier versions can contain a profile `watch` and the task cursors
+`seen` and `prs` from the removed PR monitor. The app ignores these fields when
+it loads the board, and it removes them at the next save. When the app loads the
+tasks from those versions (a `checked_at` value that is not 0), it sets them
+to done one time. Thus, the same command can start again. A message in the queue
+stays in the tab where a person can see it. The app does not send it
+automatically. Tasks continue to write `paused`, `turns` and `checked_at` with
+the values of an idle task. Thus, earlier versions can read the board. Usual sessions do not
+change their launch configuration. The web mock has the registry and the tab
+creation. It does not query GitHub and does not run models. Evidence:
 [`actions.test.ts`](../../src/actions.test.ts),
 [`git-refresh.test.ts`](../../src/git-refresh.test.ts),
 [`actions.rs`](../../src-tauri/src/actions.rs),
