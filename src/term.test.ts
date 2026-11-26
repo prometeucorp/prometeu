@@ -1,11 +1,12 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import type { ITerminalOptions } from "@xterm/xterm";
 
 const fake = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
   terminals: [] as {
     output: string; input: (text: string) => void; binary: (text: string) => void; disposed: boolean;
-    cols: number; rows: number; options: { scrollback: number }; modes: { bracketedPasteMode: boolean };
+    cols: number; rows: number; options: ITerminalOptions; modes: { bracketedPasteMode: boolean };
     _core: { coreService: { triggerDataEvent(data: string, user?: boolean): void } };
   }[],
   deferWrites: false,
@@ -21,12 +22,12 @@ vi.mock("@xterm/xterm", () => ({
     rows = 24;
     output = "";
     disposed = false;
-    options = { scrollback: 4000 };
+    options: ITerminalOptions;
     modes = { bracketedPasteMode: false };
     input = (_text: string) => {};
     binary = (_text: string) => {};
     _core = { coreService: { triggerDataEvent: (data: string, _user = false) => this.input(data) } };
-    constructor() { fake.terminals.push(this); }
+    constructor(options: ITerminalOptions) { this.options = options; fake.terminals.push(this); }
     loadAddon() {}
     attachCustomKeyEventHandler() {}
     open() {}
@@ -190,6 +191,40 @@ it("stops lone composition ends at the terminal host before xterm sees them", ()
 
 const skin = { fontSize: 12, foreground: "#fff", scrollback: 100 };
 const receiver = (event: string) => fake.listen.mock.calls.filter(([name]) => name === event).slice(-1)[0][1];
+
+it("opens terminal hyperlinks through the system browser and reports failures", async () => {
+  const error = vi.fn();
+  const term = new Term(skin, { error });
+  const host = new EventTarget() as HTMLElement;
+  term.open(host, vi.fn());
+  const handler = fake.terminals[fake.terminals.length - 1].options.linkHandler;
+  expect(handler).toBeTruthy();
+  expect(handler!.allowNonHttpProtocols).not.toBe(true);
+  const event = { preventDefault: vi.fn() } as unknown as MouseEvent;
+  const range = { start: { x: 1, y: 1 }, end: { x: 5, y: 1 } };
+  const url = "https://example.com/review?q=1#changes";
+  fake.invoke.mockResolvedValue(undefined);
+  handler!.hover!(event, url, range);
+  expect(host.title).toBe(url);
+  handler!.activate(event, url, range);
+  expect(event.preventDefault).toHaveBeenCalledOnce();
+  expect(fake.invoke).toHaveBeenCalledExactlyOnceWith("open_external", { url });
+  handler!.leave!(event, url, range);
+  expect(host.title).toBe("");
+
+  fake.invoke.mockClear();
+  for (const rejected of ["javascript:alert(1)", "file:///tmp/report.html", "vscode://file/tmp/report", "#section"]) {
+    handler!.activate(event, rejected, range);
+  }
+  expect(fake.invoke).not.toHaveBeenCalled();
+  const failure = new Error("browser unavailable");
+  fake.invoke.mockRejectedValueOnce(failure);
+  handler!.activate(event, "http://localhost:3000", range);
+  await vi.waitFor(() => expect(error).toHaveBeenCalledExactlyOnceWith(failure));
+  handler!.hover!(event, url, range);
+  term.dispose();
+  expect(host.title).toBe("");
+});
 
 it("fences asynchronous snapshot parsing so replayed terminal queries never reach the child", async () => {
   fake.deferWrites = true;

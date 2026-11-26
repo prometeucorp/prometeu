@@ -200,7 +200,11 @@ relay messages.
 
 `Term` owns each xterm instance and releases its event subscriptions, input and
 selection listeners, composition listeners, resize observer and recovery callback
-on disposal. Attaching awaits listeners before fetching a snapshot, buffers live
+on disposal. OSC 8 HTTP(S) hyperlinks show their destination on hover and use
+the existing `open_external` command to open the system browser. This shared
+handler also applies to supporting terminals; xterm's default popup does not
+launch the native browser. Plain text URLs without OSC 8 markup are not detected.
+Attaching awaits listeners before fetching a snapshot, buffers live
 events, and filters them by process generation and sequence. Replayed terminal
 queries cannot answer into the child: input stays disabled until xterm's parser
 callback confirms that snapshot parsing finished. Input and serialized resizes
