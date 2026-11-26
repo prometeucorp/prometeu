@@ -4,6 +4,19 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.50.0] - 2026-11-26
+
+### New
+
+- **supervision:** Notify supervisors about remote workspace activity
+- **remote:** Run codex conversations on remote machines
+
+### Fixes
+
+- **supervision:** Preserve events across upgrades and concurrent launches
+- **remote:** Keep codex approvals and shared engines safe on remote machines
+- **terminal:** Open hyperlinks only once
+
 ## [0.49.0] - 2026-11-26
 
 ### New
