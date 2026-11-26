@@ -15,7 +15,13 @@ The installed Gemini CLI rejects the consumer Google account of the user. The
 cause is that Google stopped that client for individuals. Antigravity CLI
 (`agy` 1.2.7) accepts the same account, and it answered a headless prompt in a
 test with the account. A new name for the ACP adapter is not sufficient, because agy has a
-different NDJSON protocol. This decision replaces the retired ADR 0051.
+different NDJSON protocol.
+
+This decision replaces the retired decision "ADR 0051 — Gemini ACP and account
+authentication methods". Git keeps that decision in
+`docs/decisions/0051-gemini-runtime-and-accounts.md` at commit `dbe8e2d6`.
+The commit that added this decision deleted it. The current ADR 0051 is a
+different decision. It uses the same number again.
 
 ## Decision
 
