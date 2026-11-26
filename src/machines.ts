@@ -7,6 +7,7 @@ import * as menu from "./menu";
 import { button, confirmDialog, field, input, notice } from "./ui";
 import type { Project } from "./types";
 import { h, template } from "./util";
+import { showMachineClients } from "./machine-clients";
 import { showMachineProcesses } from "./machine-processes";
 
 /// Remote machines (ADR 0101): computers reached over SSH whose `prometeu-host` daemon runs workspaces for this app.
@@ -15,7 +16,9 @@ import { showMachineProcesses } from "./machine-processes";
 
 export type MachinePhase = "offline" | "connecting" | "connected" | "not_installed" | "replaced" | "failed";
 export type Limits = { memory_max: string; cpu_quota: string };
-export type HostInfo = { home: string; user: string; os: string; arch: string; version: string; linger: boolean; scopes: boolean; executable: string | null };
+export type HostInfo = { home: string; user: string; os: string; arch: string; version: string; linger: boolean; scopes: boolean; executable: string | null;
+  /** The host serves several computers at once (ADR 0104); absent on older hosts. */
+  clients?: boolean };
 export type ClaudeStatus = { installed: boolean; loggedIn: boolean; email: string | null; method: string | null };
 export type AgentsStatus = { enabled: boolean; socket: string; serving: boolean; error: string | null };
 /** Shown once after enabling agents or rotating their token: the local MCP configuration with the token. */
@@ -187,6 +190,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     menu.openAt({ x: at.right - 180, y: at.bottom + 4, anchor: more, area: "settings" }, [
       { track: "machines.edit", label: t("machines.edit"), glyph: icon("pencil"), run: () => { editing = machine.id; redraw(); } },
       ...(machine.phase === "connected" ? [{ track: "machines.claude.check", label: t("machines.claude.check"), glyph: icon("check"), run: checkClaude }] : []),
+      ...(machine.phase === "connected" && machine.host?.clients ? [{ track: "machines.clients", label: t("machines.clients"), glyph: icon("signal"), run: () => showMachineClients(machine.id, machine.name) }] : []),
       ...(agents && !agents.enabled ? [{ track: "machines.agents.enable", label: t("machines.agents.enable"), glyph: icon("plug"), run: () => enableAgents(false) }] : []),
       ...(agents?.enabled ? [
         { track: "machines.agents.rotate", label: t("machines.agents.rotate"), glyph: icon("rotate"), run: () => enableAgents(true) },

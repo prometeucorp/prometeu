@@ -123,6 +123,8 @@ export type Commands = {
   machine_stats: { args: { id: string }; result: import("./machines").MachineStats };
   machine_terminals: { args: { id: string }; result: import("./machine-processes").MachineTerminal[] };
   machine_terminal_stop: { args: { id: string; terminal: string; instance: string }; result: void };
+  machine_clients: { args: { id: string }; result: import("./machine-clients").MachineClient[] };
+  machine_client_detach: { args: { id: string; device: string }; result: void };
   machine_claude_status: { args: { id: string }; result: import("./machines").ClaudeStatus };
   machine_agents_enable: { args: { id: string; rotate: boolean }; result: import("./machines").AgentsSetup };
   machine_agents_disable: { args: { id: string }; result: void };

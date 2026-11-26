@@ -45,14 +45,16 @@ host serves one root; a second one exits when it cannot take the root's lock.
 - `attach` is what the desktop runs over SSH. It starts the host in its own
   session when the socket does not answer, then relays stdio to the socket. Losing
   SSH only detaches the client: the host keeps every terminal.
-- A new attachment replaces the previous one. After sleep the old SSH connection
-  can look alive for many seconds, and the desktop the person is using now must
-  win. A replaced desktop stops reconnecting until the person asks it to.
+- A new attachment from the same computer replaces the previous one. After sleep
+  the old SSH connection can look alive for many seconds, and the desktop the
+  person is using now must win. A replaced desktop stops reconnecting until the
+  person asks it to. Attachments from different computers coexist
+  ([ADR 0104](0104-several-computers-on-one-machine.md)).
 - Each terminal keeps its last 2 MiB of output in sequence-numbered chunks.
   Reattachment replays exactly what the desktop has not applied yet, or the whole
   retained buffer after a screen reset when part of the gap was dropped.
-- Hooks queue on the host while no desktop is attached (512 per terminal) and are
-  delivered when the desktop reattaches that terminal. A permission request with
+- Hooks are kept on the host (512 per terminal) and delivered to each computer
+  that missed them when it reattaches that terminal. A permission request with
   no desktop attached answers with no decision, so Claude's native dialog stays
   in its TUI.
 - Transcript directories are streamed to the desktop from the offsets it already
@@ -183,7 +185,8 @@ machine.
 
 - [Remote host protocol](../contracts/remote-host.md).
 - `src-tauri/crates/host/tests/host.rs`: detachment and gap replay, queued hooks
-  and decisions, transcript streaming, attachment replacement.
+  and decisions, transcript streaming, attachment replacement. Several computers
+  are covered by [ADR 0104](0104-several-computers-on-one-machine.md).
 - `src-tauri/src/remote/terminal.rs`, `connection.rs`, `agent.rs` and
   `workspace.rs` unit tests: sequence ordering, lost terminals, mirror paths and
   appends, transcript path rewriting, project identity.

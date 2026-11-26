@@ -7,8 +7,10 @@ status: stable
 
 # Remote host protocol
 
-Decisions: [ADR 0101](../decisions/0101-remote-machines.md) and, for the registry
-and agent clients, [ADR 0103](../decisions/0103-agents-on-remote-machines.md).
+Decisions: [ADR 0101](../decisions/0101-remote-machines.md); for the registry
+and agent clients, [ADR 0103](../decisions/0103-agents-on-remote-machines.md); for
+several computers attached at once,
+[ADR 0104](../decisions/0104-several-computers-on-one-machine.md).
 Implementation: `src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
 
 ## Installation
@@ -52,11 +54,48 @@ The desktop runs, through the system `ssh` with `BatchMode=yes`,
 `ServerAliveCountMax=3`:
 
 ```text
-exec "$HOME/<root>/host/<hash>/prometeu-host" attach --root "$HOME/<root>"
+exec "$HOME/<root>/host/<hash>/prometeu-host" attach --root "$HOME/<root>" \
+  --device '<device id>' --label '<computer name>' --release '<app version>'
 ```
 
-`attach` starts `serve` with `setsid` when the socket does not answer, then
-sends `{"attach":{"protocol":1}}` and relays stdio. Exit status 127 or
+`attach` starts `serve --release <app version>` with `setsid` when the socket
+does not answer, then sends
+`{"attach":{"protocol":1,"device":"…","label":"…"}}` and relays stdio. Desktops
+before ADR 0104 send neither field.
+
+### Several computers
+
+The device matches `[A-Za-z0-9_-]{1,128}`; another value counts as none. The
+label is cut to 64 characters without control characters. The host serves at
+most 8 attachments. A new attachment replaces those with the same device,
+including the empty one, with `replaced`; attachments from other devices remain.
+Beyond the limit it answers `{"event":"error","error":"busy"}` and closes. An
+attachment with more than 16 MiB of frames waiting to be written is closed; file
+streaming waits below half of that instead.
+
+Every attachment that called `terminal_attach` for a terminal receives its
+`output` and `exit`, and every attachment receives `registry`. Hooks other than
+permission requests are kept per terminal (the last 512) with the set of them
+each device confirmed. Desktops send `hook_reply` for every hook, and for these
+hooks it is that confirmation; each reply confirms only its own hook, whatever
+order replies arrive in. `terminal_attach` sends a device every kept hook it has
+not confirmed. The first time a terminal serves a device, even with no hooks
+kept yet, the hooks another device already confirmed count as confirmed for it,
+and every later hook is owed to it. A hook queued to an attachment that was
+already dead is therefore sent again when its desktop comes back. A desktop that
+handled a hook but lost the connection before its confirmation arrived can
+receive it twice. A permission request is sent to every attachment following the
+terminal and is not kept. The first `hook_reply` with output is printed; the
+others that received it get `hook_resolved`. An empty reply, or an attachment
+ending, abstains, and when every recipient abstained the hook prints nothing.
+When the wait ends without a decision, recipients also get `hook_resolved`.
+
+The PTY takes the size of the attachment that opened the terminal or last wrote
+to it. `terminal_resize` from another attachment is recorded and applied when
+that one writes. With no such attachment present, any resize applies.
+`terminal_forget` from an attachment while another still follows the exited
+terminal only stops this one following it; the terminal is dropped when the last
+follower forgets it or ends. Exit status 127 or
 `No such file` before the ready frame means the build is not installed. If the
 ready frame's `executable` belongs to another build, the desktop shuts that host
 down only when it runs no terminal; otherwise it keeps using it and reports a
@@ -80,8 +119,9 @@ unknown outcome.
 
 | Event | Fields | Meaning |
 | --- | --- | --- |
-| `ready` | `protocol`, `version`, `executable`, `pid`, `home`, `user`, `root`, `os`, `arch`, `linger`, `scopes` | first frame of every attachment |
-| `replaced` | none | another desktop attached; this one is detached |
+| `ready` | `protocol`, `version`, `executable`, `pid`, `home`, `user`, `root`, `os`, `arch`, `linger`, `scopes`, `clients`, `release` | first frame of every attachment; `clients` is true when several computers may attach, `release` is the app version that started the host or null |
+| `replaced` | none | the same computer attached again, or another computer disconnected this one; this one is detached |
+| `hook_resolved` | `hook` | another attachment decided that permission request, or nobody did in time; withdraw it |
 | `output` | `id`, `seq`, `data` (base64) | terminal output after the attachment's replay |
 | `exit` | `id`, `code`, `seq` | terminal exited, after its output was drained (up to 2 s, in case a background process keeps the PTY open); also sent at attachment for an exited terminal |
 | `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | a native hook invocation for the terminal `session` |
@@ -96,7 +136,7 @@ unknown outcome.
 | `exec` | `argv`, `cwd?`, `env?`, `stdin?` (base64), `timeout_ms?` (default 30 s, at most 600 s) | `{ code, timeout, stdout, stderr }` (base64, 4 MiB each) |
 | `file_write` | `path` (absolute), `data` (base64), `mode?` (default 0600) | `{}`; parents created 0700, atomic rename |
 | `file_read` | `path`, `limit?` | `{ data }` |
-| `terminal_open` | `id`, `workspace?`, `argv`, `cwd`, `env?`, `unset?`, `cols`, `rows`, `limits?` | `{ pid, unit }`; rejects a running `id` with `terminal_exists` |
+| `terminal_open` | `id`, `workspace?`, `argv`, `cwd`, `env?`, `unset?`, `cols`, `rows`, `limits?` | `{ pid, unit }`; rejects with `terminal_exists` an `id` that is running or whose process another open is starting, so concurrent opens start one process |
 | `terminal_attach` | `id`, `seq` | `{ data, reset, seq, running, code, pid }`, then live `output`/`exit` and queued `hook` frames |
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |
@@ -106,7 +146,9 @@ unknown outcome.
 | `terminal_list` | none | `[{ id, instance, workspace, pid, unit, started, running, code, seq }]`; older hosts omit `instance` |
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`; streams `file` events every 250 ms while this attachment lives |
 | `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
-| `hook_reply` | `hook`, `stdout` (base64) | `{}` |
+| `hook_reply` | `hook`, `stdout` (base64) | `{}`; empty `stdout` abstains |
+| `clients_list` | none | `[{ device, label, connected, current }]`, `connected` in Unix seconds, `current` for the asking attachment |
+| `client_detach` | `device` | `{}`; sends `replaced` to that device's attachment; `unknown_client` for none or the asking one |
 | `registry_list` | none | the registry, with each conversation's `state`, `state_at` and `notification` |
 | `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path; inserts a workspace by ID, or merges into the one held: its title and new conversations, keeping every other field and conversation |
 | `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
@@ -222,6 +264,22 @@ remains compatible with callers that pass a local project ID.
 
 `src/machines.test.ts` covers local, selected-host, other-host and aliased clones.
 `src/settings-navigation.test.ts` preserves the saved `projects` destination.
+
+## Connected computers
+
+The additive desktop IPC commands `machine_clients { id }` and
+`machine_client_detach { id, device }` use `clients_list` and `client_detach` on a
+connected machine. Settings offers them from the machine's menu only when
+`ready.clients` is true, lists this computer first and asks before
+disconnecting another one. A disconnected desktop shows **In use by another
+computer** and stops reconnecting, as after a replacement. An older host answers
+`clients_list` as an unknown method, which the desktop reports as needing a host
+update. `src/machine-clients.test.ts` covers ordering and confirmation.
+
+The desktop also passes `--release` and keeps an idle host from another build
+when `ready.release` is newer than its own version, so computers on different
+releases never retire each other's host. A host without `release` is replaced
+when idle, as before.
 
 ## Registry
 
@@ -489,7 +547,10 @@ tokens, directory modes and legacy permission cleanup. The desktop test
 ## Compatibility
 
 A protocol change that older desktops or hosts cannot ignore bumps `PROTOCOL`,
-which renames the socket. Fields are additive within a protocol. The agent socket
+which renames the socket. Fields are additive within a protocol. The attachment
+identity, `hook_resolved`, `clients_list` and `client_detach` are additive: an
+older host ignores the identity and keeps replacing attachments, and an older
+desktop never asks for hooks by device, so it receives what its device missed. The agent socket
 has its own `AGENT_PROTOCOL`, carried in its hello frame. The registry carries its
 own `version`. Tests:
 `src-tauri/crates/host/tests/host.rs` and the `remote` unit tests.

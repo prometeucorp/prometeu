@@ -1082,6 +1082,10 @@ const mockGitHubFeed: import("./types").GitHubNotification[] = [
 ];
 
 let mockMachines: import("./machines").MachineView[] = [];
+const mockClients: import("./machine-clients").MachineClient[] = [
+  { device: "mock-this-mac", label: "This Mac", connected: 1_700_000_000, current: true },
+  { device: "mock-other-mac", label: "Other Mac", connected: 1_700_000_600, current: false },
+];
 
 const mockCommands: IpcHandlers = {
   github_status() { return mockGitHubStatus(); },
@@ -2641,7 +2645,7 @@ const mockCommands: IpcHandlers = {
   machine_install({ id }) {
     const machine = mockMachines.find(m => m.id === id);
     if (!machine) throw 'i18n:{"code":"err.remote.unknown"}';
-    Object.assign(machine, { phase: "connected", agents: { enabled: false, socket: "/home/me/.prometeu-remote-agents/agents-v1.sock", serving: false, error: null }, claude: { installed: true, loggedIn: false, email: null, method: null }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null } });
+    Object.assign(machine, { phase: "connected", agents: { enabled: false, socket: "/home/me/.prometeu-remote-agents/agents-v1.sock", serving: false, error: null }, claude: { installed: true, loggedIn: false, email: null, method: null }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null, clients: true } });
     emit("machines", mockMachines);
     return machine;
   },
@@ -2687,6 +2691,16 @@ const mockCommands: IpcHandlers = {
       instance: agentTerminals.get(tab.id)?.generation ?? tab.id,
       running: tab.status !== "desligada", code: tab.status === "desligada" ? 0 : null, seq: 0,
     })));
+  },
+  machine_clients({ id }) {
+    if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
+    return mockClients;
+  },
+  machine_client_detach({ id, device }) {
+    if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';
+    const index = mockClients.findIndex(client => client.device === device && !client.current);
+    if (index < 0) throw 'i18n:{"code":"machines.clients.gone"}';
+    mockClients.splice(index, 1);
   },
   machine_terminal_stop({ id, terminal, instance }) {
     if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';

@@ -1,5 +1,6 @@
-//! The resident host. It owns terminals, queues hooks while no desktop is attached and streams
-//! transcript files, so execution never depends on the desktop's connection.
+//! The resident host. It owns terminals, retains hooks for desktops that are away and streams
+//! transcript files, so execution never depends on a desktop's connection. Several desktops may be
+//! attached at once, one per device (ADR 0104).
 use base64::{engine::general_purpose::STANDARD, Engine};
 use portable_pty::CommandBuilder;
 use prometeu_core::lock::lock;
@@ -15,14 +16,32 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Output retained per terminal for reattachment. A gap beyond it replays the whole buffer.
 const RETAINED: usize = 2 * 1_048_576;
-/// Hooks queued per terminal while no desktop is attached; the oldest are dropped first.
+/// Hooks retained per terminal for desktops that are away; the oldest are dropped first.
 const QUEUED_HOOKS: usize = 512;
+/// Bytes waiting to be written to one attachment before the host drops it. A desktop that stopped
+/// reading (asleep behind a half-open connection) reattaches and replays what it missed instead
+/// of growing the host's memory.
+const OUTBOX_LIMIT: usize = 16 * 1_048_576;
+
+/// `OUTBOX_LIMIT`, or `PROMETEU_HOST_OUTBOX_LIMIT` bytes, for tests on slow PTYs.
+fn outbox_limit() -> usize {
+    static LIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        std::env::var("PROMETEU_HOST_OUTBOX_LIMIT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(OUTBOX_LIMIT)
+    })
+}
+/// Desktops attached at once.
+const CLIENT_LIMIT: usize = 8;
+const LABEL_LIMIT: usize = 64;
 const DECISION_WAIT: Duration = Duration::from_secs(300);
 /// How long `exit` waits for the PTY to drain after the process ends.
 const DRAIN_WAIT: Duration = Duration::from_secs(2);
@@ -83,14 +102,176 @@ pub(crate) struct Term {
     control: Arc<dyn TerminalControl>,
     pub(crate) process: ProcessHandle,
     ring: Mutex<Ring>,
-    hooks: Mutex<VecDeque<Value>>,
+    hooks: Mutex<HookLog>,
+    size: Mutex<Sizing>,
+    /// A desktop collected the exited terminal while another still follows it: it is dropped once
+    /// no attachment follows it.
+    forgotten: AtomicBool,
+}
+
+struct HookEntry {
+    number: u64,
+    frame: Value,
+    /// A desktop confirmed it, so a device this terminal never served does not receive it.
+    delivered: bool,
+}
+
+/// Non-permission hooks of one terminal and, per device, which of them it confirmed through its
+/// `hook_reply`. A device is owed every retained hook it has not confirmed: a frame queued to an
+/// attachment that was already dead (a desktop asleep behind a half-open connection) is sent again
+/// when that desktop comes back, whether another desktop received it meanwhile or not. Desktops
+/// handle hooks on separate threads, so confirmations arrive in any order and each counts only for
+/// its own hook.
+#[derive(Default)]
+struct HookLog {
+    entries: VecDeque<HookEntry>,
+    /// Confirmed hook numbers per device, among the retained entries.
+    confirmed: HashMap<String, HashSet<u64>>,
+}
+
+impl HookLog {
+    fn push(&mut self, number: u64, frame: Value) {
+        if self.entries.len() >= QUEUED_HOOKS {
+            if let Some(dropped) = self.entries.pop_front() {
+                for numbers in self.confirmed.values_mut() {
+                    numbers.remove(&dropped.number);
+                }
+            }
+        }
+        self.entries.push_back(HookEntry {
+            number,
+            frame,
+            delivered: false,
+        });
+    }
+
+    /// The hooks a device is owed. The first time this terminal serves a device, the hooks another
+    /// desktop already confirmed count as its own (the single-desktop queue's behavior); every
+    /// later hook is owed to it until it confirms that hook, even when the log is empty now.
+    fn missed(&mut self, device: &str) -> Vec<Value> {
+        let entries = &self.entries;
+        let confirmed = self.confirmed.entry(device.into()).or_insert_with(|| {
+            entries
+                .iter()
+                .filter(|e| e.delivered)
+                .map(|e| e.number)
+                .collect()
+        });
+        entries
+            .iter()
+            .filter(|e| !confirmed.contains(&e.number))
+            .map(|e| e.frame.clone())
+            .collect()
+    }
+
+    /// A device's desktop handled this hook. Returns false when the terminal holds no such hook.
+    fn confirm(&mut self, device: &str, number: u64) -> bool {
+        let Some(entry) = self.entries.iter_mut().find(|e| e.number == number) else {
+            return false;
+        };
+        entry.delivered = true;
+        self.confirmed
+            .entry(device.into())
+            .or_default()
+            .insert(number);
+        true
+    }
+}
+
+/// The PTY has one size. The desktop that last typed into a terminal drives it; the others'
+/// requests are remembered and applied when they type, so two windows never fight over it.
+#[derive(Default)]
+struct Sizing {
+    driver: Option<u64>,
+    applied: Option<TerminalSize>,
+}
+
+/// One attachment's outgoing frames, written by its own thread.
+#[derive(Clone)]
+struct Outbox {
+    sender: mpsc::Sender<String>,
+    queued: Arc<AtomicUsize>,
+    alive: Arc<AtomicBool>,
+    stream: Arc<UnixStream>,
+}
+
+impl Outbox {
+    fn send(&self, frame: &Value) -> bool {
+        if !self.alive.load(Ordering::Acquire) {
+            return false;
+        }
+        let line = frame.to_string();
+        let size = line.len();
+        if self.queued.fetch_add(size, Ordering::AcqRel) + size > outbox_limit() {
+            self.close();
+            return false;
+        }
+        self.sender.send(line).is_ok()
+    }
+
+    /// Hold a bulk sender (a transcript catching up) until the writer drained half the limit, so
+    /// only a desktop that stopped reading reaches it.
+    fn wait_for_room(&self) {
+        while self.alive.load(Ordering::Acquire)
+            && self.queued.load(Ordering::Acquire) > outbox_limit() / 2
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Stop serving the attachment at once; its reader sees the end of the stream.
+    fn close(&self) {
+        self.alive.store(false, Ordering::Release);
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
+    /// Tell the attachment it was replaced, then stop serving it after that frame. Its reader
+    /// stops at once, even when the replaced connection is half-open and would never send again.
+    fn replace(&self) {
+        self.send(&json!({"event": "replaced"}));
+        self.alive.store(false, Ordering::Release);
+        let _ = self.stream.shutdown(std::net::Shutdown::Read);
+    }
 }
 
 struct Client {
     generation: u64,
-    out: mpsc::Sender<String>,
-    alive: Arc<AtomicBool>,
+    /// Identifies the desktop across its attachments; empty for desktops that predate it.
+    device: String,
+    label: String,
+    connected: u64,
+    out: Outbox,
     subscribed: HashSet<String>,
+    /// The size this desktop last asked for, per terminal.
+    sizes: HashMap<String, TerminalSize>,
+}
+
+/// A permission request waiting for the desktops it was delivered to. The first decision wins;
+/// a desktop that answers with nothing, or goes away, abstains. When all abstain, Claude's own
+/// dialog answers. The hook's own thread removes the entry and tells the others, since a reply can
+/// arrive before it knows who received the request.
+struct Decision {
+    sender: mpsc::Sender<Vec<u8>>,
+    waiting: Option<HashSet<u64>>,
+    abstained: HashSet<u64>,
+    decided: Option<u64>,
+}
+
+impl Decision {
+    fn settled(&self) -> bool {
+        self.decided.is_some()
+            || self
+                .waiting
+                .as_ref()
+                .is_some_and(|w| w.iter().all(|g| self.abstained.contains(g)))
+    }
+
+    /// Wake the hook's thread once nobody is left to answer.
+    fn abstain(&mut self, generation: u64) {
+        if self.decided.is_none() && self.abstained.insert(generation) && self.settled() {
+            let _ = self.sender.send(Vec::new());
+        }
+    }
 }
 
 /// What a conversation's hooks last said, for clients that cannot read its screen.
@@ -106,10 +287,12 @@ pub(crate) struct Host {
     ready: Value,
     scopes: bool,
     terminals: Mutex<HashMap<String, Arc<Term>>>,
-    client: Mutex<Option<Client>>,
+    /// Terminal IDs whose process is being started; another open of the same ID is refused.
+    opening: Mutex<HashSet<String>>,
+    clients: Mutex<Vec<Client>>,
     generations: AtomicU64,
     hooks: AtomicU64,
-    decisions: Mutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>,
+    decisions: Mutex<HashMap<u64, Decision>>,
     units: AtomicU64,
     pub(crate) registry: crate::registry::Store,
     activity: Mutex<HashMap<String, Activity>>,
@@ -122,25 +305,115 @@ pub(crate) fn now() -> u64 {
         .unwrap_or(0)
 }
 
-fn send(out: &mpsc::Sender<String>, frame: &Value) -> bool {
-    out.send(frame.to_string()).is_ok()
-}
-
 impl Host {
-    /// Tell the attached desktop, if any, that an agent changed the registry, so it adopts new
-    /// workspaces and conversations without waiting for its next attachment (ADR 0103).
+    /// Tell the attached desktops that an agent changed the registry, so they adopt new
+    /// workspaces and conversations without waiting for their next attachment (ADR 0103).
     pub(crate) fn announce_registry(&self) {
-        if let Some(client) = lock(&self.client).as_ref() {
-            send(&client.out, &json!({"event": "registry"}));
+        for client in lock(&self.clients).iter() {
+            client.out.send(&json!({"event": "registry"}));
         }
     }
 
-    /// Deliver a terminal frame when the attached client subscribed to it.
-    fn emit_terminal(&self, id: &str, frame: &Value) -> bool {
-        let client = lock(&self.client);
-        match client.as_ref() {
-            Some(client) if client.subscribed.contains(id) => send(&client.out, frame),
-            _ => false,
+    /// Deliver a terminal frame to every attachment that follows the terminal; returns the
+    /// generations reached.
+    fn emit_terminal(&self, id: &str, frame: &Value) -> HashSet<u64> {
+        lock(&self.clients)
+            .iter()
+            .filter(|c| c.subscribed.contains(id) && c.out.send(frame))
+            .map(|c| c.generation)
+            .collect()
+    }
+
+    /// Send a frame to the listed attachments that are still here.
+    fn emit_to(&self, generations: &HashSet<u64>, frame: &Value) {
+        for client in lock(&self.clients).iter() {
+            if generations.contains(&client.generation) {
+                client.out.send(frame);
+            }
+        }
+    }
+
+    /// Record a desktop's answer to a permission request; only the first decision counts. Returns
+    /// false when no permission request has this number.
+    fn decide(&self, hook: u64, generation: u64, stdout: Vec<u8>) -> bool {
+        let mut decisions = lock(&self.decisions);
+        let Some(decision) = decisions.get_mut(&hook) else {
+            return false;
+        };
+        if stdout.is_empty() {
+            decision.abstain(generation);
+        } else if decision.decided.is_none() {
+            decision.decided = Some(generation);
+            let _ = decision.sender.send(stdout);
+        }
+        true
+    }
+
+    /// An attachment ended: it abstains from pending decisions, and exited terminals that only it
+    /// still followed are dropped.
+    fn detached(&self, generation: u64) {
+        {
+            for decision in lock(&self.decisions).values_mut() {
+                decision.abstain(generation);
+            }
+        }
+        let followed: HashSet<String> = lock(&self.clients)
+            .iter()
+            .flat_map(|c| c.subscribed.iter().cloned())
+            .collect();
+        let mut terminals = lock(&self.terminals);
+        let dropped: Vec<String> = terminals
+            .values()
+            .filter(|t| {
+                t.forgotten.load(Ordering::Acquire)
+                    && !followed.contains(&t.id)
+                    && !lock(&t.ring).running
+            })
+            .map(|t| t.id.clone())
+            .collect();
+        for id in dropped {
+            terminals.remove(&id);
+            let _ = std::fs::remove_dir_all(self.root.join("sessions").join(&id));
+        }
+    }
+
+    /// Apply a desktop's size when it drives the terminal, or when nobody attached does.
+    fn resize(&self, term: &Term, generation: u64, size: TerminalSize) -> Result<(), String> {
+        let mut sizing = lock(&term.size);
+        let driver = sizing.driver.filter(|d| {
+            lock(&self.clients)
+                .iter()
+                .any(|c| c.generation == *d && c.subscribed.contains(&term.id))
+        });
+        {
+            let mut clients = lock(&self.clients);
+            if let Some(client) = clients.iter_mut().find(|c| c.generation == generation) {
+                client.sizes.insert(term.id.clone(), size);
+            }
+        }
+        if driver.is_some_and(|d| d != generation) || sizing.applied == Some(size) {
+            return Ok(());
+        }
+        term.control.resize(size)?;
+        sizing.applied = Some(size);
+        Ok(())
+    }
+
+    /// The desktop that types into a terminal drives its size from now on.
+    fn drive(&self, term: &Term, generation: u64) {
+        let mut sizing = lock(&term.size);
+        if sizing.driver == Some(generation) {
+            return;
+        }
+        sizing.driver = Some(generation);
+        let wanted = lock(&self.clients)
+            .iter()
+            .find(|c| c.generation == generation)
+            .and_then(|c| c.sizes.get(&term.id).copied());
+        if let Some(size) = wanted.filter(|s| sizing.applied != Some(*s)) {
+            if term.control.resize(size).is_ok() {
+                sizing.applied = Some(size);
+            }
         }
     }
 
@@ -257,7 +530,7 @@ fn linger() -> bool {
         .is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "yes")
 }
 
-fn describe(root: &Path, scopes: bool, linger: bool) -> Value {
+fn describe(root: &Path, scopes: bool, linger: bool, release: Option<&str>) -> Value {
     let uname = |flag: &str| {
         Command::new("uname")
             .arg(flag)
@@ -270,6 +543,8 @@ fn describe(root: &Path, scopes: bool, linger: bool) -> Value {
         "event": "ready",
         "protocol": PROTOCOL,
         "version": env!("CARGO_PKG_VERSION"),
+        // The desktop app release that started this host, when it said.
+        "release": release,
         "executable": std::env::current_exe().ok().map(|p| p.display().to_string()),
         "pid": std::process::id(),
         "home": std::env::var("HOME").unwrap_or_default(),
@@ -279,10 +554,12 @@ fn describe(root: &Path, scopes: bool, linger: bool) -> Value {
         "arch": uname("-m"),
         "linger": linger,
         "scopes": scopes,
+        // Several desktops may stay attached at once (ADR 0104).
+        "clients": true,
     })
 }
 
-pub fn serve(root: &Path) -> Result<(), String> {
+pub fn serve(root: &Path, release: Option<&str>) -> Result<(), String> {
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -315,10 +592,11 @@ pub fn serve(root: &Path) -> Result<(), String> {
     let scopes = linger && command_ok("systemd-run", &["--version"]);
     let host = Arc::new(Host {
         root: root.into(),
-        ready: describe(root, scopes, linger),
+        ready: describe(root, scopes, linger, release),
         scopes,
         terminals: Mutex::new(HashMap::new()),
-        client: Mutex::new(None),
+        opening: Mutex::new(HashSet::new()),
+        clients: Mutex::new(Vec::new()),
         generations: AtomicU64::new(0),
         hooks: AtomicU64::new(0),
         decisions: Mutex::new(HashMap::new()),
@@ -374,49 +652,95 @@ fn connection(host: &Arc<Host>, stream: UnixStream) -> Result<(), String> {
         let _ = writeln!(stream, "{}", json!({"event": "error", "error": "protocol"}));
         return Ok(());
     }
-    serve_client(host, stream, reader)
+    serve_client(host, stream, reader, &first["attach"])
 }
 
-/// A new attachment replaces the previous one: after sleep the old SSH connection can look
-/// alive for minutes, and the person's current desktop must win.
+/// Who an attachment says it is. The device identifies a desktop across its attachments; any
+/// process that reached this socket already runs as the host's user, so it is a label for
+/// replacement and display, not a credential.
+fn identity(attach: &Value) -> (String, String) {
+    let device = attach
+        .get("device")
+        .and_then(Value::as_str)
+        .filter(|d| valid_id(d))
+        .unwrap_or_default()
+        .to_string();
+    let label: String = attach
+        .get("label")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(LABEL_LIMIT)
+        .collect();
+    (device, label)
+}
+
+/// Attachments from different devices are served side by side. A new attachment replaces only
+/// one from the same device: after sleep that desktop's old SSH connection can look alive for
+/// minutes, and its new one must win. Desktops that send no device replace each other, as before.
 fn serve_client(
     host: &Arc<Host>,
     stream: UnixStream,
     mut reader: BufReader<UnixStream>,
+    attach: &Value,
 ) -> Result<(), String> {
-    let (out, lines) = mpsc::channel::<String>();
-    let alive = Arc::new(AtomicBool::new(true));
+    let (device, label) = identity(attach);
+    let (sender, lines) = mpsc::channel::<String>();
+    let out = Outbox {
+        sender,
+        queued: Arc::new(AtomicUsize::new(0)),
+        alive: Arc::new(AtomicBool::new(true)),
+        stream: Arc::new(stream.try_clone().map_err(|e| e.to_string())?),
+    };
     let generation = host.generations.fetch_add(1, Ordering::Relaxed) + 1;
     let mut writer = stream.try_clone().map_err(|e| e.to_string())?;
-    let writer_alive = alive.clone();
-    let shutdown = stream.try_clone().map_err(|e| e.to_string())?;
+    // The writer holds no sender: it ends once every sender of this attachment is gone.
+    let (queued, alive, shutdown) = (out.queued.clone(), out.alive.clone(), out.stream.clone());
     std::thread::spawn(move || {
         for mut line in lines {
+            queued.fetch_sub(line.len(), Ordering::AcqRel);
             line.push('\n');
             if writer.write_all(line.as_bytes()).is_err() {
                 break;
             }
         }
-        writer_alive.store(false, Ordering::Release);
+        alive.store(false, Ordering::Release);
         let _ = shutdown.shutdown(std::net::Shutdown::Both);
     });
-    send(&out, &host.ready);
-    if let Some(previous) = lock(&host.client).replace(Client {
-        generation,
-        out: out.clone(),
-        alive: alive.clone(),
-        subscribed: HashSet::new(),
-    }) {
-        previous.alive.store(false, Ordering::Release);
-        let _ = previous.out.send(json!({"event": "replaced"}).to_string());
+    {
+        let mut clients = lock(&host.clients);
+        let (same, others): (Vec<Client>, Vec<Client>) = std::mem::take(&mut *clients)
+            .into_iter()
+            .partition(|c| c.device == device);
+        *clients = others;
+        for previous in same {
+            previous.out.replace();
+        }
+        if clients.len() >= CLIENT_LIMIT {
+            drop(clients);
+            out.send(&json!({"event": "error", "error": "busy"}));
+            out.alive.store(false, Ordering::Release);
+            return Ok(());
+        }
+        out.send(&host.ready);
+        clients.push(Client {
+            generation,
+            device: device.clone(),
+            label,
+            connected: now(),
+            out: out.clone(),
+            subscribed: HashSet::new(),
+            sizes: HashMap::new(),
+        });
     }
     let conn = Conn {
         out: out.clone(),
-        alive: alive.clone(),
         generation,
+        device,
         watches: Arc::default(),
     };
-    while alive.load(Ordering::Acquire) {
+    while out.alive.load(Ordering::Acquire) {
         let line = match read_line(&mut reader) {
             Ok(Some(line)) => line,
             _ => break,
@@ -427,7 +751,7 @@ fn serve_client(
         let request: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(error) => {
-                send(&out, &json!({"id": null, "error": error.to_string()}));
+                out.send(&json!({"id": null, "error": error.to_string()}));
                 continue;
             }
         };
@@ -456,19 +780,17 @@ fn serve_client(
             std::thread::spawn(run);
         }
     }
-    alive.store(false, Ordering::Release);
-    let mut client = lock(&host.client);
-    if client.as_ref().is_some_and(|c| c.generation == generation) {
-        *client = None;
-    }
+    out.alive.store(false, Ordering::Release);
+    lock(&host.clients).retain(|c| c.generation != generation);
+    host.detached(generation);
     Ok(())
 }
 
 #[derive(Clone)]
 struct Conn {
-    out: mpsc::Sender<String>,
-    alive: Arc<AtomicBool>,
+    out: Outbox,
     generation: u64,
+    device: String,
     /// Each watch of this attachment, by ID: a request to scan now, answered once its file
     /// frames are on the stream.
     watches: Arc<Mutex<HashMap<String, mpsc::Sender<mpsc::Sender<()>>>>>,
@@ -479,7 +801,7 @@ impl Conn {
             Ok(result) => json!({"id": id, "result": result}),
             Err(error) => json!({"id": id, "error": error}),
         };
-        send(&self.out, &frame);
+        self.out.send(&frame);
     }
 }
 
@@ -532,11 +854,25 @@ fn dispatch(
         "file_read" => file_read(params)?,
         "terminal_open" => {
             let _change = crate::agents::Mutation::begin()?;
-            open(host, params)?
+            let opened = open(host, params)?;
+            // The desktop that opened a terminal drives its size until another one types.
+            let term = find(host, &terminal_id(params)?)?;
+            *lock(&term.size) = Sizing {
+                driver: Some(conn.generation),
+                applied: Some(size(params)?),
+            };
+            if let Some(client) = lock(&host.clients)
+                .iter_mut()
+                .find(|c| c.generation == conn.generation)
+            {
+                client.sizes.insert(term.id.clone(), size(params)?);
+            }
+            opened
         }
         "terminal_write" => {
             let term = find(host, &terminal_id(params)?)?;
             let data = bytes(params, "data")?;
+            host.drive(&term, conn.generation);
             let mut input = lock(&term.input);
             input.write_all(&data).map_err(|e| e.to_string())?;
             input.flush().map_err(|e| e.to_string())?;
@@ -544,8 +880,7 @@ fn dispatch(
         }
         "terminal_resize" => {
             let term = find(host, &terminal_id(params)?)?;
-            let size = size(params)?;
-            term.control.resize(size)?;
+            host.resize(&term, conn.generation, size(params)?)?;
             json!({})
         }
         "terminal_stop" => {
@@ -571,7 +906,27 @@ fn dispatch(
         }
         "terminal_forget" => {
             let id = terminal_id(params)?;
+            if host.is_running(&id) {
+                return Err("terminal_running".into());
+            }
+            // Another desktop still following the terminal has yet to collect its output and
+            // hooks: keep it until that one forgets it or goes away.
+            let followed = {
+                let mut clients = lock(&host.clients);
+                for client in clients.iter_mut() {
+                    if client.generation == conn.generation {
+                        client.subscribed.remove(&id);
+                    }
+                }
+                clients.iter().any(|c| c.subscribed.contains(&id))
+            };
             let mut terminals = lock(&host.terminals);
+            if followed {
+                if let Some(term) = terminals.get(&id) {
+                    term.forgotten.store(true, Ordering::Release);
+                }
+                return Ok(Some(json!({})));
+            }
             if terminals.get(&id).is_some_and(|t| lock(&t.ring).running) {
                 return Err("terminal_running".into());
             }
@@ -623,9 +978,38 @@ fn dispatch(
                 .and_then(Value::as_u64)
                 .ok_or("missing hook")?;
             let stdout = bytes(params, "stdout").unwrap_or_default();
-            if let Some(sender) = lock(&host.decisions).remove(&hook) {
-                let _ = sender.send(stdout);
+            // Desktops reply to every hook: for a permission request with its decision, for the
+            // others as confirmation that they handled it.
+            if !host.decide(hook, conn.generation, stdout) {
+                let terminals: Vec<Arc<Term>> = lock(&host.terminals).values().cloned().collect();
+                for term in terminals {
+                    if lock(&term.hooks).confirm(&conn.device, hook) {
+                        break;
+                    }
+                }
             }
+            json!({})
+        }
+        "clients_list" => Value::Array(
+            lock(&host.clients)
+                .iter()
+                .map(|c| {
+                    json!({
+                        "device": c.device, "label": c.label, "connected": c.connected,
+                        "current": c.generation == conn.generation,
+                    })
+                })
+                .collect(),
+        ),
+        "client_detach" => {
+            let device = text(params, "device")?;
+            let mut clients = lock(&host.clients);
+            let index = clients
+                .iter()
+                .position(|c| c.device == device && c.generation != conn.generation)
+                .ok_or("unknown_client")?;
+            // Like a replacement: the desktop stops reconnecting until its person asks.
+            clients.remove(index).out.replace();
             json!({})
         }
         "stats" => stats(host, params),
@@ -718,6 +1102,33 @@ fn limit_slice(slice: String, limits: Map<String, Value>) {
     });
 }
 
+/// A terminal ID held while its process starts, released however the open ends.
+struct Reservation<'a> {
+    host: &'a Host,
+    id: String,
+}
+
+impl<'a> Reservation<'a> {
+    fn take(host: &'a Host, id: &str) -> Result<Self, String> {
+        let terminals = lock(&host.terminals);
+        let mut opening = lock(&host.opening);
+        if opening.contains(id) || terminals.get(id).is_some_and(|t| lock(&t.ring).running) {
+            return Err("terminal_exists".into());
+        }
+        opening.insert(id.into());
+        Ok(Self {
+            host,
+            id: id.into(),
+        })
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        lock(&self.host.opening).remove(&self.id);
+    }
+}
+
 pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let id = terminal_id(params)?;
     let argv = string_list(params, "argv");
@@ -733,12 +1144,9 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .filter(|w| valid_id(w))
         .map(str::to_owned);
-    {
-        let terminals = lock(&host.terminals);
-        if terminals.get(&id).is_some_and(|t| lock(&t.ring).running) {
-            return Err("terminal_exists".into());
-        }
-    }
+    // Reserve the ID before starting anything: two desktops (or a desktop and an agent) opening
+    // the same conversation at once must start one process, and the other gets `terminal_exists`.
+    let _reserved = Reservation::take(host, &id)?;
     let slice = workspace.as_deref().and_then(workspace_slice);
     let (program, unit) = match (&slice, host.scopes) {
         (Some(slice), true) => {
@@ -802,7 +1210,12 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
             running: true,
             ..Ring::default()
         }),
-        hooks: Mutex::new(VecDeque::new()),
+        hooks: Mutex::new(HookLog::default()),
+        size: Mutex::new(Sizing {
+            driver: None,
+            applied: size(params).ok(),
+        }),
+        forgotten: AtomicBool::new(false),
     });
     lock(&host.terminals).insert(id.clone(), term.clone());
     let mut output = started.output;
@@ -847,36 +1260,34 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
 }
 
 /// Reply with everything after the client's last sequence, then subscribe it to live frames and
-/// flush hooks queued while it was away. The ring lock orders all three against new output.
+/// send the hooks its device missed. The ring and hook locks order all three against new output
+/// and new hooks.
 fn attach(host: &Arc<Host>, conn: &Conn, id: &Value, params: &Value) -> Result<(), String> {
     let term = find(host, &terminal_id(params)?)?;
     let seq = params.get("seq").and_then(Value::as_u64).unwrap_or(0);
     let ring = lock(&term.ring);
     let (data, reset) = ring.since(seq);
-    {
-        let mut client = lock(&host.client);
-        let client = client
-            .as_mut()
-            .filter(|c| c.generation == conn.generation)
-            .ok_or("detached")?;
-        conn.reply(
-            id,
-            Ok(json!({
-                "data": STANDARD.encode(&data), "reset": reset, "seq": ring.seq,
-                "running": ring.running, "code": ring.code, "pid": term.pid,
-            })),
-        );
-        client.subscribed.insert(term.id.clone());
-        let queued: Vec<Value> = lock(&term.hooks).drain(..).collect();
-        for hook in queued {
-            send(&client.out, &hook);
-        }
-        if !ring.running {
-            send(
-                &client.out,
-                &json!({"event": "exit", "id": term.id, "code": ring.code, "seq": ring.seq}),
-            );
-        }
+    let mut hooks = lock(&term.hooks);
+    let mut clients = lock(&host.clients);
+    let client = clients
+        .iter_mut()
+        .find(|c| c.generation == conn.generation)
+        .ok_or("detached")?;
+    conn.reply(
+        id,
+        Ok(json!({
+            "data": STANDARD.encode(&data), "reset": reset, "seq": ring.seq,
+            "running": ring.running, "code": ring.code, "pid": term.pid,
+        })),
+    );
+    client.subscribed.insert(term.id.clone());
+    for hook in hooks.missed(&client.device) {
+        client.out.send(&hook);
+    }
+    if !ring.running {
+        client
+            .out
+            .send(&json!({"event": "exit", "id": term.id, "code": ring.code, "seq": ring.seq}));
     }
     Ok(())
 }
@@ -898,22 +1309,45 @@ fn serve_hook(host: &Arc<Host>, mut stream: UnixStream, hook: &Value) -> Result<
     });
     let mut stdout = Vec::new();
     if permission {
+        // Every desktop following the conversation shows the request; the first decision wins
+        // and the others are told to withdraw theirs. Without any, Claude's dialog answers.
         let (sender, receiver) = mpsc::channel();
-        lock(&host.decisions).insert(number, sender);
-        if host.emit_terminal(&session, &frame) {
-            if let Ok(decision) = receiver.recv_timeout(DECISION_WAIT) {
-                stdout = decision;
+        lock(&host.decisions).insert(
+            number,
+            Decision {
+                sender: sender.clone(),
+                waiting: None,
+                abstained: HashSet::new(),
+                decided: None,
+            },
+        );
+        let reached = host.emit_terminal(&session, &frame);
+        if let Some(decision) = lock(&host.decisions).get_mut(&number) {
+            decision.waiting = Some(reached.clone());
+            // Everyone may have abstained before the recipients were known.
+            if decision.decided.is_none() && decision.settled() {
+                let _ = sender.send(Vec::new());
             }
         }
-        lock(&host.decisions).remove(&number);
-    } else if !host.emit_terminal(&session, &frame) {
-        if let Ok(term) = find(host, &session) {
-            let mut queue = lock(&term.hooks);
-            if queue.len() >= QUEUED_HOOKS {
-                queue.pop_front();
-            }
-            queue.push_back(frame);
+        if let Ok(decision) = receiver.recv_timeout(DECISION_WAIT) {
+            stdout = decision;
         }
+        if let Some(decision) = lock(&host.decisions).remove(&number) {
+            // Whoever has not answered withdraws the request: another desktop decided it, or
+            // nobody did in time.
+            let pending: HashSet<u64> = reached
+                .iter()
+                .filter(|g| decision.decided != Some(**g) && !decision.abstained.contains(g))
+                .copied()
+                .collect();
+            host.emit_to(&pending, &json!({"event": "hook_resolved", "hook": number}));
+        }
+    } else if let Ok(term) = find(host, &session) {
+        let mut log = lock(&term.hooks);
+        host.emit_terminal(&session, &frame);
+        log.push(number, frame);
+    } else {
+        host.emit_terminal(&session, &frame);
     }
     let _ = writeln!(stream, "{}", json!({"stdout": STANDARD.encode(&stdout)}));
     Ok(())
@@ -1167,7 +1601,8 @@ fn watch(conn: &Conn, params: &Value) -> Result<(), String> {
                     "event": "file", "watch": id, "path": relative, "offset": start,
                     "reset": reset, "data": STANDARD.encode(&data),
                 });
-                if !send(&conn.out, &frame) {
+                conn.out.wait_for_room();
+                if !conn.out.send(&frame) {
                     return None;
                 }
                 sent = true;
@@ -1175,7 +1610,7 @@ fn watch(conn: &Conn, params: &Value) -> Result<(), String> {
             }
             Some(sent)
         };
-        while conn.alive.load(Ordering::Acquire) {
+        while conn.out.alive.load(Ordering::Acquire) {
             if scan(&mut offsets).is_none() {
                 return;
             }

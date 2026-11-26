@@ -21,8 +21,9 @@ pub fn socket(root: &Path) -> PathBuf {
 }
 
 /// Start the resident host in its own session, detached from the SSH session that asked for it:
-/// the SSH hangup reaches neither it nor the terminals it owns.
-fn spawn_server(root: &Path) -> Result<(), String> {
+/// the SSH hangup reaches neither it nor the terminals it owns. `release` is the desktop app's
+/// version, which the host reports so computers on older apps leave it running (ADR 0104).
+fn spawn_server(root: &Path, release: Option<&str>) -> Result<(), String> {
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -34,6 +35,7 @@ fn spawn_server(root: &Path) -> Result<(), String> {
     command
         .args(["serve", "--root"])
         .arg(root)
+        .args(release.map(|r| ["--release", r]).into_iter().flatten())
         .stdin(Stdio::null())
         .stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log);
@@ -49,12 +51,12 @@ fn spawn_server(root: &Path) -> Result<(), String> {
     command.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
-fn connect_or_start(root: &Path) -> Result<UnixStream, String> {
+fn connect_or_start(root: &Path, release: Option<&str>) -> Result<UnixStream, String> {
     let path = socket(root);
     if let Ok(stream) = UnixStream::connect(&path) {
         return Ok(stream);
     }
-    spawn_server(root)?;
+    spawn_server(root, release)?;
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         match UnixStream::connect(&path) {
@@ -68,10 +70,17 @@ fn connect_or_start(root: &Path) -> Result<UnixStream, String> {
 }
 
 /// Relay this process's stdio to the host. Either side closing ends the relay; the host only
-/// detaches the client and keeps every terminal running.
-pub fn attach(root: &Path) -> Result<(), String> {
-    let mut stream = connect_or_start(root)?;
-    let mut hello = json!({"attach": {"protocol": PROTOCOL}}).to_string();
+/// detaches the client and keeps every terminal running. `device` and `label` identify the desktop,
+/// so attachments from different devices coexist (ADR 0104).
+pub fn attach(
+    root: &Path,
+    device: Option<&str>,
+    label: Option<&str>,
+    release: Option<&str>,
+) -> Result<(), String> {
+    let mut stream = connect_or_start(root, release)?;
+    let mut hello =
+        json!({"attach": {"protocol": PROTOCOL, "device": device, "label": label}}).to_string();
     hello.push('\n');
     stream
         .write_all(hello.as_bytes())

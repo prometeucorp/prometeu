@@ -32,9 +32,10 @@ pub trait TerminalSink: Send + Sync {
     fn last_seq(&self) -> u64;
 }
 
-/// Answers a hook relayed from the machine. Runs on its own thread; may wait for a decision.
+/// Answers a hook relayed from the machine. Runs on its own thread; may wait for a decision until
+/// `resolved` is set, when another computer answered it first (ADR 0104).
 pub trait HookSink: Send + Sync {
-    fn hook(&self, frame: &Value) -> Vec<u8>;
+    fn hook(&self, frame: &Value, resolved: &AtomicBool) -> Vec<u8>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -159,6 +160,8 @@ pub struct Connection {
     terminals: Mutex<HashMap<String, Arc<dyn TerminalSink>>>,
     mirrors: Mutex<HashMap<String, Arc<Mirror>>>,
     hooks: Mutex<HashMap<String, Arc<dyn HookSink>>>,
+    /// Permission requests this app is still answering, by host hook number.
+    deciding: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     wanted: AtomicBool,
     looping: AtomicBool,
     changed: Box<dyn Fn() + Send + Sync>,
@@ -192,6 +195,7 @@ impl Connection {
             terminals: Mutex::new(HashMap::new()),
             mirrors: Mutex::new(HashMap::new()),
             hooks: Mutex::new(HashMap::new()),
+            deciding: Mutex::new(HashMap::new()),
             wanted: AtomicBool::new(false),
             looping: AtomicBool::new(false),
             changed,
@@ -314,8 +318,9 @@ impl Connection {
         };
         let root = super::install::remote_root();
         let command = format!(
-            "exec \"$HOME/{root}/host/{}/prometeu-host\" attach --root \"$HOME/{root}\"",
-            binary.hash
+            "exec \"$HOME/{root}/host/{}/prometeu-host\" attach --root \"$HOME/{root}\"{}",
+            binary.hash,
+            identity_arguments(crate::cloud::this_device())
         );
         let mut child = match super::install::ssh(&machine.ssh)
             .arg(&command)
@@ -396,8 +401,16 @@ impl Connection {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        let newer = newer_than_this_app(
+            frame
+                .get("release")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
+        );
         *lock(&self.ready) = Some(frame);
-        let stale = expected.is_some_and(|hash| !current.contains(&hash));
+        // Another computer with a newer app may have installed the running host; replacing it
+        // would make the two computers retire each other's host whenever it is idle (ADR 0104).
+        let stale = !newer && expected.is_some_and(|hash| !current.contains(&hash));
         self.update_pending.store(stale, Ordering::Release);
         let attachment = self.attachments.fetch_add(1, Ordering::AcqRel) + 1;
         self.set_phase(Phase::Connected, None);
@@ -577,15 +590,35 @@ impl Connection {
                 let session = frame["session"].as_str().unwrap_or_default();
                 let sink = lock(&self.hooks).get(session).cloned();
                 let number = frame["hook"].clone();
+                let resolved = Arc::new(AtomicBool::new(false));
+                let deciding = frame["permission"].as_bool() == Some(true);
+                if let (true, Some(hook)) = (deciding, number.as_u64()) {
+                    lock(&self.deciding).insert(hook, resolved.clone());
+                }
                 let frame = frame.clone();
                 let this = self.clone();
                 std::thread::spawn(move || {
-                    let stdout = sink.map(|sink| sink.hook(&frame)).unwrap_or_default();
+                    let stdout = sink
+                        .map(|sink| sink.hook(&frame, &resolved))
+                        .unwrap_or_default();
+                    if let Some(hook) = number.as_u64() {
+                        lock(&this.deciding).remove(&hook);
+                    }
+                    // Another computer answered: the host no longer waits for this one.
+                    if resolved.load(Ordering::Acquire) {
+                        return;
+                    }
                     this.notify(
                         "hook_reply",
                         json!({"hook": number, "stdout": STANDARD.encode(stdout)}),
                     );
                 });
+            }
+            Some("hook_resolved") => {
+                let hook = frame["hook"].as_u64().unwrap_or_default();
+                if let Some(resolved) = lock(&self.deciding).get(&hook) {
+                    resolved.store(true, Ordering::Release);
+                }
             }
             _ => {}
         }
@@ -765,6 +798,37 @@ fn retire_when_idle(
     false
 }
 
+/// Whether the app release that started the host is newer than this app's. Hosts started by
+/// releases that did not report one, and unparseable versions, are not newer.
+fn newer_than_this_app(version: &str) -> bool {
+    let parse = |v: &str| -> Option<Vec<u64>> {
+        v.split(['-', '+'])
+            .next()?
+            .split('.')
+            .map(|p| p.parse().ok())
+            .collect()
+    };
+    match (parse(version), parse(env!("CARGO_PKG_VERSION"))) {
+        (Some(host), Some(app)) => host > app,
+        _ => false,
+    }
+}
+
+/// The `attach` arguments naming this computer, shell-quoted for the remote command. Without an
+/// identity the host treats the desktop as one that predates them, which replaces any other.
+fn identity_arguments(device: Option<(String, String)>) -> String {
+    let Some((id, label)) = device else {
+        return String::new();
+    };
+    let label: String = label.chars().filter(|c| !c.is_control()).take(64).collect();
+    format!(
+        " --device {} --label {} --release {}",
+        super::agent::quote(&id),
+        super::agent::quote(&label),
+        super::agent::quote(env!("CARGO_PKG_VERSION"))
+    )
+}
+
 enum Outcome {
     Closed,
     NotInstalled,
@@ -826,6 +890,26 @@ mod tests {
         );
         assert!(!retired);
         assert!(attempts.load(Ordering::Acquire) <= 2);
+    }
+
+    #[test]
+    fn only_a_newer_host_is_kept_over_this_apps_build() {
+        assert!(newer_than_this_app("999.0.0"));
+        assert!(!newer_than_this_app(env!("CARGO_PKG_VERSION")));
+        assert!(!newer_than_this_app("0.0.1"));
+        assert!(!newer_than_this_app("garbage"));
+    }
+
+    #[test]
+    fn the_attach_command_names_this_computer_quoted() {
+        assert_eq!(identity_arguments(None), "");
+        assert_eq!(
+            identity_arguments(Some(("abc123".into(), "Sam's Mac\n".into()))),
+            format!(
+                " --device 'abc123' --label 'Sam'\"'\"'s Mac' --release '{}'",
+                env!("CARGO_PKG_VERSION")
+            )
+        );
     }
 
     #[test]

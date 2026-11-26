@@ -30,7 +30,7 @@ pub fn mirror_path(machine: &str, remote: &str) -> PathBuf {
         .join(remote.trim_start_matches('/'))
 }
 
-fn quote(value: &str) -> String {
+pub(super) fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
@@ -63,7 +63,7 @@ impl Relay {
 }
 
 impl HookSink for Relay {
-    fn hook(&self, frame: &Value) -> Vec<u8> {
+    fn hook(&self, frame: &Value, resolved: &AtomicBool) -> Vec<u8> {
         let variables: HashMap<String, String> = frame["env"]
             .as_object()
             .map(|env| {
@@ -78,8 +78,13 @@ impl HookSink for Relay {
         else {
             return Vec::new();
         };
-        crate::terminal_agent_hooks::relay(&self.target, &variables, &self.rewrite(&payload))
-            .unwrap_or_default()
+        crate::terminal_agent_hooks::relay(
+            &self.target,
+            &variables,
+            &self.rewrite(&payload),
+            Some(resolved),
+        )
+        .unwrap_or_default()
     }
 }
 
@@ -203,15 +208,24 @@ impl RemoteExecution {
                 .get_current_dir()
                 .map(|d| d.display().to_string())
                 .unwrap_or_else(|| self.home.clone());
-            self.connection.request(
+            let opened = self.connection.request(
                 "terminal_open",
                 json!({
                     "id": self.session, "workspace": self.workspace, "argv": argv, "cwd": cwd,
                     "env": env, "unset": unset, "cols": size.cols, "rows": size.rows,
                     "limits": self.limits.to_wire(),
                 }),
-            )?;
-            self.remote.opened();
+            );
+            match opened {
+                Ok(_) => self.remote.opened(),
+                // Another computer following this machine started the same conversation between
+                // this launch's terminal list and its open (ADR 0104). Following that process here
+                // could drop what this launch meant to send; trying again adopts it.
+                Err(error) if error == "terminal_exists" => {
+                    return Err(crate::i18n::t("err.remote.startedElsewhere"))
+                }
+                Err(error) => return Err(error),
+            }
         }
         self.connection
             .subscribe(&self.session, self.remote.clone());
