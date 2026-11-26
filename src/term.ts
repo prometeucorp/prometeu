@@ -1,4 +1,5 @@
 import { invoke } from "./ipc";
+import { external } from "./links";
 import { terminalSnapshot, type TerminalOutput } from "./terminal-output";
 import { terminalInputOrigin } from "./terminal-input";
 import { replayAnsi } from "../packages/terminal-state/src/replay";
@@ -94,6 +95,15 @@ export class Term {
       allowProposedApi: true,
       scrollback: skin.scrollback,
       ...skin.appearance,
+      linkHandler: {
+        activate: (event, href) => {
+          event.preventDefault();
+          const url = external(href);
+          if (url) void invoke("open_external", { url }).catch(error => this.options.error?.(error));
+        },
+        hover: (_event, href) => { this.host.title = href; },
+        leave: () => { this.host.title = ""; },
+      },
     });
   }
 
@@ -210,6 +220,7 @@ export class Term {
 
   detach() {
     this.attachVersion++;
+    if (this.host) this.host.title = "";
     for (const cancel of [...this.parsing]) cancel();
     this.key = null;
     this.acceptsInput = false;

@@ -112,6 +112,12 @@ xterm 6.0.0; the desktop view draws with the WebGL addon and falls back to DOM
 rendering, without automated GPU rendering conformance. Geometry and input coverage remain in
 `e2e/composer.spec.ts`, `src/term.test.ts` and the terminal-state replay/query tests;
 browser evidence remains distinct from native macOS app conformance.
+OSC 8 HTTP(S) hyperlinks use the system browser for all terminal providers and
+supporting terminals. Plain text URLs without OSC 8 markup are not detected.
+`src/term.test.ts` checks external IPC routing, rejected schemes, destination
+hover text and opening errors, including both supporting terminals' UI callbacks,
+with mocked xterm/IPC; native browser launch still
+requires a macOS app check.
 All four local terminal providers share automatic saved-session resume when a
 stopped tab is opened. `src/terminal-conversation.test.ts` covers concurrent
 surfaces, fresh snapshots, no input submission, bounded failure retry and stale

@@ -1,19 +1,21 @@
 import { invoke } from "./ipc";
-import { Term } from "./term";
+import { Term, type TermOptions } from "./term";
 import { isTerm, type DockKind } from "./types";
 
 /// Two terminal views keep setup/run output beside the shell in the center.
 /// Agent conversations render separately in chat.ts.
 const SKIN = { fontSize: 12, foreground: "#a4a09d", scrollback: 4000 };
-const scripts = new Term(SKIN);
-const shells = new Term(SKIN);
+const options: TermOptions = {};
+const scripts = new Term(SKIN, options);
+const shells = new Term(SKIN, options);
 
 /// Setup and run use the side panel; shells use the center.
 const view = (kind: DockKind) => (isTerm(kind) ? shells : scripts);
 export type Where = "scripts" | "shell";
 const at = (where: Where) => (where === "scripts" ? scripts : shells);
 
-export function init(scriptsEl: HTMLElement, shellEl: HTMLElement) {
+export function init(scriptsEl: HTMLElement, shellEl: HTMLElement, error: (error: unknown) => void) {
+  options.error = error;
   const sink = (key: string, data: string | number[]) => {
     return invoke("pty_write", { session: key, ...(typeof data === "string" ? { data } : { bytes: data }) });
   };
