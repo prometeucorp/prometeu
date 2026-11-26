@@ -378,6 +378,18 @@ interruption banner above the empty composer does not block queued input. The
 host regression retains the local-input fence until a newer verified paint and
 native idle, then admits the next message without retrying its submission.
 
+Claude 2.1.332's installed status publisher maps non-auth turn failures to native
+Error. The shared projector now publishes idle for that root error, preserves
+active children and keeps late source content quiet. Native Working can resume
+the same cycle after a usage-limit wait. Tests
+`terminal_execution_error_stops_root_activity_without_completing_or_blocking_retry`
+and `claude_native_error_stops_spinner_keeps_late_content_quiet_and_allows_retry`
+cover the projector and desktop pump with synthetic status reports, including
+child failure, delayed source input and retry. This is source inspection plus
+regression coverage, not a live quota-exhaustion run. The projection applies to
+all terminal providers that emit Error; it adds no Cursor screen inference or
+change to Codex's engine completion authority.
+
 The provider-neutral OSC parser/reducer tests cover chunked status records,
 bounded retention and explicit per-record completion. Native PTY tests cover
 input, resize, shared process control and reaping. Neither group proves

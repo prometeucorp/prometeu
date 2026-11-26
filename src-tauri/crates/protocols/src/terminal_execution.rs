@@ -225,8 +225,8 @@ impl ExecutionProjector {
         self.root_activity_stopped
     }
 
-    /// Root idle makes later source content quiet even when a preceding Done still awaits its
-    /// independent completion proof. Activity or a new accepted input can make content live again.
+    /// Root idle/error makes later source content quiet without consuming completion evidence.
+    /// Activity or a new accepted input can make content live again.
     pub fn root_content_idle(&self) -> bool {
         self.root_content_idle
     }
@@ -271,6 +271,12 @@ impl ExecutionProjector {
             return output;
         };
         let root = transition.id.is_none();
+        let root_error = root
+            && transition.changed()
+            && transition
+                .current
+                .as_ref()
+                .is_some_and(|report| report.state == ProgramStatusState::Error);
         let became_idle = transition
             .previous
             .as_ref()
@@ -305,7 +311,13 @@ impl ExecutionProjector {
             } else {
                 self.block_ids.remove(&current.id);
             }
-            if root && current.state == ProgramStatusState::Idle && !self.first_activity {
+            if root
+                && matches!(
+                    current.state,
+                    ProgramStatusState::Idle | ProgramStatusState::Error
+                )
+                && !self.first_activity
+            {
                 self.root_content_idle = true;
             }
             if root && active(current.state) && !self.closed {
@@ -329,7 +341,7 @@ impl ExecutionProjector {
                 output.completion = Some(ticket);
             }
         }
-        if root && became_idle && !uncertain_removal {
+        if ((root && became_idle) || root_error) && !uncertain_removal {
             // Root availability is independent of surviving children. Clear the primary turn
             // before projecting any background activity, without claiming successful completion.
             self.publish_state(
@@ -510,11 +522,12 @@ impl ExecutionProjector {
             .find(|record| record.state == ProgramStatusState::Working)
         {
             self.publish_state("working", "background", Some(child), at, events);
-        } else if snapshot
-            .root
-            .as_ref()
-            .is_some_and(|record| record.state == ProgramStatusState::Idle)
-        {
+        } else if snapshot.root.as_ref().is_some_and(|record| {
+            matches!(
+                record.state,
+                ProgramStatusState::Idle | ProgramStatusState::Error
+            )
+        }) {
             self.publish_state("idle", "root", snapshot.root.as_ref(), at, events);
         }
     }

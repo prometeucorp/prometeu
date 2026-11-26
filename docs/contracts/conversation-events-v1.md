@@ -270,6 +270,14 @@ be identified as the earlier prompt by text alone. Replay never enters this
 projector or notification tracking. Clear, idle, record eviction, process exit,
 and a stop hook that does not prove finality never imply successful completion.
 
+A native root error also publishes root `idle` immediately. It ends observed
+activity without waiting for successful-completion evidence. Source content that
+arrives later stays readable without restarting activity. Active children keep
+their own status until they drain. The error completion candidate remains
+separate; a native retry can report working again without another user prompt
+and invalidates that candidate. This uses existing V1 fields and does not add a
+persisted event or a success notification.
+
 The event is additive in V1: older readers ignore it; it consumes a live
 transport sequence but no persisted transcript position. `src/conversation.test.ts`,
 `src/alert.test.ts`, core session/work tests and protocol

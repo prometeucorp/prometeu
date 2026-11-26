@@ -127,6 +127,14 @@ frontend already showed idle. Availability and successful completion therefore
 remain separate facts: late content stays readable, and success still requires
 the provider's source evidence.
 
+An explicit native root Error also clears observed primary activity and quiets
+late source content. Waiting for the successful-completion fence would leave the
+spinner running after failures such as Claude's usage limit. This publishes the
+existing idle observation without claiming turn success or consuming an error
+completion candidate. Children retain their independent activity. The cycle
+remains open so the CLI's automatic retry can report Working without a new
+prompt; resumed activity invalidates the pending candidate.
+
 The pure execution projector returns a completion ticket for an explicit root
 active-to-done/error transition. The host may commit it only after draining the
 native transcript; canonical completion or resumed activity invalidates it.
