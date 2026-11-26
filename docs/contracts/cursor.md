@@ -1,257 +1,331 @@
 ---
 type: Contract
 title: "Cursor CLI"
-description: "ACP transport, external account, conversation lifecycle and capability limits."
+description: "The ACP transport, the external account, the conversation lifecycle and the capability limits."
 status: stable
 ---
 
 # Cursor CLI
 
-Implemented on the macOS/Linux desktop; [ADR 0095](../decisions/0095-cursor-acp.md).
+The implementation is complete on the macOS and Linux desktop. Decision:
+[ADR 0095](../decisions/0095-cursor-acp.md).
 
 ## Installation and accounts
 
-Discovery runs the bounded `cursor-agent acp --help` command. The launcher and
-Settings use the existing provider descriptor and account controls. Attach the
-external CLI account, then select its card. Login and switching the underlying
-identity remain owned by `agent login` and Cursor. Quota queries read the CLI's
-existing access token without copying, refreshing or changing its credential store.
-Removing the account clears selection without logging out.
-The persisted provider and external account ID are both `cursor`.
+The discovery runs the `cursor-agent acp --help` command with a time limit. The launcher
+and Settings use the current provider descriptor and account controls. To use
+Cursor, attach the external CLI account. Then select its card.
+
+`agent login` and Cursor control the login and the change of the identity
+below the account. The quota queries read the current access token of the CLI.
+They do not copy, refresh or change the credential store of the CLI. When a
+person removes the account, the app removes the selection and does not log out.
+The stored provider and the external account ID are `cursor`.
 
 ## Transport and lifecycle
 
-The child runs `cursor-agent acp` in the workspace directory. JSON-RPC 2.0 frames
-are newline-delimited. Startup sends `initialize` (protocol 1), `authenticate`
-(`cursor_login`), `session/new` or `session/load` with the complete client
-`mcpServers` set, optional `session/set_model`,
-and `session/set_mode`. Resume preserves the mode reported by native history;
-the initial plan flag applies to new sessions. The first prompt waits until startup finishes. Each
-`session/prompt` contains text; attachments remain the common path-mention
-contract. Instructions are prepended once per process. Busy input remains queued
-by the shared session core. `session/cancel` interrupts the active prompt.
+The child process runs `cursor-agent acp` in the workspace folder. There is a
+newline after each JSON-RPC 2.0 frame. The startup sends these requests:
 
-The native session ID is saved in `Tab.agent_session`. Prometeu retains V1
-presentation in `chats/<session>.jsonl`; native replay during `session/load` is
-ignored to avoid duplicate messages. Authentication, model, mode or resume
-errors end pending work with a translated error and close input. The desktop
-treats the connection as stopped even if the child has not exited yet; the next
-user message replaces it through the normal shutdown and resume lifecycle.
-Authentication runs again, and a saved native session ID is retained. Native
-stderr diagnostics do not enter the shared transcript; text delivered as an ACP assistant chunk is preserved,
-including errors embedded by Cursor itself. There is no automatic new-session fallback on resume
-failure. An unprompted native session may not survive process exit.
+1. `initialize` (protocol 1).
+2. `authenticate` (`cursor_login`).
+3. `session/new` or `session/load`, with the full client `mcpServers` set.
+4. An optional `session/set_model`.
+5. `session/set_mode`.
 
-ACP model IDs, including bracket parameters, are opaque. Model discovery creates
-an unprompted ephemeral ACP session under the bounded private query transport,
-reads `models.availableModels`, and closes it. No models or effort levels are
-invented from provider names or CLI aliases.
+A resume keeps the mode that the native history reports. The initial plan flag
+applies to new sessions. The first prompt waits until the startup is complete.
+Each `session/prompt` contains text. Attachments continue to use the shared
+path-mention contract. The adapter adds the instructions at the start one time
+for each process. When the agent is busy, the shared session core keeps the
+input in a queue. `session/cancel` stops the active prompt.
+
+The app saves the native session ID in `Tab.agent_session`. Prometeu keeps the
+V1 presentation in `chats/<session>.jsonl`. The adapter ignores the native
+replay during `session/load`, because the replay makes duplicate messages.
+An authentication, model, mode or resume error stops the work that is not
+complete with a translated error. It also closes the input.
+
+The desktop thinks that the connection is stopped also when the child process
+continues to operate. The next user message replaces the connection through the
+usual shutdown and resume lifecycle. The authentication runs again, and the app
+keeps a saved native session ID. The native stderr diagnostics do not go into
+the shared transcript. The app keeps the text that comes as an ACP assistant
+chunk, and this includes errors that Cursor puts in that text. If a resume has a
+failure, the app does not start a new session automatically. It is possible
+that a native session without a prompt does not stay after the process exits.
+
+The app does not parse ACP model IDs, which include bracket parameters. The model discovery
+makes a temporary ACP session without a prompt through the private query
+transport, which has limits. It reads `models.availableModels` and closes the session. The app does
+not make models or effort levels from provider names or CLI aliases.
 
 ## Translation
 
-Text and thinking chunks become streaming assistant blocks, finalized at tool
-boundaries and completion. Tool calls retain native IDs; updates supply inputs,
-output and terminal status. Tool output accepts both ACP content blocks and
-Cursor's native `rawOutput`. Only updates for the active session enter V1.
-Native terminal responses settle the turn once; cancellation settles it as
-interrupted. Unknown notifications do not alter conversation state.
+Text and thinking chunks become streaming assistant blocks. The adapter
+completes these blocks at tool boundaries and at the end of the turn. Tool calls
+keep their native IDs. Updates supply the inputs, the output and the last
+status. Tool output accepts ACP content blocks and the native `rawOutput` of
+Cursor. Only the updates for the active session go into V1. A native last
+response completes the turn one time. A cancel completes the turn with an
+interrupted outcome. Unknown notifications do not change the conversation state.
 
-Permission requests retain their JSON-RPC IDs for replies. Presentation IDs are
-scoped to the turn so restarting the CLI cannot hide a new card behind an old
-request with the same native counter. Ask mode uses the existing
-approval card; automatic execution uses the advertised `allow_once` option.
-Denial uses `reject_once`, or cancellation if no rejection option exists.
-No approval rewrites Cursor's persistent allowlist. Explicit CLI deny rules stay
-in Cursor. Stop cancels pending client requests as well as the prompt.
+Permission requests keep their JSON-RPC IDs for the replies. The presentation
+IDs apply only to the turn. Thus, when the CLI starts again, a previous request with
+the same native counter cannot hide a new card. Ask mode uses the current
+approval card. Automatic execution uses the `allow_once` option that the agent
+shows. A denial uses `reject_once`. If there is no reject option, a denial uses
+a cancel. No approval changes the permanent allowlist of Cursor. Explicit CLI
+deny rules stay in Cursor. Stop cancels the client requests that are not
+complete, and also the prompt.
 
-`cursor/ask_question` maps prompts/options to the common question card and maps
-selected labels back to native IDs independently of multi-select click order.
-Free text is returned in a skipped response's reason, since the extension only accepts option IDs as structured answers.
-`cursor/create_plan` renders the plan text and waits for existing plan approval
-controls. Unknown client methods receive `-32601` rather than remaining pending.
+`cursor/ask_question` changes the prompts and options into the shared question
+card. It changes the selected labels back to native IDs. The click sequence in a
+multi-select does not change the result. The extension accepts only option IDs
+as structured answers. Thus the app returns free text in the text field of a
+skipped response. `cursor/create_plan` renders the plan text and waits for the current
+plan approval controls. Unknown client methods receive `-32601`. They do not
+stay pending.
 
 ## Capability limits
 
-Streaming, tools, resume, stop, initial plan mode, approvals, questions, local
-path mentions and hub MCP are available. Plugins, skills, managed multiple
-accounts, per-turn token/cost reporting, context reports and explicit compaction
-are not. Absent plugin/skill workspace selections resolve to empty hub
-selections, so global and trusted-project packages cannot block startup or
-resume. Explicit nonempty plugin or skill selections still fail rather than being
-silently dropped. Hub MCP follows the same layered resolution as Codex: `None`
-sends no client servers; a declared axis materializes the resolved set through
-ACP `mcpServers` on both `session/new` and `session/load`. Stdio, HTTP and SSE
-hub entries encode through the ACP transport table; Claude-only connectors fail
-startup. Cursor may still load its own project/user rules, skills, hooks and MCP
-configuration; Prometeu makes no isolated-configuration claim. Team-level MCP
-support is limited by Cursor itself.
+These capabilities are available:
+
+- Streaming, tools, resume and stop.
+- The initial plan mode, approvals and questions.
+- Local path mentions and hub MCP.
+
+These capabilities are not available:
+
+- Plugins and skills.
+- More than one managed account.
+- Token and cost reports for each turn.
+- Context reports and explicit compaction.
+
+If a workspace does not select plugins or skills, the hub selections are empty.
+Thus global packages and packages of a trusted project cannot stop the startup
+or the resume. An explicit plugin or skill selection that is not empty
+continues to cause a failure. The app does not discard it without a notice.
+
+Hub MCP uses the same layered resolution as Codex. `None` sends no client
+servers. A declared axis sends the resolved set through ACP `mcpServers` on
+`session/new` and on `session/load`. Stdio, HTTP and SSE hub entries use the
+encoding of the ACP transport table. Connectors that only Claude can use cause a
+startup failure. Cursor can continue to load its own project and user rules,
+skills, hooks and MCP configuration. Prometeu does not claim an isolated
+configuration. Cursor sets the limits of MCP for teams.
 
 ## Account quotas
 
-`cursor/quota.rs` queries Cursor's internal dashboard API independently of ACP,
-without inference. It joins the existing account scheduler, stale-reading cache,
-backoff and removal/reconnection generation checks. The existing `{ windows, at }`
-quota contract and IPC stay unchanged. The account need not send a message first.
+`cursor/quota.rs` queries the internal dashboard API of Cursor. It does not use
+ACP and does not cause inference. It uses the current account scheduler, the
+cache of previous values, the backoff and the generation checks for removal and
+reconnection. The current `{ windows, at }` quota contract and the IPC do not
+change. It is not necessary that the account sends a message
+first.
 
-Authentication uses `CURSOR_AUTH_TOKEN` when explicitly set. An environment API
-key or an in-memory CLI credential store does not borrow a saved subscription.
-Otherwise macOS reads the CLI's `cursor-access-token` Keychain service for
-`cursor-user` with a five-second private subprocess deadline. Explicit
-`AGENT_CLI_CREDENTIAL_STORE=file` uses `~/.cursor/auth.json`; Linux reads
-`$XDG_CONFIG_HOME/cursor/auth.json` or `~/.config/cursor/auth.json`. Relative
-Linux config roots are not used. No browser cookies or Cursor editor database
-are read. Tokens remain in memory and are never refreshed, logged or persisted.
+The authentication uses `CURSOR_AUTH_TOKEN` when a person sets it explicitly. An
+API key in the environment or a CLI credential store in memory does not use a
+saved subscription. If not, the app reads these locations:
 
-The JWT subject and expiry form a `WorkosCursorSessionToken` cookie sent only to
-`https://cursor.com`. HTTP redirects are disabled; each request has a ten-second
-timeout and a 1 MiB response limit. Expired, malformed or rejected credentials
-leave quota data unavailable or retain the previous reading. Cursor owns login
-renewal. As with other external profiles, changing the CLI login outside
-Prometeu does not provide managed identity continuity.
+- On macOS, the `cursor-access-token` Keychain service for `cursor-user`. A
+  private subprocess does this read, with a limit of five seconds.
+- If `AGENT_CLI_CREDENTIAL_STORE=file` is set explicitly, `~/.cursor/auth.json`.
+- On Linux, `$XDG_CONFIG_HOME/cursor/auth.json` or `~/.config/cursor/auth.json`.
+  The app does not use relative Linux configuration roots.
 
-`POST /api/dashboard/get-sand-usage-status` with an empty JSON body and matching
-Origin identifies the quota regime. Explicit `isUnified: true` uses the shared
-weekly `usagePercent` and `nextResetTimestampUtc`. `includedLimitZero` takes
-precedence over the older `hasNonZeroIncludedLimit` allowance flag. Exhausted
-paid allowances remain visible. Missing, malformed, expired or failed weekly
-readings never fall back to a misleading monthly zero.
+The app does not read browser cookies or the database of the Cursor editor.
+Tokens stay in memory. The app does not refresh, log or store them.
 
-Only explicit `isUnified: false` enables `GET /api/usage-summary`. Supported
-individual included plans use their billing-cycle reset and the reported total,
-Cursor and API percentages; omitted pools remain absent. Team budgets, unlimited
-plans and nonrecurring trial grants are not inferred. On-demand spend is outside
-the quota meter. Unknown responses retain the previous reading, never invent 0%.
+The subject and the expiry of the JWT make a `WorkosCursorSessionToken` cookie.
+The app sends this cookie only to `https://cursor.com`. HTTP redirects are
+disabled. Each request has a timeout of ten seconds and a response limit of 1
+MiB. If a credential is expired, malformed or rejected, the quota data stays
+unavailable or keeps the previous value. Cursor owns the renewal of the login.
+As with other external profiles, a change of the CLI login that Prometeu does not make does
+not give a continuous managed identity.
 
-These endpoints are internal and can change independently of ACP. The approach
-is also documented by [CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cursor.md).
-The live quota check verifies the current signed-in account without inference;
-monthly mapping and failure handling are synthetic fixture tests.
+`POST /api/dashboard/get-sand-usage-status`, with an empty JSON body and a
+the same Origin, identifies the quota type. An explicit `isUnified: true` uses
+the shared weekly `usagePercent` and `nextResetTimestampUtc`.
+The app uses `includedLimitZero` first, before the previous
+`hasNonZeroIncludedLimit` allowance flag. The app continues to show paid allowances that are fully used. If a weekly
+value is missing, malformed, expired or has a failure, the app does not show an
+incorrect monthly value of 0.
+
+Only an explicit `isUnified: false` enables `GET /api/usage-summary`. The app can show some
+individual included plans. For these plans, it uses the start of the next
+billing cycle and the reported total, Cursor and API percentages. Pools that the
+response does not include stay missing. The app does not guess team budgets,
+unlimited plans or trial grants that do not occur again. On-demand spend is not
+part of the quota meter. For an unknown response, the app keeps the previous
+value. It does not show 0%.
+
+These endpoints are internal, and they can change independently of ACP.
+[CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/cursor.md) also
+documents this method. The live quota check examines the current signed-in
+account without inference. Synthetic fixture tests examine the monthly map and
+the failure processing.
 
 ## Native interruption evidence
 
-The native terminal host's versioned control uses the current `ctrl+c to stop`
-composer hint and observed active execution. It sends Ctrl+C only once per
-active cycle, because another Ctrl+C can exit the CLI. The startup banner may
-scroll away; current composer alignment, footer rows and physical cursor must
-still match. A draft that hides the hint does not authorize a synthetic Stop.
+The versioned control of the native terminal host uses the current
+`ctrl+c to stop` composer hint and the active execution that the host sees. It sends
+Ctrl+C only one time in each active cycle, because a second Ctrl+C can stop the
+CLI. The startup banner can scroll out of the screen. The current composer
+position, the footer rows and the physical cursor must continue to agree. A
+draft that hides the hint does not let the host send a synthetic Stop.
 
-Local keyboard input keeps Cursor's own bindings. In the pinned
-`2026.11.13-eacade1` source, `src/components/prompt-bar.tsx` also stops on Escape
-when the composer is empty and no overlay, history or queued-message action
-consumes it. That path and Ctrl+C reach the same cancellation callback; the
-application's Stop control continues to use the advertised Ctrl+C binding.
+Local keyboard input keeps the bindings of Cursor. In the pinned
+`2026.11.13-eacade1` source, `src/components/prompt-bar.tsx` also stops on
+Escape in this condition. The composer is empty, and no overlay, history or
+queued-message action uses the key. That path and Ctrl+C go to the same cancel
+callback. The Stop control of the application continues to use the Ctrl+C
+binding that Cursor shows.
 
-The spinner can start before Cursor has persisted the new turn. A native Enter
-written while idle records an input boundary but does not itself mark the agent
-working. Only a newer, complete paint matching the pinned busy composer,
-`ctrl+c to stop` footer and physical caret publishes observed Working. This
-creates no user message; durable source capture later claims the same execution
-cycle. Paste, Enter without a busy paint and an old screen cannot start work.
-After success or interruption, a late busy paint cannot reopen that cycle.
-`cursor_busy_paint_starts_before_source_and_restored_retry_reopens_after_escape`,
-`cursor_working_observation_requires_its_current_complete_busy_composer` and
-`observed_native_input_reopens_a_settled_cycle_and_source_claims_it_once` cover
-the host, versioned screen profile and execution projector respectively.
+The spinner can start before Cursor stores the new turn. A native Enter that the
+host writes when the agent does not operate records an input boundary. It does not mark
+the agent as Working. Only a newer complete paint publishes the Working state
+that the host sees. That paint must agree with the pinned busy composer, the
+`ctrl+c to stop` footer and the physical caret. This does not make a user
+message. Subsequently, the durable source capture claims the same execution cycle.
 
-The opt-in `terminal_agent_controls/smoke.rs` passed on 2026.11.13-eacade1 with
-an owned scratch workspace and private writable CLI settings. It waited for the
-submitted prompt, model-generated counting output and live Working/footer,
-then sent one Ctrl+C. The authenticated root Stop included `aborted`; any later
-Stop reasons are preserved separately. The process remained alive, restored the
-interrupted prompt as a native draft, and was reaped after the proof. This is
-an interruption check, not a completion proof or a new OSC status claim.
-Captured busy, scrolled and interrupted screens exercise the control profile in
-`terminal_agent_controls/tests.rs`; no shell command or file tool was requested.
+Paste, Enter without a busy paint, and a previous screen cannot start work. After a
+success or an interruption, a late busy paint cannot open that cycle again.
+These tests examine the host, the versioned screen profile and the execution
+projector:
 
-The authenticated root `stop` / `aborted` hook settles the canonical turn with
-outcome `interrupted` only after its `generation_id` matches the current durable
-source tail's `request_id` and ingestion is caught up. A newer prompt or app
-submission invalidates an older proof, including while the new prompt has not
-yet reached the store. The prompt-hook generation is only a barrier for input
-not yet captured: durable acknowledgment of its exact request clears it. A
-subsequent source-authorized request can then settle even if no redundant
-`beforeSubmitPrompt` hook arrived. Stop candidates are bounded and retained by
-request identity, so a delayed hook for an older request cannot replace the
-current request's evidence. A later `completed` hook for the cancelled generation
-cannot replace its interruption. The native CLI can emit both: its abort path
-starts the `turn_ended` / `aborted` write before calling the hook, while its
-normal-return path can subsequently call `stop` / `completed` but retain the
-aborted marker. Interruption therefore uses the authenticated cancellation and
-source identity, not the success path's post-ack file-change fence or optional
-run statuses.
+- `cursor_busy_paint_starts_before_source_and_restored_retry_reopens_after_escape`
+- `cursor_working_observation_requires_its_current_complete_busy_composer`
+- `observed_native_input_reopens_a_settled_cycle_and_source_claims_it_once`
 
-The host journals the interrupted outcome before publication and settles the
-spinner even when Cursor restores a nonempty prompt draft. It does not require
-an empty composer, send that draft or infer cancellation from an Escape byte.
-Late source content and tool hooks from the cancelled request cannot reopen
-work; the content remains in history. The interrupted outcome creates no
-successful-reply notification. Observer cancellation tests and
-`journal_cursor_interruption_stops_spinner_and_keeps_late_source_quiet` exercise
-these boundaries with the real portable pump.
+The opt-in `terminal_agent_controls/smoke.rs` had a correct result on
+2026.11.13-eacade1. It
+used a scratch workspace that it owned and private CLI settings that it can
+write. It waited for the prompt that it sent, a counting output from the model and
+the live Working state and footer. Then it sent one Ctrl+C. The authenticated
+root Stop included `aborted`. The test keeps the values of subsequent Stop hooks in a
+different record. The
+process stayed alive and put the interrupted prompt back as a native draft. The
+test stopped the process after the proof.
+
+This smoke test is an interruption check. It is not a completion proof or a new
+OSC status claim. Captured busy, scrolled and interrupted screens examine the
+control profile in `terminal_agent_controls/tests.rs`. The test did not request
+a shell command or a file tool.
+
+The authenticated root `stop` / `aborted` hook completes the canonical turn with
+the `interrupted` outcome. It does this only in this condition:
+
+- Its `generation_id` agrees with the `request_id` of the current durable
+  source tail.
+- The ingestion has no data that is not processed.
+
+A newer prompt or app submission cancels an older proof. This also applies
+while the new prompt is not in the store at that time. The generation of the prompt hook
+is only a barrier for input that the host did not capture at that time. The durable
+acknowledgment of its request removes the barrier. Then a subsequent
+request that the source authorizes can complete, also if no new
+`beforeSubmitPrompt` hook came.
+
+The host keeps a maximum number of Stop candidates by request identity. Thus a
+late hook for a previous request cannot replace the evidence of the current
+request. A subsequent `completed` hook for the cancelled generation cannot replace
+its interruption. The native CLI can send the two hooks. Its abort path starts
+the `turn_ended` / `aborted` write before it calls the hook. Its usual return
+path can then call `stop` / `completed`, but keep the aborted marker. Thus the
+interruption uses the authenticated cancel and the source identity. It does not
+use the post-ack file-change fence of the success path or the optional run
+statuses.
+
+The host records the interrupted outcome in its journal before the publication.
+It stops the spinner also when Cursor puts back a prompt draft that is not empty.
+An empty composer is not necessary for the host. It does not send that draft, and it
+does not think that an Escape byte is a cancel. Late source content and tool
+hooks from the cancelled request cannot open the work again. The content stays
+in the history. The interrupted outcome does not send a notification of a
+correct reply. The observer cancel tests and
+`journal_cursor_interruption_stops_spinner_and_keeps_late_source_quiet` examine
+these boundaries with the production portable pump.
 
 ## Native decision-channel limit
 
-The first terminal version intentionally uses Cursor's native TUI for approvals,
-questions and plan decisions. Chat mode keeps its existing ACP request cards.
-This product choice preserves Cursor's own interaction and is not an outstanding
-requirement to recreate those controls in Prometeu for the current native mode.
-The other terminal conformance and integration requirements still apply.
+The first terminal version uses the native TUI of Cursor for approvals,
+questions and plan decisions. This is intentional. Chat mode keeps its current
+ACP request cards. This product decision keeps the interaction of Cursor. For
+the current native mode, Prometeu must not make those controls again.
+The other terminal conformance and integration requirements continue to apply.
 
-Application request cards cannot answer these requests; an explanatory hint
-points to the native terminal. Shared views receive `decision_surface: "terminal"` inside
-the encrypted announcement, show that the owner must answer, and do not offer
-response actions even to members with Control. The owner and native backend
-also reject stale or legacy decision responses. Messages, verified interruption,
-notes and native keyboard interaction remain available under their existing
-rights. No request is invented from a blocked status or a stored tool call.
+The request cards of the application cannot answer these requests. A hint tells
+the person to use the native terminal. Shared views receive
+`decision_surface: "terminal"` in the encrypted announcement. They show that the
+owner must answer. They do not show response actions, also to members with
+Control. The owner and the native backend also reject decision responses that
+are not current or that use a previous format. Messages, interruption with a
+proof, notes
+and native keyboard interaction stay available with their current rights. The
+app does not make a request from a blocked status or a stored tool call.
 
-The terminal control audit is pinned to CLI `2026.11.13-eacade1`. It found no
-published channel that can answer the existing TUI's pending approvals or
-questions while leaving the native dialog available. The current transport
-therefore continues to reject canonical decision commands for Cursor; it must
-not turn a stored tool call into an answerable request.
+The audit of the terminal control is pinned to CLI `2026.11.13-eacade1`. The
+audit found no published channel that can answer the pending approvals or
+questions of the current TUI and keep the native dialog available. Thus the
+current transport continues to reject canonical decision commands for Cursor.
+It must not change a stored tool call into a request that a person can answer.
 
-The native hooks are sequential pre-execution gates, unlike Claude's parallel
-PermissionRequest dialog hook. In installed `4327.index.js`, the
-`../hooks-exec/dist/index.js` wrapper awaits `preToolUse` and the specialized
-pre-execution hook before invoking the underlying executor. `beforeShellExecution`
-also waits for its hook, then turns `permission: ask` into a `FORCE_PROMPT`
-requirement consumed by the native shell permission service. Waiting for a remote
-answer inside either hook prevents that same operation from reaching its native
-approval dialog. Returning allow merely continues native policy evaluation; it
-is not a response to an already-open native prompt. The Claude compatibility
-mapper explicitly maps `PermissionRequest` to unsupported. The public
-[hook contract](https://cursor.com/docs/hooks) describes these policy hooks and
-their output and failure behavior; no neutral timeout is adopted as an approval
-by Prometeu.
+The native hooks are sequential gates before the execution. Claude has a
+different design: its PermissionRequest dialog hook operates in parallel. In the
+installed `4327.index.js`, the `../hooks-exec/dist/index.js` wrapper waits for
+`preToolUse` and the special pre-execution hook. Then it calls the executor.
+`beforeShellExecution` also waits for its hook. Then it changes
+`permission: ask` into a `FORCE_PROMPT` requirement for the native shell
+permission service.
 
-The interactive implementation keeps pending approval resolvers in
-`./src/pending-decision-store.ts` inside `2986.index.js`. Its React consumer calls
+If a hook waits for a remote answer, that operation cannot open its native
+approval dialog. An answer that lets the operation continue only continues to
+apply the native policy. It is not a response to a native prompt that is open. The Claude
+compatibility mapper explicitly maps `PermissionRequest` to unsupported. The
+public [hook contract](https://cursor.com/docs/hooks) gives these policy hooks,
+their output and their failure behavior. Prometeu does not use a neutral
+timeout as an approval.
+
+The interactive implementation keeps the resolvers for pending approvals in
+`./src/pending-decision-store.ts` in `2986.index.js`. Its React consumer calls
 `approveDecision`/`rejectDecision` in the same process. Root questions and mode
-switches use React-held query IDs and promise resolvers; no external endpoint
-was found for these objects. The installed `index.js` implementation of
-`agent persist attach` attaches a tmux terminal, which forwards input rather
-than exposing typed request identities.
+changes use query IDs and promise resolvers that React holds. The audit found
+no external endpoint for these objects. The installed `index.js` implementation
+of `agent persist attach` attaches a tmux terminal. This terminal sends input.
+It does not show typed request identities to other processes.
 
-[ACP](https://cursor.com/docs/cli/acp) provides permission, question and plan
-responses for an ACP-owned session. Its `./src/acp/run.ts` in `8104.index.js`
-constructs a separate agent runner over stdio; it is not an attachment to the
-running TUI. Starting a second ACP session would create another execution
-authority. The [SDK Bridge](https://cursor.com/docs/sdk/bridge) similarly embeds
-the SDK and owns its own agents; it is not an advertised TUI-control channel.
+[ACP](https://cursor.com/docs/cli/acp) gives permission, question and plan
+responses for a session that ACP owns. Its `./src/acp/run.ts` in
+`8104.index.js` makes a separate agent runner through stdio. It is not an
+attachment to the TUI that operates. A second ACP session makes a
+different execution authority. The [SDK Bridge](https://cursor.com/docs/sdk/bridge)
+also contains the SDK and owns its own agents. It is not a published channel to
+control the TUI.
 
-These findings are source and documented-interface evidence, without a new
-model request or global settings change. They do not prove that a future CLI
-cannot expose a suitable channel. Sending menu keys, instrumenting private
-React state, or replacing the native dialog would require a separate design
-and conformance proof; none is silently used as a permission response.
+These results are evidence from the source and from the documented interfaces.
+The audit did not send a new model request or change global settings. The
+results do not prove that a future CLI cannot show a channel that operates for
+this function. These methods must have their own design and a conformance
+proof:
 
-`conversation-capabilities.test.ts`, `team-viewer.test.ts`, `team-owner.test.ts`,
-`team-channel.test.ts`, relay protocol compatibility tests and
-`chat::terminal::tests::native_only_decisions_reject_application_responses_without_disabling_native_input`
-cover this boundary without changing the global Cursor catalog or Chat behavior.
+- Send menu keys.
+- Add instrumentation to the private React state.
+- Replace the native dialog.
 
-Reproduction uses the installed module names above and these SHA-256 values:
+The app does not use one of these methods as a permission response.
+
+These tests examine this boundary, and they do not change the global Cursor
+catalog or the Chat behavior:
+
+- `conversation-capabilities.test.ts`, `team-viewer.test.ts`,
+  `team-owner.test.ts` and `team-channel.test.ts`.
+- The compatibility tests of the relay protocol.
+- `chat::terminal::tests::native_only_decisions_reject_application_responses_without_disabling_native_input`.
+
+To do the audit again, use the installed module names above and these SHA-256
+values:
 
 | Installed bundle | SHA-256 |
 | --- | --- |
@@ -262,180 +336,251 @@ Reproduction uses the installed module names above and these SHA-256 values:
 
 ## Native-store recovery
 
-The macOS terminal recovery edge is separate from the Chat ACP path, as defined
-by [ADR 0100](../decisions/0100-conversation-transport-identity.md).
-Native instructions use a private `beforeSubmitPrompt` hook's
-`additional_context` response. In the pinned CLI this carrier runs before each
-native submission, including resumed sessions; `sessionStart` alone would miss
-resume. The private hook returns only context, leaving other hooks and native
-permission policy in force. Instructions are data in a private JSON file, read
-by `/bin/cat`, and never become shell syntax or visible prompt text. The native
-10,000 UTF-16-unit carrier limit is checked before launch. A controlled native
-smoke verified fresh/resume with changed instructions and the same user prompt;
-unit coverage checks quoting, file lifetime, permissions and the Unicode limit.
-See the native [hook contract](https://cursor.com/docs/hooks) and the versioned
-implementation checks in `terminal_agent_hooks.rs` and its opt-in smoke.
+The macOS terminal recovery edge is different from the Chat ACP path.
+[ADR 0100](../decisions/0100-conversation-transport-identity.md) gives this rule.
+The native instructions use the `additional_context` response of a private
+`beforeSubmitPrompt` hook. In the pinned CLI, this carrier operates before each
+native submission. This includes resumed sessions. `sessionStart` alone does not
+operate on a resume.
+
+The private hook returns only context. The other hooks and the native permission
+policy stay in force. The instructions are data in a private JSON file that
+`/bin/cat` reads. They do not become shell syntax or prompt text that a person can see. The app examines the native carrier limit of 10,000 UTF-16 units before
+the launch.
+
+A controlled native smoke test examined a new session and a resume with changed
+instructions and the same user prompt. The unit tests examine the quotes, the
+life of the file, the permissions and the Unicode limit. See the native
+[hook contract](https://cursor.com/docs/hooks) and the versioned implementation
+checks in `terminal_agent_hooks.rs` and its opt-in smoke test.
 
 Cursor CLI `2026.11.13-eacade1` resumes from
-`<captured-config>/chats/<md5(physical-cwd)>/<native-session>/store.db`.
-The preparer resolves the existing workspace once before launch, preserving the
-board's original path, and uses that same physical path for the PTY cwd,
-`--workspace`, store hash and transcript slug. The native store hashes
-`process.cwd()`, which resolves filesystem aliases such as macOS `/tmp` to
-`/private/tmp`; hashing only the lexical board path can hide a successfully
-written native response. The preparation regression covers a directory symlink
-followed by `..` on both fresh and resumed launches, without searching histories.
-The caller supplies this exact authorized session directory; the reader never
-searches sessions or opens the editor database. Its pinned root and no-follow
-opens require regular, singly linked files owned by the current user.
+`<captured-config>/chats/<md5(physical-cwd)>/<native-session>/store.db`. The
+preparer resolves the current workspace one time before the launch. It keeps the
+initial path of the board. It uses the same physical path for these items:
+
+- The PTY cwd.
+- `--workspace`.
+- The store hash.
+- The transcript slug.
+
+The native store calculates the hash of `process.cwd()`. This value resolves
+file system aliases, for example macOS `/tmp` to `/private/tmp`. If the app
+calculates the hash of only the lexical board path, it can hide a native
+response that the CLI wrote correctly. The preparation regression test examines a
+folder symlink followed by `..`, on new and resumed launches. It does not search
+histories.
+
+The caller supplies this authorized session folder. The reader does not
+search sessions or open the editor database. Its pinned root and
+no-follow opens accept only regular files with one link that the current user
+owns.
 
 `terminal_agent_cursor_store.rs` copies the database and its WAL into a private
-staging directory, at most 4 MiB per poll, and rejects a copy if either source
-changes. SQLite opens only that copy. The original shared-memory file is never
-opened; `immutable` is not used to bypass the WAL. The copy is removed on drop.
-Source database `user_version: 1`, exact metadata `agentId`, and a CLI at or
-above the verified `2026.11.13` decoder floor are all required. Older or
-unparseable versions fail explicitly; newer ones are decoded with the same
-framing validation.
+staging folder, with a maximum of 4 MiB for each poll. It rejects a copy if one
+of the two sources changes. SQLite opens only that copy. The app does not open
+the initial shared-memory file. It does not use `immutable` to
+bypass the WAL. The app deletes the copy on drop.
 
-`protocols::cursor_store` follows only root-referenced blobs and verifies their
-SHA-256 identities. Generated protobuf fields retain user message, request, run
-and tool-call identities. A step index belongs to its native turn; the referenced
-blob hash is its content version, so an updated answer does not become another
-answer and repeated text in separate runs remains distinct. Compaction of the
-derived JSONL does not identify or remove canonical history. Bounded wire reads
-skip binary fields without allocating their payload while retaining user text;
-malformed framing, missing blobs, identity conflicts and oversized required text
-are explicit failures. The pinned tool descriptors are functional field metadata
-in `cursor_store/tool_schema.json`, reproducible with
-[`extract-cursor-store-schema.py`](../../scripts/extract-cursor-store-schema.py).
-The extractor reads an explicitly selected CLI source file without executing it;
-the artifact records its SHA-256 and CLI version.
+The reader must have all of these items:
 
-Tool projection preserves native call IDs and actual arguments, strips native
-approval/routing metadata, and captures results as separate occurrences from
-their tool blocks. A mutable result updates the same tool; a pending tool does
-not fabricate completion. Tool IDs are opaque bounded JSON strings: the verified
-CLI can join native IDs with an LF, which is preserved and escaped in canonical
-lines. They never select files or approval routes. MCP maps retain JSON values, textual output and
-structured results. Read results follow authenticated content-blob references;
-truncated calls follow and verify their original step, with a bounded reference
-chain and matching native call identity. Binary tool output is represented by
-its byte count and explicit omission rather than retained base64. Unknown tool
-fields withhold coverage. Stored tool calls never create answerable requests.
+- The source database `user_version: 1`.
+- The metadata `agentId` with the same value.
+- A CLI version that is at or above the examined `2026.11.13` decoder floor.
 
-The observer's opt-in `configure_cursor_store` path receives the captured
-`chats/<cwd-hash>` directory and opens only the authenticated session child.
-`set_ingestion` receives private `NativeIngestionBatch` values containing source
-revision, replay/live phase and bounded occurrence/version records. A record
-contains a canonical frame or a content-free checkpoint; none carries a vendor
-payload into the core. User occurrence is its native message ID, independently
-of request/run retries. Assistant steps retain their public `(messageId,index)`
-across blob revisions, so authoritative updates append to the canonical log
-while preserving the visual item's position.
+Previous versions, or versions that the reader cannot parse, cause an explicit
+failure. The reader decodes newer versions with the same framing validation.
 
-The host acknowledges a batch only after every supported record is durably
-committed. Until then the exact same batch may be delivered again. `caught_up`
-requires a final acknowledgment and a subsequent unchanged-source check.
-Resume batches remain replay until their complete bootstrap is acknowledged;
-they never use the legacy live or accepted-prompt callbacks. `expect_submission`
-binds a new native user occurrence to an opaque app submission by a bounded,
-ordered causal queue; old occurrences and repeated text cannot consume later
-submissions. It does not deduplicate history by text.
+`protocols::cursor_store` follows only the blobs that the root refers to. It
+examines their SHA-256 identities. The protobuf fields keep the identities
+of the user message, the request, the run and the tool call. A step index
+belongs to its native turn. The hash of the blob that the step refers to is its
+content version. Thus an updated answer does not become a different answer.
+The same text in different runs stays as different items.
 
-Unknown tools, shell-only turns and synthetic-user kinds without a projection explicitly
-withhold coverage, even if later compacted out. Their no-frame checkpoints are
-not proof of complete ingestion. No root snapshot, run status or missing activity
-fabricates a completion event. The native host reconciles captured
-occurrence/version receipts through its private ingestion journal: bootstrap
-recovery is storage-only before Lines are seeded; live publication follows
-durable commit. See [persistence](persistence.md#native-ingestion-journal-foundation).
+The compaction of the derived JSONL does not identify or remove canonical
+history. The reads of the protobuf data have limits. They skip binary fields and do not
+use memory for their payload. They keep the user text. These conditions cause explicit
+failures:
 
-The success fence correlates a live `stop` hook's `generation_id` with the
-last fully ingested turn's native `request_id`. Before acknowledging that hook,
-the authenticated listener captures metadata of its exact authorized transcript
-through pinned directory handles and no-follow opens. That witness is host-only:
-it cannot be supplied in the helper envelope or restored from a previous process.
-The observer then requires a changed, stable file revision ending in a complete
-`turn_ended` / `success` record. The pinned writer emits this marker only after
-the Stop hook chain returns; ordinary writes remove a previous turn's marker.
-A missing file before acknowledgment may become a regular authorized file later.
-Read failures, partial records and an unchanged old marker do not establish the fence.
+- Malformed framing.
+- Missing blobs.
+- Identity conflicts.
+- Mandatory text that is too large.
 
-Native run records are optional in the verified TUI store. When present, their
-identities and completed states must agree; missing records are not synthesized.
-The host also checks the current empty composer and pending app-input transaction,
-then journals completion before publishing or changing execution state. Composer
-painting alone cannot bypass the post-hooks marker. Duplicate request receipts
-do not repeat notifications, telemetry or completion effects. Cancellation uses
-the separate authenticated interruption path above. Native errors and unsupported
-background content remain separate conformance requirements.
+The pinned tool descriptors are functional field metadata in
+`cursor_store/tool_schema.json`.
+[`extract-cursor-store-schema.py`](../../scripts/extract-cursor-store-schema.py)
+can make them again. The extractor reads an explicitly selected CLI source file
+and does not run it. The artifact records its SHA-256 and the CLI version.
+
+The tool projection keeps the native call IDs and the arguments that the agent
+used. It removes the native approval and routing metadata. It captures results
+as occurrences that are different from their tool blocks. A mutable result
+updates the same tool. A pending tool does not make an incorrect completion.
+
+Tool IDs are JSON strings with a limit, and the app does not parse them. The
+examined CLI can put an LF between native IDs. The app keeps the LF and writes
+it as an escape sequence in canonical lines. Tool IDs do not select files or
+approval paths. MCP maps keep JSON values,
+text output and structured results. Read results follow authenticated
+links to content blobs. Truncated calls follow and examine their initial
+step. They use a chain of links with a limit and the same native call identity.
+
+The app shows binary tool output as its byte count and an explicit omission. It
+does not keep the base64 data. Unknown tool fields stop the coverage. Stored
+tool calls do not make requests that a person can answer.
+
+The opt-in `configure_cursor_store` path of the observer receives the captured
+`chats/<cwd-hash>` folder. It opens only the authenticated session child.
+`set_ingestion` receives private `NativeIngestionBatch` values. These values
+contain the source revision, the replay or live phase, and occurrence and version
+records with limits. A record contains a canonical frame or a checkpoint without
+content. No record sends a vendor payload into the core.
+
+The native message ID is the user occurrence. It does not change with request and
+run retries. Assistant steps keep their public `(messageId,index)` across blob
+revisions. Thus authoritative updates add to the canonical log, and the visual
+item keeps its position.
+
+The host acknowledges a batch only after it commits all supported records to
+durable storage. Until then, the same batch can come again. `caught_up` must
+have a last acknowledgment and a subsequent check that shows that the source did
+not change. Resume batches stay replay until the host acknowledges their full
+bootstrap. They do not use the previous live or accepted-prompt callbacks.
+
+`expect_submission` connects a new native user occurrence to an app submission
+identifier that the core does not parse. It uses a causal queue in sequence,
+with a limit. Previous occurrences and the same text cannot use subsequent
+submissions. It does not remove duplicate
+history by text.
+
+Unknown tools, turns with only shell work and synthetic-user kinds without a
+projection explicitly stop the coverage. This also applies when a subsequent
+compaction removes them. Their checkpoints without frames are not a proof that
+the ingestion is complete. No root snapshot, run status or missing activity
+makes an incorrect completion event. The native host compares the captured
+occurrence and version receipts through its private ingestion journal. Before
+the host fills the Lines, the bootstrap recovery uses only the storage. The live
+publication follows the durable commit. See
+[persistence](persistence.md#native-ingestion-journal-foundation).
+
+The success fence compares the `generation_id` of a live `stop` hook with the
+native `request_id` of the last turn with a complete ingestion. Before the
+authenticated listener acknowledges that hook, it captures the metadata of its
+authorized transcript. It uses pinned folder handles and no-follow opens.
+Only the host has that witness. The helper envelope cannot supply it, and a
+previous process cannot give it.
+
+Then the observer must see a changed and stable file revision. This revision
+must end in a complete `turn_ended` / `success` record. The pinned writer sends
+this marker only after the Stop hook chain returns. Usual writes remove the
+marker of a previous turn. If the file is missing before the acknowledgment, it
+can become a regular authorized file subsequently. Read failures, records that are not complete
+and a previous marker that did not change do not make the fence.
+
+Native run records are optional in the examined TUI store. If they are there,
+their identities and completed states must agree. The host does not make
+missing records. The host also examines the current empty composer and the
+pending transaction for app input. Then it records the completion in the
+journal before it publishes or changes the execution state. A composer paint
+alone cannot bypass the post-hooks marker. Duplicate request receipts do not
+send again the notifications, telemetry or completion effects. A cancel uses the
+different authenticated interruption path above. Native errors and unsupported
+background content stay different conformance requirements.
 
 Synthetic tests in `protocols/src/cursor_store/tests.rs` and
-`terminal_agent_cursor_store/tests.rs` cover repeated inputs, compaction, new
-runs, mutable answers, large binary context, hashes, WAL recovery and source
-isolation, pending/result revisions, MCP values, read blobs, truncated calls,
-binary limits and malformed tool unions. `terminal_agent_observation/cursor/tests.rs` covers acknowledgment,
-quiet resume, repeated submissions and incomplete coverage; `src/timeline.test.ts`
-covers late authoritative updates without moving existing positional keys.
-`chat/terminal/ingestion/tests.rs` composes that journal with the real portable
-pump to cover restart, a missing native tail, normalized input aliases and
-failure before publication. Controlled native smokes validated the copied
-store decoder for hook-authorized scratch sessions, including one Shell call and
-its exact output. That call was explicitly approved once in the test's native
-prompt; programmatic approval controls are outside the accepted native-mode
-scope. Full Tauri app conformance remains distinct from these native smokes.
+`terminal_agent_cursor_store/tests.rs` examine these items:
+
+- The same input more than one time, compaction, new runs and mutable answers.
+- Large binary context, hashes, WAL recovery and a source that stays isolated.
+- Pending and result revisions, MCP values and read blobs.
+- Truncated calls, binary limits and malformed tool unions.
+
+`terminal_agent_observation/cursor/tests.rs` examines the acknowledgment, the
+quiet resume, duplicate submissions and coverage that is not complete. `src/timeline.test.ts`
+tests late authoritative updates that do not move the current positional keys.
+`chat/terminal/ingestion/tests.rs` uses that journal with the production portable
+pump. It examines a new start of the host, a missing native tail, normalized input aliases and a
+failure before the publication.
+
+Controlled native smoke tests validated the copied store decoder for scratch
+sessions that the hook authorized. This included one Shell call and its full
+output. The test explicitly approved that call one time in the native prompt.
+Programmatic approval controls are not in the accepted scope of the native
+mode. The full conformance of the Tauri app is different from these native
+smoke tests.
+
 `terminal_agent_observation/cursor/tests.rs` and `terminal_agent_hooks.rs` also
-cover pre-ack capture, stale and partial success markers, exact request identity,
-new-input invalidation, duplicate hooks, symlink/hard-link rejection and durable
-completion without repeated publication. The cancellation regressions
-`cursor_interruption_requires_durable_request_tail_without_a_success_marker`,
-`cursor_interruption_rejects_other_requests_and_new_app_input` and
-`cursor_interruption_rejects_late_old_hooks_before_new_prompt_reaches_store`
-cover the interrupted outcome, duplicate acknowledgment and stale request
-boundaries independently of the success marker.
+examine these items:
+
+- The capture before the acknowledgment.
+- Success markers that are not current or not complete.
+- The request identity.
+- The cancel of a proof after new input.
+- Duplicate hooks.
+- Symlinks and hard links, which the host rejects.
+- A durable completion without a second publication.
+
+These cancel regression tests examine the interrupted outcome, the duplicate
+acknowledgment and the boundaries of previous requests. They do not use the success
+marker:
+
+- `cursor_interruption_requires_durable_request_tail_without_a_success_marker`
+- `cursor_interruption_rejects_other_requests_and_new_app_input`
+- `cursor_interruption_rejects_late_old_hooks_before_new_prompt_reaches_store`
+
 `cursor_restored_prompt_retry_settles_without_repeating_before_submit_hook`
-checks a later source-confirmed request without a repeated prompt hook and
-with delayed old Stop hooks. It is a synthetic ordering regression, not evidence
-that a particular native retry skipped its hook. The controlled identity smoke confirmed
-the hook/request match and the absence of optional run records for its own session.
-A second controlled native run exercised the pre-ACK witness, copied source,
-durable ingestion receipts, post-hooks marker and empty composer together, then
-committed exactly one completion receipt. The headless harness uses the same
-observer/journal path; it does not claim a Tauri UI or shared-control test.
+examines a subsequent request that the source shows, without a second prompt
+hook and with previous Stop hooks that come late. It is a synthetic regression test for the
+sequence. It is not evidence that a specified native retry did not send its
+hook. The controlled identity smoke test showed that the hook and the request
+agree. It also showed that its own session did not have optional run records.
+
+A second controlled native run examined these items together:
+
+- The witness before the acknowledgment.
+- The copied source and the durable ingestion receipts.
+- The post-hooks marker and the empty composer.
+
+Then the run committed only one
+completion receipt. The headless harness uses the same observer and journal
+path. It does not claim a test of the Tauri UI or of shared control.
 
 ## Native streaming diagnostics
 
 Cursor CLI `2026.10.22-27dcf5f` can send
 `Error: RetriableError: WritableIterable is closed` as an `agent_message_chunk`
-after answer text, then return `stopReason: end_turn`. This was also observed
-with a standalone ACP client outside Prometeu. Do not strip matching assistant
-text or retry automatically: that could conceal a real failure or repeat tool
-effects. Cursor support describes this as a
+after the answer text. Then it returns `stopReason: end_turn`. A standalone ACP
+client without Prometeu also showed this behavior. Do not remove that
+assistant text. Do not try again automatically. These actions can hide a
+failure or do the tool effects again. Cursor support tells that this is a
 [known transient stream teardown bug](https://forum.cursor.com/t/cursor-cli-error-writableiterable-is-closed/165741/5).
-The person can send another prompt or resume the native session.
+The person can send a different prompt or resume the native session.
 
 ## Evidence
 
-`src-tauri/crates/protocols/src/cursor/tests.rs` covers translation, the MCP
-session payload and protocol failures using a [sanitized recording](../../src-tauri/crates/protocols/src/cursor/fixtures/README.md).
-Hub encoding lives in `crates/tools/src/tests.rs`. The generated V1 fixture is
-consumed by `src/conversation.test.ts`. Account compatibility lives in
-`src-tauri/crates/core/src/accounts/tests.rs`; model selection persistence lives
-in `src/model-choice.test.ts`. Existing account and launcher browser journeys
-cover reused controls; no additional provider matrix of browser tests is
-introduced.
+`src-tauri/crates/protocols/src/cursor/tests.rs` examines the translation, the
+MCP session payload and the protocol failures. It uses a
+[sanitized recording](../../src-tauri/crates/protocols/src/cursor/fixtures/README.md).
+The hub encoding tests are in `crates/tools/src/tests.rs`. `src/conversation.test.ts`
+uses the V1 fixture that the recording gives. The account compatibility tests are in
+`src-tauri/crates/core/src/accounts/tests.rs`. The tests for the storage of the
+model selection are in `src/model-choice.test.ts`. The current account and
+launcher browser journeys examine the controls that this feature uses again. This
+feature does not add a provider matrix of browser tests.
 
-`src-tauri/src/cursor/quota/tests.rs` covers quota regimes, missing/malformed
-data, expiry, credential validation and unchanged window serialization. Run its
-ignored `live_cursor_quota` test for a read-only authenticated dashboard check.
+`src-tauri/src/cursor/quota/tests.rs` examines the quota types, missing or
+malformed data, the expiry, the credential validation and the window
+serialization that does not change. For a read-only authenticated dashboard
+check, run its ignored `live_cursor_quota` test.
 
-For an explicitly authorized live check with paid inference:
+For a live check with paid inference, get an explicit authorization. Then run:
 
 ```sh
 cd src-tauri
 cargo test --bin Prometeu cursor::tests::live_cursor_round_trip -- --ignored --exact
 ```
 
-The test confines file work to a fresh temporary directory. Default suites do not
-invoke Cursor or spend model credits.
+The test keeps file work in a new temporary folder. The default suites do not
+call Cursor or use model credits.

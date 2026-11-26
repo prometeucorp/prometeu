@@ -1,262 +1,329 @@
 ---
 type: Architecture
 title: "Prometeu Design System"
-description: "Tokens, components, gallery and incremental adoption."
+description: "The tokens, the components, the gallery and the adoption of the design system in steps."
 status: stable
 ---
 
 # Prometeu Design System
 
-Shared executable components; decision in
-[ADR 0017](../decisions/0017-executable-design-system.md). The package contains
-rendering, behavior, styles and Rails adaptation.
+The design system is a set of shared components that you can run.
+[ADR 0017](../decisions/0017-executable-design-system.md) records the decision.
+The package contains the rendering, the behavior, the styles and the Rails
+adapter.
 
 ## Source of truth
 
 - [`packages/design-system`](../../packages/design-system/README.md): the
-  `@prometeu/design-system` package, canonical source of colors, fonts, radii,
-  spacing, DOM controls, menus, dialogs, icons, styles and the Rails adapter.
-  Token names and values are preserved. The package documents APIs, imports,
-  lifecycle and accessibility contracts.
-- [`src/ui-tokens.css`](../../src/ui-tokens.css): imports the tokens and keeps
-  only the geometry and states exclusive to the desktop.
-- [`src/ui.css`](../../src/ui.css): imports the shared components and retains
-  legacy control rules. Legacy button selectors exclude `.ui-button` so shared
-  buttons retain the package contract. `style.css` imports that base and still holds some screen composition
-  styles alongside feature stylesheets.
-- [`src/ui.ts`](../../src/ui.ts): re-exports the package's components, with no
-  local implementation of `button`, `input`, `field`, `checkbox`, `select`,
-  `dropdown`, `disclosure` or `formDialog`.
+  `@prometeu/design-system` package. It is the canonical source of colors,
+  fonts, radii, spacing, DOM controls, menus, dialogs, icons, styles and the
+  Rails adapter. The token names and values do not change. The package gives
+  the APIs, the imports, the lifecycle and the accessibility contracts.
+- [`src/ui-tokens.css`](../../src/ui-tokens.css): imports the tokens. It keeps
+  only the geometry and the states that only the desktop uses.
+- [`src/ui.css`](../../src/ui.css): imports the shared components and keeps the
+  legacy control rules. The legacy button selectors do not include
+  `.ui-button`. Thus, the shared buttons keep the package contract. `style.css`
+  imports that base. It continues to contain some styles for screen composition,
+  together with the feature stylesheets.
+- [`src/ui.ts`](../../src/ui.ts): exports the components of the package again.
+  It has no local implementation of `button`, `input`, `field`, `checkbox`,
+  `select`, `dropdown`, `disclosure` or `formDialog`.
 - [`src/menu.ts`](../../src/menu.ts) and [`src/icons.ts`](../../src/icons.ts):
-  re-export the package's generic menus and icons. Icons for files and
-  providers stay in the desktop's presentation adapter.
+  export the generic menus and icons of the package again. The icons for files
+  and providers stay in the presentation adapter of the desktop.
 
-Components receive already-translated text and callbacks. They do not import
-IPC, persisted state, the agent catalog or business rules. A screen composes
-these primitives and keeps its own domain validations.
+The components get text that the caller translated before, and callbacks. They
+do not import IPC, stored state, the agent catalog or business rules. A screen
+composes these primitives and keeps its own domain validations.
 
 ## Usage and accessibility
 
-`field(label, control, help)` associates the name and description with the
-control. `input` keeps the native `required`, `pattern`, `min` and `max`. Use
-`aria-invalid="true"` and associated error text when domain validation fails.
-`checkbox` keeps the native input inside the label, with a size independent of
-text fields; long labels wrap next to the control.
+`field(label, control, help)` connects the name and the description to the
+control. `input` keeps the native `required`, `pattern`, `min` and `max`. When
+the domain validation finds an error, use `aria-invalid="true"` and a related
+error text. `checkbox` keeps the native input in the label. Its dimension does
+not change with the text fields. A long label goes to a new line adjacent to
+the control.
 
-`toggle` reuses the native checkbox with switch semantics. `radio` keeps native
-radio-group keyboard behavior. Both appear in the standalone galleries and the
-notification preferences; `e2e/notifications.spec.ts` covers keyboard use.
+`toggle` uses the native checkbox again with switch semantics. `radio` keeps the
+native keyboard behavior of a radio group. The two controls are in the
+standalone galleries and in the notification preferences.
+`e2e/notifications.spec.ts` examines the keyboard use.
 
 `select` returns `control`, `value`, `onchange` and `setOptions`. The selector
-uses the same `dropdown` extracted from the launcher and the shared menu. The
-model selection updates its options without creating another component. A
-required selection uses `root` and the `name`/`required` attributes when the
-consumer depends on native submission. The `native` field takes part in
-`FormData` and in HTML validation. Legacy screens that use only `control` and
-send their own commands still validate the domain rules before saving.
-Opening a dropdown focuses its menu options. Arrow keys move actual focus,
-not only the visual selection, and closing restores focus to the trigger.
-Submenus open beside their row, and on its left when the right edge of the
-window has no room, so they never cover the menu that opened them.
+uses the same `dropdown` as the launcher and the shared menu. The model
+selection updates its options without a new component. If the consumer uses
+the native form submission, a necessary selection uses `root` and the
+`name`/`required` attributes. The `native` field is part of `FormData` and of
+the HTML validation. Legacy screens that use only `control` and send their own
+commands continue to validate the domain rules before they save.
 
-`formDialog` uses `dialog.showModal()`: content behind it becomes inert, focus
-returns on close and Tab/Shift+Tab cycle within the form. The body scrolls and
-the footer stays visible. Footer buttons have an explicit tab stop so WebKit
-does not skip them during keyboard navigation. Saving respects HTML validation, prevents double
-submission, signals `aria-busy` and presents failures in `role="alert"` without
-losing the typed text. Menus opened in the dialog join the same layer. Escape
-closes the menu first; another Escape closes the dialog. Global shortcuts do
-not change the workspace while the dialog is open. While submission is pending,
-Escape and cancellation leave the dialog open so progress and failures remain
-visible.
+When a dropdown opens, the focus goes to its menu options. The arrow keys move
+the focus, not only the visual selection. When the dropdown closes, the focus
+goes back to the trigger. A submenu opens adjacent to its row. If there is no
+space at the right edge of the window, the submenu opens on the left. Thus, a
+submenu does not cover the menu that opened it at any time.
 
-Shared dialogs use consistent header/body spacing, content-sized buttons and
-grouped footer actions. Text-entry forms focus their first field; dialogs that
-start with actions or selection focus the title so no button appears selected
-on opening. Tab still reaches the controls with a visible focus indicator, and
-Shift+Tab from the title reaches the last enabled control. The standalone
-gallery's confirmation demonstrates this initial state; tests cover it in
-`e2e/design-system.spec.ts` and the Projects flow in `e2e/projects.spec.ts`.
-An opener replaced during a background refresh keeps focus restoration through
-its stable `id` or `data-focus` key.
+`formDialog` uses `dialog.showModal()`. These conditions apply:
+
+- The content behind the dialog becomes inert.
+- When the dialog closes, the focus goes back to the opener.
+- Tab and Shift+Tab move the focus only through the form.
+- The body scrolls and the footer stays in view.
+- The footer buttons have an explicit tab stop. Thus, WebKit does not skip them
+  during keyboard navigation.
+
+When the person saves, the dialog obeys the HTML validation and prevents a
+second submission. It sets `aria-busy` and shows failures in `role="alert"`. The
+typed text stays in the fields. A menu that opens in the dialog goes into the
+same layer. The first Escape closes the menu, and the second Escape closes the
+dialog. Global shortcuts do not change the workspace while the dialog is open.
+While a submission is pending, Escape and cancellation do not close the dialog.
+Thus, the progress and the failures stay in view.
+
+The shared dialogs use the same spacing for the header and the body. Their
+buttons have the dimension of their content, and the footer actions are in a
+group. A form for text entry puts the focus on its first field. A dialog that
+starts with actions or a selection puts the focus on the title. Thus, no button
+shows as selected when the dialog opens. Tab continues to go to the controls
+with a focus indicator that you can see. Shift+Tab from the title goes to the
+last enabled control.
+
+The confirmation in the standalone gallery shows this initial state.
+`e2e/design-system.spec.ts` examines it, and `e2e/projects.spec.ts` examines
+the Projects flow. A background refresh can replace the opener of a dialog. In
+that condition, the opener keeps the focus restoration through its stable `id`
+or `data-focus` key.
 
 ## Interaction metadata
 
-Desktop consumers supply stable control identities through `data-track` or the
-optional `track` arguments/options on existing controls. `identifyControl` and
-`identifyArea` only set metadata. Menus, dialogs and searchable pickers preserve
-the opener's explicit area, including when rendered in a portal. Each action in
-a menu has its own `track`; changing visible text never determines identity.
+Desktop consumers give stable control identities through `data-track` or
+through the optional `track` arguments and options of the current controls.
+`identifyControl` and `identifyArea` only set metadata. Menus, dialogs and
+pickers with a search field keep the explicit area of the opener. This also
+applies when they render in a portal. Each action in a menu has its own `track`.
+The text that a person sees does not set the identity at any time.
 
-The shared package has no analytics transport or app dependency. Desktop capture
-and coverage checks live outside it; see the
-[product analytics contract](../contracts/product-analytics.md). Existing callers
-without tracking options retain their behavior.
+The shared package has no analytics transport and no dependency on the app.
+The desktop capture and the coverage checks are out of the package. Refer to the
+[product analytics contract](../contracts/product-analytics.md). Current callers
+without tracking options keep their behavior.
 
 ## Adoption
 
 The command and agent editors in Actions use the shared fields, selectors,
 checkboxes, disclosures and dialog. The launcher composes shared fields,
-buttons, text input and checkboxes into a task/repository column and an
-agent/tools column. Narrow windows stack the columns in a scrolling body;
-the branch summary and creation actions remain in a separate, visible footer.
-Model search, favorites and native effort selection use the existing pickers. The optional starting skill shares the prompt's attachment row as a ghost
-button and opens the launcher's searchable picker.
-Account identities wrap instead of truncating; account popovers share one row
-for adding and managing accounts, and the account dialog keeps its footer
-visible while its cards scroll. Launcher layout and account-dialog focus are covered in
-[`e2e/launcher-layout.spec.ts`](../../e2e/launcher-layout.spec.ts), including
-the English UI at representative viewport sizes, with selected WebKit checks. Text
-fields in the MCP and plugin hubs use `input` and `field`, including the plugin
-creation request. Worktree cleanup also uses `formDialog`,
-including its busy-state cancellation guard and shared checkboxes. Their
-application callbacks own progress labels and operation results. Legacy modals
-in the hubs keep the previous lifecycle.
+buttons, text input and checkboxes into two columns. The first column is for
+the task and the repository. The second column is for the agent and the tools.
+In a narrow window, the columns are one above the other in a body that scrolls.
+The branch summary and the actions that make a workspace stay in a different
+footer that you can always see.
 
-Browser mock screenshots: [workspace](../images/ui/workspace.png),
+The model search, the favorites and the native effort selection use the current
+pickers. The optional skill for the first prompt is a ghost button in the attachment row of
+the prompt. It opens the picker of the launcher, which has a search field.
+
+Account identities go to a new line. They are not cut. The account popovers
+use one row to add and manage accounts. The account dialog keeps its footer in
+view while its cards scroll.
+[`e2e/launcher-layout.spec.ts`](../../e2e/launcher-layout.spec.ts) examines the
+launcher layout and the focus in the account dialog. It uses the English
+interface at representative viewport dimensions, with selected WebKit checks.
+
+The text fields in the MCP and plugin hubs use `input` and `field`. This also
+applies to the request that makes a plugin. The worktree cleanup also uses
+`formDialog`, with its protection against cancellation when busy and with shared
+checkboxes. Their application callbacks own the progress labels and the
+operation results. The legacy modals in the hubs keep the previous lifecycle.
+
+Screenshots of the browser mock: [workspace](../images/ui/workspace.png),
 [narrow workspace](../images/ui/workspace-narrow.png),
 [account popover](../images/ui/accounts.png),
 [account selector](../images/ui/account-dialog.png),
 [model picker](../images/ui/model-picker.png), and
 [Projects dialog](../images/ui/projects-dialog.png).
 
-New controls and changes to existing controls must reuse this base. If behavior
-is missing, add it to the corresponding primitive and show the state in the
-gallery. Do not copy CSS from one screen to another, and do not introduce a
-generic abstraction without real reuse. Cohesive chat or Git components may
-stay specific to that domain while providing isolated examples and typed APIs.
+New controls and changes to current controls must use this base. If a behavior
+is missing, add it to the related primitive and show the state in the gallery.
+Do not copy CSS from one screen to a different screen. Do not add a generic
+abstraction if two or more consumers do not use it. Chat or Git components that
+have one topic can stay in their domain. They must also give isolated examples
+and APIs with types.
 
 ## Desktop catalog and production adoption
 
-[`src/components/`](../../src/components/README.md) is the discoverable Desktop
-component entry point. Its `catalog.json` maps component ids to source files,
-exports, states and real consumers. The gallery supports search, direct URLs
-(`/design-system.html?component=diff&state=split`) and isolated canvases
-(`&embed=1`). Its JSON link remains available in the production build.
+[`src/components/`](../../src/components/README.md) is the entry point where you
+can find the Desktop components. Its `catalog.json` connects component ids to
+source files, exports, states and the consumers in the product. The gallery has
+a search, URLs for each state (`/design-system.html?component=diff&state=split`) and
+isolated canvases (`&embed=1`). Its JSON link stays available in the production
+build.
 
-ChatView now calls the catalog's block, work, request, composer and attachment
-components. It retains transport, timeline coordination, drafts and permission
-mode changes. Workspace Changes calls Git file rows, groups and the commit form;
-operations and stale-state guards remain in the adapter. The diff reader owns
-its observer and caches per instance; the existing Desktop adapter supplies
-persisted review state. Icons and Markdown also have their canonical Desktop
-source under `components/`, with compatibility exports for existing consumers.
+At this time, ChatView calls the block, work, request, composer and attachment
+components of the catalog. ChatView keeps the transport, the timeline
+coordination, the drafts and the changes to the permission mode. Workspace
+Changes calls the Git file rows, the groups and the commit form. The operations
+and the protection against state that is not current stay in the adapter. The diff reader owns its
+observer and caches for each instance. The current Desktop adapter supplies the
+stored review state. Icons and Markdown also have their canonical Desktop source
+in `components/`. They have compatibility exports for the current consumers.
 
-Stories import those production implementations with deterministic sample data.
-They do not bootstrap the app, initialize the mock or invoke real operations.
-The catalog test checks source existence, story coverage and import reachability
-from every declared production consumer. Boundary checks reject integration
-imports and direct network/storage effects in component code. The gallery offers
-two independent diff readers for visual inspection.
+The stories import those production implementations with deterministic sample
+data. They do not start the app, start the mock or start real operations. The
+catalog test makes sure of these conditions:
+
+- The source files are there.
+- Each component has stories.
+- Each declared production consumer gets to its component through imports.
+
+The boundary checks reject integration imports and network or storage effects
+in component code. The gallery gives two diff readers that operate
+independently, for visual inspection.
 
 ## Reusable Desktop compositions
 
-`src/components/compositions.ts` provides typed section headers, toolbars, item rows,
-overflow actions and list states above the package primitives. Resources, Actions
-and the Tasks inbox use them. `src/components/compositions.css` owns common
-layout; screen styles retain only their variants. These Desktop components have no feature
-imports or application effects and do not change the distributed Cloud API.
-The [composition recipe](desktop-composition.md) lists each API and real use.
-`/design-system.html#components-preview` demonstrates an independent screen
-assembled from these parts with local callbacks and selectable states.
+`src/components/compositions.ts` gives section headers, toolbars, item rows,
+overflow actions and list states with types. These compositions are above the
+package primitives. Resources, Actions and the Tasks inbox use them.
+`src/components/compositions.css` owns the shared layout. The screen styles keep
+only their variants. These Desktop components have no feature imports or
+application effects. They do not change the Cloud API that the package gives.
+
+The [composition recipe](desktop-composition.md) gives each API and its use in
+the product. `/design-system.html#components-preview` shows an isolated
+screen that these parts make, with local callbacks and states that you can
+select.
 
 ## Settings composition
 
-Analytics composes `components/usage-history.ts` from shared headers,
-buttons and the read-only form-dialog pattern. Its gallery entry is
-`/design-system.html?component=usage-history&state=ready&embed=1`, with ready,
-empty and partial states. `telemetry-settings.ts` retains filters and the view
-across Settings redraws; query invalidation and erasure remain in that host.
-The component consumes formatted snapshots without IPC or provider imports.
+Analytics composes `components/usage-history.ts` from shared headers, buttons
+and the read-only pattern of the form dialog. Its gallery entry is
+`/design-system.html?component=usage-history&state=ready&embed=1`, with the
+ready, empty and partial states. `telemetry-settings.ts` keeps the filters and
+the view when Settings renders again. The query invalidation and the erasure
+stay in that host. The component uses formatted snapshots without IPC or
+provider imports.
 
-`src/settings.ts` groups preferences into General, Agents, Resources, Actions,
-Projects, Work and team, and Analytics. Navigation keeps the compact, neutral sidebar; settings
-search sits in the content header. `src/settings.css` defines composition and
-overrides some control dimensions; base Settings styles also remain in
-`src/style.css`. Shared primitives coexist with legacy controls; Actions keeps
-shared button classes when adding local styles. The resource library uses
-`src/components/resource-view.ts` and `resource-view.css`, independent of legacy row selectors.
-Hubs project typed data and callbacks, preserving validation and busy state. Item
-operations live in an overflow menu; the Add resource menu retains all existing
-creation and import paths. A registered resource is not automatically enabled.
+`src/settings.ts` puts the preferences into these groups: General, Agents,
+Resources, Actions, Projects, Work and team, and Analytics. The navigation keeps
+the small, neutral sidebar. The settings search is in the content header.
+`src/settings.css` specifies the composition and replaces some control
+dimensions. The base Settings styles also stay in `src/style.css`. Shared
+primitives and legacy controls are in use at the same time. Actions keeps the shared button
+classes when it adds local styles.
 
-Projects uses the shared toolbar, item rows and empty state, filtered by computer.
-Remote folder registration and cloning use form dialogs that live only in
-Projects; the launcher selects among registered projects.
+The resource library uses `src/components/resource-view.ts` and
+`resource-view.css`. These files do not use the legacy row selectors. Hubs give
+data with types and callbacks, and keep the validation and the busy state. The
+item operations are in an overflow menu. The Add resource menu keeps all the
+current paths to make and import resources. When a person adds a resource,
+Prometeu does not automatically enable it.
 
-General keeps the notification master switch and native permission warning
-visible while its details expand in place. Agents shows defaults followed by
-compact account cards; quota disclosures do not change the account picker's
-existing presentation. Account notices, login progress and selection remain
-visible. Search and resource filters do not persist business state.
+Projects uses the shared toolbar, item rows and empty state, with a filter for
+each computer. The procedure to add remote folders and the clone operation use
+form dialogs that are only in Projects. The launcher selects from the
+projects that are in this list.
 
-Background updates preserve the search value, focus, expanded disclosures and
-scroll position. Menus for an old resource snapshot close before replacement.
-`src/settings-navigation.test.ts` covers matching and legacy page destinations.
-`e2e/settings.spec.ts` exercises focus restoration and disclosure geometry in
-Chromium and WebKit: browser DOM replacement can lose keyboard focus or clamp
-scroll before a disclosure reopens, which pure matching tests cannot prove.
-Existing accounts, Cloud catalog, MCP, notifications, projects and organization
-scenarios continue to cover their production paths through the grouped UI.
+General keeps the primary notification control and the native permission
+warning in view while its other settings open in position. Agents shows the defaults,
+then small account cards. The quota disclosures do not change the current
+presentation of the account picker. The account notices, the login progress
+and the selection stay in view. The search and the resource filters do not keep
+business state.
 
-The [composition recipe](desktop-composition.md)
-shows how agents can use the same presentation with synthetic data; the
-[presentation contract](../contracts/desktop-presentation.md) defines its
-inputs and lifecycle. Other Settings pages retain their existing integration.
+Background updates keep the search value, the focus, the open disclosures and
+the scroll position. The menus for a resource snapshot that is not current close before
+the replacement. `src/settings-navigation.test.ts` examines the search logic and the
+legacy page destinations. `e2e/settings.spec.ts` examines the focus restoration
+and the disclosure geometry in Chromium and WebKit. When the browser replaces
+DOM, it can remove the keyboard focus or limit the scroll before a disclosure
+opens again. Pure search tests cannot show this behavior. The current scenarios
+for accounts, the Cloud catalog, MCP, notifications, projects and organizations
+continue to examine their production paths through the grouped interface.
+
+The [composition recipe](desktop-composition.md) shows how agents can use the
+same presentation with synthetic data. The
+[presentation contract](../contracts/desktop-presentation.md) specifies its
+inputs and lifecycle. Other Settings pages keep their current integration.
 
 ## Gallery and verification
 
-`/packages/design-system/index.html` is the company's standalone gallery: it
-renders components through the package's compiled API, without the app's styles
-or JavaScript. It shows menu, keyboard submenu, password, selection and an
-asynchronous dialog with a simulated failure. The Cloud consumes the runtime,
-styles and Ruby adapter in `vendor/design-system`, imported by
-`bin/design-system` and verified by SHA-256 in CI. Its views use `ds_form_with`,
-`form.field`, `form.button` and the package's helpers, which keep the markup out
+`/packages/design-system/index.html` is the standalone gallery of the company.
+It renders components through the built API of the package, without the
+styles or the JavaScript of the app. It shows a menu, a keyboard submenu, a
+password, a selection and an asynchronous dialog with a simulated failure.
+
+The Cloud uses the runtime, the styles and the Ruby adapter in
+`vendor/design-system`. `bin/design-system` imports these files, and CI validates
+them with SHA-256. The Cloud views use `ds_form_with`, `form.field`,
+`form.button` and the helpers of the package. These helpers keep the markup out
 of the screens.
-The desktop and the Cloud's application screens use the default compact
-density. `ui-comfortable` (44px) serves the Cloud's touch flows, such
-as login and Mac authorization, and is also applied to the standalone gallery.
-The desktop gallery uses compact density with the app's CSS. Changes start in
-the package and reach the Cloud through a new import, never by editing the
-vendored files.
 
-Run `npm run dev` and open `/design-system.html` on the same port. The gallery
-is also an entry point of the web build and does not start the backend or
-agents. It shows tokens, buttons, fields, selection, error, disabled, checkbox,
-menu with tag, disclosure and a form with a simulated success or failure.
-`#resources-preview` renders the production Resources view with populated,
-empty, loading, recoverable-error, pending, unavailable and long-text examples.
-Search and filter work locally; example callbacks never invoke the hubs.
+The desktop and the application screens of the Cloud use the default compact
+density. `ui-comfortable` (44px) is for the touch flows of the Cloud, for
+example the login and the Mac authorization. The standalone gallery also uses
+it. The desktop gallery uses the compact density with the CSS of the app. A
+change starts in the package and goes to the Cloud through a new import. Do not
+edit the copied files in the Cloud at any time.
 
-[`e2e/design-system.spec.ts`](../../e2e/design-system.spec.ts) covers keyboard,
-focus, validation, recoverable failure and a narrow viewport in the standalone
-consumer.
-[`e2e/actions.spec.ts`](../../e2e/actions.spec.ts) covers the primitives in the
-feature's real flows. The architectural check prevents `ui.ts`
-from depending on domain modules and prevents Actions from recreating native
-selectors. The existing web and E2E tests protect the launcher, menus and hubs
-during adoption.
+Run `npm run dev` and open `/design-system.html` on the same port. The gallery is
+also an entry point of the web build. It does not start the backend or agents.
+It shows tokens, buttons, fields, selection, error, disabled, checkbox, a menu
+with a tag, a disclosure and a form with a simulated success or failure.
+`#resources-preview` renders the production Resources view with these examples:
+populated, empty, loading, recoverable error, pending, unavailable and long
+text. The search and the filter operate locally. The example callbacks do not
+call the hubs at any time.
+
+[`e2e/design-system.spec.ts`](../../e2e/design-system.spec.ts) examines the
+keyboard, the focus, the validation, a recoverable failure and a narrow viewport
+in the standalone consumer.
+[`e2e/actions.spec.ts`](../../e2e/actions.spec.ts) examines the primitives in
+the flows of the feature. The architecture check prevents a dependency from
+`ui.ts` on domain modules. It also prevents a new version of the native
+selectors in Actions. The current web and E2E tests keep the launcher, the
+menus and the hubs safe during the adoption.
 
 ## Searchable selection
 
-`searchablePicker` composes through the shared menu lifetime and can open inside
-an existing modal. It accepts translated labels, stable item keys, groups,
-details, optional secondary actions, status text, refresh and a filter checkbox.
-It does not own domain catalogs or persistence. Its update method preserves the
-query, scroll and focused action; the model picker subscribes to catalog changes
-and supplies updated entries. With a `search` callback the caller ranks each
-query itself; Command-P quick open passes the backend's fuzzy `find_paths`
-results through unchanged. Model favorites are secondary buttons, never
-nested interactive content inside a selectable button. Rows grow with wrapped
-model names and descriptions; square favorite buttons keep their focus indicator
-inside the scroll area. `e2e/model-picker.spec.ts` covers these bounds in the
-desktop composition, including narrow windows.
+`searchablePicker` composes through the lifetime of the shared menu. It can open
+in a current modal. It accepts these inputs:
 
-The search input receives focus on open. Arrow keys move among enabled choices;
-Tab reaches the current choice, its secondary action and footer controls without
-requiring traversal of the whole catalog. Escape closes the picker before the
-parent dialog and restores trigger focus. Both standalone gallery and
-`e2e/search-picker.spec.ts` cover a 100-entry list, accent-insensitive filtering,
-keyboard and pointer selection, focus order and narrow dialogs in Chromium and
-WebKit. The gallery also demonstrates independent star actions and dynamic updates.
+- Translated labels.
+- Stable item keys.
+- Groups and descriptions.
+- Optional secondary actions.
+- Status text.
+- A refresh.
+- A filter checkbox.
+
+It does not own domain catalogs or persistence. Its update method keeps the
+query, the scroll and the focused action. The model picker subscribes to catalog
+changes and supplies the updated entries. With a `search` callback, the caller
+puts the results of each query in order. The Command-P file search sends the
+fuzzy `find_paths` results of the backend without changes.
+
+The model favorites are secondary buttons. They are not nested interactive
+content in a button that you can select. The rows become taller when long model
+names and descriptions go to a new line. The square favorite buttons keep their
+focus indicator in the scroll area. `e2e/model-picker.spec.ts` examines these
+limits in the desktop composition, also in narrow windows.
+
+When the picker opens, the focus goes to the search input. The arrow keys move
+between the enabled items. Tab goes to the current item, its secondary
+action and the footer controls. It is not necessary to go through the
+full catalog. Escape closes the picker before the parent dialog, and the focus
+goes back to the trigger.
+
+The standalone gallery and `e2e/search-picker.spec.ts` examine these items in
+Chromium and WebKit:
+
+- A list of 100 entries.
+- A filter that ignores accents.
+- Keyboard and pointer selection.
+- The focus order.
+- Narrow dialogs.
+
+The gallery also shows star actions that operate independently, and dynamic
+updates.

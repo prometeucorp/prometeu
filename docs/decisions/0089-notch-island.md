@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0089 — Notch island over the main window's state"
-description: "Persistent notch island that follows agents, answers requests and reopens conversations."
+description: "A notch island that stays on the screen, follows agents, answers requests and opens conversations again."
 status: stable
 ---
 
@@ -11,69 +11,82 @@ Date: 2026-10-07
 
 ## Context
 
-The `notch` notification style showed one notice for eight seconds and then
-disappeared. People running several agents want a persistent view at the top of
-the screen: which agents are working or waiting, the selected accounts' quota,
-and a way to approve, answer and jump back to a conversation without first
-bringing the main window forward. The main window already owns the board, the
-live conversation stream, the agent catalog, account selection and i18n.
+The `notch` notification style showed one notice for eight seconds, and then
+the notice went away. Persons who operate many agents want a view at the top of
+the screen that stays there. This view must show these items:
+
+- which agents work and which agents wait
+- the quota of the selected accounts
+- a method to give approval, answer and go back to a conversation before the main
+  window comes to the front
+
+The main window owns the board, the live conversation stream, the agent
+catalog, the account selection and i18n at this time.
 
 ## Decision
 
-With notifications enabled and the `notch` style selected, the existing
-`notification` overlay window becomes a persistent island. It stays collapsed
-around the camera housing (the app mark, swept while an agent executes, and a
-waiting/running count) and expands while the pointer is over it or while a
-notice is showing.
+When notifications are on and the person selects the `notch` style, the
+current `notification` overlay window becomes an island that stays on the
+screen. It stays small around the camera area. In that state, it shows the
+app mark, an animation while an agent operates, and a count of agents that
+wait or operate. It expands while the pointer is above it or while it shows a
+notice.
 
-- **Content source.** `src/island.ts` in the main window reduces live `chat`
-  events (last prompt, latest tool, open requests) and the board into a bounded
-  snapshot, adds the selected accounts' quota from the status bar and pushes it
-  through `island_update`. The overlay renders the snapshot; it never reads the
-  board, transcripts or preferences itself.
-- **Answers.** The overlay renders compact request panels sized for the notch
-  and sends `request.respond` through the existing `chat_control` command for
-  the tab. The backend's `request.closed` then updates every view, including
-  the main window's cards. Plan edits and "allow and stop asking" stay in the
-  chat.
-- **Attention.** Finished turns only play the sound; the mark color and a
-  green signal mark activity the Dock still counts as pending. Requests expand
-  the island because they block the agent.
-- **Navigation.** Clicking a row calls `island_open`, which reuses the notice
-  path that revalidates the tab and focuses its conversation.
-- **Hover.** WKWebView tracks the pointer only in the key window, and the
-  overlay must not take focus. The backend samples the cursor ten times per
-  second while the island is on and compares it with the overlay frame.
-  Entering the island counts as looking at it: the main window acknowledges
-  the conversations it lists and reads the GitHub thread of the notice on screen.
-- **Geometry.** On macOS the overlay sits on the display with a notch, using
-  `safeAreaInsets` and the auxiliary top areas; without one it sits inside the
-  menu bar of the main window's display, and it is placed again on every
-  display configuration change and whenever the main window moves, so on a
-  display without a notch it follows the window it anchors to. Other desktops
-  place it at the top center and let the compositor decide stacking.
+- **Content source.** `src/island.ts` in the main window changes live `chat`
+  events (last prompt, latest tool, open requests) and the board into a
+  small snapshot with a limit. It adds the quota of the selected accounts from
+  the status bar. It sends the snapshot through `island_update`. The overlay
+  renders the snapshot. It does not read the board, transcripts or preferences
+  itself.
+- **Answers.** The overlay renders small request panels that fit the notch. It
+  sends `request.respond` through the current `chat_control` command for the
+  tab. Then the `request.closed` event of the backend updates all views. This
+  includes the cards of the main window. Plan edits and "allow and stop asking"
+  stay in the chat.
+- **Signals.** Completed turns only play the sound. The color of the mark and
+  a green signal show activity that the Dock continues to count as not seen.
+  Requests expand the island, because they stop the agent until the person
+  answers.
+- **Navigation.** When the person clicks a row, the overlay calls
+  `island_open`. This command uses the notice path again. That path validates
+  the tab again and puts the focus on its conversation.
+- **Hover.** WKWebView monitors the pointer only in the key window, and the
+  overlay must not get the focus. Thus the backend reads the cursor position
+  10 times each second while the island is on. It compares the position with
+  the overlay frame. When the pointer goes into the island, Prometeu records
+  that the person looked at it. The main window records the listed conversations
+  as seen. It also records the GitHub thread of the notice on the screen as
+  read.
+- **Geometry.** On macOS, the overlay is on the display with a notch. It uses
+  `safeAreaInsets` and the auxiliary top areas. Without a notch, the overlay
+  is in the menu bar of the display of the main window. Prometeu puts it in
+  position again after each change of the display configuration and each time
+  the main window moves. Thus, on a display without a notch, it follows its
+  window. Other desktops put it at the top center and let the compositor
+  select the stack sequence.
 
 ## Trade-offs
 
-Requests that opened before the main window started are not actionable from the
-island; their rows show the board note and open the conversation. Pointer
-sampling costs a few main-thread round trips per second while the island is on;
-an `NSTrackingArea` would avoid them at the price of a custom AppKit view.
-Resizing is immediate, without AppKit frame animation, so the main thread never
-blocks on it. There are no global shortcuts for allow, deny or options. A
-second local window can now send `chat_control`; it is app-owned content with
-no remote input, and the command keeps its existing session checks.
+The island cannot answer requests that opened before the main window started.
+Their rows show the board note and open the conversation. While the island is
+on, the pointer reads add some calls on the main thread each second. An
+`NSTrackingArea` can prevent them, but a custom AppKit view is then necessary. The
+island changes its dimensions immediately, without AppKit frame animation. Thus the
+main thread does not wait on it. There are no global shortcuts for allow, deny
+or options. With this decision, a second local window can send `chat_control`. The app owns
+its content, and it has no remote input. The command keeps its current session
+checks.
 
-The hidden overlay would keep the process alive after the main window closed,
-with no way back to it, so closing the main window quits the app explicitly,
-after asking while local work would be cut off
-([ADR 0097](0097-ask-before-ending-the-app.md)).
-Keeping the app running and reopening the main window from the Dock is a
-separate window policy, not part of this decision.
+The hidden overlay can keep the process active after the main window closes,
+and the person has no method to go back to it. Thus, when the person closes the
+main window, the app stops explicitly. If local work will stop, the app gets
+the approval of the person first ([ADR 0097](0097-ask-before-ending-the-app.md)). An app that
+continues to operate and opens the main window again from the Dock is a
+different window policy. It is not part of this decision.
 
-The notice payload, queue and timing rules from
-[ADR 0054](0054-local-notifications.md) are unchanged. The complete contract is
-in [local notifications](../contracts/notifications.md).
+The notice payload, the queue and the time rules of
+[ADR 0054](0054-local-notifications.md) do not change. The full contract is in
+[local notifications](../contracts/notifications.md).
 
 ## Evidence
 

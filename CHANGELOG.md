@@ -1,8 +1,8 @@
 # Changelog
 
-What changes in Prometeu, version by version, for whoever uses the app.
-Versions come from `sh scripts/release.sh`; this file is generated from the
-commits by git-cliff, and each release's notes on GitHub are its section.
+This file tells the persons who use Prometeu about the changes in each version.
+`sh scripts/release.sh` makes each version. git-cliff makes this file from the
+commits. The release notes on GitHub for a version are its section in this file.
 
 ## [0.51.1] - 2026-11-26
 

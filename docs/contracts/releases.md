@@ -1,88 +1,119 @@
 ---
 type: Contract
 title: "Desktop release and update contract"
-description: "Desktop packages, updater manifest and installation ownership."
+description: "The desktop packages, the updater manifest and the ownership of the installation."
 status: stable
 ---
 
 # Desktop release and update contract
 
-One version and tag (`v<version>`) identify the macOS and Linux desktop
-builds in `prometeucorp/prometeu`. A release stays a draft until all builds,
-macOS and Linux signature verification and native installation checks finish.
-The operational procedure is in [release](../operations/release.md);
-distribution choices are in
-[ADR 0055](../decisions/0055-linux-desktop.md).
+One version and one tag (`v<version>`) identify the macOS and Linux desktop
+builds in `prometeucorp/prometeu`. A release stays a draft until these items
+are complete: all builds, the signature checks for macOS and Linux, and the
+native installation checks. The procedure for the team is in
+[release](../operations/release.md). The decisions about the Linux packages are
+in [ADR 0055](../decisions/0055-linux-desktop.md).
 
 ## Assets and manifest
 
-Stable install names are `Prometeu_aarch64.dmg` for macOS Apple Silicon,
-`Prometeu_x86_64.AppImage` for Linux x86_64. They live alongside the macOS and
-Linux updater packages, their `.sig` files and `latest.json` in the same release.
+The stable installation names are `Prometeu_aarch64.dmg` for macOS on Apple
+Silicon and `Prometeu_x86_64.AppImage` for Linux x86_64. The same release also
+has the macOS and Linux updater packages, their `.sig` files and `latest.json`.
 
 The app keeps the endpoint
 `https://github.com/prometeucorp/prometeu/releases/latest/download/latest.json`.
-The manifest uses Tauri's static format:
+The manifest uses the static format of Tauri:
 
-- `version` matches the tag without its `v` prefix;
-- `notes` matches the version's changelog section extracted by the build job,
-  ignoring only leading and trailing whitespace;
-- `platforms.darwin-aarch64` points to `Prometeu_aarch64.app.tar.gz`;
-- `platforms.linux-x86_64` points to `Prometeu_x86_64.AppImage`;
-- every entry has a version-specific GitHub download `url` and a `signature`
-  containing the base64-encoded minisign signature, not a file path;
-- installer-specific entries emitted by Tauri (`darwin-aarch64-app` and
-  `linux-x86_64-appimage`) point to the same verified packages when present;
-  these aliases are optional because
-  [Tauri 2.10.1's target selection](https://github.com/tauri-apps/plugins-workspace/blob/d6a3898001a4bcc659e045f9501498751b77dbe6/plugins/updater/src/updater.rs#L567-L599)
-  falls back to the generic `OS-ARCH` entry if an installer-specific entry is missing.
+- `version` is the same as the tag without its `v` prefix.
+- `notes` is the same as the changelog section of the version that the build job
+  gets. Only the characters that are not visible at the start and at the end can
+  be different.
+- `platforms.darwin-aarch64` points to `Prometeu_aarch64.app.tar.gz`.
+- `platforms.linux-x86_64` points to `Prometeu_x86_64.AppImage`.
+- Each entry has a GitHub download `url` for its version and a `signature`.
+  This value contains the minisign signature in base64. It is not a file path.
+- Tauri also writes entries for each installer (`darwin-aarch64-app` and
+  `linux-x86_64-appimage`). When these entries are in the manifest, they point
+  to the same packages that the check examined.
+- The entries for each installer are optional. [The target selection of Tauri
+  2.10.1](https://github.com/tauri-apps/plugins-workspace/blob/d6a3898001a4bcc659e045f9501498751b77dbe6/plugins/updater/src/updater.rs#L567-L599)
+  uses the generic `OS-ARCH` entry if the entry for the installer is not there.
 
-The macOS and Linux builds use the existing signing key. Linux support is additive: the macOS
-asset names, endpoint, public key and platform entry remain compatible with
-installed versions. Drafts are not exposed through the latest release endpoint.
-Recovery from a published defect requires a newer version.
+The macOS and Linux builds use the current signing key. The Linux packages
+only add to the release. The macOS asset names, the endpoint, the public key and
+the platform entry stay compatible with the installed versions. The endpoint for
+the latest release does not show drafts. To repair a defect in a published
+release, publish a newer version.
 
 ## Assembly ownership
 
-Platform jobs upload final packages as separate workflow artifacts. One
-job assembles the manifest only after both succeed, using the signatures
-beside the final files, including the repacked AppImage. It writes both generic and
-installer-specific entries. It verifies local artifacts before upload and the
-downloaded draft afterward. Reruns fail if the release already exists: signatures,
-version and notes cannot prove which commit built an older draft after a tag
-moves. Rebuilding requires manual draft removal. Uploads never replace existing
-assets, including when manual publication races with the initial draft check. The public format, asset names, URLs and updater key remain
-unchanged.
+Each platform job uploads its last packages as a different workflow artifact.
+One job assembles the manifest only after the two platform jobs complete
+correctly. It uses the signatures adjacent to the last files. This includes the
+AppImage that the job puts in a new package. The job writes the generic entries
+and the entries for each installer. It examines the local artifacts before the
+upload and the downloaded draft after the upload.
+
+A second run of the job stops with an error if the release is there. After a
+tag moves, the signatures, the version and the notes cannot prove which commit
+made an older draft. To build again, a person must delete the draft manually.
+An upload does not replace a current asset. This rule also applies when a
+manual publication and the first draft check occur at the same time. The
+public format, the asset names, the URLs and the updater key do not change.
 
 ## Installation ownership
 
-macOS and Linux AppImage installations check at startup and hourly. Download
-and restart remain explicit user actions, and Tauri verifies the signature
-before installation. AppImage files must be writable by the user.
+The macOS installations and the Linux AppImage installations look for an update
+at startup and one time each hour. The person must start the download and the
+new start of the app. Tauri examines the signature before the installation. The
+user must have write permission for the AppImage files.
 
-The installed version takes effect at the next start, so restarting is never
-required to finish an update. **Restart to update** asks first while local work
-would be cut off: conversations working or waiting, workspaces being prepared
-and terminals running a command. The question names their counts and says the
-version also applies at the next start; cancelling keeps the update ready and
-nothing restarts by itself. With nothing to cut off it restarts at once. See
+The installed version starts to operate at the next start. Thus, it is not
+necessary to start the app again to complete an update. **Restart to update**
+shows a question first if a new start will stop local work. Local work is these
+items:
+
+- Conversations that work or wait.
+- Workspaces that the app prepares.
+- Terminals that run a command.
+
+The question gives the number of each item. It also tells that the version
+starts to operate at the next start. If the person cancels, the update stays
+available and the app does not start again. If there is no local work to stop,
+the app starts again immediately. See
 [ADR 0097](../decisions/0097-ask-before-ending-the-app.md).
 
-On Linux, Tauri's built-in `plugin:app|bundle_type` command selects this behavior;
-no application IPC payload changes. An `appimage` result enables the updater.
-Debian, RPM, Arch and unpackaged builds keep updates external; unknown or failed
-bundle detection also disables the updater. The browser mock returns `appimage`
-and no available update, so UI tests never download packages.
+On Linux, the built-in Tauri command `plugin:app|bundle_type` selects this
+behavior. No application IPC payload changes. An `appimage` result enables the
+updater. Debian, RPM, Arch and builds without a package keep updates external.
+If the bundle type is unknown or its detection gives an error, the app also
+disables the updater. The browser mock returns `appimage` and no available
+update. Thus, UI tests do not download packages.
 
 ## Verification
 
-`scripts/verify-release.py --assemble` creates the manifest from both signed
-updater packages. The verifier checks changelog notes, macOS and Linux updater
-targets, exact versioned URLs, all install assets, signature-file consistency
-and minisign signatures against the embedded key.
-`scripts/test_release.py` covers missing platforms/assets, wrong versions/URLs, signature failures, draft assembly, refusal to
-overwrite published assets and refusal to publish incomplete or failed builds.
-`src/update-init.test.ts` preserves package-manager ownership and macOS behavior;
-`src/update.test.ts` covers download, the question before restarting and restart.
-CI cannot prove native desktop integration or real replacement/relaunch; those
-require the release smoke test.
+`scripts/verify-release.py --assemble` makes the manifest from the two signed
+updater packages. The verifier examines these items:
+
+- The changelog notes.
+- The macOS and Linux updater targets.
+- The accurate URLs for each version.
+- All installation assets.
+- The agreement between the signature files and the manifest.
+- The minisign signatures against the embedded key.
+
+`scripts/test_release.py` includes tests for these conditions:
+
+- Missing platforms or assets.
+- Incorrect versions or URLs.
+- Signature failures.
+- Draft assembly.
+- A refusal to replace published assets.
+- A refusal to publish builds that are not complete or that have a failure.
+
+`src/update-init.test.ts` keeps the ownership of the package manager and the
+macOS behavior. `src/update.test.ts` includes tests for the download, the
+question before the new start and the new start. CI cannot prove the native
+desktop integration. CI also cannot prove the replacement and the new start of
+the installed app. The smoke test of the release is
+necessary for these items.

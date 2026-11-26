@@ -1,192 +1,232 @@
 ---
 type: Contract
 title: "Organizations in Prometeu Cloud"
-description: "CRUD, invitations, catalogs and relay access."
+description: "Operations on organizations, invitations, catalogs and access to the relay."
 status: stable
 ---
 
 # Organizations in Prometeu Cloud
 
-Implemented; [ADR 0021](../decisions/0021-cloud-organizations.md).
+The app obeys this contract. [ADR 0021](../decisions/0021-cloud-organizations.md)
+records the decision.
 
 ## Ownership and access
 
-An organization is the collaboration scope formerly called a team. The Cloud
-owns the name, unique slug, owner, members and invitations. There are no nested
-teams. A person may belong to several organizations; the desktop keeps one
-active. The owner and administrators change the organization, invite members and
-edit its catalog. Only the owner promotes administrators, manages other
-administrators and deletes the organization. Members may leave, except the
-owner. Deleting an account first requires deleting the organizations it owns.
+An organization is the collaboration scope that had the name "team" before. The
+Cloud owns the name, the unique slug, the owner, the members and the
+invitations. Teams cannot contain teams. A person can be a member of more than
+one organization. The desktop keeps one organization active. The owner and the
+administrators change the organization, invite members and edit its catalog.
+Only the owner can promote administrators, control other administrators and
+delete the organization. Members can go out of an organization, but the owner
+cannot. Before a person deletes an account, the person must delete the
+organizations that the account owns.
 
-Invitations are sent through Action Mailer, in Portuguese or English, and expire
-in 7 days. The link opens a review page; GET never grants access. Accepting
-requires a POST with cookie/CSRF, an authenticated account and a verified email
-equal to the invitee's. Registration, verification and login preserve the return
-to the invitation. The signed token includes a nonce, recipient, role and
-consumption state. Resending, revoking and accepting invalidate previous links.
-Accepting creates the membership and consumes the invitation in the same SQLite
-transaction. An organization allows up to 64 members, the limit of the
-collaboration protocol. An SMTP failure keeps the invitation pending and shows
-an error so it can be resent; tests use in-memory delivery only.
+Action Mailer sends the invitations in Portuguese or English. They expire after
+7 days. The link opens a review page. A GET request does not give access. To
+accept, these items are necessary:
 
-The organization's catalog reuses `Catalog`, with exactly one owner: `user_id`
-or `organization_id`, protected by a constraint. Each document has its own
-revision, a 256 KB limit and the same portability validation as the personal
-catalog. Members read; the owner and administrators do CRUD. Access by slug
-never replaces authorization through the authenticated account's membership.
+- A POST with the cookie and CSRF.
+- An authenticated account.
+- An email that the Cloud examined, and that is the same as the email of the
+  invited person.
 
-Sharing a personal definition with the organization copies only that item.
-Members see the definitions directly in the desktop hubs and choose `Install
-here`. Installations are local and independent; they do not require a copy into
-the personal catalog. Copying between catalogs is still available in the Cloud:
-future changes do not cross catalogs and collisions return 409, without
-overwriting. There is no automatic activation of received code. See
+After the registration, the verification and the login, the
+person goes back to the invitation. The signed token includes a nonce, the
+recipient, the role and the consumption state. When the Cloud sends an
+invitation again, revokes it or accepts it, the previous links stop.
+
+When a person accepts, the Cloud makes the membership and uses the invitation in the same SQLite
+transaction. An organization can have a maximum of 64 members. This is the
+limit of the collaboration protocol. After an SMTP failure, the invitation stays
+open, and the Cloud shows an error. Thus, a person can send it again. Tests use
+only delivery in memory.
+
+The catalog of the organization uses the same `Catalog` model, with only one
+owner: `user_id` or `organization_id`. A database constraint makes sure of this.
+Each document has its own revision, a limit of 256 KB and the same portability
+validation as the personal catalog. Members can read the catalog. The owner and
+the administrators do the CRUD operations. Access by slug does not replace the
+authorization through the membership of the authenticated account.
+
+When a person shares a personal definition with the organization, the Cloud
+copies only that item. Members see the definitions directly in the desktop hubs
+and select `Install
+here`. Installations are local and do not change the catalogs. A copy into the personal
+catalog is not necessary. The Cloud continues to let a person copy items
+between catalogs. Subsequent changes do not go to the other catalog. Collisions
+return 409, and the Cloud does not replace the item. The app does not enable
+received code automatically. See
 [ADR 0039](../decisions/0039-organization-catalog-on-desktop.md).
 
 ## API and relay
 
-The old account and personal catalog routes remain unchanged.
+The previous routes for the account and the personal catalog do not change.
 
 | Route | Authentication and response |
 | --- | --- |
-| `GET /api/organizations?device=` | desktop Bearer; `{ organizations: [{ id, slug, name, member, role }] }`, accepted memberships only; the optional `device` defines `member` (see below) |
-| `GET /api/organizations/:id/catalog` | desktop Bearer; `{ catalog, revision }`; requires a current membership, 404 without access; no institutional writes from the desktop |
-| `POST /api/organizations/:id/relay-ticket` | desktop Bearer; JSON `{ device?, label? }`; `{ ticket, relay }`; requires a current membership; 422 for an invalid `device` |
-| `POST /api/relay/authorize` | JSON `{ ticket, organization }`; single-use capability; returns `{ organization, member, name, expires_at, members: [{ id, name, person? }] }` or 401 |
-| `POST /orgs/:slug/companion-ticket` | Cookie and CSRF; JSON `{ companion, label? }`; `{ ticket, relay }`; requires a current membership; 422 for an invalid ID or one belonging to another person |
-| `DELETE /companions/:id` | Cookie and CSRF; removes the person's device and revokes its tickets |
-| `GET /app` | Cookie; the phone page with the canonical origin, user and memberships in `data-*`; `connect-src` includes the relay |
-| `GET /app/manifest` | Public; installation manifest with `start_url` `/app` |
+| `GET /api/organizations?device=` | desktop Bearer. `{ organizations: [{ id, slug, name, member, role }] }`, only accepted memberships. The optional `device` sets `member` (see below) |
+| `GET /api/organizations/:id/catalog` | desktop Bearer. `{ catalog, revision }`. A current membership is necessary. Returns 404 without access. The desktop cannot write to the catalog of the organization |
+| `POST /api/organizations/:id/relay-ticket` | desktop Bearer. JSON `{ device?, label? }`. Returns `{ ticket, relay }`. A current membership is necessary. Returns 422 for an incorrect `device` |
+| `POST /api/relay/authorize` | JSON `{ ticket, organization }`. A capability for one use. Returns `{ organization, member, name, expires_at, members: [{ id, name, person? }] }` or 401 |
+| `POST /orgs/:slug/companion-ticket` | Cookie and CSRF. JSON `{ companion, label? }`. Returns `{ ticket, relay }`. A current membership is necessary. Returns 422 for an incorrect ID or for an ID of a different person |
+| `DELETE /companions/:id` | Cookie and CSRF. Removes the device of the person and revokes its tickets |
+| `GET /app` | Cookie. The phone page with the canonical origin, the user and the memberships in `data-*`. `connect-src` includes the relay |
+| `GET /app/manifest` | Public. The installation manifest with `start_url` `/app` |
 
-`id` and `member` are opaque, stable identifiers, distinct from the slug and the
-name. Tickets have 256 random bits, a SHA-256 hash in the database, a 60-second
-validity and a link to the membership and the desktop session. Consumption is
-transactional. Removing a membership, deleting the organization or revoking the
-session prevents the ticket from being used. The desktop Bearer stays in Rust
-and in the Cloud; it never reaches the relay/webview.
+`id` and `member` are stable identifiers that have no meaning to the client. They are different from the
+slug and the name. Each ticket has 256 random bits and a SHA-256 hash in the
+database. It expires after 60 seconds and has a link to the membership and the
+desktop session. The consumption is a transaction. After these events, nobody
+can use the ticket: the removal of the membership, the deletion of the
+organization, or the revocation of the session. The desktop Bearer stays in
+Rust and in the Cloud. It does not go to the relay or to the webview.
 
 Rust validates the `relay` origin and returns only a WSS URL with a short
 ticket. The frontend connects to `/organization/:id?ticket=…&p=4`. The relay
-queries the configured Cloud origin, without following redirects, and ignores
-identity/name supplied by the client. It uses the Durable Object namespace
-`organization:<id>`, separate from legacy teams. Enrollment through a shared
-secret does not grant access here. The Cloud roster includes offline members,
-used in audience selections.
+queries the configured Cloud origin and does not follow redirects. It ignores
+the identity and the name that the client supplies. It uses the Durable Object
+namespace `organization:<id>`, which is different from the namespace of legacy
+teams. An enrollment through a shared secret does not give access here. The
+Cloud roster includes offline members. The app uses them in audience selections.
 
-A browser joins as a companion device: `companion` is an
-`[A-Za-z0-9_-]{16,64}` ID generated by the browser alongside its private
-identity, unique in the Cloud and tied to the person who registered it. The
-companion ticket requires a browser session and makes `member` the companion's
-ID; the roster lists each companion with `person` equal to the person's
-membership in that organization and `name` equal to the person's name with the
-label in parentheses. People always fit in the roster; companions take the slots
-up to 64 by recent use, at most five per person. Removal lives in Settings →
-Devices. See [ADR 0027](../decisions/0027-companion-devices.md).
+A browser connects as a companion device. `companion` is an `[A-Za-z0-9_-]{16,64}`
+ID that the browser makes together with its private identity. The ID is unique
+in the Cloud and is connected to the person who added it. The companion
+ticket is possible only with a browser session. It makes `member` the ID of the
+companion. The roster shows each companion with these values:
 
-Each Mac sends `device`, an ID in the same format generated once in
-`device.json` and kept across logouts, with `label` equal to the computer's
-name. The first device to query or request a ticket claims the membership
-(`desktop_id`) and continues with `member` equal to the membership ID. Any other
-Mac of the same person receives `member` equal to its own `device`, registered
-as a companion with the Mac's label; companion tickets accept a desktop or
+- `person` is the membership of the person in that organization.
+- `name` is the name of the person, with the label in parentheses.
+
+The roster always has space for the persons. Companions get the remaining
+positions, up to 64, by the most recent use. Each person can have a maximum of five
+companions. To remove a device, use Settings → Devices. See
+[ADR 0027](../decisions/0027-companion-devices.md).
+
+Each Mac sends `device`. This is an ID in the same format that the Mac makes one
+time in `device.json`. The ID stays after a logout. The Mac also sends `label`,
+with the name of the computer as its value. The first device that queries or
+requests a ticket claims the membership (`desktop_id`). This device continues
+with `member` equal to the membership ID. Each other Mac of the same person gets
+`member` equal to its own `device`. The Cloud records that Mac as a companion
+with the label of the Mac. Companion tickets accept a desktop session or a
 browser session. Without `device`, the desktop identifies the membership as
 before. See [ADR 0036](../decisions/0036-second-mac-as-companion.md).
 
-The first-device claim refreshes the membership under a database lock. Concurrent
-claimants observe the same stored `desktop_id`; the losing device becomes a
-companion instead of replacing the primary identity. The Cloud's
-`test/models/membership_test.rb` checks this with simultaneous claims.
+The claim of the first device refreshes the membership under a database lock.
+Concurrent claims see the same stored `desktop_id`. The device that is second
+becomes a companion and does not replace the primary identity.
+`test/models/membership_test.rb` in the Cloud examines this with claims at the
+same time.
 
-The connection has a lease of at most 60 seconds, also limited by the login's
-expiration. An alarm closes expired sockets; entry and exit check the deadline
-even if the alarm is late. After the identity proof, the relay announces
-`lease { expires_in }`, in milliseconds. Desktop and phone request another
-ticket halfway through that period and send `renew { ticket }` over the same
-socket. The relay queries the Cloud again and requires the same organization and
-the same member, with the socket still valid. The confirmation is another
-`lease`; it does not repeat the handshake, presence or snapshots when the roster
-stays the same. Removal/revocation blocks new traffic within 60 seconds,
-including after a renewal. A new membership uses another ID and does not recover
-old private audiences. A Cloud failure prevents renewal; local work stays
-available.
+The connection has a lease of a maximum of 60 seconds. The expiry of the login
+also limits the lease. An alarm closes expired sockets. Entry and exit examine
+the deadline also if the alarm is late. After the identity proof, the relay
+sends `lease { expires_in }`, in milliseconds. The desktop and the phone request
+a new ticket at the half of that period. They send `renew { ticket }` through
+the same socket. The relay queries the Cloud again. The organization and the
+member must be the same, and the socket must stay open. The confirmation is a
+new `lease`. When the roster does not change, the relay does not send the
+handshake, the presence data or the snapshots again.
 
-Old clients ignore `lease` and keep reconnecting when the deadline passes. New
-clients renew only when the relay announces that capability; an old relay keeps
-the reconnection path. After a real connection loss, the client obtains another
-ticket with backoff and recovers snapshots. TOFU and receipts stay intact. The
-relative duration avoids depending on clock synchronization. Decision in
-[ADR 0034](../decisions/0034-mobile-pairing-continuity.md). The alarm uses the
+After a removal or a revocation, the relay stops new traffic in 60 seconds or
+less, also after a renewal. A new membership uses a different ID and does not
+get back previous private audiences. A Cloud failure stops the renewal. Local work
+stays available.
+
+Previous clients ignore `lease` and connect again when the deadline goes by. New
+clients extend the lease only when the relay tells that it has that capability. A previous
+relay keeps the path where the client connects again. After an actual
+connection loss, the client gets a new ticket with backoff and gets the
+snapshots again. TOFU and receipts do not change. Because the lease time is
+relative, the clocks of the devices can be different.
+[ADR 0034](../decisions/0034-mobile-pairing-continuity.md) records the
+decision. The alarm uses the
 [native Durable Objects API](https://developers.cloudflare.com/durable-objects/api/alarms/).
 
-Processes and transcripts stay on the owner's Mac. The relay forwards encrypted
-content and keeps encrypted comments/metadata; Rails receives only identity,
-memberships and portable definitions. [Relay v4](relay-v4.md) adds E2EE with
-TOFU and local identities independent of the tickets. The limits, including the
-absence of forward secrecy, are in
-[ADR 0022](../decisions/0022-end-to-end-encryption.md).
+Processes and transcripts stay on the Mac of the owner. The relay sends the
+encrypted content to the devices. It keeps encrypted comments and metadata.
+Rails receives only the identity, the memberships and the portable definitions.
+[Relay v4](relay-v4.md) adds E2EE with TOFU and local identities that are not
+connected to the tickets.
+[ADR 0022](../decisions/0022-end-to-end-encryption.md) gives the limits. For
+example, there is no forward secrecy.
 
 ## IPC, consent and compatibility
 
-- `cloud_organizations`: returns `{ user, origin, organizations }`; it does not
-  hit the network while disconnected.
-- `cloud_relay_ticket`: receives `{ organization, user, expectedOrigin }`;
-  requires an identity/origin equal to the local credential and returns the
-  temporary URL. Rust adds the device ID and label (`device.json`) to both IPC
-  commands.
-- `team_config_set`: still stores private JSON. Organization configuration keeps
-  the legacy fields, with empty `secret` and `credential`, and adds
-  `cloud: { user, origin, slug, name }`. Tickets are never persisted.
-- `set_shared`: receives `remoteControl`, the optional `team` and the optional
-  `rights` arguments; persists `remote_control`, `share_team` and `rights` in the
-  workspace. An organization uses `organization:<id>:<member>`. A legacy team
-  uses `team:<id>`. Their absence in old boards authorizes only the legacy path;
-  a missing `remote_control` means `false`, and missing `rights` lets people
-  only view and comment ([ADR 0090](../decisions/0090-approved-remote-input.md)).
-- `set_confirm_messages`: receives `id` and `confirm` and persists
-  `confirm_messages` in the workspace, independent of `set_shared`. A missing
-  field means `true`: teammates' messages wait for the owner.
+- `cloud_organizations`: returns `{ user, origin, organizations }`. It does not
+  use the network while the account is disconnected.
+- `cloud_relay_ticket`: receives `{ organization, user, expectedOrigin }`. The
+  identity and the origin must be the same as the local credential. It returns
+  the temporary URL. Rust adds the device ID and label (`device.json`) to the
+  two IPC commands.
+- `team_config_set`: continues to store private JSON. The configuration of an
+  organization keeps the legacy fields, with empty `secret` and `credential`.
+  It adds `cloud: { user, origin, slug, name }`. The app does not store tickets.
+- `set_shared`: receives the `remoteControl` argument, the optional `team`
+  argument and the optional `rights` argument. It stores `remote_control`,
+  `share_team` and `rights` in the workspace. An organization uses
+  `organization:<id>:<member>`. A legacy team uses `team:<id>`. When previous boards
+  do not have these fields, the app lets only the legacy path operate. A missing
+  `remote_control` means `false`. When `rights` is missing, persons can only see
+  and comment ([ADR 0090](../decisions/0090-approved-remote-input.md)).
+- `set_confirm_messages`: receives `id` and `confirm`, and stores
+  `confirm_messages` in the workspace. It does not change with `set_shared`. A
+  missing field means `true`: the messages of team members wait for the owner.
 
-With exactly one accepted membership, the desktop activates it by itself when
-listing the organizations; leaving stores that decision in `localStorage`
-(`prometeu:organizacao-saida`), a local per-machine preference that disables the
-shortcut until the next explicit choice. Choosing another organization or
-account never announces the previous shares in that new scope. A pending
-snapshot captures the originating connection and is discarded after a connection
-switch or a sharing revocation. Old frames do not change the new connection's
-state. Selecting an organization does not publish workspaces by itself.
+When a person has only one accepted membership, the desktop makes it active
+automatically when it shows the organizations. When the person goes out of the
+organization, the app stores that decision in `localStorage`
+(`prometeu:organizacao-saida`). This is a local preference for each machine. It
+disables the automatic selection until the next explicit selection. When a
+person selects a different organization or account, the app does not show the
+previous shares in that new scope. A snapshot that waits records the connection
+where it started. The app discards it after a change of connection or a
+revocation of the share. Previous frames do not change the state of the new
+connection. The selection of an organization does not publish workspaces.
 
-Legacy teams preserve their credentials, but the updated desktop requires v4.
-The relay reads/writes collaboration under `v4:`; v3 data stays intact and is
-not shown by the new client. There is no conversion of v3 comments and no
-downgrade. Creation, invitation codes and member editing leave the desktop UI.
-The first replacement of a legacy configuration by an organization keeps a
-private copy in `<root>/team-legacy-<uuid>.json`. It is not possible to infer
-emails from the old anonymous identities: create the organization, invite by
-email and share each workspace again by choice. Local conversations and legacy
-storage do not change.
+Legacy teams keep their credentials, but the updated desktop must have v4. The
+relay reads and writes the collaboration data under `v4:`. The v3 data does not
+change, and the new client does not show it. The app does not change v3
+comments and does not go back to v3. The desktop UI does not contain the
+creation of teams, the invitation codes and the member edits.
+
+The first time that an organization replaces a legacy configuration, the app
+keeps a private copy in `<root>/team-legacy-<uuid>.json`. The app cannot find
+the emails from the previous anonymous identities. Make the organization, invite the
+members by email, and share each workspace again by selection. Local
+conversations and legacy storage do not change.
 
 ## Publication and rollback
 
-1. Publish the Cloud and its additive migration, preserving the SQLite snapshot.
-2. Publish the relay with `CLOUD_URL` pointing to that Cloud (default
+1. Publish the Cloud and its additive migration. Keep the SQLite snapshot.
+2. Publish the relay with `CLOUD_URL` that points to that Cloud (default
    `https://app.prometeu.co`).
-3. Configure `RELAY_URL` in the Cloud to the published relay (the product's
-   current default).
-4. Distribute desktop v4 after relay v4. v3 clients require the old relay; the
+3. In the Cloud, set `RELAY_URL` to the published relay (the current default of
+   the product).
+4. Supply desktop v4 after relay v4. v3 clients must use the previous relay. The
    updated relay refuses v3 connections.
 
-Locally: the Cloud uses `RELAY_URL=http://127.0.0.1:8787`; the relay uses
-`CLOUD_URL=http://127.0.0.1:3100` in `relay/.dev.vars`; the desktop uses
-`PROMETEU_CLOUD_URL=http://127.0.0.1:3100`. Only loopback allows HTTP/WS.
+For local operation, use these values:
 
-A code rollback keeps the expanded schema; do not run `db:rollback` with real
-organizations, since it would remove new data. Preserve organization, invitation
-and catalog data during the compatibility window. An old desktop can explicitly
-restore the copy of the legacy `team.json`; never convert institutional consent
-into legacy sharing. No deploy or real email delivery is part of the local
-validation. A rollback to v3 does not keep E2EE: it preserves the v4 namespace,
-but restores the old protocol's readable-content boundary.
+- The Cloud uses `RELAY_URL=http://127.0.0.1:8787`.
+- The relay uses `CLOUD_URL=http://127.0.0.1:3100` in `relay/.dev.vars`.
+- The desktop uses `PROMETEU_CLOUD_URL=http://127.0.0.1:3100`.
+
+Only loopback accepts HTTP and WS.
+
+A code rollback keeps the expanded schema.
+
+> **CAUTION:** Do not run `db:rollback` when actual organizations are in the
+> database. This command removes the new data.
+
+Keep the organization, invitation and catalog data during the compatibility
+period. A previous desktop can explicitly put back the copy of the legacy
+`team.json`. Do not change the consent of an organization into a legacy share.
+The local validation does not include a deploy or an actual email delivery. A
+rollback to v3 does not keep E2EE. It keeps the v4 namespace, but it puts back
+the previous protocol, where the relay can read the content.
 
 ## Evidence
 
@@ -195,7 +235,7 @@ but restores the old protocol's readable-content boundary.
 - Desktop: `src/team-organizations.test.ts`, `e2e/organizations.spec.ts` and the
   `cloud.rs` tests.
 - Relay: `relay/src/cloud.test.ts` and `relay/src/worker.integration.test.ts`
-  with a real Worker, a local authorization service, isolation, identity,
-  audience, messages and expiration.
-- The existing account, catalog, protocol, comment and remote control suites
-  protect legacy clients and both providers.
+  with an actual Worker, a local authorization service, isolated data, identity,
+  audience, messages and expiry.
+- The current suites for the account, the catalog, the protocol, the comments
+  and the remote control examine legacy clients and the two providers.

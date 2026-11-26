@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0005 — One portable marketplace for Claude and Codex"
-description: "One portable marketplace for Claude and Codex."
+description: "One plugin marketplace for Claude and Codex, with a derived Codex configuration for each workspace."
 status: stable
 ---
 
@@ -11,125 +11,138 @@ Date: 2026-09-04
 
 ## Context
 
-Prometeu already had a plugin hub and per-workspace selection, but the adapter
-delivered the selection only to Claude Code through `--plugin-dir` or
-`--plugin-url`. The capability was disabled for Codex.
+Prometeu had a plugin hub and a selection for each workspace. But the adapter
+gave the selection only to Claude Code, through `--plugin-dir` or
+`--plugin-url`. Prometeu disabled the capability for Codex.
 
-Codex has no equivalent flag for an arbitrary folder. Its runtime discovers
-plugins through a marketplace, installs one version in the global cache and
-keeps the activation state in `config.toml`. Registering that marketplace
-directly in the worktree would contaminate the repository; enabling the
-installation globally would let a workspace choice escape to every other
-session.
+Codex does not have an equivalent flag for a folder that a person selects. The
+Codex runtime finds plugins through a marketplace. It installs one version in
+the global cache, and it keeps the activation state in `config.toml`. These two
+alternatives cause problems:
 
-Besides, hooks installed in Codex are not trusted just for being in the cache.
-Trust is tied to the current hash and must preserve the boundary between the
-chosen package and global or other-project hooks.
+- If the adapter writes that marketplace in the worktree, it adds Codex
+  files to the repository.
+- If the adapter enables the installation globally, the selection of one
+  workspace goes to all other sessions.
+
+Also, Codex does not trust installed hooks only because they are in the cache.
+Codex connects the trust to the current hash. The trust must keep the boundary
+between the selected package and the global hooks or the hooks of other
+projects.
 
 ## Options considered
 
-1. Keep plugins exclusive to Claude and hide the selector in Codex.
-2. Create two hubs and ask the person to register distinct versions of the same
+1. Keep plugins only for Claude and hide the selector in Codex.
+2. Make two hubs and tell the person to add different versions of the same
    plugin.
 3. Write `.agents/plugins/marketplace.json` and the Codex configuration in each
    worktree.
-4. Keep a common hub and materialize a derived configuration `CODEX_HOME` per
-   workspace, outside the repository.
+4. Keep one shared hub and make a derived `CODEX_HOME` configuration for each
+   workspace, out of the repository.
 
 ## Decision
 
-Adopt option 4. The hub and `Workspace.plugins` stay provider-independent.
-`plugins.rs` now contains two adapters:
+Use option 4. The hub and `Workspace.plugins` do not change for each provider.
+`plugins.rs` contains two adapters:
 
-- Claude receives the source through session flags;
-- Codex receives a local marketplace generated under Prometeu's private root, a
-  copy with a version derived from the content and a home separated by workspace
-  (or task session) and selected account.
+- Claude gets the source through session flags.
+- Codex gets a local marketplace in the private root of Prometeu. It also gets
+  a copy with a version that comes from the content, and a home for each
+  workspace (or task session) and each selected account.
 
-The installation lifecycle uses `codex plugin list/add/remove`, instead of the
-app-server's experimental plugin CRUD methods. All of those commands and the
-app-server receive the derived home. Its `config.toml` starts from the real
-configuration, but Prometeu's marketplace, activation and hook trust are written
-only in that copy. Authentication points to the account captured when the
-process starts; changing selection never repoints a running process's links.
-Sessions, skills, memory and plugin cache stay shared as defined in
+The installation lifecycle uses `codex plugin list/add/remove`. It does not use
+the experimental plugin CRUD methods of the app-server. All of those commands
+and the app-server get the derived home. Its `config.toml` starts as a copy of
+the configuration of the person. Prometeu writes its marketplace, the
+activation and the hook trust only in that copy. The authentication points to
+the account that the application recorded when the process started. A change to
+the selection does not change the links of a process that operates at that
+time. Sessions, skills, memory and the plugin cache stay shared, as
 [ADR 0012](0012-provider-accounts.md) and the
-[accounts contract](../contracts/accounts.md).
+[accounts contract](../contracts/accounts.md) specify.
 
-Do not use a `-c` override for activation. The studied CLI version accepts
-`plugins."id@marketplace".enabled=true` on the command line, but the loader does
-not apply that layer; the behavior is also recorded in the official issue
-[openai/codex#35289](https://github.com/openai/codex/issues/35289). A persisted,
-isolated layer produces verifiable behavior without changing the global
-`config.toml` or contaminating the worktree.
+Do not use a `-c` override for activation. The CLI version that the project
+examined accepts `plugins."id@marketplace".enabled=true` on the command line.
+But the loader does not apply that layer. The official issue
+[openai/codex#35289](https://github.com/openai/codex/issues/35289) also records
+this behavior. A stored, isolated layer gives behavior that a person can
+examine. It does not change the global `config.toml`, and it does not add files
+to the worktree.
 
-Selecting the package also activates and authorizes, by hash, only the hooks
-that Codex assigns to that `pluginId`. Before opening the thread, the adapter
-requires that every package that declared hooks has been discovered and writes
-`enabled = true` along with the hash. A failure at that step ends the opening
-instead of silently degrading the package to skills. The app-server's write
-happens in the derived home, which can be rebuilt if a protocol version changes
-or loses configuration fields.
+When a person selects the package, the adapter also activates and trusts, by
+hash, only the hooks that Codex connects to that `pluginId`. Before the adapter
+opens the thread, Codex must find each package that has hooks. Then the adapter
+writes `enabled = true` with the hash. If this step has a failure, the
+conversation does not open. The adapter does not silently use only the skills
+of the package. The app-server writes in the derived home. The adapter can make
+the derived home again if a protocol version changes or removes configuration
+fields.
 
-The portable format has `.claude-plugin/plugin.json` as its base and accepts
-`.codex-plugin/plugin.json` as an overlay. The creator generates both; adapting
-old packages happens only in the derived copy. In that adaptation, Claude's
-inline hook objects get the `hooks` envelope required by the Codex manifest; the
-format's revision takes part in the cachebuster to migrate copies that already
-exist.
+The portable format uses `.claude-plugin/plugin.json` as its base. It accepts
+`.codex-plugin/plugin.json` as an overlay. The plugin creator makes the two
+files. The adapter changes previous packages only in the derived copy. In that
+change, the inline hook objects of Claude get the `hooks` envelope that the
+Codex manifest must have. The revision of the format is part of the
+cachebuster. Thus, the adapter also updates the copies that are there before
+the change.
 
 ## Consequences
 
 Positive:
 
-- marketplace, installation and selection stay a single experience;
-- swapping Claude for Codex in the workspace does not lose the selection;
-- the adaptation does not write in the worktree and does not modify the source
-  package;
-- an update without a version bump still invalidates the cache through the hash;
-- Prometeu's plugins do not start applying outside it;
-- the real `config.toml` never enters the adapter's write cycle;
-- hook trust stays limited to the chosen package and the current revision;
-- a mode based on `SessionStart` already applies on the first answer.
+- The marketplace, the installation and the selection stay one experience.
+- When a person changes from Claude to Codex in the workspace, the selection
+  stays the same.
+- The adaptation does not write in the worktree, and it does not change the
+  source package.
+- If an update does not change the version, the hash continues to make the
+  adapter replace the cache.
+- The plugins of Prometeu do not apply out of Prometeu.
+- The adapter does not write to the `config.toml` of the person at any time.
+- The hook trust stays only on the selected package and the current revision.
+- A mode that uses `SessionStart` applies on the first answer.
 
 Negative:
 
-- the first Codex session with a plugin has to copy and install the package;
-- Codex's cache stays global, even though activation and marketplace are per
-  workspace;
-- each workspace keeps a rebuildable config and marketplace copy;
-- login storage explicitly configured as `keyring` still follows the independent
-  identity of each `CODEX_HOME`;
-- the adapter depends on Codex's plugin format and commands;
-- a managed policy that prevents activating a selected hook also prevents
-  opening the conversation;
-- a local `.zip` and a URL remain sources exclusive to Claude until Codex offers
-  an equivalent safe installation;
-- real differences between the two CLIs' events or components may still require
-  conditional content inside the package.
+- The first Codex session with a plugin must copy and install the package.
+- The Codex cache stays global, but the activation and the marketplace are for
+  each workspace.
+- Each workspace keeps a copy of the configuration and of the marketplace. The
+  adapter can make this copy again.
+- If a person explicitly configures `keyring` as the login storage, the login
+  continues to follow the independent identity of each `CODEX_HOME`.
+- If the plugin format or the commands of Codex change, the adapter must
+  change.
+- If a managed policy stops the activation of a selected hook, the
+  conversation also does not open.
+- A local `.zip` and a URL stay sources only for Claude. This continues until
+  Codex has an equivalent safe installation.
+- The events or components of the two CLIs are different. Thus, a package can
+  continue to have conditional content.
 
 ## Evidence
 
-- `plugins.rs` tests discovery of both marketplace formats and generation of the
-  Codex package/marketplace from a compatible plugin;
-- an opt-in test installs a temporary skill and `SessionStart` hook with the
-  real CLI, runs the app-server handshake, proves both reached the derived
-  runtime and compares the global `config.toml` before and after;
-- `codex.rs` tests that only hooks of the chosen `pluginId` receive the
-  activation and the trust hash before the thread is opened, and that incomplete
-  discovery or writing prevents the thread;
-- `agents.rs` and the launcher E2E demonstrate the capability in both providers;
+- Tests in `plugins.rs` examine the discovery of the two marketplace formats.
+  They also examine how the adapter makes the Codex package and marketplace from a
+  compatible plugin.
+- An opt-in test installs a temporary skill and a `SessionStart` hook with the
+  installed CLI. It runs the app-server handshake and shows that the two items are in
+  the derived runtime. It compares the global `config.toml` before and after.
+- Tests in `codex.rs` examine that only hooks of the selected `pluginId` get the activation
+  and the trust hash before the thread opens. They also examine that the thread does not open if
+  the discovery or the write is not complete.
+- `agents.rs` and the launcher E2E show the capability with the two providers.
 - [`plugin-marketplace.md`](../contracts/plugin-marketplace.md) records the
-  operational contract;
-- the official documentation accepts `.agents` and `.claude-plugin` marketplaces
-  and compatible packages:
-  [OpenAI — Plugin management](https://learn.chatgpt.com/pt-BR/docs/enterprise/plugin-management);
-- the native structure and hooks follow
+  contract of the operation.
+- The official documentation accepts `.agents` and `.claude-plugin`
+  marketplaces and compatible packages:
+  [OpenAI — Plugin management](https://learn.chatgpt.com/pt-BR/docs/enterprise/plugin-management).
+- The native structure and the hooks follow
   [OpenAI — Build plugins](https://developers.openai.com/codex/plugins/build)
-  and [OpenAI — Hooks](https://developers.openai.com/codex/hooks);
-- the independent authentication behavior per `CODEX_HOME` is deliberate in
-  [openai/codex#15410](https://github.com/openai/codex/issues/15410); the
-  default file mode is shared through a link in the adapter;
-- keeping the trust write in the derived home also contains the key-loss risk
-  reported in
-  [openai/codex#42116](https://github.com/openai/codex/issues/42116).
+  and [OpenAI — Hooks](https://developers.openai.com/codex/hooks).
+- The independent authentication for each `CODEX_HOME` is intentional in
+  [openai/codex#15410](https://github.com/openai/codex/issues/15410). The
+  adapter shares the default file mode through a link.
+- Because the trust write stays in the derived home, the risk of key loss in
+  [openai/codex#42116](https://github.com/openai/codex/issues/42116) stays in
+  that home.

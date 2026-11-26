@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0106 — Workspace supervision through Cloud webhooks"
-description: "Execution hosts publish durable metadata events to the Cloud, which routes signed webhooks to an external supervisor."
+description: "Execution hosts publish durable metadata events to the Cloud. The Cloud sends signed webhooks to an external supervisor."
 status: stable
 ---
 
@@ -11,141 +11,188 @@ Date: 2026-11-25
 
 ## Context
 
-External clients can create remote workspaces through the host's MCP
-([ADR 0103](0103-agents-on-remote-machines.md)). They previously had to query the
-host and GitHub periodically to know when to inspect a result or request a fix.
-The user wants event-driven supervision while the desktop is asleep, with a
-generic webhook receiver rather than an integration tied to one bot product.
+External clients can make remote workspaces through the MCP of the host
+([ADR 0103](0103-agents-on-remote-machines.md)). Before this decision, they had
+to query the host and GitHub periodically. Thus they knew when to examine a
+result or to request a repair. The user wants supervision that events start
+while the desktop sleeps. The user wants a generic webhook receiver, not an
+integration for one bot product.
 
-The Cloud already receives GitHub App webhooks. Its notification feed is a
-human inbox: it suppresses some actors, reports CI failures rather than all
-relevant CI changes, and the desktop polls it. It is not an automation queue.
+The Cloud receives GitHub App webhooks at this time. Its notification feed is
+an inbox for persons:
+
+- It does not show some actors.
+- It reports CI failures, not all CI changes that are related.
+- The desktop polls it.
+
+It is not a queue for automation.
 
 ## Decision
 
-An optional supervisor binding belongs to a workspace, independently of its
-creator. The first executor is the remote host. The portable
-`prometeu-core::supervision` module owns metadata types and execution observation
-rules; the host adapts Claude hooks, stores state and sends HTTP requests.
+An optional supervisor binding is part of a workspace. The creator of the
+workspace has no effect on the binding. The first executor is the remote host.
+The portable `prometeu-core::supervision` module owns the metadata types and the
+rules for the observation of the execution. The host adapts Claude hooks,
+stores the state and sends HTTP requests.
 
-The Cloud keeps one configurable supervisor destination per account in this
-version. It owns the HTTPS callback URL, event filters, signing secret and
-revocable ingestion credential. Hosts keep the ingestion credential privately.
-Selecting a configured supervisor by ID never lets an MCP client submit an
-arbitrary callback URL or read credentials.
+In this version, the Cloud keeps one supervisor destination for each account,
+and the person can configure it. The Cloud owns the HTTPS callback URL, the
+event filters, the signature secret and the ingestion credential that the
+person can revoke. Hosts keep the ingestion credential privately. An MCP client
+selects a configured supervisor by ID. Thus the client cannot send a callback
+URL that it selects, and it cannot read credentials.
 
-The host persists the binding before starting supervised work, and persists
-observations together with pending events. Its publisher wakes on changes or
-retry deadlines; it does not query GitHub or periodically scan executions. The
-Cloud acknowledges ingestion only after persistence and deduplicates event IDs.
-Its durable delivery queue groups events per executor/workspace and wakes an
-in-process worker on changes, retry deadlines and application startup. No
-model runs to filter or deliver events.
+**Persistence and delivery.** The host keeps the binding before it starts
+supervised work. It keeps observations together with pending events. Its
+publisher starts when a change occurs or when a retry time comes. It does not
+query GitHub or scan executions periodically. The Cloud acknowledges the
+ingestion only after it keeps the data, and it removes duplicate event IDs. Its
+durable delivery queue puts events in groups for each executor and workspace.
+The queue starts a worker in the process on changes, retry times and the start
+of the application. No model operates to filter or send events.
 
-The existing single-process Rails deployment gains one delivery worker, not a
-new queue service. SQLite stores pending deliveries and receipts. Network I/O
-runs outside database transactions; attempts use bounded timeouts. This extends
-the no-job-process baseline in [ADR 0015](0015-cloud-rails.md): a persistent queue
-is now justified by delivery retries. Multiple Puma processes or replicas need
-a separate dispatch ownership decision.
+The current Rails deployment with a single process gets one delivery worker. It
+does not get a new queue service. SQLite stores pending deliveries and receipts.
+Network I/O runs outside database transactions. Attempts have time limits. This
+decision changes the baseline without a job process in
+[ADR 0015](0015-cloud-rails.md). The delivery retries make a persistent queue
+necessary now. More than one Puma process or replica needs a separate decision
+about the ownership of the dispatch.
 
-Callbacks use documented JSON and HMAC signatures. Any receiver implementing
-the contract can consume them. A successful callback acknowledges receipt, not
-completion of a model turn. The receiver deduplicates deliveries, serializes
-decisions per workspace, reads current state through MCP/GitHub, and decides
-whether to request corrections or notify the person. Merge remains manual.
+**Callbacks.** Callbacks use documented JSON and HMAC signatures. All receivers
+that implement the contract can use them. A correct callback acknowledges the
+receipt. It does not acknowledge the completion of a model turn. The receiver
+does these steps:
+
+1. It removes duplicate deliveries.
+2. It puts the decisions for each workspace in sequence.
+3. It reads the current state through MCP and GitHub.
+4. It decides if it requests corrections or tells the person.
+
+The merge stays manual.
 
 ### Provisioning in the MCP connection flow
 
-Remote MCP setup offers event delivery in the same form, and an existing MCP can
-add events without rotating its MCP token. The desktop reuses its account session
-and SSH access to provision the selected host. Users no longer transport ingestion
-tokens between Cloud and a VPS. Credentials retain separate authorities: the
-account manages destinations, the MCP token authorizes agent actions, and the
-host ingestion token publishes metadata. The signing secret belongs to the
-receiver and Cloud, never to the host or MCP configuration.
+The remote MCP setup shows the event delivery in the same form. A current MCP
+can add events, and its MCP token does not change. The desktop uses its account
+session and its SSH access again to prepare the selected host. Users do not move
+ingestion tokens between the Cloud and a VPS now. The credentials keep separate
+authorities:
 
-A digest per supervisor/executor permits adding or repairing one machine without
-revoking other machines. The existing destination token remains valid for manual
-installations. Explicit destination credential rotation revokes both credential
-forms. An executor keeps a stable ID before its first setup. Pairing uses existing
-SSH rather than adding a host HTTP listener or giving Cloud shell access.
+- The account manages destinations.
+- The MCP token authorizes agent actions.
+- The host ingestion token publishes metadata.
 
-Provisioning is not atomic across Cloud and SSH. A failure after issuance can
-pause that executor's publication until the user retries; durable events remain
-in its outbox. The form binds its intent to the displayed account and destination
-and its configuration revision, and refuses stale replacements before issuing a
-token. The revision fingerprints destination settings and encrypted secret material,
-so edits within one timestamp tick also invalidate an open form; checking it under
-the supervisor lock keeps credential issuance bound to that configuration. A test originates on the configured host and
-waits for Cloud's callback receipt, so a browser-only webhook test cannot be
-mistaken for a connected machine. Test polling is bounded and explicit, separate
-from event-driven supervision. This does not install MCP into the receiver or
-change per-workspace supervision consent.
+The signature secret is part of the receiver and the Cloud. It is not part of
+the host or of the MCP configuration at any time.
+
+A digest for each supervisor and executor lets the person add or repair one
+machine without a revocation of other machines. The current destination token
+stays valid for manual installations. An explicit rotation of the destination
+credential revokes the two forms of the credential. An executor keeps a stable
+ID before its first setup. Pairing uses the current SSH access. Prometeu does
+not add an HTTP listener on the host, and it does not give shell access to the
+Cloud.
+
+**Failures and stale forms.** Provisioning is not atomic across the Cloud and
+SSH. A failure after the Cloud issues a token can stop the publication of that
+executor until the user tries again. Durable events stay in its outbox.
+
+- The form binds its intent to the account and the destination that it shows,
+  and to their configuration revision. It rejects stale replacements before it
+  issues a token.
+- The revision is a fingerprint of the destination settings and the encrypted
+  secret material. Thus edits in the same timestamp tick also make an open form
+  not valid.
+- The Cloud examines the revision under the supervisor lock. Thus the token
+  issue stays bound to that configuration.
+
+A test starts on the configured host and waits for the callback receipt of the
+Cloud. Thus a person cannot think that a webhook test from the browser only is
+a connected machine. The test polls with a limit and explicitly. This poll is
+separate from the supervision that events start. This decision does not install
+MCP into the receiver. It does not change the supervision consent for each
+workspace.
 
 ### Receiver compatibility
 
-The Cloud destination can select the existing Prometeu format or OpenBot's
-`type`/`data` envelope and timestamp/delivery-ID/body signature. A receiver-issued
-secret can be supplied or replaced in the account form and stays encrypted.
-OpenBot credential rotation preserves that secret and rotates only host ingestion.
-The format choice stays at the outbound boundary, so host events and MCP clients
-remain receiver-independent. Explicit selection preserves existing destinations;
-a general header/template editor is unnecessary for these two concrete protocols.
+The Cloud destination can select one of two formats:
+
+- The current Prometeu format.
+- The `type`/`data` envelope of OpenBot, with a signature of the timestamp,
+  the delivery ID and the body.
+
+The person can give or replace a secret that the receiver issued in the account
+form. The Cloud keeps this secret encrypted. The OpenBot credential rotation
+keeps that secret and changes only the host ingestion. The format selection
+stays at the outbound boundary. Thus host events and MCP clients do not depend
+on the receiver. An explicit selection keeps the current destinations. A
+general editor for headers or templates is not necessary for these two
+protocols.
 
 ### GitHub routing and trust
 
-The host registers repository/branch metadata and can explicitly associate a PR
-through MCP. Signed GitHub events route to watched workspaces through the Cloud,
-independently of desktop notification preferences. A claimed repository name
-alone grants no access to another account's private repository metadata: the
-Cloud first requires a signed GitHub event establishing the linked user's
-participation before binding repository, PR and installation. Installation
-removal invalidates that binding.
+The host registers repository and branch metadata. It can explicitly connect a
+PR through MCP. The Cloud sends signed GitHub events to watched workspaces.
+Desktop notification preferences have no effect on this. A repository name
+that an account claims gives no access to the private repository metadata of a
+different account. The Cloud first must have a signed GitHub event that shows
+the participation of the linked user. Then it binds the repository, the PR and
+the installation. When the installation is removed, that binding is not valid.
 
-Cloud storage remains metadata-only: no prompts, transcripts, code, review
-bodies or provider credentials. Supervisor signing secrets are integration
-credentials, encrypted at rest; ingestion credentials are stored as digests.
-Outgoing URLs are validated against private-network destinations on each
-delivery. Redirects are not followed. This adds an authenticated host-to-Cloud
-boundary and an outbound webhook boundary, separate from collaboration E2EE.
+The Cloud stores only metadata. It does not store prompts, transcripts, code,
+review bodies or provider credentials. Supervisor signature secrets are
+integration credentials, and the Cloud stores them encrypted. The Cloud stores
+ingestion credentials as digests. At each delivery, the Cloud validates the
+outgoing URLs against destinations in private networks. It does not follow
+redirects. This decision adds an authenticated boundary from the host to the
+Cloud and an outbound webhook boundary. These boundaries are separate from the
+collaboration E2EE.
 
 ### Future local execution
 
-Executor identity is separate from workspace and supervisor identity. Assigning
-supervision is also separate from workspace creation: MCP creation is only one
-entry point. These rules admit a later desktop adapter and explicit assignment
-from the launcher without changing event semantics.
+The executor identity is separate from the workspace identity and from the
+supervisor identity. The assignment of supervision is also separate from the
+creation of a workspace. MCP creation is only one entry point. With these rules,
+a subsequent desktop adapter and an explicit assignment from the launcher are
+possible. The meaning of the events does not change.
 
-This version adds neither local supervisor selection nor a reverse network
-path to the desktop's MCP. Local MCP ownership rules are unchanged. The remote
-host's existing machine-token authority is also unchanged: a supervisor binding
-routes events; it is not a new isolated MCP client identity. A future desktop
-adapter must add a revocable workspace-scoped grant and an authenticated path
-back to its local MCP before it can offer equivalent supervision.
+This version does not add a local supervisor selection. It does not add a
+reverse network path to the MCP of the desktop. The local MCP ownership rules
+do not change. The current machine-token authority of the remote host also does
+not change. A supervisor binding sends events. It is not a new isolated MCP
+client identity. Before a future desktop adapter can give the same supervision,
+it must add two items:
+
+- A grant for one workspace that the person can revoke.
+- An authenticated path back to its local MCP.
 
 ## Alternatives
 
-- Faster polling would reduce latency but still couple supervision to repeated
-  queries. The requested flow uses event delivery from its first version.
-- Sending directly from each host to the callback duplicates destination
-  configuration and cannot receive GitHub updates while an executor is offline.
-- Routing everything through the desktop makes remote work depend on the Mac.
-- Running an LLM supervisor in the Cloud would add provider credentials and
-  transcript handling. The external supervisor already owns that responsibility.
+- A faster poll decreases the latency. But the supervision continues to depend
+  on repeated queries. The requested flow uses event delivery from its first
+  version.
+- If each host sends directly to the callback, each host has a copy of the
+  destination configuration. Also, the host cannot receive GitHub updates while
+  an executor is offline.
+- If all events go through the desktop, remote work depends on the Mac.
+- An LLM supervisor in the Cloud adds provider credentials and the processing
+  of transcripts. The external supervisor has that responsibility at this time.
 
 ## Compatibility and evidence
 
-Unsupervised workspaces retain existing behavior. Host registry additions use
-defaults and version 1 records migrate on write to version 2, which older hosts
-refuse to rewrite; downgrade must preserve that file and a compatible host.
-Existing MCP calls need no new arguments. Removing supervision stops
-routing without closing the workspace. Retries provide at-least-once delivery;
-they do not promise exactly-once model execution.
+Workspaces without supervision keep the current behavior. Additions to the host
+registry use defaults. When the host writes the registry, version 1 records
+migrate to version 2. Hosts from earlier versions do not write that version
+again. For a downgrade, keep that file and a compatible host. Current MCP calls
+do not need new arguments. When the person removes the supervision, the events
+stop, but the workspace stays open. Retries give at-least-once delivery. They
+do not promise exactly-once model execution.
 
-The [supervision contract](../contracts/supervision.md) defines wire formats,
-setup, filtering, signatures and recovery. Core observation tests prove held
-completion and restart reconciliation. Host tests use synthetic hooks and a
-local HTTP peer; Cloud tests cover authentication, account isolation,
-deduplication, GitHub routing and delivery. Shared
-`fixtures/cloud-api.json` examples check the producer/consumer boundary.
+The [supervision contract](../contracts/supervision.md) specifies the wire
+formats, the setup, the filters, the signatures and the recovery. The core
+observation tests prove the held completion and the reconciliation after a new
+start. The host tests use synthetic hooks and a local HTTP peer. The Cloud tests
+cover authentication, account isolation, deduplication, GitHub routing and
+delivery. The shared `fixtures/cloud-api.json` examples examine the boundary
+between the producer and the consumer.

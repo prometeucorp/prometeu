@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0003 — Capability-driven features"
-description: "Capability-driven features."
+description: "The interface shows features from the capabilities of each agent, not from the name of the provider."
 status: stable
 ---
 
@@ -11,65 +11,74 @@ Date: 2026-09-03
 
 ## Context
 
-Originally, the model implicitly identified the provider and parts of the UI
-compared the name `codex` to hide plan mode or plugins. `agent` was an open
-string in TypeScript and in the Rust state.
+At first, the model identified the provider without an explicit field. Some
+parts of the interface compared the name to `codex` to hide the plan mode or
+the plugins. `agent` was an open string in TypeScript and in the Rust state.
 
-That design works with two known CLIs, but it spreads vendor knowledge around. A
-third provider would require finding every conditional and deciding again which
-combinations are valid. Different versions of the same CLI may also offer
-different capabilities.
+That design operates with two known CLIs, but it puts knowledge about the
+providers in many locations. For a third provider, a person must find each
+condition and make each decision about the correct combinations again. Different
+versions of the same CLI can also have different capabilities.
 
 ## Options considered
 
-1. Keep adding per-provider conditionals.
-2. Create a different UI interface for each provider.
-3. Discover providers in typed descriptors and drive the UI by capabilities.
+1. Continue to add conditions for each provider.
+2. Make a different interface for each provider.
+3. Find providers in typed descriptors and let the capabilities control the
+   interface.
 
 ## Decision
 
-Introduce a closed `ProviderId`, `AgentDescriptor`, `AgentModel` and
-`AgentCapabilities`. The catalog explicitly associates a model with a provider.
-The UI and validation use the descriptor's capabilities; only the
-registry/runtime dispatches by `ProviderId`.
+Add a closed `ProviderId`, `AgentDescriptor`, `AgentModel` and
+`AgentCapabilities`. The catalog explicitly connects a model to a provider. The
+interface and the validation use the capabilities of the descriptor. Only the
+registry and the runtime select the code path by `ProviderId`.
 
-The implemented contract is in [agent-runtime.md](../contracts/agent-runtime.md).
+The contract in force is in [agent-runtime.md](../contracts/agent-runtime.md).
 
 ## Implementation
 
 - `ProviderId` is a closed union in TypeScript and an enum in Rust.
-- Board loading accepts `agent: ""` and normalizes the next write to
-  `agent: "claude"`; unknown values also fall back to the default during the
-  migration.
-- `src-tauri/src/agents.rs` produces `AgentDescriptor[]` with installation status and
-  capabilities; `agent_models` supplies live catalogs separately (ADR 0053); `src/agents.ts` is the boundary consumed by the UI.
-- Launcher, conversation and status bar use descriptors/capabilities. Nominal
-  dispatch stays only in the catalog and in the adapters.
-- `scripts/check-architecture.mjs` fails if the main screens start deciding by
-  direct comparison with `claude` or `codex` again.
-- Rust tests cover persisted normalization and the descriptors' capabilities.
+- When the application loads the board, it accepts `agent: ""`. The next write
+  changes the value to `agent: "claude"`. During the migration, unknown values
+  also change to the default.
+- `src-tauri/src/agents.rs` makes `AgentDescriptor[]` with the installation
+  status and the capabilities. `agent_models` supplies live catalogs
+  independently (ADR 0053). `src/agents.ts` is the boundary that the interface
+  uses.
+- The launcher, the conversation and the status bar use descriptors and
+  capabilities. Selection by name stays only in the catalog and in the
+  adapters.
+- `scripts/check-architecture.mjs` shows a failure if the primary screens make a
+  decision again when they compare the provider with `claude` or `codex`.
+- Rust tests examine the normalization of the stored values and the
+  capabilities of the descriptors.
 
 ## Consequences
 
 Positive:
 
-- support becomes visible in a single structure;
-- the UI stops knowing provider names;
-- capabilities can vary with the CLI/model without releasing conditionals;
-- new providers fail through non-exhaustive matching during development;
-- the conformance matrix can be derived from the catalog.
+- One structure shows what each agent can do.
+- The interface does not know the names of the providers.
+- Capabilities can change with the CLI or the model, and no conditions go into
+  a release.
+- During development, a new provider causes a compilation failure because each
+  selection in the code must include all providers.
+- The project can make the conformance matrix from the catalog.
 
 Negative:
 
-- the catalog and the persisted state need a migration;
-- some capabilities are not purely boolean and may require parameters;
-- an incorrect descriptor may offer a feature that fails at runtime;
-- discovery needs an explicit fallback when a CLI does not answer.
+- The catalog and the stored state must have a migration.
+- Some capabilities are not only on or off. They can also have parameters.
+- An incorrect descriptor can show a feature that has a failure at runtime.
+- When a CLI does not answer, the discovery must have an explicit fallback.
 
 ## Acceptance criteria met
 
-- the current plan mode, MCP, plugin and attachment conditionals were migrated;
-- the current capabilities are published per provider at runtime;
-- the `agent: "" | "claude" | "codex"` migration has a serialization test;
-- the fitness function prevents new UI decisions based on the provider's name;
-- the matrix points to evidence or a limitation for each behavior.
+- The conditions for the current plan mode, MCP, plugins and attachments moved
+  to capabilities.
+- The runtime publishes the current capabilities for each provider.
+- The `agent: "" | "claude" | "codex"` migration has a serialization test.
+- The fitness function stops new decisions in the interface that use the name
+  of the provider.
+- For each behavior, the matrix points to evidence or to a limit.

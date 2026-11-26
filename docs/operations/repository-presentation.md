@@ -1,35 +1,43 @@
 ---
 type: Operations
 title: "Repository presentation"
-description: "Demo provenance, social preview and GitHub verification."
+description: "The origin of the demo, the social preview and the GitHub checks."
 status: stable
 ---
 
 # Repository presentation
 
-The README puts the product, demo, latest downloads and star request before
-feature details. Keep the top section compact and retain the platform
-qualification beside the downloads. The first repository page still
-shows GitHub's file tree above the README; the README cannot change that layout.
+The README shows the product, the demo, the latest downloads and the request
+for a star before the data about the features. Keep the top section small. Keep
+the platform qualification adjacent to the downloads. The first page of the
+repository continues to show the file tree of GitHub above the README. The
+README cannot change that layout.
 
 ## Media
 
-- [Demo GIF](../demo.gif): 20 seconds, 1280 × 820, 15 fps, looping, under 10 MB.
-  Captured from the real browser interface in English, using `src/mock.ts`
-  with two synthetic tasks and Claude/Codex conversation events. It shows two
-  agents working side by side, separate workspace branches, opening a focused
-  conversation, sending a follow-up and returning to the desk. Captions and the
-  simulation label sit outside the app window. The closing frames blend back
-  into the opening shot.
-  The recording identifies the simulated agents; it is not evidence of native
-  execution, provider performance or actual changes to a repository.
-- [Social preview](../social-preview.png): 1280 × 640 PNG, under 1 MB,
-  composed from the existing logo, tagline and a browser interface capture.
+- [Demo GIF](../demo.gif): 20 seconds, 1280 × 820, 15 fps, it starts again at
+  the end, less than 10 MB.
+  - We recorded it from the browser interface of the product in English. It uses
+    `src/mock.ts` with two synthetic tasks and Claude/Codex conversation events.
+  - It shows two agents that work side by side, each on the branch of its
+    workspace. It opens one conversation, sends a follow-up prompt and goes back
+    to the desk.
+  - The captions and the simulation label are out of the application window.
+    The last frames change gradually into the first frame.
+  - The GIF identifies the agents as a simulation. It is not evidence of
+    native operation, of the performance of a provider or of changes to a
+    repository.
+- [Social preview](../social-preview.png): 1280 × 640 PNG, less than 1 MB.
+  It contains the current logo, the tagline and a capture of the browser
+  interface.
 
 ### Refresh the demo
 
-Install the normal development dependencies, Playwright's Chromium and FFmpeg.
-FFmpeg must be on `PATH`, or `FFMPEG` must name its executable. Then run:
+1. Install the usual development dependencies, the Chromium of Playwright and
+   FFmpeg.
+2. Make sure that FFmpeg is on `PATH`, or that `FFMPEG` gives the path of its
+   executable.
+3. Run these commands:
 
 ```sh
 npx playwright install chromium
@@ -37,36 +45,53 @@ npm run demo:record
 ```
 
 The [recorder](../../scripts/record-demo.mjs) starts its own loopback Vite server
-and an isolated browser context. It uses the existing mock and real UI controls;
-it does not connect to providers or read local projects. It replaces `docs/demo.gif`
-and writes PNG frames, an MP4 and a local `preview.html` under the ignored
-`test-results/demo/` directory. The MP4 is useful for sharing outside the README.
-No new npm dependency or product capture mode is needed.
+and an isolated browser context. It uses the current mock and the controls of the product
+interface. It does not connect to providers and it does not read local projects.
+It replaces `docs/demo.gif`. It also writes PNG frames, an MP4 and a local
+`preview.html` in the ignored `test-results/demo/` directory. You can share the
+MP4 in locations other than the README. The recorder operates without a new npm
+dependency and without a capture mode in the product.
 
-The recorder checks that both agents fit on screen, the follow-up reaches the
-conversation, the completed response appears, no uncaught browser errors occur
-and the GIF stays under 10 MB. These checks validate the capture, not native
-agent execution. Inspect the opening, focused conversation and closing shots
-at the README's 880 px display width. Keep synthetic content and the simulation
-label; never capture credentials, private projects or real conversations.
+The recorder makes sure of these conditions:
 
-Upload the PNG in GitHub **Settings → General → Social preview → Edit →
-Upload an image**. Committing the PNG alone does not configure the preview.
-GitHub documents the [upload procedure and image limits](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview).
+- The two agents are fully on the screen.
+- The follow-up prompt gets to the conversation.
+- The completed response comes into view.
+- No uncaught browser errors occur.
+- The GIF stays less than 10 MB.
+
+These checks validate the capture. They do not validate the native operation of
+an agent. Examine the first shot, the open conversation and the last shot at the
+880 px display width of the README. Keep the synthetic content and the
+simulation label. Do not capture credentials, private projects or the conversations
+of persons at any time.
+
+To configure the social preview, do these steps:
+
+1. In GitHub, go to **Settings → General → Social preview → Edit →
+   Upload an image**.
+2. Upload the PNG.
+
+A commit of the PNG alone does not configure the preview. GitHub gives the
+[upload procedure and the image limits](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview).
 
 ## Verification
 
-Run `npm run docs:check`. Check that the GIF loops inline in GitHub's README
-rendering, scales without horizontal overflow and has the download links
-immediately below it. The larger display favors readable captions over fitting
-the entire introduction into one viewport. GitHub's file tree remains above
-the README.
+1. Run `npm run docs:check`.
+2. Make sure that the GIF starts again at the end in the README page of GitHub.
+3. Make sure that the GIF is not wider than the page.
+4. Make sure that the download links are immediately below the GIF.
+5. Open the two `/releases/latest/download/` links.
+6. Make sure that each response is satisfactory.
+7. After the merge, open
+   [Community Standards](https://github.com/prometeucorp/prometeu/community).
+8. Make sure that the contributing, license, README, security, issue-template
+   and PR-template entries are correct.
 
-Follow both `/releases/latest/download/` links and confirm successful
-responses. Their stable asset names are part of the
-[release contract](../contracts/releases.md).
+The larger display makes the captions easy to read. Thus, the full
+introduction does not go into one viewport. The file tree of GitHub stays above
+the README. The [release contract](../contracts/releases.md) includes the
+stable asset names of the download links.
 
-After merging, inspect [Community Standards](https://github.com/prometeucorp/prometeu/community)
-and verify the contributing, license, README, security, issue-template
-and PR-template entries. Private vulnerability reporting must stay enabled for
-the link in `SECURITY.md` to work.
+Private vulnerability reporting must stay enabled. If a person disables it, the
+link in `SECURITY.md` does not operate.

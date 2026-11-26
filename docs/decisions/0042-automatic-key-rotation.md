@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0042 — A peer's new key is adopted automatically"
-description: "A peer's new key is adopted automatically."
+description: "The application uses the new key of a peer automatically."
 status: stable
 ---
 
@@ -9,71 +9,91 @@ status: stable
 
 Date: 2026-09-10
 
-Defines peer key replacement within the cipher, scopes, authorization, replay
-and limits of [ADR 0022](0022-end-to-end-encryption.md). The members list in
-[ADR 0041](0041-members-list-shows-people.md) has no key-review controls.
+This ADR specifies how a new key of a peer replaces the previous key. The cipher,
+the scopes, the authorization, the replay protection and the limits stay as
+[ADR 0022](0022-end-to-end-encryption.md) specifies them. The list of members in
+[ADR 0041](0041-members-list-shows-people.md) has no controls to examine keys.
 
 ## Context
 
-The previous policy pinned each member's first key and blocked content until
-someone accepted a replacement in Settings. In practice the key changes for
-common reasons: reinstalling Prometeu, formatting the Mac, switching phones,
-pairing another device. Each of these events cuts sharing with that person for
-every peer and requires each one to open the Settings and accept. Whoever lives
-with this learns to click "Accept" without checking anything — the block costs a
-lot and buys no real security.
+The previous policy kept the first key of each member. It stopped the content
+until a person accepted a replacement key in Settings. But the key changes for
+usual causes:
+
+- A person installs Prometeu again.
+- A person formats the Mac.
+- A person changes to a different phone.
+- A person pairs a different device.
+
+Each of these changes stopped the shared content with that person for all
+peers. Each peer then had to open Settings and accept the new key. The persons
+who had this problem learned to click "Accept" and did not examine the key. Thus
+the block had a high cost and gave no real security.
 
 ## Options considered
 
-1. Keep the block and improve the copy.
-2. Adopt the new key and show a persisted passive notice in the Settings.
-3. Adopt the new key silently.
+1. Keep the block and make the text better.
+2. Use the new key and show a passive notice that stays in Settings.
+3. Use the new key and show no notice.
 
 ## Decision
 
-Option 3. `observe()` writes the new key over the previous link before using it,
-and content keeps flowing without intervention. The write still comes before
-use: if persistence fails, the new key is not available and nothing is
-encrypted for it.
+Adopt option 3. `observe()` writes the new key over the previous link before
+the application uses the key. The content continues to go to the peer, and a
+person does not do an action. The application writes the key before it uses the key. If
+the save fails, the new key is not available, and the application encrypts
+nothing for it.
 
-The block on a changed key, the review in the Settings, the explicit acceptance
-and the per-member security code (already removed in 0041) leave the product.
+These items leave the product:
 
-What remains: the scope keeps its own identity; a change of the scope's own
-identity still fails with `Own identity key changed`; a missing key or an
-invalid directory still prevent using the link; receipts, announcement revisions
-and content validation stay the same.
+- The block on a changed key.
+- The review of the key in Settings.
+- The explicit acceptance of the key.
+- The security code for each member. ADR 0041 removed it before.
+
+These items stay:
+
+- The scope keeps its own identity.
+- A change to the own identity key of the scope continues to fail with
+  `Own identity key changed`.
+- A missing key or a directory that is not valid continues to stop the
+  application from using the link.
+- Receipts, revisions of announcements and the validation of content do not
+  change.
 
 ## Consequences
 
-Reinstalling the app, switching devices or formatting the machine no longer
-interrupts the team. There is no screen asking to confirm a key anymore.
+When a person installs the app again, changes devices or formats the machine,
+the team continues to operate. No screen asks a person to confirm a key.
 
-The cost is explicit: without manual acceptance, the relay can replace a
-member's key and read that person's new content with no visible signal in the
-interface. 0022 already admitted this replacement at first contact and the
-absence of key transparency; now it also applies to later changes. Whoever needs
-external verification depends on a future feature — a comparable code or key
-transparency — and not on a block nobody reads.
+The cost is clear. Without a manual acceptance, the relay can replace the key of
+a member. It can then read the new content of that person, and the interface
+shows no signal. ADR 0022 accepted this replacement at first contact, and it
+accepted that there is no key transparency. Now this risk also applies to
+changes after the first contact. A person who must verify a key outside the
+application must wait for a future feature, for example a code to compare or key
+transparency. A block that nobody reads does not give this verification.
 
-The silent adoption covers content only. Input is execution on the owner's Mac:
-agents run tools without per-tool approval by default, and `request.respond`
-answers the approvals that exist as a human gate. Since
-[ADR 0090](0090-approved-remote-input.md), a replaced key keeps receiving
-content without intervention, but messages and control from it are discarded
-until the owner approves that device on the Mac. The cost of a silent
-replacement is the disclosure of new content, not the execution of commands.
+The automatic replacement of the key applies only to content. Input from a peer is
+an operation on the Mac of the owner. By default, agents run tools without an
+approval for each tool. `request.respond` answers the approvals that the agent
+asks for, and a person must give these approvals. Since
+[ADR 0090](0090-approved-remote-input.md), a replaced key continues to get
+content automatically. But the Mac ignores messages and control from that key
+until the owner approves that device on the Mac. Thus a hidden replacement
+can show new content to the relay, but it cannot run commands.
 
-The `peers` field of `team-security.json` still stores one key per member and
-is overwritten on a change. ADR 0090 adds the owner's input approvals next to
-it; the links keep their meaning.
+The `peers` field of `team-security.json` continues to store one key for each
+member. The application writes over this key when it changes. ADR 0090 adds the
+input approvals of the owner adjacent to it. The links keep their meaning.
 
 ## Evidence
 
 - [Channel security](../../src/team-security.test.ts): the new key replaces the
-  link, only takes effect after persisting, and the own identity still refuses a
-  change.
-- [Encrypted channel](../../src/team-channel.test.ts): content is still
-  encrypted for the peer whose key changed.
-- [Critical flows](../../e2e/critical-flows.spec.ts): reinstalling the peer's
-  device does not ask for a review and collaboration continues.
+  link and becomes active only after the save. The own identity continues to
+  refuse a change.
+- [Encrypted channel](../../src/team-channel.test.ts): the application continues
+  to encrypt content for the peer whose key changed.
+- [Critical flows](../../e2e/critical-flows.spec.ts): when the device of a peer
+  installs the application again, the application does not ask for a review,
+  and the collaboration continues.

@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0044 — Current documentation with history in Git"
-description: "Current documentation with history in Git."
+description: "The documentation tells the current decisions, and Git keeps the history."
 status: stable
 ---
 
@@ -11,53 +11,69 @@ Date: 2026-09-15
 
 ## Context
 
-Accepted ADRs accumulated obsolete instructions followed by partial supersession
-notes. Reading one document could suggest an importer, sound alerts, manual key
-review or a mobile implementation that no longer exists in that form. Repeating
-the decision index also left ADR 0034 absent from the lifecycle index.
+The accepted ADRs collected instructions that were not current, with
+partial notes about the replacement decisions. Thus a reader of one document
+can think that some items were in the product, but they were not in that
+form at that time. These items were an importer, sound alerts, a manual
+review of keys and a mobile implementation. Also, the decision index had
+two copies, and ADR 0034 was not in the lifecycle index.
 
 ## Options considered
 
-1. Keep every historical ADR beside the current decisions.
-2. Move obsolete documents into an archive in the documentation tree.
-3. Keep current decisions in the tree and use Git for history.
+1. Keep all the historical ADRs adjacent to the current decisions.
+2. Move the previous documents into an archive in the documentation tree.
+3. Keep the current decisions in the tree and use Git for the history.
 
 ## Decision
 
-Adopt option 3. Accepted ADRs describe implemented decisions still in force,
-including their rationale, trade-offs, compatibility and verification limits.
-Update a decision when its implementation changes. Add a new ADR for a distinct
-choice when that makes ownership clearer.
+Adopt option 3. Accepted ADRs describe implemented decisions that are in force.
+They include the causes, the trade-offs, the compatibility and the limits of the
+verification. Update a decision when its implementation changes. Add a new ADR
+for a different choice when that makes the responsibility for the decision
+clearer.
 
-When a decision is replaced or removed, consolidate any guarantees still in
-force into the current ADR or contract, update incoming links and remove the
-obsolete document. Do not retain competing instructions with a supersession
-note. Keep numbers stable and never reuse retired numbers. Apply the same rule
-to retired contracts; document compatibility still implemented in the current
-contract. Proposals must be explicitly marked and kept separate from accepted
-guidance.
+When you replace or remove a decision, do these steps:
 
-Concepts use the lifecycle field defined by [ADR 0001](0001-repository-knowledge.md):
-`stable` for accepted guidance, `draft` for proposals and `deprecated` only for
-legacy guidance whose compatibility remains supported. Deprecation is not an
-archive for replaced decisions. Completed implementation plans leave `docs/`
-after their current guarantees and verified limits are recorded in contracts
-or ADRs; previous plans and audit snapshots remain in Git history.
+1. Move the guarantees that stay in force into the current ADR or contract.
+2. Update the links that go to the previous document.
+3. Delete the previous document.
+
+Do not keep two instructions that do not agree, with a note about the
+replacement. Do not change ADR numbers, and do not use a retired number again.
+Apply the same rule to retired contracts. Write the compatibility that the code
+continues to implement in the current contract. Proposals must have a clear
+mark and must stay separate from the accepted guidance.
+
+Concepts use the lifecycle field that [ADR 0001](0001-repository-knowledge.md)
+specifies:
+
+- `stable` is for accepted guidance.
+- `draft` is for proposals.
+- `deprecated` is only for previous guidance whose compatibility the product
+  continues to support.
+
+Deprecation is not an archive for replaced decisions. When an implementation
+plan is complete, record its current guarantees and verified limits in
+contracts or ADRs. Then remove the plan from `docs/`. The Git history keeps
+the previous plans and audit snapshots.
 
 ## Consequences
 
-Readers can use each accepted decision without reconstructing a chain of older
-ADRs. Historical rationale and deleted files remain recoverable through
-`git log --all -- docs/decisions/` and `git show <commit>:<path>`. The trade-off
-is that studying past alternatives requires repository history.
+A reader can use each accepted decision alone. The reader does not put
+together a sequence of previous ADRs. A person can get the historical causes and the deleted
+files again through `git log --all -- docs/decisions/` and
+`git show <commit>:<path>`. The trade-off is that a person who studies past
+alternatives must read the history of the repository.
 
-Removing an obsolete document does not authorize removing compatibility code,
-stored data or security guarantees. Tests and code determine the current
-behavior; an audit of this checkout does not prove deployment state.
+When a person removes a previous document, this does not let the person remove
+compatibility code, stored data or security guarantees. The tests and the code
+set the current behavior. An audit of this checkout does not prove the state of
+a deployment.
 
 ## Evidence
 
 - [Lifecycle and current index](README.md).
 - [Agent maintenance rules](../../AGENTS.md).
-- `npm run docs:check` checks local links and the documentation index.
-- Each retained ADR links or names its implementation and verification evidence.
+- `npm run docs:check` examines the local links and the documentation index.
+- Each ADR in the tree links to or names its implementation and the evidence of
+  its verification.

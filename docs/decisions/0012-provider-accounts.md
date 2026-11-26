@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0012 — Local accounts and global selection per provider"
-description: "Local accounts and global selection per provider."
+description: "Local account profiles for each provider, with one global selection that the footer shows."
 status: stable
 ---
 
@@ -9,63 +9,71 @@ status: stable
 
 Date: 2026-09-05
 
-Account removal and an empty selection follow
-[ADR 0013](0013-remove-provider-accounts.md). The plugin layer uses this account
-boundary as described in [ADR 0005](0005-portable-plugin-marketplace.md).
+[ADR 0013](0013-remove-provider-accounts.md) gives the rules for the removal of
+an account and for an empty selection. The plugin layer uses this account
+boundary, as [ADR 0005](0005-portable-plugin-marketplace.md) tells.
 
-The external Antigravity account extends this decision through
-[ADR 0052](0052-antigravity-runtime.md); global selection remains unchanged.
+[ADR 0052](0052-antigravity-runtime.md) adds the external Antigravity account to
+this decision. The global selection does not change.
 
 ## Context
 
-A person may have several Claude and Codex subscriptions. The footer already
-shows global quotas, but the app inherited a single login from each CLI.
-Swapping global credential files would affect external terminals and running
-processes.
+A person can have many Claude and Codex subscriptions. The footer shows global
+quotas, but the application used the single login of each CLI. If the
+application replaces the global credential files, this change has an effect on
+external terminals and on processes that operate.
 
 ## Options considered
 
-- Swap the CLI's global credential: fewer directories, but it changes processes
-  outside the app and allows a turn to change identity mid-execution.
-- Associate accounts with workspaces: it adds configuration to the board and
-  does not serve the requested global choice.
-- Local profiles per account, with authentication delegated to the CLI and
-  shared history: it requires adapting homes, quotas and resume, but keeps the
-  decision in the footer and the credential captured per process.
+- Replace the global credential of the CLI: there are fewer directories. But
+  it changes processes out of the application, and a turn can change its
+  identity during its execution.
+- Connect accounts to workspaces: it adds configuration to the board, and it
+  does not give the global selection that the person wants.
+- Local profiles for each account, with the CLI that does the authentication,
+  and a shared history: the homes, the quotas and the resume must change. But
+  the decision stays in the footer, and each process keeps the credential that
+  it got at its start.
 
 ## Decision
 
-Adopt local profiles and an optional selection persisted per provider. The login
-starts in Prometeu and uses the CLI's official flow in the browser. The app does not
-implement its own OAuth server for the agents' subscriptions. Accounts that
-already exist in the terminal are imported as external profiles only when the
-registry file is absent. Removing them is permanent in the registry; restarting
-does not recreate them or silently choose another account.
+Use local profiles and an optional selection that the application stores for
+each provider. The login starts in Prometeu and uses the official flow of the
+CLI in the browser. The application does not have its own OAuth server for the
+subscriptions of the agents. The application imports the accounts of the
+terminal as external profiles only when there is no registry file. When a
+person removes an account, the removal is permanent in the registry. When the application
+starts again, it does not make the account again, and it does not silently select a different
+account.
 
-A turn ends with the account that started it. The next message may restart the
-process with the new selection, resuming the same transcript. A message received
-during the transition stays in the queue. The choice is not sent to the relay.
+A turn completes with the account that started it. The next message can start the
+process again with the new selection, and it resumes the same transcript. If a
+message comes during the change, it stays in the queue. The application does
+not send the selection to the relay.
 
-Credentials of different accounts stay separate. History, plugins and skills
-stay available through explicit links and derived configuration. Codex uses
-private file storage for accounts created by the app, allowing the derived
-plugin layer to point to the correct credential. The external profile's storage
-choice is not changed.
+The credentials of different accounts stay isolated. The history, the plugins
+and the skills stay available through explicit links and a derived
+configuration. For the accounts that the application makes, Codex uses private
+file storage. Thus, the derived plugin layer can point to the correct
+credential. The application does not change the storage selection of the
+external profile.
 
 ## Consequences
 
-The quota cache now distinguishes accounts and the catalog follows the
-selection. Codex plugin homes must distinguish workspace and account so that the
-old turn and the new process can coexist. Alternative authentication
-configurations cannot silently replace a managed subscription.
+The quota cache keeps a different entry for each account, and the catalog
+follows the selection. A Codex plugin home must be different for each workspace
+and each account. Thus, the previous turn and the new process can operate at the same
+time. Other authentication configurations cannot silently replace a managed
+subscription.
 
-The profiles share local history: they are not a confidentiality barrier between
-the same person's accounts. Switching accounts also chooses which
-provider/account receives the continuation of that history. Credentials never
-enter the shared conversation. The board's format and the relay's protocol do
-not change.
+The profiles share the local history. They do not keep the data of one account
+secret from the other accounts of the same person. When a person changes the
+account, this change also selects the provider and the account that continue
+that history. Credentials do not go into the shared conversation at any time.
+The format of the board and the protocol of the relay do not change.
 
 ## Evidence
 
-The [accounts contract](../contracts/accounts.md) records IPC, persistence,
-per-CLI adaptation, tests and the limit of validating without two real logins.
+The [accounts contract](../contracts/accounts.md) records the IPC, the storage,
+the adaptation for each CLI and the tests. It also records a limit: the project
+did not do the validation with two different accounts that are logged in.

@@ -1,11 +1,12 @@
 # Quality
 
-Provider support, verification coverage and measurement protocols.
+The support for each provider, the coverage of the checks and the measurement
+protocols.
 
-- [Issue #148 energy profiling](energy-profile.md) — Measurement protocol and source baseline at b03e768, without verified battery-life claims.
-- [Product analytics coverage](product-analytics-coverage.md) — Feature inventory, named interactions, observation boundaries and verification.
-- [Provider matrix](provider-matrix.md) — Support per agent and expected evidence.
+- [Issue #148 energy profiling](energy-profile.md) — The measurement protocol and the source baseline at b03e768. It does not make claims about battery life.
+- [Product analytics coverage](product-analytics-coverage.md) — The list of features, the named interactions, the limits of observation and the checks.
+- [Provider matrix](provider-matrix.md) — The support for each agent and the necessary evidence.
 
 ## Draft proposals
 
-- [Usage preview and telemetry improvements](telemetry-improvements.md) — Standalone HTML using current measurements, with proposed gaps by integration and shared boundary.
+- [Usage preview and telemetry improvements](telemetry-improvements.md) — A standalone HTML page that uses the current measurements. It proposes the missing data for each integration and for each shared limit.

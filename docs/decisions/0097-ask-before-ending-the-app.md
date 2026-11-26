@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0097 — Ask before ending the app while local work runs"
-description: "Quitting, closing the main window or restarting for an update asks first while local work would be cut off."
+description: "If local work will stop, the app shows a question before a Quit, a close of the main window or an update."
 status: stable
 ---
 
@@ -9,102 +9,130 @@ status: stable
 
 Date: 2026-10-27
 
-Builds on the interrupted turns of
-[the conversation flow](../architecture/conversation-flow.md) and the window policy
-of [ADR 0089](0089-notch-island.md).
+This ADR adds to the interrupted turns of
+[the conversation flow](../architecture/conversation-flow.md). It also adds to
+the window policy of [ADR 0089](0089-notch-island.md).
 
 ## Context
 
-On macOS and Linux the app owns every agent, shell and script it starts, so
-quitting, closing the main window (which quits, per ADR 0089) or restarting for
-an update ends all of them without a word. A conversation comes back marked as
-interrupted, with **Continue**, but what was in flight is gone: the partial
-reply, open requests, background tasks and the work the agent must redo. A
-command running in a terminal, such as a development server in Run, and a
-workspace still being prepared are lost with no trace. The update offered the
-only warning, in the tooltip of its restart button.
+On macOS and Linux, the app owns each agent, shell and script that it starts.
+Three actions stop all of them without a message:
 
-Three platform facts shape the options:
+- Quit.
+- A close of the main window. Per ADR 0089, this action stops the app.
+- A new start of the app for an update.
 
-- The system's Quit item sends `terminate:`. The tao version in use implements
-  only `applicationWillTerminate`, so the app receives `RunEvent::Exit` without
-  an `ExitRequested` it could prevent. The Dock's Quit, ⌘Tab followed by Q,
-  AppleScript, logout and shutdown take the same path.
-- Closing a window raises `CloseRequested`, which Tauri holds while the webview
-  listens for it.
-- The update is installed on disk before **Restart to update** appears, and it
-  takes effect at the next start anyway.
+A conversation comes back with the interrupted status and with **Continue**.
+But the work that operated at that time is not there. This work includes the
+reply that was not complete and the open requests. It also includes the
+background tasks and the work that the agent must do again. A command that
+operates in a terminal, for example a development server in Run, also stops
+without a record. A workspace that Prometeu prepares at that time also stops.
+Before this decision, the only warning was in the tooltip of the button that
+starts the app again for the update.
+
+Three facts about the platforms have an effect on the options:
+
+- The Quit item of the system sends `terminate:`. The tao version that
+  Prometeu uses has only `applicationWillTerminate`. Thus the app receives
+  `RunEvent::Exit` without an `ExitRequested` that the app can stop. The Quit
+  item of the Dock, ⌘Tab and then Q, AppleScript, logout and shutdown use the
+  same path.
+- When a window closes, it sends `CloseRequested`. Tauri holds this event while
+  the webview listens for it.
+- Prometeu installs the update on the disk before **Restart to update** shows.
+  The update starts to operate at the next start in all conditions.
 
 ## Options considered
 
-1. **Keep the tooltip.** Nothing changes; every way out still cuts work off.
-2. **Hold `terminate:` natively.** Add `applicationShouldTerminate:` to tao's
-   application delegate at runtime. It would also cover the Dock and
-   AppleScript, but it patches a class the windowing library owns, from outside
-   any crate boundary, and logout or shutdown still could not wait for an
-   answer from the webview.
-3. **Ask from the interface.** The Mac's Quit becomes an app menu item, a close
-   listener holds the main window, and the restart button asks before
-   relaunching.
-4. **Restart when idle.** Let the update wait until conversations settle and
-   restart by itself. It needs a waiting phase, a way to cancel it and a rule
-   for requests that wait on the person, while the installed version already
-   applies at the next start.
+1. **Keep the tooltip.** The behavior does not change. All exits continue to
+   stop work.
+2. **Hold `terminate:` natively.** Add `applicationShouldTerminate:` to the
+   application delegate of tao at runtime. This option also includes the Dock
+   and AppleScript. But it changes a class that the windowing library owns,
+   from a location that is not in the crate. Also, logout and shutdown cannot
+   wait for an answer from the webview.
+3. **Ask from the interface.** The Quit item of the Mac becomes an item of the
+   app menu. A close listener holds the main window. The update button shows a
+   question before it starts the app again.
+4. **Restart when idle.** The update waits until the conversations stop, and
+   then it starts the app again. This option must have a wait phase and a
+   procedure to cancel it. It must also have a rule for requests that wait for
+   the person. But the installed version operates at the next start in all
+   conditions.
 
 ## Decision
 
-Option 3. Option 4 stays open as a later addition to the same question.
+Use option 3. Option 4 can be a subsequent step for the same question.
 
 - **What counts.** Only work on this computer:
-  - tabs `rodando` or `querendo` in local workspaces, the set `Board::revive`
-    marks interrupted after a restart; background tasks keep a tab `rodando`
-    ([ADR 0056](0056-background-tasks-hold-completion.md)), and other people's
-    shares run on their owners' computers;
-  - workspaces whose preparation is still running, which would fail;
-  - terminals counted by `running_terminals`: Setup and Run while their script
-    lives, and a shell or terminal session while it runs a command. A command
-    runs while the PTY's foreground process group is not the shell's own, or
-    while the shell's own process stopped being a shell: `exec` keeps the
-    process and its group. A process counts as a shell when /etc/shells lists
-    its name or the terminal started it. A shell waiting at its prompt loses
-    only its scrollback.
-- **When.** ⌘Q and the menu's Quit on macOS; closing the main window, with its
-  button or ⇧⌘W, on macOS and Linux; **Restart to update** wherever the updater
-  runs. With nothing to cut off, the app ends at once, as before.
-- **How.** One confirmation names the counts and stops on **Cancel**; its
-  primary action quits or restarts now. The restart question adds that the
-  installed version also applies at the next start. The window is restored and
-  focused first, so a minimized window cannot hide the question. One question
-  is open at a time: a request made meanwhile is refused and the open question
-  decides. If asking fails, the app ends, as it did before.
+  - Tabs with the status `rodando` or `querendo` in local workspaces. After a
+    new start, `Board::revive` sets these tabs to interrupted. Background tasks
+    keep a tab in `rodando` ([ADR 0056](0056-background-tasks-hold-completion.md)).
+    The shares of other persons operate on the computers of their owners.
+  - Workspaces with a preparation that continues to operate. That preparation
+    does not complete if the app stops.
+  - Terminals that `running_terminals` counts:
+    - Setup and Run while their script operates.
+    - A shell or a terminal session while it runs a command.
+
+    A command runs while the foreground process group of the PTY is not the
+    group of the shell. A command also runs while the process of the shell is
+    not a shell at that time, because `exec` keeps the process and its group. A
+    process is a shell when /etc/shells lists its name or when the terminal
+    started it. When the app stops, a shell that waits at its prompt has a
+    decrease of its scrollback only.
+- **When.** The app shows the question in these conditions:
+  - On macOS, for ⌘Q and for the Quit item of the menu.
+  - On macOS and Linux, when the person closes the main window with its button
+    or with ⇧⌘W.
+  - For **Restart to update**, on all platforms where the updater operates.
+
+  When no work will stop, the app stops immediately, as before.
+- **How.** One confirmation shows the counts. It stops on **Cancel**. Its
+  primary action stops the app, or starts it again, immediately. For an update,
+  the question also tells that the installed version operates at the next
+  start. Prometeu first shows the window and puts the focus on it. Thus a
+  window at its minimum dimension cannot hide the question. Prometeu shows only one
+  question at a time. It rejects a request that comes during the question, and
+  the answer to the open question applies. If Prometeu cannot show the
+  question, the app stops, as before.
 
 ## Consequences
 
-- The Dock's Quit, ⌘Tab followed by Q, AppleScript `quit`, logout and shutdown
-  still end the app without asking on macOS.
-- Linux has no native Quit item to replace; closing the window and the AppImage
-  restart ask, and no Ctrl+Q is added.
-- ⌘Q and closing the main window now depend on the webview answering. A
-  question that fails lets the app end; a webview that hangs leaves the Dock's
-  Quit and Force Quit.
-- A job sent to the background with `&` does not count; a full-screen program
-  such as an editor, `ssh` or an agent CLI does, and so does a command started
-  with `exec`. `exec` into another shell, such as `exec zsh`, still waits at a
-  prompt; an interactive shell started as a job counts as a command.
-- The main window's capability gains `core:window:allow-destroy`, which the
-  close listener uses once the close is allowed, `allow-unminimize`,
-  `allow-set-focus` and `process:allow-exit`.
+- On macOS, some actions continue to stop the app without a question. These
+  actions are the Quit item of the Dock, ⌘Tab and then Q, AppleScript `quit`,
+  logout and shutdown.
+- Linux has no native Quit item to replace. The app shows the question when the
+  person closes the window or starts the AppImage again for an update.
+  Prometeu does not add Ctrl+Q.
+- ⌘Q and the close of the main window operate only when the webview
+  answers. If Prometeu cannot show the question, the app stops. If the webview
+  does not answer, the person can use the Quit item of the Dock and Force Quit.
+- A job that `&` sends to the background does not count. A full-screen
+  program, for example an editor, `ssh` or an agent CLI, counts. A command that
+  starts with `exec` also counts. After `exec` into a different shell, for
+  example `exec zsh`, the shell continues to wait at a prompt. An interactive
+  shell that starts as a job counts as a command.
+- The capability of the main window gets these permissions:
+  - `core:window:allow-destroy`. The close listener uses it after the person
+    accepts the close.
+  - `allow-unminimize`.
+  - `allow-set-focus`.
+  - `process:allow-exit`.
 
 ## Evidence
 
-- `src/quit.test.ts`: what counts, the joined counts, the answer deciding, one
-  question at a time and failing open.
-- `src/update.test.ts` and `src/update-init.test.ts`: restarting waits for the
-  answer and a refusal keeps the update ready.
-- `src/appmenu.test.ts`: the Mac quits through the app's own item.
-- `crates/process/src/terminal/tests.rs`: a command running as a job or in
-  place of the shell is told apart from a shell waiting for input, on macOS and
-  on Linux, where `/bin/sh` is dash.
-- `src-tauri/src/dock.rs`: which terminals quitting cuts off.
-- Native menu events, `CloseRequested` and relaunch cannot be built in a unit
-  test; they need a macOS app run.
+- `src/quit.test.ts`: what counts, the counts together, the answer that
+  applies, one question at a time, and the app stops when the question has a
+  failure.
+- `src/update.test.ts` and `src/update-init.test.ts`: the new start waits for
+  the answer, and a refusal keeps the update prepared.
+- `src/appmenu.test.ts`: the Mac stops the app through the item of the app.
+- `crates/process/src/terminal/tests.rs`: the tests find the difference
+  between two conditions. In the first, a command operates as a job or as a
+  replacement of the shell. In the second, a shell waits for input. The tests
+  operate on macOS and on Linux, where `/bin/sh` is dash.
+- `src-tauri/src/dock.rs`: the terminals that stop when the app stops.
+- A unit test cannot make native menu events, `CloseRequested` and the new
+  start of the app. Only a run of the macOS app can examine them.

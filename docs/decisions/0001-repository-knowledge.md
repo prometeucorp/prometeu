@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0001 — Knowledge versioned in the repository"
-description: "A versioned knowledge bundle with short navigation and shared standing instructions."
+description: "A versioned knowledge bundle with a short map and one set of instructions for all agents."
 status: stable
 ---
 
@@ -11,102 +11,117 @@ Date: 2026-09-03
 
 ## Context
 
-The project grew with detailed code comments, a narrative README and specific
-instructions in `CLAUDE.md`. Important decisions and invariants existed, but
-finding them required knowing the right file beforehand. Another agent or person
-could repeat an investigation, create an incompatible abstraction or change a
-rule without noticing its reason.
+The project grew with many comments in the code, a long README and special
+instructions in `CLAUDE.md`. Important decisions and invariants were in the
+repository. But to find them, a person had to know the correct file before.
+Thus, a different agent or person can do the same investigation again. They can
+also make an abstraction that is not compatible, or change a rule without
+knowledge of its cause.
 
-Large instructions loaded in every session also compete with the task's context.
-Keeping copies in each agent's specific format increases drift.
+Long instructions that the agent loads in each session also use the context of
+the task. When the project keeps a copy of the instructions in the format of
+each agent, the copies become different with time.
 
 ## Options considered
 
 1. Keep only comments and the README.
 2. Keep a wiki or external documents.
-3. Use one large instruction file per tool.
-4. Keep structured technical knowledge versioned next to the code, with short
-   entry files for agents.
+3. Use one long instruction file for each tool.
+4. Keep structured technical knowledge versioned adjacent to the code, with
+   short entry files for agents.
 
 ## Decision
 
-The `docs/` directory is the technical source of truth and the repository's OKF
-knowledge bundle. Each concept has one cohesive responsibility and a YAML
-envelope with `type`, `title`, `description` and `status`. Existing architecture
-documents and large contracts remain intact; this format does not require
-splitting them. Folder `README.md` files are indexes, exempt from the envelope.
+The `docs/` directory is the technical source of truth. It is also the OKF
+knowledge bundle of the repository. Each concept has one clear responsibility
+and a YAML envelope with `type`, `title`, `description` and `status`. The
+current architecture documents and the large contracts stay as they are. This
+format does not make it necessary to divide them. The `README.md` files of the
+folders are indexes, and they do not have the envelope.
 
-`docs/README.md` is a short area map. Each area's index lists its concepts by
-title and one-line description. Start there when the location is unknown, then
-open relevant concepts and follow their dependencies; known paths can be opened
-directly. No second catalog or duplicate `index.md` files are needed.
+`docs/README.md` is a short map of the areas. The index of each area lists its
+concepts by title and by a description of one line. When you do not know the
+location, start there. Then open the applicable concepts and follow their
+dependencies. When you know the path, open it directly. The project does not
+have a second catalog or duplicate `index.md` files.
 
-Root `ARCHITECTURE.md`, `README.md`, `CONTRIBUTING.md`, `AGENTS.md` and `CLAUDE.md`
-stay outside the bundle. `ARCHITECTURE.md` maps the system, `README.md` presents
-the product and `AGENTS.md` remains the short standing-instructions file with
-invariants and essential commands. Component/fixture READMEs, GitHub templates
-and `.claude/commands/` are also outside the bundle.
+The root files `ARCHITECTURE.md`, `README.md`, `CONTRIBUTING.md`, `AGENTS.md`
+and `CLAUDE.md` are not in the bundle. `ARCHITECTURE.md` is the map of the
+system. `README.md` shows the product. `AGENTS.md` stays the short file of
+instructions for all agents, with the invariants and the important commands.
+The README files of components and fixtures, the GitHub templates and
+`.claude/commands/` are also not in the bundle.
 
-Tool-specific files must import or point to `AGENTS.md` and contain only the
-real differences of that tool. Contracts, decisions, quality and operations
-have their own areas in `docs/`.
+A file for one tool must import `AGENTS.md` or point to it. That file contains
+only the differences of that tool. Contracts, decisions, quality and
+operations have their own areas in `docs/`.
 
 Documentation goes through the same versioning and review as the code. A change
-in behavior, contract or decision updates the corresponding documentation in the
-same change.
+to a behavior, a contract or a decision updates the applicable documentation in
+the same change.
 
-New and substantially changed concepts include the envelope and a line in their
-folder index. `stable` means guidance in force, not complete feature parity or
-proof of deployment. Proposals use `draft` and are listed separately. The
-[decision index](README.md) defines the format and lifecycle vocabulary.
-Finished implementation plans become contracts or ADRs, or leave the tree;
-Git retains their history. Human-written pages need no generation, verification
-or expiry timestamps, and no `log.md` duplicates Git.
+A new concept, or a concept with large changes, has the envelope and a line in
+the index of its folder. `stable` means guidance that is in force. It does not
+mean that all features are the same for all agents, or that the feature
+operates in production. Proposals use `draft`, and the index lists them in a different
+section. The [decision index](README.md) gives the format and the words for the
+lifecycle. When an implementation plan is complete, it becomes a contract or an
+ADR, or the project removes it from the tree. Git keeps its history. Pages that
+persons write do not have a generation date, a verification date or an expiry
+date. No `log.md` file copies the history of Git.
 
-`scripts/check-docs.mjs` checks local links, index coverage and the four metadata
-fields, while retaining the agent-map line limit and Claude import check.
-Search/RAG, routing, graph tools, an OKF gem/validator, a Knowledge Catalog and
-a `.okf/` directory are outside this decision. No Cloud or relay knowledge
-store is introduced.
+`scripts/check-docs.mjs` examines local links, the coverage of the indexes and
+the four metadata fields. It also keeps the limit of lines for the agent map
+and the check of the Claude import. These items are not part of this decision:
 
-The checked-out documentation describes the current system. Obsolete decisions
-are removed after their remaining guarantees are consolidated; Git retains the
-history. [ADR 0044](0044-current-documentation.md) defines this lifecycle.
+- Search or RAG, routing and graph tools.
+- An OKF gem or validator, a Knowledge Catalog and a `.okf/` directory.
+
+The decision does not add a knowledge store in Prometeu Cloud or in the relay.
+
+The documentation in the repository tells about the current system. When a
+decision becomes obsolete, the project moves its applicable guarantees to the
+current documents. Then the project removes the obsolete decision. Git keeps
+the history. [ADR 0044](0044-current-documentation.md) gives this lifecycle.
 
 ## Consequences
 
 Positive:
 
-- humans and agents consult the same source;
-- decisions gain history and an explicit status;
-- the initial context stays small;
-- documents can be verified by links, tests and CI;
-- onboarding does not depend on the memory of whoever wrote the code.
+- Persons and agents read the same source.
+- Decisions get a history and an explicit status.
+- The initial context stays small.
+- Links, tests and CI can examine the documents.
+- A new contributor can get the information without the author of the code.
 
 Negative:
 
-- every architectural change gains a small documentation maintenance cost;
-- incorrect documents can give false confidence;
-- links and compatibility with the code will need periodic review.
+- Each change to the architecture adds a small cost to keep the documentation
+  correct.
+- Documents that are not correct can cause a person to trust incorrect
+  information.
+- The links and the agreement with the code must have a periodic review.
 
 ## Evidence
 
 - `AGENTS.md` points to the documentation tree.
 - `CLAUDE.md` imports the shared instructions.
-- `docs/README.md` keeps the navigable index.
-- `scripts/check-docs.test.mjs` covers index reachability, metadata and the
-  existing standing-instruction checks. No application data, IPC or wire format
-  changes; compatibility here concerns the documentation navigation and checks.
-- contracts distinguish the current state from proposals not yet implemented.
+- `docs/README.md` keeps the index for navigation.
+- `scripts/check-docs.test.mjs` examines the reachability of the indexes, the
+  metadata and the current checks of the standing instructions. This decision
+  does not change application data, IPC or wire formats. Thus, compatibility
+  here applies only to the navigation and the checks of the documentation.
+- Contracts make a difference between the current state and proposals that do
+  not have an implementation.
 
 ## References for this approach
 
 - [OpenAI — Harness engineering](https://openai.com/index/harness-engineering/):
   a short `AGENTS.md` as the map and a versioned `docs/` as the source of truth.
-- [AGENTS.md](https://agents.md/): common instruction format for agents.
+- [AGENTS.md](https://agents.md/): a shared format of instructions for agents.
 - [Claude Code — project memory](https://code.claude.com/docs/en/memory):
-  concise instructions scoped to the repository.
-- [C4 Model](https://c4model.com/diagrams): context and containers for the
-  architectural map.
+  short instructions for one repository.
+- [C4 Model](https://c4model.com/diagrams): context and containers for the map
+  of the architecture.
 - [AWS — Architecture Decision Records](https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html):
-  context, decision, consequences and ADR lifecycle.
+  context, decision, consequences and the lifecycle of an ADR.

@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0010 — Code review included in the actions registry"
-description: "Code review included in the actions registry."
+description: "The actions registry starts with an editable Code review profile and its command."
 status: stable
 ---
 
@@ -11,40 +11,41 @@ Date: 2026-09-05
 
 ## Context
 
-The empty registry required configuring an agent and a command before trying a
-review. The screen also gave excessive prominence to manually installing an
-example and to the PR button's settings.
+The registry was empty. Thus, a person had to configure an agent and a command
+before the first review. The screen also gave too much space to the manual
+installation of an example and to the settings of the PR button.
 
 ## Decision
 
-Include the editable **Code review** profile, associated with `/review`, on the
-first opening after this change. The profile reviews changes, reports findings
-and validation gaps and ends the turn. It does not publish a PR, modify files or
-follow CI by default. Those responsibilities stay configurable in other
-profiles.
+Add the editable **Code review** profile, with `/review`, when the person opens
+the registry for the first time after this change. The profile does a review
+of the changes. It tells the results and the missing validation, and then it
+completes the turn. By default, it does not publish a PR, change files or follow CI.
+Other profiles can do those operations.
 
-The additive `defaults_initialized` field records the initialization. The
-default is materialized in the registry, instead of being an implicit layer that
-reappears after removal. An existing configuration with the same command or
-identity takes precedence; it is not replaced. The Open PR button keeps the
-person's choice.
+The added `defaults_initialized` field records the initialization. The registry
+stores the default as a usual entry. It is not a hidden layer that comes back
+after a person removes it. If the current configuration has the same command or
+identity, the application keeps the current configuration. It does not
+replace it. The Open PR button keeps the selection of the person.
 
-The source JSON is shared by the backend and the mock. There is no transcript
-migration and no change in the configuration of tasks already started.
+The backend and the mock use the same source JSON. The decision does not change
+transcripts, and it does not change the configuration of tasks that started
+before.
 
 ## Consequences
 
-There is a usable action on the first visit. The person can edit or remove the
-profile and the command without the app undoing their choice on reopening. The
-screen prioritizes commands, groups the agents and collapses the PR button's
-settings.
+An action is available on the first visit. The person can edit or remove the
+profile and the command. When the person opens the registry again, the
+application does not change these selections back. The screen shows commands
+first, puts the agents in groups and closes the section with the settings of the PR button.
 
-This decision complements [ADR 0009](0009-reusable-actions.md), changing only
-the initial catalog; it preserves its execution contracts.
+This decision adds to [ADR 0009](0009-reusable-actions.md). It changes only the
+initial catalog, and it keeps the execution contracts of ADR 0009.
 
 ## Evidence
 
 - [Shared default](../../src/action-defaults.json).
 - [Initialization and compatibility](../../src-tauri/src/actions.rs).
 - [Mock parity](../../src/actions.test.ts).
-- [Registration, editing and removal](../../e2e/actions.spec.ts).
+- [Registration, edits and removal](../../e2e/actions.spec.ts).

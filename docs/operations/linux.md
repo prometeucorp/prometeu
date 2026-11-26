@@ -1,54 +1,63 @@
 ---
 type: Operations
 title: "Linux"
-description: "Building, installing and platform differences on Linux."
+description: "How to build and install Prometeu on Linux, and the differences of the platform."
 status: stable
 ---
 
 # Linux
 
-Prometeu's release workflow produces a Linux x86_64 AppImage alongside the macOS
-download. Source builds and the Arch package remain available. These choices
-are recorded in [ADR 0055](../decisions/0055-linux-desktop.md).
-Source builds have been tested on Arch Linux, Debian 12 and Ubuntu 24.04 with
-WebKitGTK 4.1; each release's AppImage still needs the native checks in the
-[release guide](release.md).
+The release workflow of Prometeu makes a Linux x86_64 AppImage together with the
+macOS download. You can also build from the source code or install the Arch
+package. [ADR 0055](../decisions/0055-linux-desktop.md) records these decisions.
+We did tests of builds from the source code on Arch Linux, Debian 12 and Ubuntu
+24.04 with WebKitGTK 4.1. For the AppImage of each release, the native checks in the
+[release procedure](release.md) continue to be necessary.
 
 ## Install the AppImage
 
-Download `Prometeu_x86_64.AppImage` from the
-[latest release](https://github.com/prometeucorp/prometeu/releases/latest).
-Keep it in a directory writable by your user, then run:
+1. Download `Prometeu_x86_64.AppImage` from the
+   [latest release](https://github.com/prometeucorp/prometeu/releases/latest).
+2. Keep the file in a directory that your user can write to.
+3. Run these commands:
 
 ```sh
 chmod +x Prometeu_x86_64.AppImage
 ./Prometeu_x86_64.AppImage
 ```
 
-The workflow builds on Ubuntu 22.04 to set the glibc baseline. This does not
-guarantee compatibility with every Linux distribution. If FUSE is unavailable,
-run `./Prometeu_x86_64.AppImage --appimage-extract-and-run`. The optional system
-programs listed below are still needed for desktop integrations.
+The workflow builds the AppImage on Ubuntu 22.04. This version sets the minimum
+glibc version. It does not make sure that the AppImage operates on all Linux
+distributions. If FUSE is not available, run
+`./Prometeu_x86_64.AppImage --appimage-extract-and-run`. The desktop integrations
+also use the optional system programs in the table below.
 
-Each launch adds Prometeu to your application menu so the dock shows its icon
-and can pin it: `~/.local/share/applications/co.prometeu.desktop.desktop` starts
-this AppImage, and
-`~/.local/share/icons/hicolor/256x256/apps/co.prometeu.desktop.png` holds the
-icon (`$XDG_DATA_HOME` replaces `~/.local/share` when set). Moving the file
-updates the entry on the next launch; deleting it hides the entry. If
-AppImageLauncher or Gear Lever already lists the file, Prometeu removes its own
-entry. Launches with `--appimage-extract-and-run` register nothing.
+Each start of the AppImage adds Prometeu to your application menu. Thus, the
+dock shows the icon of Prometeu and can pin it. The AppImage writes these files:
 
-AppImage installations use the signed in-app updater. Package-managed and source
-installations do not: update them through their package manager or rebuild.
-Linux ARM64 currently requires a source build. No prebuilt `.deb` or `.rpm` is
-published by this workflow.
+- `~/.local/share/applications/co.prometeu.desktop.desktop` starts this AppImage.
+- `~/.local/share/icons/hicolor/256x256/apps/co.prometeu.desktop.png` contains
+  the icon.
+
+If `$XDG_DATA_HOME` has a value, it replaces `~/.local/share`. If you move the
+AppImage file, Prometeu updates the menu entry at the next start. If you delete
+the file, the menu does not show the entry. If AppImageLauncher or Gear Lever
+shows the file in its list, Prometeu removes its own entry. A start with
+`--appimage-extract-and-run` does not write an entry.
+
+An AppImage installation uses the signed updater in the application. An
+installation from a package manager or from the source code does not use it.
+To update these installations, use the package manager or build again. At this
+time, Linux ARM64 is only available as a build from the source code. This
+workflow does not publish a `.deb` or `.rpm` package.
 
 ## Install on Arch Linux
 
 [`packaging/arch/PKGBUILD`](../../packaging/arch/PKGBUILD) builds the committed
-tree of the checkout it lives in and installs the binary, desktop entry and
-icons. Check out the release tag you want first:
+tree of the checkout that contains it. It installs the binary, the desktop entry
+and the icons.
+
+1. Check out the release tag that you want to install:
 
 ```sh
 git checkout v<version>
@@ -56,18 +65,19 @@ cd packaging/arch
 makepkg -si
 ```
 
-It downloads no source archive, so there is nothing to checksum: the source is
-the clone you already have. A recipe inside the repository cannot pin the
-checksum of a release archive that contains the recipe itself; an AUR package
-would pin that archive instead. Updates come from rebuilding the package; the
-in-app updater stays off for this installation type.
-Install `claude-code`, `codex` or `agy` as on macOS. Optional programs enable
-the features in the table below.
+The recipe does not download a source archive. Thus, there is no checksum to
+examine. The source is the clone that you have. A recipe in the repository
+cannot pin the checksum of a release archive that contains the recipe. An AUR
+package can pin that archive as an alternative. To update, build the package
+again. The updater in the application stays off for this type of installation.
+Install `claude-code`, `codex` or `agy` with the same procedure as on macOS. The
+optional programs enable the features in the table below.
 
 ## Install on Debian and Ubuntu
 
-WebKitGTK 4.1 requires Debian 12 or Ubuntu 22.04 or later. Build a `.deb` from
-a checkout and install it; apt resolves the runtime libraries it declares:
+WebKitGTK 4.1 operates only on Debian 12, Ubuntu 22.04 or a subsequent version.
+Build a `.deb` package from a checkout and install it. The apt package manager finds
+and installs the runtime libraries that the package declares:
 
 ```sh
 sudo apt install build-essential curl git pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
@@ -76,12 +86,13 @@ npx tauri build --bundles deb --config '{"bundle":{"createUpdaterArtifacts":fals
 sudo apt install ./src-tauri/target/release/bundle/deb/Prometeu_*.deb
 ```
 
-Node and Rust come from the versions in `package.json` and
-`src-tauri/rust-toolchain.toml` (nodejs.org or nvm, and rustup). Build on the
-oldest release you target: a binary built on a newer glibc does not start on an
-older one. `libnotify-bin` provides `notify-send` for banners.
+Use the versions of Node and Rust in `package.json` and
+`src-tauri/rust-toolchain.toml`. Get Node from nodejs.org or nvm, and get Rust
+from rustup. Build on the oldest release that you want to operate with. A binary
+that you build with a newer glibc does not start with an older glibc. The
+package `libnotify-bin` supplies `notify-send` for the banners.
 
-## Develop
+## Development
 
 ```sh
 sudo pacman -S --needed base-devel git rustup nodejs npm webkit2gtk-4.1 gtk3 librsvg
@@ -90,10 +101,10 @@ npm ci
 npm run app
 ```
 
-`rustup` installs the toolchain pinned in `src-tauri/rust-toolchain.toml`.
-Without a default toolchain, the Tauri CLI fails with a panic while running
-`rustc -vV` outside `src-tauri`. Other distributions need the same WebKitGTK
-4.1, GTK 3 and librsvg development packages; CI uses Ubuntu's
+`rustup` installs the toolchain that `src-tauri/rust-toolchain.toml` pins. If
+there is no default toolchain, the Tauri CLI stops with a panic when it runs
+`rustc -vV` out of `src-tauri`. Other distributions use the same development
+packages for WebKitGTK 4.1, GTK 3 and librsvg. CI uses these Ubuntu packages:
 `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev`.
 
 ## Platform differences
@@ -101,20 +112,21 @@ Without a default toolchain, the Tauri CLI fails with a panic while running
 | Feature | macOS | Linux |
 | --- | --- | --- |
 | Open links, folders and Run | `open` | `xdg-open` |
-| Keep awake | `caffeinate -d -i -s -w <pid>` | `systemd-inhibit --what=idle:sleep` around `tail --pid <pid>`; display wake depends on the desktop honoring logind; no effect without systemd |
-| Banner notifications | UserNotifications (bundled app) | `notify-send --wait`; clicking opens the conversation when the daemon supports actions |
-| Notch notice | status-level window | ordinary window; placement is up to the compositor |
-| Sounds | `afplay` system sounds | `canberra-gtk-play`, then `pw-play` or `paplay` with the freedesktop theme |
-| Feedback screenshot | `screencapture` | `slurp` + `grim` on Wayland; unavailable on X11 |
-| Claude usage credentials | file, then Keychain | `~/.claude/.credentials.json` |
-| Device name | `scutil --get ComputerName` | kernel hostname |
-| Window | overlay title bar | native decorations |
-| Dock icon and app menu | app bundle | the package's desktop entry; the AppImage writes a user entry at launch |
-| Shortcut labels | ⌘ ⇧ ⌥ | Ctrl, Shift, Alt |
-| Interface wording | Mac, Finder, macOS | computer, file manager, system (`<key>.generic` variants) |
-| Dictation, Finder file promises | available | unavailable |
-| Updates | in-app updater | in-app updater for AppImage; package manager or rebuild for other installs |
+| Keep awake | `caffeinate -d -i -s -w <pid>` | `systemd-inhibit --what=idle:sleep` around `tail --pid <pid>`. The display stays on only if the desktop obeys logind. There is no effect without systemd. |
+| Banner notifications | UserNotifications (bundled app) | `notify-send --wait`. A click opens the conversation if the daemon can show actions. |
+| Notch notice | Window at the status level | Usual window. The compositor selects the position. |
+| Sound | `afplay` system sounds | `canberra-gtk-play`, then `pw-play` or `paplay` with the freedesktop theme |
+| Feedback screenshot | `screencapture` | `slurp` + `grim` on Wayland. Not available on X11. |
+| Claude usage credentials | File, then Keychain | `~/.claude/.credentials.json` |
+| Device name | `scutil --get ComputerName` | Kernel hostname |
+| Window | Overlay title bar | Native decorations |
+| Dock icon and app menu | App bundle | The desktop entry of the package. The AppImage writes a user entry when it starts. |
+| Shortcut names | ⌘ ⇧ ⌥ | Ctrl, Shift, Alt |
+| Interface text | Mac, Finder, macOS | computer, file manager, system (`<key>.generic` variants) |
+| Dictation, Finder file promises | Available | Not available |
+| Updates | Updater in the application | Updater in the application for the AppImage. Package manager or a new build for other installations. |
 
-Missing optional programs produce the same unavailable or failure errors the
-UI already shows on macOS. CI builds the backend and runs Rust tests and Clippy
-on Linux; desktop integration still needs manual checks on a Linux session.
+If an optional program is not installed, the interface shows the same errors
+as on macOS. These errors tell that a function is not available or has a failure. CI
+builds the backend and runs the Rust tests and Clippy on Linux. Manual checks
+of the desktop integration in a Linux session continue to be necessary.

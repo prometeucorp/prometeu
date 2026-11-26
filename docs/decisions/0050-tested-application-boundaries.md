@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0050 — Test application boundaries before extracting services"
-description: "Tested application boundaries before service extraction."
+description: "Test the application boundaries before Prometeu moves code into different services."
 status: stable
 ---
 
@@ -11,78 +11,100 @@ Date: 2026-09-15
 
 ## Context
 
-The desktop has useful protocol boundaries, but runtime import cycles and
-application functions tied to global Tauri state make smaller pieces hard to
-reuse. Direct-import checks miss dependencies hidden behind another module.
-Splitting deployments now would carry those dependencies into the new services.
+The desktop has useful protocol boundaries. But runtime import cycles and
+application functions that use the global Tauri state make it not easy to use
+smaller parts again. A check that examines only the imports of a module does not
+find dependencies that go through a different module. If Prometeu divides the deployments at this
+time, these dependencies go into the new services.
 
 ## Options considered
 
-1. Split the desktop into crates or services before changing its dependencies.
-2. Add a general service framework, event bus and repository interfaces.
-3. Remove concrete cycles, enforce existing dependency rules and extract one
-   application use case with explicit state and effects.
+1. Divide the desktop into crates or services before Prometeu changes its
+   dependencies.
+2. Add a general service framework, an event bus and repository interfaces.
+3. Remove the cycles, and make the code obey the current dependency rules.
+   Then move one application use case into a module with explicit state and
+   effects.
 
 ## Decision
 
-Use the third option and keep the current deployment model.
+Use option 3 and keep the current deployment model.
 
-Frontend composition supplies dependencies that otherwise point back into a
-feature's caller. Settings coordinates refreshes after a skill changes; the
-skills module does not import plugins. The main module supplies the issues
-feature with a callback for Linear connection state; issues does not import the
-settings view. Existing asynchronous ordering and error handling stay intact.
+The frontend composition gives some dependencies to the modules. Without this,
+these dependencies point back to the caller of a feature:
 
-The architecture check builds a local TypeScript dependency graph using the
-already installed TypeScript parser. It checks runtime cycles and follows
-runtime imports through intermediate modules when enforcing portable
-boundaries. Type-only edges do not create runtime cycles. Focused fixtures
-exercise both forbidden and allowed dependencies. The existing provider and
-canonical-protocol checks remain in place.
+- Settings starts the refresh operations after a skill changes. The skills
+  module does not import plugins.
+- The primary module gives the issues feature a callback for the state of the
+  Linear connection. The issues feature does not import the settings view.
 
-`crates/core/src/workspace_tools.rs` owns validation and updates for a workspace's MCP, plugin
-or skill selection. Validation accepts JSON null for inheritance or a valid
-`Selection` object with identifiers belonging to the requested axis. The
-update receives the board mutex, workspace id, axis and validated selection.
-It changes only that axis, preserving sibling tabs and unrelated workspaces.
-It does not receive `AppHandle` or `AppState`, access processes, translate errors
-or publish events. The Tauri commands adapt those responsibilities at the edge
-and preserve the distinction between an absent argument and explicit null.
+The current sequence of asynchronous operations and the error processing do
+not change.
 
-The same boundary applies to finish/archive/restore in `workspace_lifecycle.rs`:
-it receives a mutable board and returns stop IDs and the archive transition
-flag. It does not execute scripts or stop processes. `session.rs` preserves the
-existing sequence: archive scripts run before
-the archive mutation, processes stop outside the board lock, then publication
-and transition telemetry run. Repeated archive still requests shutdown without
-emitting another transition fact; restore leaves sessions stopped.
+The architecture check builds a local graph of TypeScript dependencies. It uses
+the TypeScript parser from the current dependencies. It finds runtime cycles.
+When it examines portable boundaries, it follows runtime imports through the
+modules between them. Imports of types only do not make runtime cycles.
+Specified fixtures examine dependencies that the rules prevent and dependencies
+that the rules accept. The current checks for providers and for the canonical
+protocol stay.
+
+`crates/core/src/workspace_tools.rs` controls the validation and the updates for
+the MCP, plugin or skill selection of a workspace:
+
+- The validation accepts JSON null for inheritance. It also accepts a correct
+  `Selection` object with identifiers that are in the requested axis.
+- The update receives the board mutex, the workspace id, the axis and the
+  validated selection. It changes only that axis. Other tabs and other
+  workspaces do not change.
+- The update does not receive `AppHandle` or `AppState`. It does not use
+  processes, change errors into messages or publish events.
+
+The Tauri commands do these operations at the edge. They keep the difference
+between a missing argument and an explicit null.
+
+The same boundary applies to finish, archive and unarchive in
+`workspace_lifecycle.rs`. This module receives a mutable board. It returns the
+IDs of the processes to stop. It also returns a flag that tells if the archive
+state changed. It does
+not run scripts or stop processes. `session.rs` keeps the current sequence:
+
+1. The archive scripts run before the archive change to the board.
+2. The processes stop after Prometeu releases the board lock.
+3. Then the publication and the telemetry for the state change run.
+
+When the person archives a workspace again, Prometeu continues to stop its
+processes. But it does not record a second state-change fact. An unarchive
+operation does not start the sessions again.
 
 The application rule follows [ADR 0045](0045-layered-tool-selection.md) and
-[ADR 0047](0047-tool-selection-boundaries.md): saving a selection is allowed
-during a turn and never retires an existing process, even an idle one. A change
-applies only at the next spawn or resume of a stopped process. Keeping process
-access outside this use case prevents selection changes from interrupting
-work. Commands publish after validation and the board update succeed.
+[ADR 0047](0047-tool-selection-boundaries.md). A person can save a selection
+during a turn. This operation does not stop a current process, also when the
+process does no work. A change applies only when Prometeu starts or
+resumes a stopped process. This use case does not use processes. Thus a
+selection change cannot stop work. The commands publish only after the
+validation and the board update complete correctly.
 
 ## Consequences
 
-Contributors can test this use case with an in-memory board, without a Tauri
-application, saver thread or installed agent CLI.
-Other use cases can adopt the same approach when a change needs that boundary;
-there is no requirement to wrap every function in an interface.
+Contributors can test this use case with a board in memory. A Tauri
+application, a saver thread and an installed agent CLI are not necessary. Other
+use cases can use the same method when a change must have that boundary. It is not
+necessary to put each function behind an interface.
 
-[ADR 0085](0085-portable-core.md) moves board models, this use case and the
-other application rules into an independently tested library with injected
-effects. The production desktop deployment remains local and in-process.
+[ADR 0085](0085-portable-core.md) moves the board models, this use case and the
+other application rules into a library. The callers of the library give it its effects. That library has
+its own tests. The production desktop deployment stays local and in one process.
 
-The import graph and selected global-access checks are architectural fitness
-checks, not a complete proof of purity. Their exact scope and limits are in the
-[dependency rules](../architecture/dependency-rules.md). They use no additional
-dependency and run in the existing validation command.
+The import graph and the specified checks for global access are architecture
+checks. They do not fully prove that the code is pure. The
+[dependency rules](../architecture/dependency-rules.md) give their scope and
+their limits. These checks add no dependency. They run in the current
+validation command.
 
-This extraction preserves the layered IPC names, payloads, error codes and
-persisted formats. Rolling back the extraction requires no data migration;
-the earlier format migration remains governed by
+This change keeps the IPC names of the layers, the payloads, the error codes and
+the saved formats. If Prometeu removes this change, a data migration is not
+necessary. The previous format migration continues to follow
 [the persistence contract](../contracts/persistence.md#workspace-migration).
 
 ## Evidence
@@ -90,6 +112,6 @@ the earlier format migration remains governed by
 - [Frontend composition](../../src/main.ts) and
   [settings coordination](../../src/settings.ts).
 - [Workspace tool use case and validation tests](../../src-tauri/crates/core/src/workspace_tools.rs).
-- [Workspace lifecycle rules and preservation tests](../../src-tauri/crates/core/src/workspace_lifecycle.rs).
+- [Workspace lifecycle rules and tests that make sure that data stays](../../src-tauri/crates/core/src/workspace_lifecycle.rs).
 - [Architecture check](../../scripts/check-architecture.mjs).
 - [Agent runtime contract](../contracts/agent-runtime.md).

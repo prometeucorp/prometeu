@@ -1,291 +1,379 @@
 ---
 type: Contract
 title: "Product analytics"
-description: "PostHog event vocabulary, payload, installation identity and rules for new events."
+description: "The PostHog event vocabulary, the payload, the identity of the installation and the rules for new events."
 status: stable
 ---
 
 # Product analytics
 
-Prometeu optionally records two kinds of product evidence: identified control
-activations and explicit feature use. Tracking is off until the person enables
-it in the startup prompt or Settings / General / Privacy. The decision is in
-[ADR 0093](../decisions/0093-anonymous-product-analytics.md). Execution diagnostics
-remain in [local telemetry](telemetry.md), which never leaves the machine.
+Prometeu can record two types of product evidence: the activations of
+identified controls and the explicit use of features. This function is off
+until the person enables it in the startup prompt or in Settings / General /
+Privacy. [ADR 0093](../decisions/0093-anonymous-product-analytics.md) records the
+decision. Execution diagnostics stay in [local telemetry](telemetry.md), which
+does not go out of the machine at any time.
 
 ## Tracking plan and ownership
 
 - [`analytics::Event`](../../src-tauri/src/analytics.rs) is the native allowlist.
 - [`AnalyticsEvent`](../../src/analytics.ts) and
-  [`FeatureEvent`](../../src/analytics-events.ts) type frontend emissions.
-- The [generated catalog](product-analytics-catalog.json) lists authored control
-  identities, their source files, composed metadata expressions and every
-  feature event's closed fields. Run `node scripts/analytics-catalog.mjs` after
-  changing the vocabulary or control metadata; CI checks that it stays current.
+  [`FeatureEvent`](../../src/analytics-events.ts) give the types of the events
+  that the frontend sends.
+- The [analytics catalog](product-analytics-catalog.json) is a file that a
+  script makes. It lists the control identities that authors write in code and
+  their source files. It also lists the composed metadata expressions and the
+  closed fields of each feature event. Run
+  `node scripts/analytics-catalog.mjs` after you change the vocabulary or the
+  control metadata. CI makes sure that the catalog stays current.
 - The [coverage map](../quality/product-analytics-coverage.md) connects product
   modules to evidence, boundaries and verification.
 
-Product owns the question and interpretation; the feature owner maintains the
-trigger and its tests. Names describe facts in lowercase `object_verb` form.
-Variations use closed properties, not customer-derived event names. New fields
-must be enums or booleans; control identities are identifier tokens authored in
-code. Never send user content, filenames, paths, URLs, names, record IDs, search
-queries, commands, credentials, prompts, output or error messages.
+The product team owns the question and the interpretation. The owner of the
+feature keeps the code that starts the event and its tests correct. Names give facts in the
+lowercase `object_verb` form. Variations use closed properties. They do not use
+event names that come from customer data. New fields must be enums or booleans.
+Control identities are identifier tokens that authors write in code.
+
+Do not send these items at any time:
+
+- User content, filenames, paths, URLs or names.
+- Record IDs or search queries.
+- Commands, credentials or prompts.
+- Output or error messages.
 
 ## Named interactions
 
-`ui_clicked {control, target, area}` records activation of an identified
-Prometeu control. `target` and `area` are required nonempty tokens. The token
-shape is 1–80 ASCII letters, digits, dots, underscores or hyphens. Rust rejects
-nulls, empty strings, sentences, paths and URLs.
+`ui_clicked {control, target, area}` records the activation of an identified
+Prometeu control. `target` and `area` are necessary tokens that are not empty.
+A token has 1–80 ASCII letters, digits, dots, underscores or hyphens. Rust
+rejects nulls, empty strings, sentences, paths and URLs.
 
 `target` comes only from explicit `data-track`, `data-t-title` or `data-t`
-metadata. The latter two use the authored key itself; there is no reverse lookup
-of translated labels and no fallback to element IDs, visible text, CSS paths,
-positions, `unknown` or generic control names. Repeated data rows share an action
-identity such as `rail.workspace`; their names and IDs are not sent.
+metadata. The last two use the authored key itself. Prometeu does not look for a
+key from the text of a translated label. There is no fallback to element IDs,
+text on the screen, CSS paths, positions, `unknown` or generic control names.
+Data rows that repeat share
+one action identity, for example `rail.workspace`. Prometeu does not send their
+names and IDs.
 
-`area` comes from explicit `data-track-area` metadata on the control or an
-ancestor. Shared menus, dialogs and pickers preserve the opener's area when
-mounting outside its DOM tree. Screen hosts can supply a more specific area.
-Changing a control's action with its state requires the corresponding target.
-Containers use area metadata, not a click target for their entire contents.
+`area` comes from explicit `data-track-area` metadata on the control or on a
+parent element. Shared menus, dialogs and pickers keep the area of the control
+that opened them when Prometeu puts them out of its DOM tree. Screen hosts can
+supply a more accurate area. If the action of a control changes with its state, the
+control must have the applicable target. Containers use area metadata. They do
+not use one click target for all their contents.
 
-The single listener observes buttons, links, tabs, menu items, options,
-checkboxes, radios, selectors, fields, disclosures and explicitly marked custom
-controls. Nested controls resolve to the closest control. Authored
-`data-track-double-click` and `data-track-context-menu` record those distinct
-actions. Keyboard activation can generate a DOM click. Owned native-menu
-callbacks also record their authored action key with `area: native_menu`;
-these callbacks do not distinguish a menu click from its accelerator.
+One listener monitors these controls:
 
-Missing or malformed metadata does not produce a null or fabricated event.
-It marks the element with `data-track-missing`, dispatches the local
-`analytics-unidentified` diagnostic and warns in development.
-`unidentifiedControls` inspects rendered controls even before activation.
-Disabled controls are ineligible until enabled; hidden enabled controls remain
-inspectable. Coverage checks must expose and fix these gaps; dropping unidentified events
-alone is not evidence of complete coverage. These diagnostics never leave the
-machine. Arbitrary content inside embedded websites/PDF viewers and OS-owned
-menu actions are outside this listener's boundary.
+- Buttons, links, tabs, menu items and options.
+- Checkboxes, radios, selectors, fields and disclosures.
+- Custom controls with an explicit mark.
 
-Shared UI components carry authored metadata without emitting analytics events. They do not
-import the analytics service, IPC or app controllers. Optional tracking arguments
-preserve existing consumers; feature owners must supply metadata for the desktop.
+A nested control resolves to the nearest control. The authored
+`data-track-double-click` and `data-track-context-menu` metadata record those
+different actions. A keyboard activation can make a DOM click. Owned callbacks
+of the native menu also record their authored action key with
+`area: native_menu`. These callbacks do not show the difference between a menu
+click and its accelerator.
+
+If the metadata is missing or incorrect, Prometeu does not make a null event or
+an invented event. Prometeu does these steps:
+
+1. It adds `data-track-missing` to the element.
+2. It sends the local `analytics-unidentified` diagnostic.
+3. In development, it shows a warning.
+
+`unidentifiedControls` examines rendered controls before an activation too. It
+does not examine a disabled control until the control becomes enabled. It
+continues to examine hidden controls that are enabled. Coverage checks must show
+and repair these missing items. If Prometeu discards unidentified events, this alone does not prove
+complete coverage. These diagnostics do not go out of the machine at any time.
+This listener does not monitor content in embedded websites or PDF viewers. It
+also does not monitor menu actions that the operating system owns.
+
+Shared UI components contain authored metadata, but they do not send analytics
+events. They do not import the analytics service, IPC or app controllers.
+Optional tracking arguments keep current consumers. Feature owners must supply
+metadata for the desktop.
 
 ## Feature-use vocabulary
 
-Feature events record the agreed action at its shared application path, not a
-second handler on its button. Mouse, keyboard, paste/drop, and accepted remote
-or MCP paths are covered where the operation is shared. Render, background refresh,
-polling, token streams and process completion do not count as feature use.
+Feature events record the agreed action at its shared application path. They do
+not use a second handler on its button. When the operation is shared, the event
+includes the mouse, the keyboard, paste or drop, and accepted remote or MCP
+paths.
+These items are not feature use: render, background refresh, polling, token
+streams and process completion.
 
-The generated catalog defines all property types. This table defines meaning:
+The analytics catalog gives all property types. This table gives the meaning:
 
 | Event(s) | What is recorded |
 | --- | --- |
-| `app_opened` | Desktop process start; not daily activity |
-| `analytics_consent_granted` | Sharing turns on from the startup prompt or Settings; declining or disabling sends nothing |
-| `screen_viewed` | A change of visible screen |
-| `workspace_created` | Workspace creation before preparation, including delegation; `provider`, `is_worktree` |
-| `conversation_created` | An additional conversation tab, excluding the workspace's first conversation; `provider` |
-| `project_action_used` | New registration/addition, creation of a local Git project, removal, changed order/group or creation of script configuration |
-| `workspace_action_used` | Rename, pin, finish, archive, restore, remove or cleanup; manual read/unread actions are emitted by the UI, not automatic notification updates |
-| `desk_layout_changed` | A completed visibility, order or size change |
-| `conversation_opened` | Explicit workspace-tab activation or revealing a desk conversation |
-| `conversation_resumed` | Continue sends its command successfully; not model execution |
-| `attachment_added`, `context_attached` | Adding new attachment files or structured draft context, including selected file references; not free-text inspection |
-| `output_copied` | Successful copying of a message or code block |
-| `request_answered` | An accepted question response from the conversation or island, locally or through the relay; answers are excluded |
-| `approval_submitted` | An accepted allow/deny decision for a tool approval or plan from the conversation or island; only the approval boolean is recorded |
-| `model_selection_changed`, `effort_changed`, `model_favorite_changed` | Explicit picker selection or favorite change; not automatic catalog refresh |
-| `usage_summary_viewed`, `quota_viewed`, `machine_panel_opened` | Opening the respective panel, not its periodic updates |
-| `file_opened` | Explicit viewer opening after successful reading, by closed viewer kind; refreshing or selecting the already active file does not count |
-| `file_search_used` | Opening search in the file viewer |
-| `file_operation_completed` | A successful save, create, rename, move, trash or restore operation; no path or contents |
-| `diff_viewed`, `git_comparison_opened` | Explicit entry into a diff or comparison view, not status polling |
-| `git_operation_completed` | A successful stage, unstage, commit, fetch, pull, push, publish, discard or conflict resolution |
-| `review_note_created`, `review_notes_sent` | Persisting a new review note or marking a sent batch submitted locally; sending does not prove provider receipt or completed review |
-| `terminal_opened` | Spawning a new interactive terminal; reattaching an existing PTY is excluded |
-| `project_script_started`, `project_script_stopped` | Starting a new Setup/Run process or explicitly stopping a live one; setup includes automatic workspace preparation |
-| `preview_opened`, `browser_context_attached`, `preview_capture_created` | Opening preview from another view, attaching inspected context or creating a capture; no URL, HTML or image is sent |
-| `dictation_started`, `dictation_text_inserted` | Recognition starts, then the first final transcript insertion per dictation session; interim text is not counted or transmitted |
-| `action_used` | Expanding a prompt action into the draft or successfully starting an agent action |
-| `settings_section_viewed`, `settings_search_used` | Entering General, Agents, Resources, Actions, Projects, Work and team or Analytics, or beginning a nonempty settings search; not every redraw or keystroke |
-| `preference_changed` | An explicit change to one of the allowed preference categories |
-| `resource_action_used` | Resource save/remove/install/update/copy/share or an explicit authentication/check/discovery/generation operation; a check may report a failed probe, and generation records job acceptance |
-| `resource_selection_changed` | Changing resource defaults, global selection or a workspace selection; enabling does not prove resource execution |
-| `integration_action_used` | Integration setup actions; GitHub connect requires returned connected status, and Cloud connect requires a completed login poll |
-| `provider_account_action_used` | Login start/cancellation, account selection or removal; login start is not successful authentication |
-| `action_configuration_changed` | Saving/removing a command, profile or override configuration |
-| `issue_action_used` | Claiming an issue, opening its source, opening an existing workspace or preparing the creation launcher; preparation is not workspace creation |
-| `notification_action_used` | Explicit inbox/island actions, reading and navigation; notification delivery is excluded |
-| `collaboration_action_used` | Explicit organization, sharing, permissions, pending-input and comment actions through the desktop shell; no participant identifiers |
-| `usage_history_action_used` | The history panel becoming visible, explicit refresh/filter, successful export or clearing local history; no history records are uploaded |
-| `update_action_used`, `release_notes_viewed` | Explicit update actions or opening release notes; restart is an intent recorded before relaunch and may be lost at shutdown |
-| `feedback_action_used` | Opening the feedback panel/public issue form or successful private submission; opening GitHub does not prove an issue was sent |
-| `trust_decision_made` | An explicit project-resource trust decision |
-| `delegation_action_used` | Successful authorized MCP operations, with internal/external client category; retries count tool use, not unique new agents |
+| `app_opened` | The start of the desktop process. It is not daily activity. |
+| `analytics_consent_granted` | The person enables sharing from the startup prompt or Settings. If the person declines or disables it, Prometeu sends nothing. |
+| `screen_viewed` | A change of the screen that shows. |
+| `workspace_created` | A new workspace before its preparation, which includes delegation. `provider`, `is_worktree`. |
+| `conversation_created` | A conversation tab after the first conversation of the workspace. `provider`. |
+| `project_action_used` | A project that a person adds, a new local Git project, a removal, a change of sequence or group, or a new script configuration. |
+| `workspace_action_used` | Rename, pin, finish, archive, return from the archive, remove or cleanup. The UI sends manual read and unread actions. Automatic notification updates are not included. |
+| `desk_layout_changed` | A completed change of visibility, sequence or dimension. |
+| `conversation_opened` | An explicit activation of a workspace tab, or a desk conversation that the desk starts to show. |
+| `conversation_resumed` | Continue sends its command without an error. It is not model execution. |
+| `attachment_added`, `context_attached` | New attachment files or structured draft context, which includes selected files. It is not an inspection of free text. |
+| `output_copied` | A copy of a message or a code block without an error. |
+| `request_answered` | An accepted response to a question from the conversation or the island, locally or through the relay. The answers are not included. |
+| `approval_submitted` | An accepted "allow" or "deny" decision for a tool approval or a plan, from the conversation or the island. Prometeu records only the approval boolean. |
+| `model_selection_changed`, `effort_changed`, `model_favorite_changed` | An explicit selection in the picker or a change of a favorite. It is not an automatic refresh of the catalog. |
+| `usage_summary_viewed`, `quota_viewed`, `machine_panel_opened` | The person opens the panel. Its periodic updates are not included. |
+| `file_opened` | The person opens a viewer explicitly after Prometeu reads the file without an error, by closed viewer type. A refresh or a selection of the active file is not included. |
+| `file_search_used` | The person opens the search in the file viewer. |
+| `file_operation_completed` | A save, a new file, a rename, a move, a move to the trash or a return from the trash, without an error. No path or contents. |
+| `diff_viewed`, `git_comparison_opened` | An explicit entry into a diff view or into a view that compares. Status polling is not included. |
+| `git_operation_completed` | A stage, unstage, commit, fetch, pull, push, publish, discard or conflict resolution without an error. |
+| `review_note_created`, `review_notes_sent` | Prometeu stores a new review note, or records locally that a batch was sent. The send does not prove that the provider received it or that the review is complete. |
+| `terminal_opened` | Prometeu spawns a new interactive terminal. A new connection to a current PTY is not included. |
+| `project_script_started`, `project_script_stopped` | The start of a new Setup or Run process, or an explicit stop of a process that operates. Setup includes the automatic preparation of the workspace. |
+| `preview_opened`, `browser_context_attached`, `preview_capture_created` | The person opens the preview from a different view, attaches context from the inspector or makes a capture. Prometeu sends no URL, HTML or image. |
+| `dictation_started`, `dictation_text_inserted` | Recognition starts. Then the first insertion of a complete transcript in each dictation session. Interim text is not counted or sent. |
+| `action_used` | A prompt action expands into the draft, or an agent action starts without an error. |
+| `settings_section_viewed`, `settings_search_used` | An entry into General, Agents, Resources, Actions, Projects, Work and team or Analytics, or the start of a settings search that is not empty. Each redraw or keystroke is not included. |
+| `preference_changed` | An explicit change to one of the permitted preference categories. |
+| `resource_action_used` | A resource save, remove, install, update, copy or share, or an explicit operation of authentication, check, discovery or generation. A check can report a probe failure. Generation records that the service accepted the job. |
+| `resource_selection_changed` | A change of resource defaults, of the global selection or of a workspace selection. Enabling does not prove that the resource operated. |
+| `integration_action_used` | Integration preparation actions. GitHub connect must return a connected status. Cloud connect must have a completed login poll. |
+| `provider_account_action_used` | A login start or cancellation, an account selection or a removal. A login start is not a completed authentication. |
+| `action_configuration_changed` | A person saves or removes a command, a profile or an override configuration. |
+| `issue_action_used` | A person claims an issue, opens its source, opens a current workspace or prepares the creation launcher. The preparation is not a new workspace. |
+| `notification_action_used` | Explicit actions in the inbox or the island, read actions and navigation. Notification delivery is not included. |
+| `collaboration_action_used` | Explicit actions about organizations, sharing, permissions, pending input and comments through the desktop shell. No participant identifiers. |
+| `usage_history_action_used` | The history panel starts to show, an explicit refresh or filter, an export without an error, or a person deletes the local history. Prometeu does not upload history records. |
+| `update_action_used`, `release_notes_viewed` | Explicit update actions, or the person opens the release notes. Prometeu records the intent to start again before the relaunch. If the app stops before the send, this event does not go out. |
+| `feedback_action_used` | The person opens the feedback panel or the public issue form, or sends a private submission without an error. When GitHub opens, this does not prove that the person sent an issue. |
+| `trust_decision_made` | An explicit trust decision about project resources. |
+| `delegation_action_used` | Approved MCP operations without an error, with the internal or external client category. Retries count tool use. They do not count unique new agents. |
 
-Finishing a workspace also archives it; those are distinct facts, so do not sum
-them as independent workspaces. A control activation and its feature event are
-also separate evidence about the same interaction. Avoid summing event counts
-across a workflow to estimate people or unique operations. History `view` is
-visible-panel exposure, once per settings entry/page transition; refresh, filter,
-export and clear distinguish explicit interaction.
+When a person uses Finish on a workspace, Prometeu also archives it. These are two
+different facts. Do not add them together as two workspaces. A control
+activation and its feature event are also two different items of evidence about
+the same interaction. Do not add event counts across a workflow to estimate
+persons or unique operations. The history `view` means that the panel
+shows. Prometeu records it one time for each entry into Settings or change of
+page. Refresh, filter, export and clear show explicit interaction.
 
-The unshipped conversation-runtime experiment (`message_accepted`,
-`turn_finished`, activity flags) is not part of this vocabulary. Existing local
-execution telemetry remains unchanged.
+The conversation-runtime experiment that was not released (`message_accepted`,
+`turn_finished`, activity flags) is not part of this vocabulary. The current
+local execution telemetry does not change.
 
 ## Measurement and interpretation
 
-The unit is an observed installation, not an identified person. For feature
-adoption, count installations using the feature among eligible active
-opted-in installations on versions and platforms that emit the necessary facts. Follow
-recurrence across days/weeks and concentration of activity. An app can stay open
-for days; process starts are not an activity denominator.
+The unit is an installation that PostHog sees, not an identified person. To measure the
+adoption of a feature, count the installations that use it. Count them in the
+eligible active installations that opted in, on versions and platforms that
+send the necessary facts. Monitor the recurrence across days or weeks and the
+concentration of activity. An app can stay open for days. Thus process starts
+are not a denominator for activity.
 
-Availability, discovery, configuration and use are different. Installing or
-enabling a plugin does not prove a provider invoked it. A rarely used feature
-may be important to a small group. Absence from a chart can reflect missing
-instrumentation, missing consent, unsupported shells or delivery loss. Opt-in
-introduces selection bias. Removing features needs
-verified coverage, sufficient observation and qualitative context.
+Availability, discovery, configuration and use are different. If a person
+installs or enables a plugin, this does not prove that a provider used it. A
+feature that persons use rarely can be important to a small group. If a feature
+is not on a chart, the cause can be one of these:
 
-The PostHog project separates installation/activity/retention from feature
-adoption. Both dashboards require `analytics_version = 2`; this excludes older
-events from analysis without deleting them. First observed installations are
-not new installations: an existing installation can update or opt in later.
-There is no download, installation-completed, accepted-message or completed-turn
-event in this contract.
+- Missing instrumentation.
+- Missing consent.
+- Shells that do not send events.
+- Lost deliveries.
 
-The shared PostHog activity action includes the feature vocabulary except
-`delegation_action_used` and `project_script_started`, plus `ui_clicked` and
-`conversation_created`. It excludes process starts, screen navigation and
-workspace creation, which can also come from delegation. Daily, weekly and
-monthly activity and retention use this same observed-interaction definition,
-not process reopens or a claim of completed work.
+The opt-in causes a selection bias. Before you remove a feature, you must have
+coverage that a person examined, sufficient observation and qualitative context.
+
+The PostHog project has one dashboard for installation, activity and retention.
+It has a different dashboard for feature adoption. The two dashboards use only events with
+`analytics_version = 2`. Thus the analysis does not include older events, but
+PostHog does not delete them. The first installations that PostHog sees are not new
+installations. A current installation can update or opt in after some time. This
+contract has no download, installation-completed, accepted-message or
+completed-turn event.
+
+The shared PostHog activity action includes the feature vocabulary, plus
+`ui_clicked` and `conversation_created`. It does not include
+`delegation_action_used` and `project_script_started`. It also does not include
+process starts, screen navigation and workspace creation, because delegation can
+also make a workspace. Daily, weekly and monthly activity and retention use this
+same definition of seen interaction. New starts of the process and claims of
+completed work are not part of it.
 
 The adoption inventory includes all 50 feature events and the two creation
-events, including entries with no observations. Its fixed trailing 28-day
-window counts feature use among active installations, repeats across at least
-two days or weeks, and the busiest installation's share of occurrences.
-Zero denominators produce null percentages. The separate variant table includes
-observed operation/resource combinations, including automation-only activity;
-it is not the adoption denominator. SQL tables explicitly retain their fixed
-window when the dashboard date selector changes.
+events. It includes entries with no observations. Its window is always the
+last 28 days. In this window, it counts these values:
 
-On 2026-10-25, query validation found no ingested v2 events. The inventory
-therefore reports awaiting ingestion, not unused features. Release and consent
-must precede live delivery verification. A requested historical deletion through
-the MCP persons endpoint found no profiles and queued no event deletion; all
-observed identities were propertyless. The analytical reset is not a storage
-reset, and old clicks are never manufactured into new feature facts.
+- The feature use in active installations.
+- The repetitions across a minimum of two days or weeks.
+- The part of the occurrences that comes from the installation with the most
+  activity.
+
+If a denominator is zero, the percentage is null. A different table shows the
+variants. It includes the seen combinations of operation and resource, and
+activity from automation only. It is not the adoption denominator. SQL tables
+keep their window explicitly when the date selector of the dashboard
+changes.
+
+On 2026-10-25, a query validation found no v2 events in PostHog. Thus the
+inventory shows that it waits for ingestion. It does not show features that persons do not use.
+The release and the consent must occur before a verification of live delivery.
+A request for a historical deletion through the MCP persons endpoint found no
+profiles. It did not put an event deletion in the queue. All the seen
+identities had no properties. The reset of the analysis is not a reset of the
+storage. Prometeu does not change clicks from before into new feature facts at any time.
 
 ## Payload, privacy and delivery
 
-Events are sent in HTTPS batches to `https://us.i.posthog.com/batch/`. Every
-payload contains the event's allowed fields and fixed metadata:
-`analytics_version: 2`, app version, OS, architecture, `$lib: prometeu`,
-`$process_person_profile: false`, and `$geoip_disable: true`. No PostHog JS SDK,
-session replay, DOM upload or local telemetry synchronization is introduced.
+Prometeu sends events in HTTPS batches to `https://us.i.posthog.com/batch/`.
+Each payload contains the permitted fields of the event and metadata that does
+not change:
+`analytics_version: 2`, the app version, the OS, the architecture,
+`$lib: prometeu`, `$process_person_profile: false` and `$geoip_disable: true`.
+Prometeu does not add the PostHog JS SDK, a session replay, a DOM upload or a
+synchronization of local telemetry.
 
-Identity is a random UUID stored in `<root>/analytics-id`, created only when
-consent and the build key allow capture. It is pseudonymous:
-events from an installation can be linked, but no account or workspace identity
-is sent. The PostHog US project must discard client IP data.
+The identity is a random UUID in `<root>/analytics-id`. Prometeu makes it only
+when the consent and the build key let Prometeu capture events. The identity is
+pseudonymous. PostHog can connect the events from one installation, but Prometeu
+sends no account identity or workspace identity. The PostHog US project must
+discard the IP data of the client.
 
-Tracking defaults to off for new and existing installations. An existing
-`analytics-id` is not consent. The preference is a JSON boolean in the private,
-atomically written `<root>/analytics-enabled.json`; missing, unreadable or
-malformed values mean off and need a choice. On startup, the desktop asks to
-share or decline when there is no valid saved boolean, including upgrades. Both
-answers persist through the same command; existing `true` and `false` values
-suppress the prompt without a migration or a separate asked marker. Escape
-leaves the preference unanswered and asks again at the next startup. Save errors
-stay in the dialog for retry. Release notes wait until the privacy dialog closes.
-Explicitly saving a choice replaces the value, and Settings can change it later.
-Turning sharing on emits `analytics_consent_granted` as the first event under
-the new consent; saving `true` again or saving `false` emits nothing.
+For new and current installations, the default is off. A current `analytics-id`
+is not consent. The preference is a JSON boolean in
+`<root>/analytics-enabled.json`. This file is private, and Prometeu writes it
+atomically. If the value is missing or incorrect, or if Prometeu cannot read it, the
+preference is off and the person must make a selection.
 
-`analytics_needs_consent` takes no arguments and returns whether no valid saved
-choice exists. Unsupported backends skip the prompt. `analytics_enabled` takes
-no arguments and returns a boolean.
-`analytics_set_enabled` takes `{ enabled: boolean }`, persists it and returns
-the saved boolean. A write failure rejects with `err.analytics.storage` and
-leaves the running preference unchanged. These preference commands are additive;
-the version-2 tracking payload follows the required metadata rules above.
+At startup, if there is no correct saved boolean, the desktop shows a prompt. The
+person can share or decline. This includes upgrades. The two answers go through the same
+command. A current `true` or `false` value stops the prompt without a migration
+or a marker for the question. Escape keeps the preference without an answer, and
+the desktop shows the prompt again at the next startup. Save errors stay in the dialog, and the
+person can try again. The release notes wait until the privacy dialog closes.
+An explicit save replaces the value. The person can change it after that in
+Settings.
 
-The backend checks consent before initializing delivery or queuing any event,
-including app startup and events emitted by native use cases. Settings changes
-take effect without restarting. Delivery rechecks consent after the batch
-window, dropping pending events from before a disable even if tracking has
-since been enabled again. Events dropped while off are never replayed.
-Consent changes and dispatch share a delivery gate: a prepared batch is
-revalidated under that gate, which remains held through HTTP completion.
-Saving waits for an in-flight request (bounded by the 10-second HTTP timeout)
-on a background thread; capture does not acquire the delivery gate and the UI
-stays responsive. No stale batch can start after disabling succeeds.
-Disabling does not erase events already received by PostHog or the local
-installation ID. This preference does not change local telemetry or its capture.
+When the person enables sharing, Prometeu sends `analytics_consent_granted` as
+the first event with the new consent. If the person saves `true` again or saves
+`false`, Prometeu sends nothing.
 
-The top-level `offset` is monotonic elapsed milliseconds from capture to batch
-construction. PostHog subtracts it from server receipt time, preserving spacing
-within a batch without trusting the client clock. Network delay still affects
-absolute time; it is not a latency measurement.
+The preference commands are these:
 
-One thread batches for five seconds after the first event and uses a ten-second
-request timeout. Failed deliveries and batches waiting at exit are dropped.
-There is no offline queue or retry. Tracking never blocks or fails a feature.
-Only opted-in builds compiled with a nonempty `PROMETEU_POSTHOG_KEY` send events.
+- `analytics_needs_consent` has no arguments. It returns a boolean that tells if
+  there is no correct saved selection. Backends that do not have this function skip the
+  prompt.
+- `analytics_enabled` has no arguments and returns a boolean.
+- `analytics_set_enabled` receives `{ enabled: boolean }`, stores it and returns
+  the saved boolean. If the write has a failure, the command rejects with
+  `err.analytics.storage`. The preference in memory does not change.
+
+These preference commands add to the IPC and do not change other commands. The version-2 tracking payload obeys
+the metadata rules above.
+
+The backend examines the consent before it starts delivery or puts an event in
+the queue. This includes the app startup and the events that native operations
+send. Changes in Settings have an effect without a restart. After the batch
+window, the delivery examines the consent again. It discards pending events from
+before a disable, also if tracking is enabled again after that. Prometeu does
+not send again the events that it discarded while the function was off.
+
+Consent changes and the send of batches share a delivery gate. Prometeu validates a
+prepared batch again in that gate. The gate stays closed until the HTTP request
+is complete. A save waits on a background thread for a request that did not
+complete. The 10-second HTTP timeout limits this wait. The capture does not
+lock the delivery gate, and the UI continues to operate. After a disable is
+complete, no batch from before can start. A disable does not erase the events that
+PostHog received or the local installation ID. This preference does not change
+local telemetry or its capture.
+
+The top-level `offset` is the monotonic time in milliseconds from the capture to
+the construction of the batch. PostHog subtracts it from the time when the
+server receives the batch. This keeps the intervals in a batch, and PostHog does
+not trust the client clock. The time on the network continues to change the
+absolute time. This value is not a measurement of latency.
+
+One thread collects events for five seconds after the first event. It uses a
+request timeout of ten seconds. Prometeu discards deliveries with a failure and
+the batches that wait at exit. There is no offline queue and no retry. Tracking
+does not stop a feature or cause a failure of it at any time. Only builds that opted
+in and that have a `PROMETEU_POSTHOG_KEY` that is not empty send events.
 
 | Shell | Coverage |
 | --- | --- |
-| macOS and Linux desktop | Explicit consent and the ingestion key |
-| Browser mock | No upload; preference persists in mock localStorage |
-| Mobile companion | No product-event transport in this delivery |
+| macOS and Linux desktop | Explicit consent and the ingestion key. |
+| Browser mock | No upload. The preference stays in the mock localStorage. |
+| Mobile companion | No transport for product events in this delivery. |
 
 ## Compatibility and verification
 
-Version 2 preserves the four existing lifecycle/navigation event meanings,
-adds feature events, and requires explicit non-null click metadata. Historic
-version-1 clicks, including nulls and ambiguous translation-derived targets,
-remain in PostHog; they are not rewritten, backfilled or directly equivalent to
-new control series. Native and frontend contracts ship together; no persisted
-board, transcript or relay format changes.
+Version 2 keeps the meanings of the four current lifecycle and navigation
+events. It adds feature events. It also makes explicit click metadata that is
+not null necessary. The version-1 clicks from before stay in PostHog. These
+include nulls and unclear targets that came from translations. Prometeu does
+not write them again or fill them in. They are not directly equivalent to new
+control series. Prometeu releases the native contracts and the frontend contracts
+together. No stored board, transcript or relay format changes.
 
 [Native tests](../../src-tauri/src/analytics.rs) reject null click identities,
-unregistered events and invalid closed values, exclude content, and preserve
-timing offsets. Shared [fixtures](../../src-tauri/tests/fixtures/product-analytics.json)
-and [TypeScript parity tests](../../src/analytics-events.test.ts) exercise the
-same event schemas. [Click tests](../../src/analytics.test.ts) cover explicit
-metadata and diagnostics. [Real-DOM checks](../../scripts/check-analytics.mjs)
-exercise fields, choices, menus, dialogs, pickers and feedback, including controls
-that were never clicked. The [shared E2E fixture](../../e2e/fixtures.ts) rejects
-missing metadata on controls activated by existing browser scenarios.
-Feature tests cover successful/failed actions, review
-persistence, dictation and configuration flows. See the coverage map for scope.
+events that are not in the allowlist and incorrect closed values. They also make sure
+that payloads do not include content and that time offsets stay correct.
+Shared [fixtures](../../src-tauri/tests/fixtures/product-analytics.json)
+and [TypeScript parity tests](../../src/analytics-events.test.ts) use the
+same event schemas. [Click tests](../../src/analytics.test.ts) examine explicit
+metadata and diagnostics. [Browser DOM checks](../../scripts/check-analytics.mjs)
+examine fields, selections, menus, dialogs, pickers and feedback. This includes
+controls that no test clicked. The [shared E2E fixture](../../e2e/fixtures.ts)
+rejects missing metadata on controls that current browser scenarios activate.
+Feature tests examine actions with and without errors, the storage of reviews,
+dictation and configuration flows. See the coverage map for the scope.
 
-Native consent tests cover default-off upgrades, invalid/unreadable preferences,
-persistence across restarts, failed writes, pending event rejection across
-disable/enable cycles and consent grants reported only when sharing turns on. Dispatch tests cover disabling after batch preparation,
-serialization with an in-flight send and capture without waiting for the network.
-[`src/analytics-settings.test.ts`](../../src/analytics-settings.test.ts) covers
-first-run save/close orchestration, loading and changing consent, pending saves,
-error recovery and unsupported backends. The first-run scenario in
-[`e2e/audit-regressions.spec.ts`](../../e2e/audit-regressions.spec.ts) presses Escape,
-clicks both real consent buttons, holds saves to check disabled controls and blocked
-dismissal, and retries failed saves before checking persistence across reloads.
-This protects the consent boundary through native dialog cancellation and form
-submission in Chromium and WebKit; invoking mocked callbacks cannot prove their
-wiring. The separate Settings scenario covers focus
-after successful and failed saves in Chromium and WebKit, including moving to
-another control while saving. This needs real DOM replacement and native
-disabled-input focus behavior, which the mocked settings unit tests cannot prove.
-The IPC parity test in [`src-tauri/tests/mock.rs`](../../src-tauri/tests/mock.rs)
-covers command registration.
+Native consent tests examine these conditions:
 
-Run `npm run analytics:check` and the closest feature tests during development;
-run `npm run check` for changes spanning modules. These tests verify local
-contracts and capture behavior, not successful delivery to a live PostHog project.
+- Upgrades with the default off.
+- Preferences that are incorrect or that Prometeu cannot read.
+- Persistence across restarts.
+- Write failures.
+- The rejection of pending events across cycles of disable and enable.
+- Consent grants that Prometeu reports only when sharing becomes enabled.
+
+Dispatch tests examine a disable after the preparation of a batch. They also
+examine the serialization with a send in progress and a capture that does not wait
+for the network.
+
+[`src/analytics-settings.test.ts`](../../src/analytics-settings.test.ts) examines
+these items:
+
+- The save and close sequence at the first start.
+- The load and the change of the consent.
+- Pending saves.
+- The recovery from errors.
+- Backends that do not have this function.
+
+The first-run scenario in
+[`e2e/audit-regressions.spec.ts`](../../e2e/audit-regressions.spec.ts) does these
+steps:
+
+1. It pushes Escape.
+2. It clicks the two consent buttons in the browser.
+3. It holds saves to examine disabled controls and blocked dismissal.
+4. It tries again the saves that had a failure.
+5. It examines the persistence across reloads.
+
+This scenario examines the consent boundary through native dialog cancellation
+and form submission in Chromium and WebKit. A call to mocked callbacks cannot
+prove their connections. A different Settings scenario examines the focus after
+saves with and without errors, in Chromium and WebKit. This includes a move to a
+different control during a save. This scenario must have a replacement of the browser DOM
+and native focus behavior on disabled inputs. The mocked unit tests of settings
+cannot prove this behavior. The IPC parity test in
+[`src-tauri/tests/mock.rs`](../../src-tauri/tests/mock.rs) examines the
+registration of commands.
+
+During development, run `npm run analytics:check` and the nearest feature tests.
+For changes to more than one module, run `npm run check`. These tests make
+sure that local contracts and the capture behavior are correct. They do not make
+sure that the delivery to a live PostHog project is correct.

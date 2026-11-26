@@ -1,466 +1,580 @@
 ---
 type: Contract
 title: "Local persistence"
-description: "Local board, transcript and account formats, migrations and recovery."
+description: "The local formats of the board, the transcripts and the accounts, with their migrations and recovery."
 status: stable
 ---
 
 # Local persistence
 
-Current contract.
+This contract is current.
 
 ## Principles
 
-- The logical session outlives the agent process.
-- State and credentials stay outside the worktrees.
-- Deleting a worktree does not delete the conversation history.
-- Sensitive files are born private: `0700` directories and `0600` files on Unix
-  platforms.
-- State rewriting uses a temporary file, sync and rename so a truncated file is
-  never exposed after a failure.
-- Old formats get defaults and migrations; they are not discarded for missing
-  new fields.
+- The logical session continues to be available after the agent process stops.
+- State and credentials stay out of the worktrees.
+- When you delete a worktree, the conversation history stays.
+- Sensitive files are private from the start: `0700` directories and `0600`
+  files on Unix platforms.
+- To write state again, Prometeu writes a temporary file, writes it fully to the
+  disk and then gives it the correct name. Thus, after a failure, you cannot
+  see a truncated file at any time.
+- Previous formats get default values and migrations. Prometeu does not discard an
+  previous format because new fields are missing.
 
 ## App root
 
-In release, the default root is `~/.prometeu`. In debug, `~/.prometeu-dev`.
-`PROMETEU_ROOT` can replace the root, mainly in tests and isolated instances.
+In a release build, the default root is `~/.prometeu`. In a debug build, the
+root is `~/.prometeu-dev`. `PROMETEU_ROOT` can replace the root. Tests and
+isolated copies of the app use it most.
 
 | Data | Path | Ownership |
 | --- | --- | --- |
-| board | `<root>/board.json` | `board_store.rs` via injected `BoardStore`; models in `crates/core/src/board.rs` |
-| external MCP clients | `<root>/mcp-clients/<uuid>.json` | `mcp_access.rs`; private versioned credentials and project scope; see [embedded MCP](embedded-mcp.md) |
-| MCP socket discovery | `<root>/mcp-socket` | `embedded_mcp.rs`; private ephemeral socket path, replaced on startup |
+| board | `<root>/board.json` | `board_store.rs` through the injected `BoardStore`. The models are in `crates/core/src/board.rs`. |
+| external MCP clients | `<root>/mcp-clients/<uuid>.json` | `mcp_access.rs`. Private versioned credentials and the project scope. Refer to [embedded MCP](embedded-mcp.md). |
+| MCP socket discovery | `<root>/mcp-socket` | `embedded_mcp.rs`. A private temporary socket path. The app replaces it at startup. |
 | board backup | next to `board.json` | `board_store.rs` |
-| copies of unreadable state | `<root>/recovery/<label>-<millis>.json` | `recovery.rs`; see [Unreadable state](#unreadable-state) |
+| copies of unreadable state | `<root>/recovery/<label>-<millis>.json` | `recovery.rs`. Refer to [Unreadable state](#unreadable-state). |
 | team and credential | `<root>/team.json` | `team.rs` |
 | E2EE identities, TOFU links and replay | `<root>/team-security.json` | `team.rs` (file), `team-security.ts` (internal schema) |
-| optional Prometeu account | `<root>/cloud.json` | `cloud.rs`; see the [contract](cloud-account.md) |
-| cloud catalog cache and links | `<root>/catalog.json` (`catalog.local.json` is a legacy backup) | `catalog.rs`; see the [contract](cloud-catalog.md) |
-| installed skills and packages | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`; see the [catalog](cloud-catalog.md) |
-| accounts and per-provider selection | `<root>/accounts.json` | `crates/core/src/accounts.rs` through injected `AccountStore`; `account_store.rs` supplies private file persistence |
+| optional Prometeu account | `<root>/cloud.json` | `cloud.rs`. Refer to the [contract](cloud-account.md). |
+| cloud catalog cache and links | `<root>/catalog.json` (`catalog.local.json` is a legacy backup) | `catalog.rs`. Refer to the [contract](cloud-catalog.md). |
+| installed skills and packages | `<root>/skills.json`, `<root>/skills-packages/<id>/` | `skills.rs`. Refer to the [catalog](cloud-catalog.md). |
+| accounts and the selection for each provider | `<root>/accounts.json` | `crates/core/src/accounts.rs` through the injected `AccountStore`. `account_store.rs` keeps the private file. |
 | additional authenticated profiles | `<root>/accounts/<uuid>/` | provider adapters |
-| last quota snapshot per account | `<root>/usage.json` | `usage.rs` |
-| Linear OAuth credential | `<root>/linear.json` | `linear.rs`; private access and refresh tokens, account identity and granted scopes; see [Linear issues](linear-issues.md) |
-| Linear issue cache | `<root>/linear-issues.json` | `linear.rs`; private assigned and available lists with fetch time; see [Linear issues](linear-issues.md) |
-| GitHub App credential | `<root>/github.json` | `github_auth.rs`; private access and refresh tokens, expiry and login, never sent over IPC; see [GitHub issues](github-issues.md). The retired `<root>/github-issues.json` is ignored |
-| optional TypeSafe key and enablement | `<root>/typesafe.json` | `typesafe.rs`; private, disabled by default; see [context evaluation](context-evaluation.md) |
-| product analytics consent | `<root>/analytics-enabled.json` | `analytics.rs`; private JSON boolean, missing or invalid files disable capture and trigger the startup question; either saved boolean suppresses the question; see [product analytics](product-analytics.md) |
-| product analytics identity | `<root>/analytics-id` | `analytics.rs`; private random UUID, created only when consent and the build key allow capture; its presence does not imply consent |
-| V1 transcript for Codex, Antigravity, Cursor and every terminal-mode provider | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, via the core conversation stream |
-| native terminal transcript binding | `<root>/terminal-bindings/<tab>.json` | `chat/terminal/binding.rs`; private versioned identity and exact path, without conversation content |
-| native terminal ingestion journal | `<root>/terminal-ingestion/<tab>.sqlite3` | `terminal_agent_journal.rs` and `chat/terminal/ingestion.rs`; private source provenance and durable canonical append |
-| app diagnostic log | `<root>/logs/prometeu.log` (previous: `prometeu.log.1`) | `main.rs`; private `0600` stderr when the app inherits a discarded stderr (`/dev/null` or closed, as in a Finder launch), rotated at startup above 5 MiB; terminal-host lines are `<ms> <tab or generation> terminal.<code>` with identifiers and step names only |
-| files received through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`; private `0700` directory, `0600` file |
-| image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`; same folder and permissions, TIFF converted to PNG on macOS, GTK image converted to PNG on Linux |
+| last quota snapshot for each account | `<root>/usage.json` | `usage.rs` |
+| Linear OAuth credential | `<root>/linear.json` | `linear.rs`. Private access and refresh tokens, the account identity and the granted scopes. Refer to [Linear issues](linear-issues.md). |
+| Linear issue cache | `<root>/linear-issues.json` | `linear.rs`. Private lists of assigned and available issues, with the fetch time. Refer to [Linear issues](linear-issues.md). |
+| GitHub App credential | `<root>/github.json` | `github_auth.rs`. Private access and refresh tokens, the expiry time and the login. IPC does not send them at any time. Refer to [GitHub issues](github-issues.md). The app ignores the retired `<root>/github-issues.json`. |
+| optional TypeSafe key and its enabled state | `<root>/typesafe.json` | `typesafe.rs`. Private and disabled by default. Refer to [context evaluation](context-evaluation.md). |
+| consent for product analytics | `<root>/analytics-enabled.json` | `analytics.rs`. A private JSON boolean. A missing or incorrect file disables capture and causes the question at startup. A saved boolean of either value stops the question. Refer to [product analytics](product-analytics.md). |
+| identity for product analytics | `<root>/analytics-id` | `analytics.rs`. A private random UUID. The app makes it only when the consent and the build key let capture occur. The file alone does not show consent. |
+| V1 transcript for Codex, Antigravity, Cursor and all providers in terminal mode | `<root>/chats/<tab>.jsonl` | `transcript_store.rs`, through the core conversation stream |
+| binding of the native terminal transcript | `<root>/terminal-bindings/<tab>.json` | `chat/terminal/binding.rs`. A private versioned identity and the accurate path, without conversation content. |
+| ingestion journal of the native terminal | `<root>/terminal-ingestion/<tab>.sqlite3` | `terminal_agent_journal.rs` and `chat/terminal/ingestion.rs`. The private source provenance and the durable canonical append. |
+| diagnostic log of the app | `<root>/logs/prometeu.log` (previous: `prometeu.log.1`) | `main.rs`. A private `0600` stderr when the app gets a discarded stderr (`/dev/null` or closed, as in a Finder launch). At startup, the app rotates the log if it is larger than 5 MiB. Terminal-host lines are `<ms> <tab or generation> terminal.<code>`, with only identifiers and step names. |
+| files that the app receives through a native promise | `<root>/attachments/<uuid>/<name>` | `file_drop.rs`. A private `0700` directory and a `0600` file. |
+| image pasted from the clipboard | `<root>/attachments/<uuid>/pasted.png` | `file_drop.rs`. The same folder and permissions. On macOS, the app changes TIFF to PNG. On Linux, it changes a GTK image to PNG. |
 | plugin hub | `<root>/plugins.json` | `plugins.rs` |
-| remote machines | `<root>/machines.json` | `remote.rs`; private `{ v: 1, machines: [{ id, name, ssh, limits: { memory_max, cpu_quota } }] }`, no credentials; see [ADR 0101](../decisions/0101-remote-machines.md) |
-| remote executor identity | `<remote root>/supervision-executor` | `prometeu-host`; private stable executor ID, available before supervision setup; an existing `supervision.json` ID takes precedence; see [supervision](supervision.md#provisioning-with-the-remote-mcp) |
-| remote transcript mirror | `<root>/remote/<machine>/mirror/<remote path>` | `remote/connection.rs`; private append-only copies of a machine's Claude project files, rebuilt from offset zero when missing; see the [remote host protocol](remote-host.md#transcript-mirror) |
-| remote workspaces, tabs and projects removed from the board | `<root>/remote/<machine>/dismissed.json` | `remote/registry.rs`; private JSON array of workspace, conversation and project IDs that adoption from the machine's registry skips; adding the project again clears its entry; see [ADR 0103](../decisions/0103-agents-on-remote-machines.md) |
-| derived Codex home/marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`; rebuildable |
+| remote machines | `<root>/machines.json` | `remote.rs`. Private `{ v: 1, machines: [{ id, name, ssh, limits: { memory_max, cpu_quota } }] }`, without credentials. Refer to [ADR 0101](../decisions/0101-remote-machines.md). |
+| identity of the remote executor | `<remote root>/supervision-executor` | `prometeu-host`. A private and stable executor ID that is available before the supervision setup. An ID in a current `supervision.json` has priority. Refer to [supervision](supervision.md#provisioning-with-the-remote-mcp). |
+| mirror of remote transcripts | `<root>/remote/<machine>/mirror/<remote path>` | `remote/connection.rs`. Private append-only copies of the Claude project files of a machine. If a copy is missing, the app makes it again from offset zero. Refer to the [remote host protocol](remote-host.md#transcript-mirror). |
+| remote workspaces, tabs and projects removed from the board | `<root>/remote/<machine>/dismissed.json` | `remote/registry.rs`. A private JSON array of workspace, conversation and project IDs. Adoption from the registry of the machine ignores these IDs. When you add the project again, the app removes its entry. Refer to [ADR 0103](../decisions/0103-agents-on-remote-machines.md). |
+| derived Codex home and marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`. The app can make it again. |
 
-Catalog project installation reuses board Project records and stores local paths
-in `catalog.json` installation links. No credentials or paths enter the Cloud
-document; see [Git projects](cloud-catalog.md#git-projects).
+When a person installs a project from the catalog, the app uses the board
+Project records again. It stores the local paths in the installation links of
+`catalog.json`. No credentials or paths go into the Cloud document. Refer to
+[Git projects](cloud-catalog.md#git-projects).
 
-Worktrees live in `~/prometeu/worktrees[-dev]/...`, outside the state root.
+Worktrees are in `~/prometeu/worktrees[-dev]/...`, out of the state root.
 
-Repository scripts, tool declarations and method settings load only from
-`.prometeu/settings.toml`. A worktree without this file inherits the original
-checkout's file; a worktree with its own file replaces it as a whole. Workspace
-scripts receive `PROMETEU_WORKSPACE_PATH`, `PROMETEU_ROOT_PATH`,
-`PROMETEU_WORKSPACE_NAME`, `PROMETEU_PORT` when a port is reserved, and the same
-port as `PORT`. No other configuration file or environment prefix is used as a
-fallback. See [project scripts](../operations/project-scripts.md).
+The app loads repository scripts, tool declarations and method settings only
+from `.prometeu/settings.toml`. A worktree without this file uses the file of
+the original checkout. A worktree with its own file replaces the full file.
+Workspace scripts receive these values:
 
-A Linux AppImage launch keeps a desktop entry for the running file outside the
-state root, in `$XDG_DATA_HOME` (`~/.local/share` by default):
-`applications/co.prometeu.desktop.desktop` and its icon
-`icons/hicolor/256x256/apps/co.prometeu.desktop.png`. They hold no app state.
-`desktop_entry.rs` replaces each through a rename only when its content differs,
-and removes the entry when AppImageLauncher or Gear Lever lists the same file;
-see [ADR 0055](../decisions/0055-linux-desktop.md).
+- `PROMETEU_WORKSPACE_PATH`, `PROMETEU_ROOT_PATH` and `PROMETEU_WORKSPACE_NAME`.
+- `PROMETEU_PORT` when the app reserves a port, and the same port as `PORT`.
 
-Transcript lookup first honors the tab's saved conversation mode: terminal mode
-always reads the app-owned V1 log. Chat mode uses the tab's resolved provider,
-including a frozen task profile, before falling back to the workspace provider.
-The same resolver serves stopped snapshots and MCP history. Existing chat tabs
-retain their transcript paths without a format migration.
+The app does not use a different configuration file or environment prefix as a
+fallback. Refer to [project scripts](../operations/project-scripts.md).
 
-The native terminal transport persists a native binding only after its process's
-authenticated root hook passes observation validation. Version 1 contains
-`version`, `session`, `provider`, `nativeSession` and the absolute `transcript`
-path. It contains neither a bridge token nor message content. Reads are bounded
-to 64 KiB and require exact app/native identity and provider; unknown versions,
-unknown fields and mismatches fail. Writes use the private atomic file helper.
-The captured account's permitted roots reauthorize the path on resume, including
-intentional shared native history across accounts. A previous account id grants
-no additional filesystem access.
+When a Linux AppImage starts, it keeps a desktop entry for the running file
+out of the state root. This entry is in `$XDG_DATA_HOME` (`~/.local/share` by
+default): `applications/co.prometeu.desktop.desktop` and its icon
+`icons/hicolor/256x256/apps/co.prometeu.desktop.png`. They contain no app state.
+`desktop_entry.rs` replaces each file through a rename, but only when its
+content is different. It removes the entry when AppImageLauncher or Gear Lever
+lists the same file. Refer to [ADR 0055](../decisions/0055-linux-desktop.md).
 
-Resume loads this binding and completes a silent native baseline before spawning
-the CLI. This avoids waiting for a new prompt to produce the hook needed to read
-its history. Cursor may instead reauthorize its exact native session database
-when the derived JSONL path has not yet been reported. A missing or invalid
-source binding rejects terminal resume explicitly; it never selects another
-session or searches unrelated histories. Existing chat
-tabs do not read this additive format and require no migration. Compatibility is
-covered in `chat/terminal/binding.rs` and the observer's resume tests. The format
-alone does not reconcile output missed during an app crash; the ingestion
-journal below provides the Cursor recovery path. Other providers still need
-their source-provenance integration before terminal mode can be enabled.
+To find a transcript, the app first uses the saved conversation mode of the tab.
+Terminal mode always reads the V1 log of the app. Chat mode uses the resolved
+provider of the tab, and also a frozen task profile. If that provider is not
+available, it uses the workspace provider. The same resolver operates for
+stopped snapshots and MCP history. Current chat tabs keep their transcript paths
+without a format migration.
+
+The native terminal transport keeps a native binding only after the
+authenticated root hook of its process passes observation validation. Version 1
+contains `version`, `session`, `provider`, `nativeSession` and the absolute
+`transcript` path. It does not contain a bridge token or message content. A
+read has a limit of 64 KiB. The app and native identities and the provider must
+agree accurately. Unknown versions, unknown fields and differences cause a
+failure. Writes use the private atomic file helper.
+
+On resume, the permitted roots of the captured account authorize the path again.
+This includes native history that accounts share on purpose. A previous account
+ID does not give more access to the file system.
+
+Resume loads this binding and completes a silent native baseline before the app
+starts the CLI. Thus, the app does not wait for a new prompt to make the hook
+that it must have to read the history. As an alternative, Cursor can authorize
+its accurate native session database again when the CLI did not report the
+derived JSONL path. If the source binding is missing or incorrect, the app
+rejects the terminal resume with a clear error. It does not select a different
+session or examine unrelated histories.
+
+Current chat tabs do not read this additive format, and a migration is not
+necessary for them. The tests in `chat/terminal/binding.rs` and the resume tests of the
+observer cover compatibility. The format alone does not repair output that the
+app did not get during an app crash. The ingestion journal below gives the
+recovery path for Cursor. Each different provider must first have its
+source-provenance integration. Then, the app can enable terminal mode for it.
 
 [Remote process adoption](remote-host.md#transcript-mirror) can keep a process
-whose authenticated binding precedes its first transcript file. It retains the
-journal and identity, and requires proof that no conversation work was captured
-before observing the first prompt as new input. It does not relax the history
-requirements for launching a replacement process.
+when its authenticated binding comes before its first transcript file. It keeps
+the journal and the identity. Before it uses the first prompt as new input, it
+must have proof that the app captured no conversation work. It does not make
+the history requirements less strict when the app starts a replacement process.
 
-Promised files (such as a capture's thumbnail) are materialized by AppKit in a
-new directory per gesture, without overwriting previous attachments. The backend
-only delivers to the UI files that exist inside that directory. They are not
-removed when the message is sent, when the session ends or when the worktree is
-deleted, because the transcript may reference their paths. There is no automatic
-cleanup at this stage. Ordinary Finder files still use their original paths.
-That folder is additive: a rollback ignores the folder and preserves the paths
-already sent; no existing format requires migration.
+AppKit writes promised files (for example, the thumbnail of a capture) in a new
+directory for each gesture. It does not replace previous attachments. The
+backend gives to the UI only the files that are in that directory. The
+transcript can refer to their paths. Thus, the app does not remove them when it
+sends the message, when the session ends or when you delete the worktree. At this
+time, there is no automatic cleanup. Usual Finder files continue to use their
+original paths. That folder is additive. A rollback ignores the folder and keeps
+the paths that the app sent before. No current format must have a migration.
 
-Prometeu neither looks for nor writes in the Prometheus roots. Worktrees adopted
-in the old migration remain in `~/prometheus/worktrees`; cleaning up a multi-repo
-workspace still accepts that path, and the two applications must not operate on
-the same folder at the same time.
+Prometeu does not look for the Prometheus roots and does not write in them.
+Worktrees that the earlier migration from Prometheus adopted stay in `~/prometheus/worktrees`. The
+cleanup of a multi-repo workspace continues to accept that path. The two
+applications must not operate on the same folder at the same time.
 
 ## Notification preferences
 
-The legacy `prometeu:som` localStorage key is no longer read or written. If it
-exists, it stays inert; there is no migration and no change to the board or
-transcripts. The new `prometeu:notifications` version-1 record stores local
-notification choices, with notifications and sound disabled by default. Missing,
-invalid and future-version records keep those defaults. See the
+The app does not read or write the legacy `prometeu:som` localStorage key. If
+the key is there, it has no effect. There is no migration and no change to the
+board or the transcripts. The new `prometeu:notifications` version-1 record
+stores the local notification selections. By default, the app disables notifications and
+sound. A missing record, an incorrect record and a record from a future
+version keep those default values. Refer to the
 [notification contract](notifications.md) and
 [ADR 0054](../decisions/0054-local-notifications.md).
 
 ## Collaboration security
 
-`team-security.json` is additive, private (`0600` in a `0700` directory), with
-atomic writes and an 8 MiB limit. The envelope is
-`{ version: 1, scopes: { ... } }`. Each scope combines the origin, the
-organization/team, the local Cloud account and the membership. It contains a
-P-256 identity (private JWK and public key), member links, the announcement
-sequence, the last owner/key/revision/ID per share, receipts for remote messages
-and the clock of the last consumption. Limits: 64 links, 4096 shares and 4096
-unexpired receipts per scope. Receipts expire within two minutes.
+`team-security.json` is additive and private (`0600` in a `0700` directory).
+Its writes are atomic, and its limit is 8 MiB. The envelope is
+`{ version: 1, scopes: { ... } }`. Each scope is the combination of these items:
 
-Each scope also holds `approved`, the member → key pairs whose remote input the
-owner approved, and `paused`, the member → workspace IDs where input from an
-unapproved key was discarded until the owner answers its notice. `paused`
-holds identifiers only, never message content. Limits: 64 approvals and 64
-paused members with up to 64 workspaces each. A scope written before approvals
-existed has no `approved` field: on load, its links become approved, so an
-upgrade keeps teams working. A new scope starts with no approvals. A rollback
-to a version without these fields drops them at its next write; upgrading again
-approves the links present then. See
+- The origin.
+- The organization or team.
+- The local Cloud account.
+- The membership.
+
+A scope contains these items:
+
+- A P-256 identity (a private JWK and a public key).
+- Member links.
+- The announcement sequence.
+- The last owner, key, revision and ID for each share.
+- Receipts for remote messages.
+- The clock of the last consumption.
+
+The limits for each scope are 64 links, 4096 shares and 4096 receipts that did
+not expire. Receipts expire in two minutes or less.
+
+Each scope also contains two fields:
+
+- `approved`: the member → key pairs. The owner approved the remote input from these keys.
+- `paused`: the member → workspace IDs where the app discarded input from a key
+  that is not approved. The input stays discarded until the owner answers the
+  notice.
+
+`paused` contains only identifiers. It does not contain message content at any
+time. The limits are 64 approvals and 64 paused members, with a maximum of 64
+workspaces for each member.
+
+A scope from before the approvals feature has no `approved` field. When the app
+loads that scope, its links become approved. Thus, teams continue to operate
+after an upgrade. A new scope starts with no approvals. A rollback to a version
+without these fields removes them at its next write. A new upgrade then approves
+the links that are there at that time. Refer to
 [ADR 0090](../decisions/0090-approved-remote-input.md).
 
-Identity creation, a member link — first or replaced —, an approval, a revision
-and a receipt are written before the corresponding use. Corruption, an unknown
-version and a read/write failure block collaboration; they do not silently
-regenerate keys.
-Leaving the team, switching organizations, logging out and renewing a ticket do
-not remove the file. The webview's operations are serialized; the Rust write
-uses the same lock during read/validation/write.
+The app writes these items before it uses them:
 
-The file contains secrets and is neither an encrypted backup nor a content key
-on the server. Losing it loses TOFU continuity and access to the encrypted
-comments for the old identity. A new device joins with a new key and peers adopt
-it automatically ([ADR 0042](../decisions/0042-automatic-key-rotation.md)). A rollback ignores and preserves the file; it never converts it into v3
-credentials. The browser mock stores only fictional identities in localStorage
-and exercises the same cryptographic channel.
+- A new identity.
+- A member link, first or replaced.
+- An approval.
+- A revision.
+- A receipt.
+
+Corruption, an unknown version and a read or write failure stop collaboration.
+The app does not silently make new keys. The file stays when a person leaves
+the team, changes the organization, logs out or renews a ticket. The webview
+does its operations one at a time. The Rust write uses the same lock during the
+read, the validation and the write.
+
+The file contains secrets. It is not an encrypted backup, and it is not a
+content key on the server. If the file is lost, the TOFU continuity
+is lost, and also the access to the encrypted comments of the previous identity. A new device
+joins with a new key, and peers adopt it automatically
+([ADR 0042](../decisions/0042-automatic-key-rotation.md)). A rollback ignores
+the file and keeps it. It does not change it into v3 credentials at any time.
+The browser mock stores only fictional identities in localStorage, and it uses
+the same cryptographic channel.
 
 Tests: `src/team-security.test.ts` and the `src-tauri/src/team.rs` tests.
 Network contract and limits: [relay v4](relay-v4.md).
 
 ## Optional context evaluation
 
-`typesafe.json` is additive: `{ version: 1, enabled, key }`, every field with a
-default. A missing file, an old installation or a file without both a key and
-`enabled: true` keeps the integration disabled; saving a key does not enable
-it, and removing the key deletes the file. An unreadable file stays disabled
-and is reported in Settings without blocking work. The key never enters the
-board, transcripts, `team.json`, the relay or Cloud catalogs, and no IPC result
-returns it. Tests: `src-tauri/src/typesafe.rs`. See the
+`typesafe.json` is additive: `{ version: 1, enabled, key }`. Each field has a
+default value. These conditions keep the integration disabled:
+
+- The file is missing.
+- The installation is from a previous version.
+- The file does not have a key and `enabled: true` together.
+
+When you save a key, the integration does not become enabled. When you remove
+the key, the app deletes the file. An unreadable file stays disabled. Settings
+shows the problem, and work continues. The key does not go into the board, the
+transcripts, `team.json`, the relay or the Cloud catalogs at any time. No IPC
+result returns it. Tests: `src-tauri/src/typesafe.rs`. Refer to the
 [contract](context-evaluation.md).
 
 ## GitHub notification read state
 
-`prometeu:github-notifications:read:<origin>#<user id>` in desktop webview
-localStorage stores `{ "before": "<id>", "ids": ["<id>"] }` for one Prometeu
-account on this Mac only. Notification rows are
-not persisted; they come back from the Cloud feed. See
+`prometeu:github-notifications:read:<origin>#<user id>` in the localStorage of
+the desktop webview stores `{ "before": "<id>", "ids": ["<id>"] }`. It applies
+to one Prometeu account on this Mac only. The app does not keep notification
+rows. They come back from the Cloud feed. Refer to
 [GitHub notifications](github-notifications.md).
 
 ## Settings navigation preference
 
-`prometeu:configuracoes` remains a local string in desktop webview localStorage.
-New selections write `geral`, `agentes`, `recursos`, `acoes`, or `trabalho`.
-Reading a historical page selects its new group: `contas` and `padroes` open
-Agents; `notifications` and `app` open General; `ferramentas`, `plugins` and
-`skills` open Resources with the corresponding filter; `projects`, `time` and
-`integracoes` open Work and team. Unknown values open General. Reading does not
-rewrite the saved value or any underlying preference. No board, IPC or provider
-format changes. Compatibility is covered by `src/settings-navigation.test.ts`.
+`prometeu:configuracoes` stays a local string in the localStorage of the desktop
+webview. New selections write `geral`, `agentes`, `recursos`, `acoes` or
+`trabalho`. When the app reads a historical page value, it selects the new
+group for that value:
+
+- `contas` and `padroes` open Agents.
+- `notifications` and `app` open General.
+- `ferramentas`, `plugins` and `skills` open Resources with the applicable
+  filter.
+- `projects`, `time` and `integracoes` open Work and team.
+- Unknown values open General.
+
+The read does not write the saved value or a related preference again. No
+board, IPC or provider format changes. `src/settings-navigation.test.ts` contains the
+compatibility tests.
 
 ## Skill kickoff
 
-`Tab.kickoff` is an optional `<package>/<skill>` string recording the *Start
-with* skill a conversation began from; it is omitted when absent, so ordinary
-tabs keep the previous shape and older boards load with none. A resume adds
-that package to the tab's resolved tools while the skill is still installed,
-and otherwise resumes without it and warns in the conversation; no selection
-layer stores it.
+`Tab.kickoff` is an optional `<package>/<skill>` string. It records the *Start
+with* skill that a conversation started from. When there is no skill, the app
+does not write the field. Thus, usual tabs keep the previous shape, and previous
+boards load with no kickoff. While the skill is installed, a resume adds that
+package to the resolved tools of the tab. If the skill is not installed, the
+resume continues without it and shows a warning in the conversation. No
+selection layer stores the kickoff.
 
-The repository declares where artifacts land with `[method] artifacts` in
-`.prometeu/settings.toml`, read by `scripts.rs` with the same clone inheritance
-and primary-repository rule as `[tools]`. Only a relative path inside the
-repository is accepted; otherwise nothing is named.
+The repository tells where artifacts go with `[method] artifacts` in
+`.prometeu/settings.toml`. `scripts.rs` reads it with the same clone inheritance
+and primary-repository rule as `[tools]`. The app accepts only a relative path
+in the repository. For a different path, it names no path.
 
-The last explicit launcher choice, including none, lives in desktop webview
-localStorage as the string `prometeu:kickoff`. A value the installed catalog no
-longer offers, or unavailable storage, starts without a skill. Tests:
+The desktop webview keeps the last launcher selection of a person in its
+localStorage as the string `prometeu:kickoff`. This selection can also be no
+skill. If
+the installed catalog does not have that value at this time, or the storage is not
+available, the conversation starts without a skill. Tests:
 `crates/core/src/board.rs::tabs_without_a_kickoff_keep_the_previous_format`,
 `scripts.rs::method_artifacts_are_inherited_normalized_and_never_invented` and
-`src/kickoff.test.ts`. See
+`src/kickoff.test.ts`. Refer to
 [ADR 0057](../decisions/0057-skill-kickoff-and-artifact-path.md).
 
 ## Automatic worktree cleanup
 
-`prometeu:auto-cleanup-force` is a desktop webview localStorage string. Only `true`
-enables automatic cleanup after a successful manual archive or finish. Missing,
-unrecognized or inaccessible values keep the scoped confirmation, preserving
-upgrade behavior. `false` disables automation. The preference applies across
-projects in that webview and survives restarts; it is not stored on the board
-or synchronized through the relay. No IPC or board format changes are needed.
-Enabled cleanup runs with `force`, so dirty or unmerged work is deleted. The
-earlier `prometeu:auto-cleanup` key recorded consent to a cleanup that asked
-before deleting that work, so it is no longer read and those opt-ins start off;
-see the
-[Git contract](git.md#archived-worktree-cleanup) and
+`prometeu:auto-cleanup-force` is a string in the localStorage of the desktop
+webview. Only `true` enables automatic cleanup after a successful manual archive
+or finish. A missing, unknown or inaccessible value keeps the scoped
+confirmation. Thus, the behavior after an upgrade does not change. `false`
+disables the automatic cleanup. The preference applies to all projects in that
+webview and stays after a restart. The app does not store it on the board or
+send it through the relay. No IPC or board format changes are necessary.
+
+An enabled cleanup runs with `force`. Thus, the cleanup deletes work that is not
+committed or not merged. The earlier `prometeu:auto-cleanup` key recorded
+consent to a cleanup that asked before it deleted that work. For this reason,
+the app does not read that key at this time, and those consents start as disabled. Refer
+to the [Git contract](git.md#archived-worktree-cleanup) and
 [ADR 0048](../decisions/0048-scoped-cleanup-offer.md).
 Tests: `src/cleanup.test.ts`.
 
 ## Sleep preference
 
-`prometeu:acordado` is a desktop webview localStorage string. `off` permits
-normal sleep; `on` keeps the system and display awake while the app is open;
-`agent` keeps both awake only while a local tab is `rodando`; and the additive
-macOS option `agent-system` keeps the system awake during that same state but
-permits display sleep. The original three values retain their behavior and are
-never rewritten automatically. Linux presents the original choices only.
-The preference is local to this Mac, never the board or relay. Missing or
-unrecognized values resolve to `off`. The native assertion is ephemeral and
-ends when the app exits; no sleep assertion is persisted.
+`prometeu:acordado` is a string in the localStorage of the desktop webview. It
+has these values:
+
+- `off`: the system can sleep as usual.
+- `on`: the system and the display stay awake while the app is open.
+- `agent`: the system and the display stay awake only while a local tab is
+  `rodando`.
+- `agent-system` (additive, macOS only): the system stays awake in that same
+  state, but the display can sleep.
+
+The three original values keep their behavior, and the app does not write them
+again automatically at any time. Linux shows only the original values. The
+preference is local to this Mac. It is not in the board or the relay. A missing
+or unknown value becomes `off`. The native assertion is temporary and stops
+when the app stops. The app does not keep a sleep assertion.
 
 ## Sidebar width
 
-`rail-w` is an optional decimal pixel width in desktop webview localStorage.
-Missing, non-finite or non-positive values use the design token default (256px).
-Dragging the sidebar's right edge or using Left/Right on its separator saves
-this local preference. Double-click or Home removes it and restores the default.
-Rendering clamps the width to 200px–50% of the window (at least 200px), including
-on startup and window resize, without overwriting the preferred width on resize.
-The right panel is additionally capped by the remaining workspace width, reserving
-320px for the conversation, or half the workspace when it is narrower than 640px.
-This rendering cap applies to restored widths, either resize handle and panel
-visibility changes without rewriting the saved `side-w` preference.
-It does not change the board, relay or the existing right-panel `side-w` key.
-Older installations need no migration; older versions ignore the new key.
-Compatibility and browser interaction coverage: `e2e/sidebar-resize.spec.ts`.
+`rail-w` is an optional decimal pixel width in the localStorage of the desktop
+webview. A missing, not finite, zero or negative value uses the default of the
+design token (256px). When you drag the right edge of the sidebar, or use
+Left/Right on its separator, the app saves this local preference. A double-click
+or Home removes it and puts the default back.
+
+During rendering, the app keeps the width between 200px and 50% of the window,
+with a minimum of 200px. This rule also applies at startup and when the window size
+changes. A change of the window size does not replace the preferred width.
+The remaining workspace width also limits the right panel. The app keeps 320px
+for the conversation, or half of the workspace when the workspace is narrower
+than 640px.
+
+This rendering limit applies to restored widths, to the two resize handles and
+to changes in panel visibility. It does not write the saved `side-w` preference
+again. It does not change the board, the relay or the current `side-w` key of
+the right panel. Previous installations do not have to do a migration. Previous versions
+ignore the new key. `e2e/sidebar-resize.spec.ts` contains the tests for compatibility
+and for the browser interaction.
 
 ## Model selection preferences
 
-These preferences live in desktop webview localStorage, not the board or relay:
+These preferences are in the localStorage of the desktop webview, not in the
+board or the relay:
 
 - `prometeu:model-choice`: JSON `{ agent: ProviderId, model: string }`.
-- `prometeu:model-favorites`: JSON array of the same pairs, deduplicated by both
-  fields. Favorites are local to this installation and shared by desktop pickers.
-- `prometeu:effort`: native effort string; empty means provider default.
+- `prometeu:model-favorites`: a JSON array of the same pairs, without two
+  entries that have the same two fields. Favorites are local to this
+  installation, and all desktop pickers use them.
+- `prometeu:effort`: the native effort string. An empty string means the
+  default of the provider.
 
-The old `prometeu:model` string remains untouched. When the new choice is absent,
-wait for successful discovery of all installed agents and migrate only an
-unambiguous model/provider association;
-known historical Claude aliases can still identify old Claude preferences.
-An ambiguous or unrecognized legacy value requires explicit selection. A new
-installation defaults to the first installed provider's native model default.
-Malformed preference JSON is ignored. Removing a model from a catalog does not
-remove its saved default, favorite, tab choice or profile choice. Favorites that
-are unavailable in the current account remain stored but are not selectable.
+The app does not change the previous `prometeu:model` string. When there is no new
+choice, the app waits until the discovery of all installed agents is
+successful. Then it does a migration only when the association of model and
+provider is clear. Known historical Claude aliases can continue to identify previous
+Claude preferences. For an unclear or unknown legacy value, the person must
+select a model. A new installation uses the native default model of the first
+installed provider. The app ignores incorrect preference JSON.
 
-Historical Codex `ultracode` effort is read as `ultra`; new selections write native
-values. Historical unsupported efforts stay visible and are not rewritten merely
-by opening or saving an unrelated profile field. Explicit model changes retain
-only supported effort; otherwise they select the provider default and explain
-the adjustment. `Choice` and `SessionLaunch` retain their existing wire shapes.
-An unavailable saved model or unsupported effort cannot start a new workspace
-until explicitly corrected; its saved preference and existing conversations are
-not rewritten. Catalogs and freshness state are memory-only and are invalidated on account
-changes. Tests: `src/model-choice.test.ts`, `src/agents.test.ts`, and
-`e2e/model-picker.spec.ts`, with action profile compatibility in `e2e/actions.spec.ts`.
+When a catalog removes a model, the app does not remove its saved default,
+favorite, tab choice or profile choice. Favorites that are not available in the
+current account stay stored, but you cannot select them.
+
+The app reads the historical Codex `ultracode` effort as `ultra`. New selections
+write native values. Historical efforts that the provider cannot use stay
+visible. The app does not write them again only because you open or save an
+unrelated profile field. An explicit model change keeps the effort only if the
+new model can use it. If not, it selects the default of the provider and tells
+the person about the change. `Choice` and `SessionLaunch` keep their current
+wire shapes.
+
+A saved model that is not available, or an effort that the model cannot use,
+cannot start a new workspace until the person corrects it. The app does not
+write its saved preference and the current conversations again. Catalogs and
+their freshness state are only in memory, and an account change makes them not
+valid. Tests: `src/model-choice.test.ts`, `src/agents.test.ts` and
+`e2e/model-picker.spec.ts`, with the compatibility of action profiles in
+`e2e/actions.spec.ts`.
 
 ## Board
 
 `Board.conversation_mode` is the default for new conversations, `chat` or
-`terminal`. Each `Tab.conversation_mode` stores the mode selected when that
-conversation was created. Both default to `chat` and omit that value on save,
-so an older tab stays in chat when the global default changes. Resume restores
-the saved tab mode, including reusable actions; changing a model or the global
-preference does not convert an existing transcript. `Launch.conversation_mode`
-is optional: omission inherits the board preference only on creation, while an
-explicit `chat` overrides a terminal default.
+`terminal`. Each `Tab.conversation_mode` stores the mode that the person
+selected when the app made that conversation. The two fields have the default
+`chat`, and the app does not write that value when it saves. Thus, a previous tab
+stays in chat when the global default changes. Resume puts back the saved mode
+of the tab, also for reusable actions. A change of the model or of the global
+preference does not change a current transcript. `Launch.conversation_mode` is
+optional. If it is missing, the launch uses the board preference, but only when
+the app makes the conversation. An explicit `chat` replaces a terminal
+default.
 
-macOS exposes the default in Settings / General and runs native terminal
-conversations. Linux rejects terminal launches explicitly. Compatibility
-is covered by the board revival and mode round-trip tests in
-`crates/core/src/board.rs`, launch deserialization in
-`crates/core/src/session/launch/tests.rs`, and desktop task/tab resume tests in
-`src-tauri/src/session.rs`.
+macOS shows the default in Settings / General and operates native terminal
+conversations. Linux rejects terminal launches with a clear error. These tests
+cover compatibility:
+
+- The board revival and mode round-trip tests in `crates/core/src/board.rs`.
+- The launch deserialization tests in `crates/core/src/session/launch/tests.rs`.
+- The desktop tests for task and tab resume in `src-tauri/src/session.rs`.
 
 Workspace stages are retired ([ADR 0102](../decisions/0102-remove-workspace-stages.md)).
-Legacy `stages`/`columns` and `stage`/`column` fields are ignored on load and
-omitted on save. Workspaces and transcripts survive unchanged. Versions requiring
-those fields cannot read a newly saved board; use a pre-upgrade backup to downgrade.
+The app ignores the legacy `stages`/`columns` and `stage`/`column` fields when
+it loads a board, and it does not write them when it saves. Workspaces and
+transcripts do not change. Versions that must have those fields cannot read a
+board that the new version saved. To go back to such a version, use a backup
+from before the upgrade.
 
-`Board` contains projects, workspaces and the optional `actions`
-catalog. The order of `projects` is the sidebar order the person chose by
-dragging; older boards keep their registration order. `Project.group` is the
-optional sidebar folder; it is written only when set, so older boards load
-unchanged and older versions ignore it. Folders exist only as that name on their
-members. The sidebar shows folders first, alphabetically, then loose projects,
-and a drag reorders only within one folder or among loose projects. `Tab.task` stores the resolved configuration and the tasks' cursors.
-The absence of those fields keeps previous sessions working. The catalog
-receives Code review exactly once, recorded in `actions.defaults_initialized`;
-see [actions](actions.md). `Workspace` contains repositories, branch, worktree,
-agent configuration, the MCP/plugins/skills selection, sharing and tabs.
-`preserve_branches` lists clone paths whose existing local or remote branches
-must survive worktree cleanup. Each repository is checked separately, so a
-new branch in another repository still needs merge safety and is deleted on
-cleanup. Older boards omit the list and retain their previous cleanup behavior.
+`Board` contains projects, workspaces and the optional `actions` catalog. The
+sequence of `projects` is the sidebar sequence that the person selected with a
+drag. Previous boards keep their registration sequence. `Project.group` is the
+optional sidebar folder. The app writes it only when it has a value. Thus, previous
+boards load without a change, and previous versions ignore it. A folder is only
+that name on its members. The sidebar shows folders first, in alphabetical
+sequence, and then the projects without a folder. A drag changes the sequence
+only in one folder or among the projects without a folder.
 
-`Tab.tokens` stores an incremental estimate of the tokens used in the
-conversation; `Tab.context_tokens` stores the last observed context so only the
-growth is added. When the context drops after compaction, the new value starts
-another segment and adds to the total. Old boards without `context_tokens` treat
-`tokens` as the total and the initial cursor, without duplicating the value. The
-tab also contains identity, status, pending message, model override and the
-external identity used for resume when needed. `Tab.interrupted` is set on
-revival for a tab that was `rodando` or `querendo` when the app ended, and the
-next accepted message clears it; it is written only while true. When such a tab
-starts a process again, its transcript ends at the cut, so `Tab.cuts` records
-that line count; replay places `session.state: stopped` there, and continuing
-never makes the cut reply look finished. Transcripts only grow at the end, so
-the position holds for native and app-owned logs alike. `cuts` is written only
-when not empty, so older boards load and save unchanged. An empty `Tab.title` is an
-unnamed tab: the interface shows the model it talks to. Old boards with the
-invented name `conversa` or `conversa N` are normalized to empty on load.
+`Tab.task` stores the resolved configuration and the cursors of the tasks. When
+those fields are missing, previous sessions continue to operate. The catalog
+receives Code review one time only, and `actions.defaults_initialized` records
+this. Refer to [actions](actions.md). `Workspace` contains the repositories, the
+branch, the worktree, the agent configuration, the MCP/plugins/skills selection,
+the sharing and the tabs.
 
-`Board.tools` keeps the global layer of the tool selection and
-`Board.tool_trust` the decisions that let a repository's declaration activate;
-both are described in [Tool selection layers](#tool-selection-layers).
+`preserve_branches` lists clone paths. The current local and remote
+branches of these clones must stay after worktree cleanup. The app examines each repository
+independently. Thus, a new branch in a different repository continues to have
+merge safety, and cleanup deletes it. Previous boards do not have the list and keep
+their previous cleanup behavior.
 
-Removing a project only takes its registration out of the board. The repository,
-worktrees and conversations are not deleted; workspaces linked to it appear
-under **No project**. On load, only legacy workspaces without the `project`
-field rebuild the registration. An explicit id without a matching project
-preserves the removal.
+`Tab.tokens` stores an estimate of the tokens that the conversation used. The
+app adds to this estimate in increments. `Tab.context_tokens` stores the last
+observed context, so that the app adds only the increase. When the context
+becomes smaller after compaction, the new value starts a new segment and adds
+to the total. Previous boards without `context_tokens` use `tokens` as the total and
+as the initial cursor, and the app does not count the value two times. The tab
+also contains the identity, the status, the pending message, the model override
+and, when necessary, the external identity for resume.
 
-On load:
+The app sets `Tab.interrupted` during revival for a tab that was `rodando` or
+`querendo` when the app stopped. The next accepted message removes it. The app
+writes it only while it is true. When such a tab starts a process again, its
+transcript ends at the cut. Thus, `Tab.cuts` records that line count. Replay
+puts `session.state: stopped` at that position. When the conversation
+continues, the reply at the cut does not look complete at any time.
 
-- unknown enum values fall back to a safe state when declared by
-  `serde(other)`;
-- added fields use `serde(default)`;
-- aliases preserve old names during migration;
-- runtime states are reconciled: processes do not survive the app.
+Transcripts only become longer at the end. Thus, the position is correct for
+native logs and for logs of the app. The app writes `cuts` only when it is not
+empty. Thus, previous boards load and save without a change. An empty `Tab.title`
+is a tab without a name, and the interface shows the model of the tab. When the
+app loads previous boards with the invented name `conversa` or `conversa N`, it
+changes that name to an empty name.
 
-A change that removes, renames or alters the semantics of a persisted field
-requires a test with JSON from the previous version.
+`Board.tools` keeps the global layer of the tool selection. `Board.tool_trust`
+keeps the decisions that let the declaration of a repository become active.
+[Tool selection layers](#tool-selection-layers) gives the two fields.
+
+When you remove a project, the app removes only its registration from the
+board. It does not delete the repository, the worktrees or the conversations.
+The workspaces of that project show under **No project**. During a load, only
+legacy workspaces without the `project` field make the registration again. An
+explicit ID without an applicable project keeps the removal.
+
+During a load, the app does these operations:
+
+- For unknown enum values, it uses a safe state when `serde(other)` declares it.
+- For added fields, it uses `serde(default)`.
+- During a migration, aliases keep the previous names.
+- It makes runtime states agree with reality. Processes do not stay after the
+  app stops.
+
+A change that removes a persisted field, renames it or changes its meaning must
+have a test with JSON from the previous version.
 
 ### Unreadable state
 
-Prometeu never replaces bytes it could not read. When `board.json` does not
-deserialize, the board comes from `board.json.bak`; when the backup does not
-either, it starts empty. Before anything replaces an unreadable file, its bytes
-are copied into the private `<root>/recovery/` folder as `board-<millis>.json`
-or `board-backup-<millis>.json`. A copy identical to one already there is not
-written again, a new copy never takes an existing name, and only the newest five
-distinct copies of each file remain.
+Prometeu does not replace bytes that it cannot read at any time. When
+`board.json` does not deserialize, the board comes from `board.json.bak`. When
+the backup also does not deserialize, the board starts empty. Before the app
+replaces an unreadable file, it copies the bytes of that file into the private
+`<root>/recovery/` folder as `board-<millis>.json` or
+`board-backup-<millis>.json`. The app does not write a copy again if an
+identical copy is there. A new copy does not use the name of a current copy at
+any time. The app keeps only the five most recent different copies of each file.
 
-An unreadable `board.json` is copied at load, so the original stays in place
-until a save replaces it. While that copy fails, or when the file could not be
-read at all, every save returns an error and the files on disk stay untouched.
-An unreadable backup is copied at load when the board falls back, and otherwise
-before the first save of the session refreshes it. While that copy fails, saves
-still write `board.json` but leave the backup as it is.
+The app copies an unreadable `board.json` during the load. Thus, the original
+stays until a save replaces it. While that copy fails, or when the app cannot
+read the file at all, each save returns an error. The files on the disk do not
+change.
 
-At startup the interface asks `board_recovery` and, when the board came from
-the backup or started empty, shows a dialog with the recovery folder and any
-copy error; see [IPC](ipc.md#board-recovery). `team.json` follows the same
-rule: a file that does not parse still reads as no team, but joining or leaving
-first copies it to `recovery/team-<millis>.json`, and a file that cannot be read
-blocks both.
+The app copies an unreadable backup during the load when the board uses the
+backup. If not, it copies the backup before the first save of the session
+writes it again. While that copy fails, saves continue to write `board.json`,
+but they do not change the backup.
 
-Neither the board nor `team.json` changes format. Coverage lives in
-`board_store.rs`, `recovery.rs` and `team.rs`. See
+At startup, the interface asks `board_recovery`. The board can come from the
+backup or start empty. In these two conditions, the interface shows a dialog
+with the recovery folder and the copy error, if there is one. Refer to [IPC](ipc.md#board-recovery).
+`team.json` uses the same rule. A file that does not parse continues to read as
+no team. But before the app joins or leaves a team, it copies the file to
+`recovery/team-<millis>.json`. If the app cannot read the file, it stops the
+join and the leave operations.
+
+The board and `team.json` do not change their formats. The tests in
+`board_store.rs`, `recovery.rs` and `team.rs` cover this behavior. Refer to
 [ADR 0091](../decisions/0091-keep-unreadable-state.md).
 
 ## Ordered board publication
 
-`BoardPublisher::publish` serializes snapshot creation, enqueueing, and the `board`
-event under one publication mutex. It briefly locks the current board to clone
-it, then releases the board lock before enqueueing and emission. Competing
-publishers cannot enqueue or emit an older captured snapshot after a newer one.
-The worker still coalesces writes and performs disk I/O outside the board lock.
+`BoardPublisher::publish` does these operations in sequence under one
+publication mutex:
 
-`save_now` uses the same publication mutex and waits for a flush acknowledgment.
-Flushing does not terminate the worker: action transitions also flush while
-the app remains running. Later changes must still be persisted. Regression
-coverage lives in `crates/core/src/publication/tests.rs`, including concurrent
-publication, durable barriers, storage failures and disconnected delivery.
-Storage and event delivery use injected ports; see the
-[application-core contract](application-core.md). Terminal port assignment uses
-the same persistence queue, preventing older snapshots from overwriting it.
+1. It makes the snapshot.
+2. It puts the snapshot in the queue.
+3. It sends the `board` event.
 
-No board fields or serialization change. See
+ It locks the current board for a short time to copy
+it. Then it releases the board lock before it puts the snapshot in the queue and
+sends the event. Thus, a publisher cannot put a previous snapshot in the queue, or
+send it, after a more recent snapshot. The worker continues to combine writes and to
+do disk I/O outside the board lock.
+
+`save_now` uses the same publication mutex and waits for a flush
+acknowledgment. A flush does not stop the worker. Action transitions also flush
+while the app continues to operate. The app must also keep the changes that
+come after the flush. `crates/core/src/publication/tests.rs` contains the
+regression tests. They include concurrent publication, durable barriers,
+storage failures and disconnected delivery.
+
+Storage and event delivery use injected ports. Refer to the
+[application-core contract](application-core.md). The assignment of terminal
+ports uses the same persistence queue. Thus, previous snapshots cannot replace
+that assignment.
+
+No board fields or serialization change. Refer to
 [ADR 0023](../decisions/0023-ordered-publication.md).
 
 ## Derived plugins
 
-The hub is Prometeu's source of truth. The copy and the marketplace under
-`<root>/codex-workspaces/<workspace-hash>/marketplace/` are a cache: they carry
-a hash of the source, can be recreated and do not enter the board. The same
-directory contains a derived `config.toml` that inherits the real configuration
-and keeps the trust and the active hook state of that workspace. The original
-account's layer stays at that path; managed accounts get their own
-subdirectory. The remaining `CODEX_HOME` entries point to the profile captured
-at spawn. Each profile keeps its own credential, while sessions, skills and the
-plugin cache stay shared. The global configuration receives neither Prometeu's
-marketplace nor its activation. Removing the workspace from the board or
-returning its worktree deletes that derived layer, without following the links
-to the shared state. The complete contract is in
-[`plugin-marketplace.md`](plugin-marketplace.md).
+The hub is the source of truth of Prometeu. The copy and the marketplace in
+`<root>/codex-workspaces/<workspace-hash>/marketplace/` are a cache. They
+contain a hash of the source. The app can make them again, and they do not go
+into the board. The same directory contains a derived `config.toml`. This file
+uses the real configuration and keeps the trust and the active hook state of
+that workspace.
+
+The layer of the original account stays at that path. Each managed account gets
+its own subdirectory. The other `CODEX_HOME` entries point to the profile that
+the app captured when it started the process. Each profile keeps its own
+credential, but sessions, skills and the plugin cache stay shared. The global
+configuration does not receive the marketplace of Prometeu or its activation.
+
+When you remove the workspace from the board or return its worktree, the app
+deletes that derived layer. It does not follow the links to the shared state.
+The full contract is in [`plugin-marketplace.md`](plugin-marketplace.md).
 
 ## Tool selection layers
 
-MCP servers, plugins and skills are three independent axes, each selected in
-three layers resolved in the order global → project → workspace
-([ADR 0045](../decisions/0045-layered-tool-selection.md)). Per axis, a layer is
-either absent — inherit from the layer above — or an object:
+MCP servers, plugins and skills are three independent axes. The app selects
+each axis in three layers, in the sequence global → project → workspace
+([ADR 0045](../decisions/0045-layered-tool-selection.md)). For each axis, a
+layer is missing, and then it uses the layer above, or it is an object:
 
 ```ts
 type Selection = null | { base: "none" | "inherit"; add: string[]; remove: string[] };
 ```
 
-An omitted `base` means `"inherit"`, so a hand-written `[tools]` that declares
-only `add` never erases the layers above it. Within one layer `add` is applied
-first and `remove` has the last word.
+A missing `base` means `"inherit"`. Thus, a manually written `[tools]` that
+declares only `add` does not erase the layers above it at any time. In one
+layer, the app applies `add` first, and `remove` has the last decision.
 
 | Layer | Where it lives | Owner |
 | --- | --- | --- |
@@ -468,406 +582,545 @@ first and `remove` has the last word.
 | project | the `[tools]` table of `.prometeu/settings.toml`, in the repository | `scripts.rs` |
 | workspace | `Workspace.mcp`, `Workspace.plugins` and `Workspace.skills` | `crates/core/src/board.rs` |
 
-`Board.tools` is app-local and holds one `Selection` per axis, all absent by
-default, so an old board keeps injecting exactly what it used to. The project
-layer is the only one written outside the app root: the file is versioned, so a
-repository author could otherwise choose packages and hooks for whoever clones
-it. For a multi-repository workspace only the **primary** repository's `[tools]`
-is read, matching the single-root behavior of Claude Code and Cursor and the
-launcher's existing use of the primary repository.
+`Board.tools` is local to the app. It contains one `Selection` for each axis,
+and all of them are missing by default. Thus, a previous board continues to inject
+the same items as before. The project layer is the only layer that the app
+writes outside the app root. The file is versioned. Without trust, a repository
+author can select packages and hooks for all persons who clone it.
 
-`Board.tool_trust` stores one decision per primary repository:
-`{ repo, hash, approved, at }`. `repo` is the `origin` remote URL when one
-exists and the clone's absolute path otherwise; `hash` is the SHA-256 of the
-declared `[tools]` section, recomputed by the backend and compared with the
-version displayed to the person before the decision is recorded (ADR 0047).
-Stale submissions leave this persisted format and existing decisions unchanged. `approved: false` is an explicit rejection: it quiets the prompt but
-keeps the declaration's items out of every spawn, labeled as rejected. A
-declaration whose hash differs from the stored decision — approval or rejection
-— is resolved but not injected, and prompts again, until the person decides;
-the decision is never written into the repository. See
+For a multi-repository workspace, the app reads only the `[tools]` of the
+**primary** repository. This agrees with the single-root behavior of Claude Code
+and Cursor. It also agrees with the current use of the primary repository in
+the launcher.
+
+`Board.tool_trust` stores one decision for each primary repository:
+`{ repo, hash, approved, at }`.
+
+- `repo` is the URL of the `origin` remote when there is one. If not, it is
+  the absolute path of the clone.
+- `hash` is the SHA-256 of the declared `[tools]` section. The backend
+  calculates it again and compares it with the version that the person saw
+  before the app records the decision (ADR 0047).
+
+A submission for a version that is not current does not change this persisted
+format or the current decisions.
+`approved: false` is an explicit rejection. It stops the prompt, but it keeps
+the items of the declaration out of each process start, with the label
+"rejected". The hash of a declaration can be different from the stored
+decision (approval or rejection). The app resolves such a declaration, but it
+does not inject it. It asks the person again until the person decides. The app does not write the decision into
+the repository at any time. Refer to
 [`plugin-marketplace.md`](plugin-marketplace.md).
 
 ### Workspace migration
 
-`Workspace.mcp` and `Workspace.plugins` were `Option<Vec<String>>`. On load
-`null` stays `null`, `[]` becomes `{base:"none", add:[]}` and `[ids]` becomes
-`{base:"none", add:ids}`, so a migrated board resolves to the same set it used
-to inject. Entries matching `skill-<id>` move from `plugins` to the new `skills`
-axis; the hub keeps them as packages, so only the state and the interface change.
-`Workspace.skills` is absent, therefore inherited, in old boards.
+`Workspace.mcp` and `Workspace.plugins` were `Option<Vec<String>>`. During a
+load, the app changes them as follows:
 
-The migration is one-way: a previous version cannot deserialize the object form
-and falls back to the board backup, then to a default board. Versions that keep
-[unreadable state](#unreadable-state) copy the unreadable files before saving. The resolved set is
-captured at spawn, so a change in any layer takes effect at the next spawn or
-resume
-([`agent-runtime.md`](agent-runtime.md)).
+- `null` stays `null`.
+- `[]` becomes `{base:"none", add:[]}`.
+- `[ids]` becomes `{base:"none", add:ids}`.
+
+Thus, a board after the migration resolves to the same set that it injected
+before. The app moves entries with the form `skill-<id>` from `plugins` to the
+new `skills` axis. The hub keeps them as packages, so only the state and the
+interface change. In previous boards, `Workspace.skills` is missing, and thus it
+uses the layer above.
+
+The migration operates in one direction only. A previous version cannot
+deserialize the object form. It then uses the board backup, and after that a
+default board. Versions that keep [unreadable state](#unreadable-state) copy the
+unreadable files before they save. The app captures the resolved set when it
+starts the process. Thus, a change in a layer has an effect at the next process
+start or resume ([`agent-runtime.md`](agent-runtime.md)).
 
 ## Quotas
 
-`usage.json` stores, per local account ID, the known windows and the timestamp
-of the last change. The old `claude` and `codex` keys still identify the
-original profiles, without rewriting previous caches. The registry and the
-global selection are in [`accounts.md`](accounts.md); they do not enter the
-board or the relay. Each window has a kind, a percentage and a reset. `scope`
-and `label` are optional: old snapshots without those fields are still a single
-quota; new snapshots use `scope` to keep general quotas and model or feature
-buckets separate. The file is a cache: a valid read from the provider replaces
+`usage.json` stores, for each local account ID, the known windows and the
+timestamp of the last change. The previous `claude` and `codex` keys continue to
+identify the original profiles. The app does not write previous caches again.
+The registry and the global selection are in [`accounts.md`](accounts.md). They
+do not go into the board or the relay.
+
+Each window has a kind, a percentage and a reset. `scope` and `label` are
+optional. A previous snapshot without those fields continues to be one quota. New
+snapshots use `scope` to keep general quotas apart from the quotas for a model
+or a feature. The file is a cache. A correct read from the provider replaces
 the persisted content.
 
 ## Transcripts
 
-Terminal conversations use `<root>/chats/<tab>.jsonl` for every provider,
-including Claude. Accepted input, observed canonical output and application
-notices append to that history. Native bootstrap and rewrite snapshots never
-replace or prepend published history. Native recovery appends only uncaptured
-source occurrences and versions, with durable identity receipts. Cursor uses
-its resumable store IDs, Codex its thread/turn/item IDs, Claude native row UUIDs
-and Antigravity native step indices. Unsupported source content withholds
-coverage rather than silently certifying a complete baseline.
-The native terminal can therefore show compacted provider state while Prometeu
-retains the prior conversation, positional comment anchors and cut locations.
-Compatibility tests in `chat.rs` cover mode-aware routing and retention of
-canonical notices, usage and transcript positions across a native rewrite.
+Terminal conversations use `<root>/chats/<tab>.jsonl` for all providers,
+and also for Claude. Accepted input, observed canonical output and application
+notices go at the end of that history. Native bootstrap snapshots and rewrite
+snapshots do not replace published history or add to its start at any time.
+Native recovery adds only source occurrences and versions that the app did not
+capture, with durable identity receipts.
+
+Each provider uses its own identities:
+
+- Cursor uses its resumable store IDs.
+- Codex uses its thread, turn and item IDs.
+- Claude uses the native row UUIDs.
+- Antigravity uses the native step indices.
+
+When the app cannot use the source content, it does not give coverage. It does
+not silently certify a complete baseline. Thus, the native terminal can show a
+compacted provider state, while Prometeu keeps the prior conversation, the
+positional comment anchors and the cut locations. Compatibility tests in
+`chat.rs` cover the routing for each mode. They also make sure that canonical
+notices, usage and transcript positions stay after a native rewrite.
 
 ### Native ingestion journal foundation
 
-`terminal_agent_journal.rs` provides a private SQLite schema 4 for durable
-native-source provenance at `<root>/terminal-ingestion/<tab>.sqlite3`. The native
-terminal host completes recovery and Cursor source replay before seeding Lines.
-It does not change V1 lines, positional indices,
-comment anchors, cut locations, relay formats or the telemetry database.
+`terminal_agent_journal.rs` gives a private SQLite schema 4 for durable
+provenance of native sources at `<root>/terminal-ingestion/<tab>.sqlite3`. The
+native terminal host completes recovery and the source replay of Cursor before
+it gives the first lines to Lines. The journal does not change these items:
 
-Each journal binds exactly one app session and provider. Its native session may
-start absent when the CLI allocates identity asynchronously; `bind_native`
-records the authenticated identity once, under an immediate transaction, and
-rejects a different identity. Schemas 1–3 migrate without changing receipts
-or canonical bytes. Schema 2 introduced the optional native binding; schema 3
-adds prepared input intents. Schema 4 indexes causal native-user completion and
-committed input ranges. A read-only, private
-identity lookup lets Resume recover a native identity committed before a crash
-lost its board update. Fresh does not adopt an old bound journal. The captured
-account still reauthorizes the exact native source before resume; Cursor can
-validate its original session database directly before its derived JSONL exists.
-AGY 1.5.10 similarly validates its captured conversation DB and exact cascade identity;
-its [native-store contract](native-antigravity-store.md) describes step and output-file provenance.
-If neither the board nor private evidence proves a native identity, Resume
-fails explicitly instead of starting another native conversation.
+- V1 lines and positional indices.
+- Comment anchors and cut locations.
+- Relay formats.
+- The telemetry database.
 
-The journal's
-`captures` table keys a source **occurrence and version**, not message text.
-Repeated prompts are distinct occurrences. Mutable native steps retain their
-occurrence while changing version; an already captured version is never
-captured again. A private object checkpoint records the projection state needed
-to compute a later version. Cursor uses the authenticated source identities
-described in [its native-store contract](cursor.md#native-store-recovery),
-rather than ordinals in its rewritten JSONL export.
+Each journal is for one app session and one provider only. Its native session
+can be missing at the start, when the CLI gives the identity after the start.
+`bind_native` records the authenticated identity one time, in an immediate
+transaction. It rejects a different identity. The migration from schemas 1–3
+does not change receipts or canonical bytes. Schema 2 added the optional native
+binding. Schema 3 adds prepared input intents. Schema 4 adds indexes for the
+causal completion of native user messages and for committed input ranges.
 
-Claude rows and Antigravity steps carry `sourceScope: record`: their sealed
-status is not an agent-turn completion. Their private `sourceUser` identifies
-the originating native user occurrence; tool results retain the call owner's
-association even when they arrive after another input. Claude follows known
-`parentUuid` ancestry and preserves a row's established association across rewrites.
-Unknown ancestry cannot authorize live work effects. The journal requires the
-causal user receipt, and only a durable canonical completion or a later committed
-user-message range makes otherwise supported late output historical. Prepared
-inputs without a public echo do not establish this boundary. App submissions
-with a committed echo do, even before the native alias arrives. Comparing the
-original ranges rather than receipt insertion order keeps replay and aliases
-from reviving an old turn. Legacy receipts without this attribution can update
-existing history quietly; migration does not invent completion evidence.
-The full Antigravity store also pins its native `trajectoryId` in a private,
-content-free receipt before accepting its first capture. The binding survives
-restart and is checked before deduplication and newly discovered steps, since
-the same cascade/session ID does not authorize adopting a different trajectory.
-Older receipts lacking this field acquire a binding from the first authorized
-full-store observation; no trajectory identity is fabricated during migration.
+A private, read-only identity lookup lets Resume find a native identity that
+the app committed before a crash, when the crash lost the board update. A fresh
+start does not adopt a previous bound journal. Before resume, the captured account
+continues to authorize the accurate native source again. Cursor can validate
+its original session database directly, before its derived JSONL file is there.
+AGY 1.5.10 also validates its captured conversation DB and its accurate cascade
+identity. Its [native-store contract](native-antigravity-store.md) gives the
+provenance of steps and output files. If the board and the private evidence do
+not prove a native identity, Resume fails with a clear error. It does not start
+a different native conversation.
 
-The caller holds one writer gate covering native output, app echoes and notices.
-Under that gate, it records the exact next canonical byte and line positions.
-SQLite commits an intent with exact canonical bytes and their SHA-256 before
-those bytes are appended. The canonical file is synced before SQLite acknowledges
-the capture. Committed rows retain provenance, checkpoint and byte/line ranges;
-their temporary canonical payload is cleared. An explicitly proven native input
-may alias an app submission's committed range without appending a second echo.
-No global text deduplication is permitted.
+The `captures` table of the journal uses a source **occurrence and version** as
+its key, not the message text. Two prompts with the same text are different
+occurrences. Native steps that can change keep their occurrence while their
+version changes. The app does not capture a captured version again at any time.
+A private object checkpoint records the projection state that is necessary to
+calculate a subsequent version. Cursor uses the authenticated source identities that
+[its native-store contract](cursor.md#native-store-recovery) gives. It does
+not use positions in its rewritten JSONL export.
 
-An app submission's private checkpoint retains an opaque ID, the hash of the
-provider's proven normalized input and the preceding native user occurrence.
-The canonical echo keeps the original text. At most 64 unbound submissions are
-restored in causal order after a crash. Causal order identifies the echo; the
-normalized hash only confirms the CLI kept the text. A hash mismatch on the
-causal candidate is logged as `terminal.history.echo_mismatch` and the echo is
-still bound, keeping the app's original text, because CLIs reformat prompts
-across versions and a rejection would stop the agent and fail every later
-resume on the same record. A prepared input recovered after a crash is
-ambiguous on a mismatch: the app may never have written it, or the CLI accepted
-and reformatted it. The mismatch is logged as
-`terminal.history.prepared_uncertain`, the native prompt is kept as its own
-message, and a line-free `uncertain_submission` receipt settles the input ID so
-its saved board dispatch counts as accepted and is never written again. Cursor's proven paste normalization changes CRLF/CR
-to LF and tabs to two spaces, without NFC normalization. Claude Code records
-prompts in NFC, so its normalized input is the NFC form (macOS attachment paths
-arrive as NFD). It also records a prompt made of one long paste wrapped as
-`<pasted_content id="…">`; the Claude adapter unwraps a prompt that is exactly
-one such block, so the echo and the displayed text are the pasted text.
-A source baseline and an empty pending
-submission queue are both required before admitting another app prompt or
-claiming catch-up. An unconfirmed input is never resent automatically.
+Claude rows and Antigravity steps have `sourceScope: record`. Their sealed
+status does not mean that the agent turn is complete. Their private
+`sourceUser` identifies the native user occurrence that caused them. Tool
+results keep the association of the call owner, also when they come after a
+different input. Claude follows the known `parentUuid` ancestry. It keeps the
+association of a row after the app sets it, also across rewrites. Unknown
+ancestry cannot authorize the effects of live work.
 
-Before attempting any PTY input, `prepared_inputs` retains one private intent
-with its opaque submission ID, original text/hash, normalized hash, timestamp
-and native causal watermark. Its serialized value is bounded to 2 MiB, its text
-to 1 MiB and its read to two rows so corrupt excess rows fail explicitly. The
-canonical echo is not published by preparing an intent. Once a durable receipt
-exists the transient original payload is deleted. A crash between append and
-that deletion is reconciled from the receipt on open. An unresolved intent
-never authorizes another write, even for identical text. It can be cancelled
-only when the still-reserved process input proves that no byte write was
-attempted. Source replay can prove the exact next accepted native user
-occurrence and preserve the original app text before aliasing it; absent
-evidence remains uncertain and blocks input. Other source adapters must prove
-the same correlation before claiming equivalent recovery.
+The journal must have the causal user receipt. Late output from a source that
+the app can use becomes historical only after one of these items:
 
-Recovery runs before any new writer. It compares the existing tail with the
-intent's exact prefix, appends only the missing suffix and then acknowledges it.
-A different prefix, shortened file or corrupt intent stops recovery and preserves
-both artifacts. Recovery is storage-only: it does not pass replay through the
-Pump or emit completion, notifications, telemetry or new input. The host loads
-canonical Lines after recovery. Live frames use the pump's commit port; a proven
-revision of finished content updates public lines without reopening execution,
-telemetry or reactions. App input reserves its opaque ID before writing to the
-PTY, and native observations wait until the canonical echo commits. A commit
-failure retires that process instead of publishing an unjournaled echo or
-retrying the write. Generic output or notice commit failures latch the same
-incarnation as failed, revoke input readiness and retire it on the observation
-worker; a later successful write cannot silently skip the missing occurrence.
+- A durable canonical completion.
+- A subsequent committed range of user messages.
 
-The journal uses a private directory, a `0600` file, WAL with `synchronous=FULL`
-and an explicit identity/schema check; unknown schemas are rejected. Each batch
-is bounded to 8 MiB and 4,096 canonical lines, checkpoint objects to 64 KiB and
-source keys to 1,024 bytes. Pending payload/checkpoint reads remain bounded even
-for damaged journal rows. Ephemeral and private telemetry payloads are rejected
-as canonical lines; their source occurrence/version may retain an empty-line
-receipt before live effects. Replay creates that receipt without effects. Late
-revisions of ephemeral metadata update only receipts, so old usage/context
-cannot charge or replace a newer request. Retained summary, notice and context
-report text uses the quiet revision path and keeps earlier line positions.
-`terminal_agent_journal/tests.rs` covers every append/ack crash window, exact
-prefix conflicts, repeated input aliases, source revisions, damaged intents and
-compatibility rejection. `chat/terminal/ingestion/tests.rs` composes the real
-journal and portable pump to test restart, missing native tails, normalized
-input aliases, source revisions and failure-before-publication. All native
-providers use durable app/output commits and the source occurrence ingestion
-path. Append batches retain their causal user cursor, while complete snapshot
-batches reconstruct it without global text deduplication. Provider recovery/control
-conformance remains a prerequisite for enabling terminal mode.
+Prepared inputs without a public echo do not set this limit. App submissions
+with a committed echo set it, also before the native alias comes. The app
+compares the original ranges, not the sequence in which it added the receipts.
+Thus, replay and aliases do not start a previous turn again. Legacy receipts without
+this attribution can update the current history quietly. The migration does not
+invent completion evidence.
+
+The full Antigravity store also records its native `trajectoryId` in a private
+receipt without content before it accepts its first capture. The binding stays
+after a restart. The app examines it before deduplication and before it accepts
+new steps. The same cascade or session ID does not authorize a different
+trajectory. Previous receipts without this field get a binding from the
+first authorized observation of the full store. The migration does not invent a
+trajectory identity.
+
+The caller has one writer gate for native output, app echoes and notices. While
+it has that gate, it records the accurate next canonical byte and line
+positions. SQLite commits an intent with the accurate canonical bytes and their
+SHA-256 before the app adds those bytes at the end of the file. The app writes
+the canonical file fully to the disk before SQLite acknowledges the capture.
+Committed rows keep the provenance, the checkpoint and the byte and line
+ranges. The app removes their temporary canonical payload. When the app proves a
+native input, it can make it an alias of the committed range of an app
+submission. It does not add a second echo. Global deduplication by text is not
+permitted.
+
+The private checkpoint of an app submission keeps these items:
+
+- An opaque ID.
+- The hash of the proven normalized input of the provider.
+- The native user occurrence that comes before it.
+
+The canonical echo keeps the original text. After a crash, the app puts back a
+maximum of 64 unbound submissions in causal sequence. The causal sequence
+identifies the echo. The normalized hash only confirms that the CLI kept the
+text.
+
+If the hash of the causal candidate is different, the app writes
+`terminal.history.echo_mismatch` to the log. It continues to bind the echo and
+keeps the original text of the app. CLIs change the format of prompts between
+versions. A rejection stops the agent and causes a failure of each subsequent
+resume on the same record. Thus, the app does not reject the echo.
+
+After a crash, a prepared input with a different hash is not certain. It is
+possible that the app did not write it. It is also possible that the CLI
+accepted it and changed its format. The app writes
+`terminal.history.prepared_uncertain` to the log and keeps the native prompt as
+a separate message. A line-free `uncertain_submission` receipt closes the input
+ID. Thus, the board dispatch that the app saved counts as accepted, and the app
+does not write it again at any time.
+
+The proven paste normalization of Cursor changes CRLF/CR to LF and tabs to two
+spaces, without NFC normalization. Claude Code records prompts in NFC. Thus,
+its normalized input is the NFC form. On macOS, attachment paths come as NFD.
+Claude Code also records a prompt that is one long paste in
+`<pasted_content id="…">`. When a prompt is accurately one such block, the
+Claude adapter removes the wrapper. Thus, the echo and the shown text are the
+pasted text.
+
+Two conditions are necessary before the app accepts a different app prompt or
+reports that it is up to date:
+
+- A source baseline.
+- An empty queue of pending submissions.
+
+ The app does not send an input that is not confirmed again
+automatically at any time.
+
+Before the app tries PTY input, `prepared_inputs` keeps one private intent with
+these items:
+
+- The opaque submission ID.
+- The original text and its hash.
+- The normalized hash.
+- The timestamp.
+- The native causal watermark.
+
+The limit of its serialized value is 2 MiB, and the limit of its text is 1 MiB.
+A read gets a maximum of two rows, so that extra rows from corruption cause a
+clear failure. When the app prepares an intent, it does not publish the
+canonical echo. When there is a durable receipt, the app deletes the temporary
+original payload. If a crash occurs between the append and that deletion, the
+app uses the receipt to make the state correct when it opens the journal.
+
+An intent without a resolution does not authorize a different write at any
+time, also for the same text. The app can cancel it only when the process input,
+which stays reserved, proves that the app did not try to write a byte. Source
+replay can prove the accurate next accepted native user occurrence. It can then
+keep the original app text before it makes the alias. Without evidence, the
+intent stays uncertain and stops input. Other source adapters must prove the
+same correlation before they report the same recovery.
+
+Recovery runs before a new writer starts. It compares the current tail with the
+accurate prefix of the intent. It adds only the missing suffix and then
+acknowledges it. A different prefix, a shorter file or a corrupt intent stops
+recovery and keeps the two artifacts. Recovery changes only the storage. It
+does not send the replay through the Pump. It does not send a completion,
+notifications, telemetry or new input. The host loads the canonical Lines after
+recovery.
+
+Live frames use the commit port of the pump. A proven revision of finished
+content updates the public lines. It does not start execution, telemetry or
+reactions again. App input reserves its opaque ID before the app writes to the
+PTY. Native observations wait until the canonical echo commits. If a commit
+fails, the app stops that process. It does not publish an echo that is not in
+the journal or try the write again.
+
+If the commit of usual output or of a notice fails, the app marks that
+incarnation of the process as failed. It stops input readiness and stops the
+process on the observation worker. Thus, a subsequent successful write cannot
+silently skip the missing occurrence.
+
+The journal uses a private directory, a `0600` file, WAL with
+`synchronous=FULL` and an explicit check of the identity and schema. The app
+rejects unknown schemas. These limits apply:
+
+- Each batch: 8 MiB and 4,096 canonical lines.
+- Checkpoint objects: 64 KiB.
+- Source keys: 1,024 bytes.
+
+Reads of pending payloads and checkpoints keep their limits, also for damaged
+journal rows. The app rejects temporary payloads and private telemetry payloads
+as canonical lines. Their source occurrence and version can keep a receipt with
+an empty line before live effects. Replay makes that receipt without effects.
+Late revisions of temporary metadata update only receipts. Thus, previous usage or
+context cannot charge or replace a more recent request. Retained summary, notice and
+context report text uses the quiet revision path and keeps the earlier line
+positions.
+
+`terminal_agent_journal/tests.rs` contains tests for these items:
+
+- Each crash window for append and acknowledgment.
+- Conflicts with the accurate prefix.
+- Aliases for repeated input.
+- Source revisions.
+- Damaged intents.
+- The rejection of formats that are not compatible.
+
+`chat/terminal/ingestion/tests.rs` uses the real journal and the portable pump.
+Its tests include a restart, missing native tails, aliases for normalized input, source
+revisions and a failure before publication. All native providers use durable
+commits for app input and output, and the ingestion path for source
+occurrences. Append batches keep their causal user cursor. Complete snapshot
+batches make it again without global deduplication by text. Before the app can
+enable terminal mode for a provider, that provider must agree with the recovery
+and control rules.
 
 ### Claude
 
-Existing Claude chat-mode history reads `~/.claude/projects/<cwd-slug>/<tab>.jsonl`, or the
-`projects` of the original `CLAUDE_CONFIG_DIR` when configured. Managed account
-profiles share that directory through a link; the selection does not change the
-conversation's path. The folder derives from the worktree's path. The file may
-not exist until the first message.
+Current Claude history in chat mode reads
+`~/.claude/projects/<cwd-slug>/<tab>.jsonl`. When that variable has a
+value, it reads the `projects` of the original `CLAUDE_CONFIG_DIR`. Managed
+account profiles share that directory through a link. The selection does not
+change the path of the conversation. The folder name comes from the path of the
+worktree. It is possible that the file is not there until the first message.
 
 ### Codex
 
-Codex's native rollout is not used by the UI. Prometeu writes the displayed V1
-events in `<root>/chats/<tab>.jsonl`; `Tab.agent_session` stores the opaque
-thread required for `thread/resume`.
+The UI does not use the native rollout of Codex. Prometeu writes the shown V1
+events in `<root>/chats/<tab>.jsonl`. `Tab.agent_session` stores the opaque
+thread that `thread/resume` must have.
 
 ### Antigravity and retired Gemini sessions
 
-Antigravity owns native history. `Tab.agent_session` stores its opaque
-`conversation_id`, resumed with `--conversation`; Prometeu stores V1 in
-`<root>/chats/<tab>.jsonl`. Provider ID `antigravity` is distinct from `gemini`.
-Old `gemini` board values retain that identity and read their existing V1 logs,
-but cannot start a process. They never fall back to Claude or acquire agy IDs.
-Legacy plan/permission fields have no execution effect. Old Gemini account
-entries and selections remain opaque on disk; no secrets or histories are
-removed. Compatibility tests live in `crates/core/src/board.rs` and `accounts.rs`.
+Antigravity owns the native history. `Tab.agent_session` stores its opaque
+`conversation_id`, and the app resumes it with `--conversation`. Prometeu
+stores V1 in `<root>/chats/<tab>.jsonl`. The provider ID `antigravity` is
+different from `gemini`.
+
+Previous `gemini` board values keep that identity and read their current V1 logs,
+but they cannot start a process. They do not change to Claude or get agy IDs at
+any time. Legacy plan and permission fields have no effect on execution. Previous
+Gemini account entries and selections stay opaque on the disk. The app does not
+remove secrets or histories. The compatibility tests are in
+`crates/core/src/board.rs` and `accounts.rs`.
 
 ### Compatibility
 
-Reading tolerates a truncated beginning and isolated invalid lines. The
-in-memory buffer has a ceiling and truncates only at a line boundary. Ephemeral
-streaming events may be numbered without being persisted when the complete form
-replaces them.
+The reader accepts a truncated start and isolated incorrect lines. The buffer
+in memory has a maximum size, and it truncates only at the end of a line. The
+app can give a number to a temporary streaming event and not keep it, when the
+complete form replaces it.
 
-`ConversationEventV1` keeps reading the legacy stream-json. There is no
-destructive in-place migration. The reader recognizes and ignores the historical
-`prometheusV1Mirror` mark in existing imported logs; Prometeu's new logs write
-only the canonical V1 event. The app no longer offers an importer.
+`ConversationEventV1` continues to read the legacy stream-json. There is no
+destructive migration in place. The reader identifies and ignores the
+historical `prometheusV1Mirror` mark in current imported logs. New logs of
+Prometeu contain only the canonical V1 event. The app does not have an importer
+at this time.
 
 ## Secrets and logs
 
-Prompts, outputs, tool results and credentials may contain secrets. Do not send
-transcripts to telemetry and do not print complete tokens/configurations in
-logs. Errors may record the path and the cause, but never content or a
-credential.
+Prompts, outputs, tool results and credentials can contain secrets. Do not send
+transcripts to telemetry. Do not write full tokens or configurations to logs.
+Errors can record the path and the cause, but not the content or a credential
+at any time.
 
-A terminal tab that fails with `err.terminalAgent.history` writes the failing
-step to the diagnostic log as `terminal.history.<step>`, and every forced stop of
-its agent process writes `terminal.abort.<reason>`. A `terminal.launch` line maps
-the generation that prefixes later lines to its tab.
+When a terminal tab fails with `err.terminalAgent.history`, the app writes the
+failed step to the diagnostic log as `terminal.history.<step>`. Each forced stop
+of its agent process writes `terminal.abort.<reason>`. A `terminal.launch` line
+connects the generation at the start of subsequent lines to its tab.
 
 ## Sharing scope
 
-`Workspace.share_team` is optional and binds the consent to the organization and
-membership (`organization:<id>:<member>`), or to the legacy team (`team:<id>`).
-Its absence authorizes only the legacy path. `team.json` accepts the `cloud`
-field with identity, origin and organization; tickets are not written. Before
-replacing a legacy configuration, `team.rs` writes a private
-`team-legacy-<uuid>.json`. See [migration and rollback](cloud-organizations.md).
+`Workspace.share_team` is optional. It connects the consent to the organization
+and the membership (`organization:<id>:<member>`), or to the legacy team
+(`team:<id>`). When it is missing, the consent authorizes only the legacy path.
+`team.json` accepts the `cloud` field with the identity, the origin and the
+organization. The app does not write tickets. Before it replaces a legacy
+configuration, `team.rs` writes a private `team-legacy-<uuid>.json`. Refer to
+[migration and rollback](cloud-organizations.md).
 
-`Workspace.remote_control`, false by default, records consent for the owner's
-companion devices. It is independent of `audience`: an empty list represents
-remote control without a team audience. Turning off the last kind of access also
-clears `shared`, `share_team`, `audience` and `rights`.
+`Workspace.remote_control` is false by default. It records consent for the
+companion devices of the owner. It is independent of `audience`. An empty list
+means remote control without a team audience. When the owner disables the last
+kind of access, the app also removes the values of `shared`, `share_team`, `audience` and
+`rights`.
 
-`Workspace.rights` is `{ send, control }`, two lists of person IDs: who may send
-messages (prompts and interrupts) and who may control (answer the agent's
-requests) beyond viewing and commenting. Both lists only name people who can view;
-the audience `null` never grants them by itself. Changing a right drops the people
-no longer in the organization's directory, so each list stays within the
-`MEMBERS_MAX` people that peers read from the announcement. Every share saved from
-[ADR 0090](../decisions/0090-approved-remote-input.md) on writes the field, even
-empty. Shares saved before it load with `rights` null and let people only view
-and comment. The owner sees that change once on each Mac, which records the
-dismissal in `localStorage` under `prometeu:share-rights-notice`. Tests:
-`share_tests` in `crates/core/src/workspace_lifecycle.rs` and
-`fixtures/backend-contract.json`.
+`Workspace.rights` is `{ send, control }`, two lists of person IDs:
 
-`Workspace.confirm_messages`, true when absent, records whether teammates'
-messages wait in the owner's composer until the owner sends, edits or discards
-them ([ADR 0090](../decisions/0090-approved-remote-input.md)). Only
-`set_confirm_messages` changes it; stopping sharing keeps the choice. The board
-keeps only this choice: waiting messages live in the frontend's memory and are
-never persisted. Tests: `share_tests` and `fixtures/backend-contract.json`,
-which carries a workspace saved with the option off and one from before it.
+- `send`: the persons who can send messages (prompts and interrupts).
+- `control`: the persons who can control the agent, that is, answer its
+  requests. This is more than to view and comment.
+
+The two lists contain only persons who can view. The audience `null` does not
+give these rights alone. When the owner changes a right, the app removes the
+persons who are not in the directory of the organization at this time. Thus, each list
+stays in the `MEMBERS_MAX` persons that peers read from the announcement.
+
+Each share that the app saved from
+[ADR 0090](../decisions/0090-approved-remote-input.md) on writes the field, also
+when it is empty. Shares from before that ADR load with `rights` null. Persons
+can then only view and comment. The owner sees that change one time on each
+Mac. The Mac records the dismissal in `localStorage` under
+`prometeu:share-rights-notice`. Tests: `share_tests` in
+`crates/core/src/workspace_lifecycle.rs` and `fixtures/backend-contract.json`.
+
+`Workspace.confirm_messages` is true when it is missing. It records if
+messages from teammates wait in the composer of the owner until the owner sends,
+edits or discards them ([ADR 0090](../decisions/0090-approved-remote-input.md)).
+Only `set_confirm_messages` changes it. When sharing stops, the choice stays.
+The board keeps only this choice. Messages that wait are in the memory of the
+frontend, and the app does not keep them at any time. Tests: `share_tests` and
+`fixtures/backend-contract.json`. The fixture contains a workspace saved with
+the option off and one from before the option.
 
 ## Remote machines
 
 `Workspace.host` and `Project.host` name the machine from `machines.json` that
-holds the clone and runs the workspace ([ADR 0101](../decisions/0101-remote-machines.md)).
-Their paths are paths on that machine, and remote project IDs are
-`remote:<machine>:<path>`. Both fields are written only when set, so boards
-without remote entries load and save unchanged, and an older version ignores
-them. A remote workspace has no reserved `port`. Its tabs always store terminal
-mode. Removing a machine drops its projects from the board and is refused while a
-workspace still names it.
+has the clone and operates the workspace
+([ADR 0101](../decisions/0101-remote-machines.md)). Their paths are paths on
+that machine. Remote project IDs are `remote:<machine>:<path>`. The app writes
+the two fields only when they have a value. Thus, boards without remote entries
+load and save without a change, and a previous version ignores them.
 
-`Workspace.creator` names the agent that created a workspace, as the label its MCP
-configuration gives, which may be empty. It is written only when set: absent means
-the person created the workspace, and an older version ignores it. It records
-authorship, not location, so it is independent of `host`: today only a machine's
-host sets it ([ADR 0103](../decisions/0103-agents-on-remote-machines.md)), but a
-local workspace may carry it too. The interface shows the two apart: the machine
-chip keeps its server icon and connection state, and a separate "Created by agent"
-chip shows authorship. Tests: `src/machines.test.ts`.
+A remote workspace has no reserved `port`. Its tabs always store terminal mode.
+When you remove a machine, the app removes its projects from the board. The app
+refuses the removal while a workspace names the machine.
 
-`Project.origin` is the clone's `origin` remote normalized to `host/owner/repo`
-in lowercase, so every URL spelling of one repository compares equal. The app
-fills it in for local projects at start and when one is added, and for a
-machine's projects each time the machine attaches. A remote project whose origin
-equals a local project's is shown as that project: the sidebar lists its
-workspaces under the local one, and the launcher offers only the local one. It is
-written only when known. Tests: `remote_hosts_round_trip_and_local_entries_omit_them`
-in `crates/core/src/board.rs`, `every_spelling_of_one_remote_normalizes_alike` in
+`Workspace.creator` names the agent that made a workspace, with the label that
+its MCP configuration gives. This label can be empty. The app writes the field
+only when it has a value. When it is missing, the person made the workspace, and
+a previous version ignores it. It records authorship, not location. Thus, it is
+independent of `host`. At this time, only the host of a machine sets it
+([ADR 0103](../decisions/0103-agents-on-remote-machines.md)), but a local
+workspace can also have it.
+
+The interface shows the two items separately. The machine chip keeps its server
+icon and connection state. A separate "Created by agent" chip shows authorship.
+Tests: `src/machines.test.ts`.
+
+`Project.origin` is the `origin` remote of the clone, normalized to
+`host/owner/repo` in lowercase. Thus, all URL spellings of one repository are
+equal. The app sets it for local projects at startup and when a person adds a
+project. For the projects of a machine, it sets the value each time the machine
+attaches. When the origin of a remote project is equal to the origin of a local
+project, the app shows the two as one project. The sidebar lists its workspaces
+under the local project, and the launcher shows only the local project. The app
+writes the field only when it knows the value. Tests:
+`remote_hosts_round_trip_and_local_entries_omit_them` in
+`crates/core/src/board.rs`, `every_spelling_of_one_remote_normalizes_alike` in
 `src-tauri/src/remote/workspace.rs` and `src/machines.test.ts`.
 
 ## Terminal sessions
 
-`Board.terminals` lists the terminal sessions in sidebar order
+`Board.terminals` lists the terminal sessions in the sidebar sequence
 ([ADR 0096](../decisions/0096-terminal-sessions.md)) as `{ id, folder, name? }`:
-`id` is `terminal-<uuid>`, `folder` is the absolute folder the shell starts in and
-`name` is the name the person set. The field is written only when a session
-exists, and `name` only when set, so a board from v0.29.0 or earlier loads and
-saves back unchanged; an older version ignores the field and drops it on its next
-save. Only the record persists: scrollback stays in memory and no process
-survives the app, so after a restart a session is listed stopped, and opening it
-starts a new shell in the same folder. Test: `boards_from_v0_29_0_load_unchanged` in
-`crates/core/src/terminal_sessions/tests.rs`, against the board v0.29.0 wrote in
-its contract fixture.
+
+- `id` is `terminal-<uuid>`.
+- `folder` is the absolute folder where the shell starts.
+- `name` is the name that the person set.
+
+The app writes the field only when there is a session, and `name` only when it
+has a value. Thus, a board from v0.29.0 or earlier loads and saves back without
+a change. A previous version ignores the field and removes it at its next save.
+Only the record stays. The scrollback stays in memory, and no process stays
+after the app stops. Thus, after a restart, the sidebar shows the session as
+stopped. When you open it, a new shell starts in the same folder. Test:
+`boards_from_v0_29_0_load_unchanged` in
+`crates/core/src/terminal_sessions/tests.rs`, with the board that v0.29.0 wrote
+in its contract fixture.
 
 ## Delegations
 
-`Board.delegations` defaults to `[]` for older boards. It persists owner client ID,
-worker conversation and workspace identities separately, initial task and
-repository commits, idempotency keys/hashes, executions and observations.
-Process restarts preserve ownership and queued IDs with persisted pending input,
-mark other unfinished executions stopped and
-clear live background/request observations. No transcript migration applies.
-See the [embedded MCP contract](embedded-mcp.md) for fields and retry semantics.
+For previous boards, `Board.delegations` has the default `[]`. It keeps these items:
+
+- The owner client ID.
+- The worker conversation and workspace identities, independently.
+- The initial task and the repository commits.
+- Idempotency keys and hashes.
+- Executions and observations.
+
+After a process restart, the app keeps the ownership and the queued IDs with
+persisted pending input. It marks other incomplete executions as stopped and
+removes live background and request observations. No transcript migration
+applies. Refer to the [embedded MCP contract](embedded-mcp.md) for the fields
+and the retry rules.
 
 ## Local telemetry
 
 `<root>/telemetry.sqlite3` stores canonical metadata independently of boards and
-transcripts, with a private `telemetry-health.json` failure record. Database and
-event versions are separate; unsupported future database versions are preserved.
-Short committed transactions, UUID/occurrence deduplication, indefinite retention,
-export and explicit erasure follow the [telemetry contract](telemetry.md).
+transcripts. A private `telemetry-health.json` file records failures. Database
+versions and event versions are different. The app keeps future database
+versions that it cannot read. Short committed transactions, deduplication by
+UUID and occurrence, unlimited retention, export and explicit erasure follow
+the [telemetry contract](telemetry.md).
 
-`Board.telemetry_ids` is an additive, default-empty map of domain keys to opaque
-UUIDs. It bridges legacy path-based project IDs and assigns repository/branch
-identities without placing names or paths in the event store. Existing UUID
-workspace/tab IDs are reused. These aliases remain domain state after telemetry
-is erased. Old boards/transcripts require no event backfill; compatibility is
-covered by existing board tests and `telemetry/tests.rs`.
+`Board.telemetry_ids` is an additive map of domain keys to opaque UUIDs. It is
+empty by default. It connects legacy project IDs that use paths, and it gives
+identities to repositories and branches. It does not put names or paths in the
+event store. The app uses current UUID workspace and tab IDs again. These
+aliases stay as domain state after the erasure of telemetry. Previous boards and
+transcripts do not need an event backfill. The current board tests and
+`telemetry/tests.rs` cover compatibility.
 
-Turn completions may include a nullable SHA-256 `messageKey` derived from the
-opaque conversation identity and final assistant ID. It supports exact local
-lookup for native Claude transcript replay without retaining reply text or the
-raw provider identifier. Older facts omit it and remain readable. Additive
-origin, app-call and PR-observation facts use the same SQLite store and erasure
-boundary; no second usage ledger or provider transcript backfill is introduced.
+Turn completions can include a nullable SHA-256 `messageKey`. The app
+calculates it from the opaque conversation identity and the last assistant ID.
+It gives accurate local lookup for the replay of native Claude transcripts. The
+app does not keep the reply text or the raw provider identifier. Previous facts do
+not have it, and the app can continue to read them. Additive facts about the
+origin, app calls and PR observations use the same SQLite store and erasure
+limit. There is no second usage ledger and no backfill of provider transcripts.
 
-`Tab.context_window` is optional and defaults to unknown in old boards. It
-accompanies current `context_tokens`; the historical `tokens` growth estimate
-is not repurposed as consumption or current occupancy. New canonical transcript
-completions can retain optional usage independently of the local history store.
-Clearing telemetry removes local queries and restored footer caches, not the
-conversation transcript or existing exports.
+`Tab.context_window` is optional. In previous boards, its default is unknown. It
+goes with the current `context_tokens`. The historical `tokens` estimate of the
+increase does not get a new meaning as consumption or as current occupancy. New
+canonical transcript completions can keep optional usage independently of the
+local history store. When you erase telemetry, the app removes local queries
+and restored footer caches. It does not remove the conversation transcript or
+current exports.
 
 ## Pending session input
 
-`SessionService` keeps the existing `pending_prompt` field and its append order
-across setup, account changes and process loss; chat-mode failed sends put the
-original prompt before later text. Terminal mode adds optional
-`Tab.native_dispatch: { id, text }`, absent on old boards and defaulting to null.
-One queued item moves into this immutable slot and the board is durably saved
-before the process write. Later prompts remain in `pending_prompt` and cannot
-change that item's ID or text. Both texts remain visible, in that order, while
-acceptance is uncertain; the ID is internal queue identity.
+`SessionService` keeps the current `pending_prompt` field and its append
+sequence across setup, account changes and process loss. In chat mode, when a
+send fails, the app puts the original prompt before the subsequent text. Terminal
+mode adds the optional `Tab.native_dispatch: { id, text }`. Previous boards do not
+have it, and its default is null.
 
-The native host returns `Sent` only after its canonical receipt is durable, or
-`AlreadyAccepted` for that exact ID/content after recovery. The latter performs
-no process write, capture, telemetry or reactions. Only then does the core
-clear the slot through another board persistence barrier. A crash before this
-clear is safe because the same token resolves to its old receipt. A crash after
-write but before the receipt requires prepared-input reconciliation above and
-never retries automatically. A failed board barrier preserves the slot and
-prevents sending. Ordinary Chat retains its existing queue policy. See
+One queued item moves into this slot, which does not change after that. The app
+saves the board durably before it writes to the process. Later prompts stay in
+`pending_prompt` and cannot change the ID or the text of that item. While the
+acceptance is not certain, the two texts stay visible in that sequence. The ID
+is an internal queue identity.
+
+The native host returns `Sent` only after its canonical receipt is durable. As
+an alternative, after recovery it returns `AlreadyAccepted` for that accurate ID
+and content. In that case, there is no process write, capture, telemetry or
+reaction. Only then does the core remove the item from the slot, through a different
+persistence barrier of the board.
+
+A crash before this removal is safe, because the same token resolves to its previous
+receipt. A crash after the write but before the receipt needs the
+prepared-input reconciliation above. The app does not try again automatically
+at any time. If a board barrier fails, the slot stays and the app does not
+send. The usual Chat continues to use its current queue rules. Refer to
 [sessions](application-core.md#sessions-launch-and-workers).
 
 ### Cursor sessions
 
 The additive provider ID `cursor` is explicit in boards, saved model choices and
-accounts. `Tab.agent_session` holds the opaque ACP session ID; Prometeu stores
-canonical V1 presentation in its existing chat log. Native Cursor history stays
-owned by the CLI. Loading it never duplicates presentation history, and a failed
-load does not replace the session. The external account is attached and selected
-explicitly; removal survives restart. Account readers without Cursor support
-preserve its account and active selection opaquely. Older board readers may map
-an unknown provider to Claude, so downgrading a Cursor board is unsupported.
-See the [Cursor contract](cursor.md).
+accounts. `Tab.agent_session` contains the opaque ACP session ID. Prometeu
+stores the canonical V1 presentation in its current chat log. The CLI continues
+to own the native Cursor history. When the app loads that history, it does not
+duplicate the presentation history. A failed load does not replace the session.
+
+A person attaches and selects the external account explicitly. The removal
+stays after a restart. Account readers that do not know Cursor keep its account
+and active selection as opaque data. It is possible that previous board readers
+change an unknown provider to Claude. Thus, a downgrade of a Cursor board is
+not supported. Refer to the [Cursor contract](cursor.md).
 
 ## Delegation navigation compatibility
 
-Sub-workspace grouping derives from `Board.delegations` and the owning tab IDs;
-no parent field or migration is added. Missing delegation lists keep legacy flat
-navigation. Existing multi-tab delegated workspaces preserve all tabs on load,
-but new conversations are rejected. See [ADR 0099](../decisions/0099-sub-workspaces.md)
+The app gets the sub-workspace groups from `Board.delegations` and the IDs of
+the owner tabs. It does not add a parent field or a migration. When a board has
+no delegation list, the legacy flat navigation stays. Current delegated
+workspaces with many tabs keep all tabs during the load, but the app rejects new
+conversations in them. Refer to [ADR 0099](../decisions/0099-sub-workspaces.md)
 and the [embedded MCP contract](embedded-mcp.md#sub-workspace-navigation).

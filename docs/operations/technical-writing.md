@@ -207,6 +207,26 @@ or the contract. Add the term to this list in the same change.
 | `file`, `folder`, `path` | Items of the file system. |
 | `code` | Source code. |
 | `application`, `app` | The Prometeu desktop application, or a different program when the text tells which one. |
+| `use case` | One operation of the application layer that gets its state and effects from the caller. |
+| `conformance`, `conformance suite` | The agreement between the native behavior of a provider and the Prometeu contract, and the fixtures that examine it. |
+| `smoke test` | A short manual or opt-in test against the installed CLI. |
+| `hub` | The central registry of MCP servers, plugins and skills. |
+| `picker`, `composer`, `badge`, `chip` | Controls of the interface with the same names in the design system. |
+| `main window` | The primary Tauri window of the application. |
+| `idle`, `pending` | The observed state of an agent that waits for input, and an item that waits for a decision. |
+| `discovery`, `provenance` | How Prometeu finds a tool, and where a tool in the picker comes from. |
+| `connector` | An MCP server of a claude.ai account. |
+| `evaluation` | A request to the TypeSafe service that classifies a context. |
+| `onboarding`, `provisioning` | The setup flow of the remote MCP, and the procedure that configures event publication for a remote host. |
+| `conflict` | A disagreement between revisions that git, the review store or the Cloud catalog reports. |
+| `mention`, `feed` | A reference to a person with `@login`, and the list of Cloud notifications. |
+| `peer`, `presence`, `security code` | A different device in a shared session, the event that tells which members are online, and the code that persons compare to confirm a key. |
+| `journal`, `snapshot`, `migration`, `rollback`, `binding`, `channel`, `guard` | The items of the code with the same names. |
+| `probe`, `reset` | A quota query for one profile, and the time when a quota window gets its full value again. |
+| `keyring` | The credential store of the operating system. |
+| `environment variable`, `working directory` | The usual items of a process. |
+| `escape sequence`, `normal buffer`, `alternate buffer` | The terminal screen items of xterm. |
+| `wire format` | The format of data in a message between processes or devices. |
 
 ## Project technical verbs
 
@@ -234,6 +254,13 @@ approved verb.
 | `resume` | To start an agent process again on a session that it started before. |
 | `stream` | To send data in parts while the operation continues. |
 | `debug` | To find and repair errors in code. |
+| `assign` | To set the assignee of a GitHub or Linear issue. |
+| `inject` | To give a dependency, a port or a set of tools to a component or a process from outside. |
+| `poll` | To send the same query to a server again at an interval. |
+| `renew`, `rotate` | To extend a lease, and to replace a credential or a token with a new one. |
+| `restore` | To put a terminal screen or stored data back into a saved state. |
+| `unarchive` | To put an archived workspace back on the board. |
+| `kill`, `reap` | To stop a process, and to collect a child process that stopped. |
 
 ## Frequent replacements
 
