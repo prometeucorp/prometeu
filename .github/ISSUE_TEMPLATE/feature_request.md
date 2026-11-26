@@ -1,23 +1,23 @@
 ---
 name: Feature request
-about: Describe a problem and the improvement you need
+about: Give a problem and the improvement that is necessary
 labels: enhancement
 ---
 
 ## Problem
 
-What are you trying to do? What gets in the way?
+What do you try to do? What stops you?
 
 ## Proposed behavior
 
-Describe the result you want, with a concrete example.
+Give the result that you want, with an example from your work.
 
 ## Alternatives
 
-What existing workflow or workaround have you tried?
+Which current procedure or temporary procedure did you try?
 
 ## Context
 
-Include the operating system and agent when relevant.
+If they are applicable, give the operating system and the agent.
 
-<!-- Search existing issues first. Keep credentials and private content out. -->
+<!-- First, examine the current issues. Do not include credentials or private content. -->

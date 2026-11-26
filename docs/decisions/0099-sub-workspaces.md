@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0099 — One level of sub-workspaces"
-description: "Group delegated workspaces under their coordinator and reserve one conversation per delegation."
+description: "Put delegated workspaces in a group below their coordinator, and keep one conversation for each delegation."
 status: stable
 ---
 
@@ -11,63 +11,85 @@ Date: 2026-11-08
 
 ## Context
 
-Delegated worktrees appear as unrelated workspaces, making parallel work hard
-to follow. The existing delegation records already identify the exact owner
-conversation and worker workspace. A second persisted parent field would
-introduce a competing relationship and require migration.
+Delegated worktrees show as workspaces without a relation. Thus it is
+not easy to follow work that occurs at the same time. The current delegation
+records identify the accurate owner conversation and the worker workspace. A
+second stored parent field adds a second relation that is not the same. It
+also makes a migration necessary.
 
 ## Decision
 
-Project local, active delegation records into one navigation level. Follow the
-owner conversation to its workspace; if that workspace is itself delegated,
-show the entire chain as siblings under the main workspace. Keep MCP ownership
-unchanged: grouping grants no transitive authority. Call the group
-**sub-workspaces** and its root the **main workspace**.
+Show the local, active delegation records on one navigation level. Follow the
+owner conversation to its workspace. If that workspace is also a delegated
+workspace, show all of the chain as siblings below the main workspace. Do not
+change the MCP ownership. The group does not give transitive authority. The
+name of the group is **sub-workspaces**. The name of its root is the **main
+workspace**.
 
-Each delegated workspace reserves its original conversation. The native desktop,
-portable workspace service and browser mock reject additional conversations,
-including agent Actions. Prompt Actions still use the current conversation;
-the PR button uses its existing current-conversation path when an agent Action
-would create another tab. The composer, shortcut and tab controls follow the
-same restriction. Main workspaces retain their normal tabs.
+Each delegated workspace keeps its initial conversation as its only
+conversation:
 
-The sidebar shows one row with status, provider mark and title; branch and model
-remain in the tooltip. The selected sub-workspace links back to the main
-workspace and names its coordinating conversation. Hide its conversation tab
-strip when it is redundant, but show it when files, Changes, preview or terminals
-need navigation. This restriction concerns conversations, not supporting tools.
+- The native desktop, the portable workspace service and the browser mock
+  reject more conversations. This rule includes agent Actions.
+- Prompt Actions continue to use the current conversation.
+- When an agent Action makes a new tab, the PR button uses its current
+  path for the current conversation.
+- The composer, the shortcut and the tab controls obey the same rule.
 
-Existing delegated workspaces with several conversations retain every transcript
-and their tab selectors. They cannot add another conversation. External clients
-and missing or archived coordinators have no visible main workspace, so their
-delegated workspaces remain independently accessible. Archived children stay in
-the archive. Restoring a coordinator restores its grouping. Cycles fail open for
-navigation: show the workspaces independently rather than hiding them.
+Main workspaces keep their usual tabs.
 
-A family follows its main workspace's project, including cross-project workers.
-Pinning any member puts the whole family in Pinned; member pin flags are retained.
-Project search includes sub-workspace titles. Archives, worktrees and
-processes remain independently controlled; grouping adds no cascading operations.
+The sidebar shows one row with the status, the provider mark and the title. The
+branch and the model stay in the tooltip. The selected sub-workspace has a link
+back to the main workspace, and it shows the name of its coordinator
+conversation. Hide the tab strip of its conversation when it is not necessary.
+But show the tab strip when the person must go to files, Changes, preview or
+terminals. This rule is about conversations, not about supporting tools.
+
+Current delegated workspaces with more than one conversation keep all of their
+transcripts and their tab selectors. They cannot add a new conversation.
+
+- External clients, and coordinators that are not there or in the archive,
+  do not have a main workspace that the person can see. Thus the person can open their
+  delegated workspaces independently.
+- Archived children stay in the archive.
+- When the person puts a coordinator back from the archive, Prometeu shows
+  its group again.
+- A cycle does not stop the navigation. Prometeu shows the workspaces
+  independently and does not hide them.
+
+A family follows the project of its main workspace. This rule includes workers
+in a different project. If the person pins one member, all of the family goes
+into Pinned. Prometeu keeps the pin flag of each member. When the person types in
+the project search, the results include the titles of sub-workspaces. The person controls archives, worktrees
+and processes independently. The group does not add cascade operations.
 
 ## Compatibility and consequences
 
-No persisted, IPC or relay fields change. Old boards without delegations retain
-the existing presentation. A downgrade restores the flat list and permits more
-tabs without losing history. Existing ownership records continue to authorize
-only the originally delegated conversation. Remote shares do not inherit this
-local-only hierarchy.
+The stored fields, the IPC fields and the relay fields do not change. Boards
+from earlier versions without delegations keep the current presentation. A
+downgrade shows the flat list again and lets the person add more tabs. The
+history stays. The current ownership records continue to give authority only
+for the conversation that the person delegated first. Remote shares do not
+inherit this local hierarchy.
 
-The flattened projection avoids deep trees and a second relationship store.
-Its trade-off is that deleting the coordinator conversation loses the visible
-link; surviving workspaces and their transcripts stay accessible. A future
-requirement to retain links after deletion would need a separate persisted
-contract, not inference from branch names or tab order.
+The flat projection prevents deep trees and a second store for relations. But
+when a person deletes the coordinator conversation, the link that the person
+sees goes away. The workspaces and their transcripts that stay are available. If the
+links must stay after a delete in the future, a different contract for stored
+data is necessary. Prometeu must not find the links from branch names or from the
+order of the tabs.
 
 ## Verification
 
-`src/workspace-hierarchy.test.ts` covers legacy boards, explicit ownership,
-flattening, multi-tab preservation, cycles, external owners, archive/restore and
-remote exclusions. Core board and workspace tests cover admission before
-mutation and preservation of legacy conversations across serialization/restart.
-See [embedded MCP](../contracts/embedded-mcp.md) and the
+`src/workspace-hierarchy.test.ts` includes these items:
+
+- Legacy boards and explicit ownership.
+- The flat projection and the tabs that Prometeu keeps.
+- Cycles, external owners, the archive, the return from the archive, and
+  remote exclusions.
+
+The core board tests and workspace tests make sure that Prometeu accepts a
+conversation before it changes the state. They also make sure that Prometeu
+keeps legacy conversations through serialization and a new start of the app. See
+[embedded MCP](../contracts/embedded-mcp.md) and the
 [provider matrix](../quality/provider-matrix.md).

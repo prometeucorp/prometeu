@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0100 — Persist conversation transport independently of provider"
-description: "A default for new conversations preserves the transport and history of existing tabs."
+description: "A default for new conversations does not change the transport and the history of the current tabs."
 status: stable
 ---
 
@@ -11,310 +11,403 @@ Date: 2026-11-16
 
 ## Context
 
-The native CLIs offer interactive features that the structured conversation
-adapters do not expose. Selecting a native terminal must still identify an
-ordinary Prometeu conversation, whose transcript survives its process. Changing
-a default must not reinterpret existing transcripts or resume a different
-provider session. App-owned shell sessions have a different lifetime and do not
-participate in agent notifications, delegation or sharing (ADR 0096).
+The native CLIs have interactive features that the structured conversation
+adapters do not show. When a person selects a native terminal, Prometeu must
+continue to identify a usual Prometeu conversation. The transcript of that
+conversation stays after its process stops. A change to a default must not
+change the meaning of current transcripts. It must not resume the session of a
+different provider. The shell sessions that the app owns have a different
+lifetime. They are not part of agent notifications, delegation or sharing
+(ADR 0096).
 
 ## Options considered
 
-1. Reuse app-owned shell records. This provides a terminal quickly, but exit
-   removes the record and bypasses conversation ownership and reactions.
-2. Treat terminal as a model or provider. This mixes presentation/transport
-   identity with the existing account and model catalog.
-3. Persist conversation mode separately on the board and each tab. Launch
-   resolves the default once; resume keeps the saved choice.
+1. Use the shell records that the app owns again. This option gives a terminal
+   quickly. But an exit removes the record, and the record does not use the
+   ownership and reactions of a conversation.
+2. Make the terminal a model or a provider. This option puts the identity of
+   the presentation and transport together with the current account and model
+   catalog.
+3. Keep the conversation mode independently on the board and on each tab. The
+   launch finds the default one time. A resume keeps the saved selection.
 
 ## Decision
 
-Option 3. `ConversationMode` has `chat` and `terminal` values. Missing board and
-tab values mean `chat`; that default is omitted when serializing. A launch may
-override the board default, and its resolved value is saved on the tab. Resume,
-including action-profile resume, preserves the tab's mode.
+Use option 3. `ConversationMode` has the values `chat` and `terminal`. When the
+board or the tab does not have a value, the value is `chat`. Serialization does
+not write that default. A launch can replace the default of the board, and
+Prometeu saves the value that it found on the tab. A resume keeps the mode of
+the tab. This rule includes the resume of an action profile.
 
-The saved mode also selects the local interface exclusively: Chat uses the
-structured conversation and Terminal uses the native TUI. A terminal tab has no
-second transcript screen or local screen switcher. The terminal fills its area
-without a permanent composer, controls footer or controls floating over native
-output. The workspace menu at the right of the central tab bar, tab context
-menus and desk-header menus open a dialog for shared product actions, MCP,
-plugins, skills, context, dictation and remote access.
-Quotation and manual resume use those surrounding menus when available. Pending
-context and queued messages have an indicator in the tab-bar action group or desk header,
-separate from the agent's observed status, and their content is available on demand.
-Actionable collaboration notices remain visible without opening that dialog so
-the owner does not miss an approval. This keeps product capabilities available without maintaining a second
-input surface. The CLI owns the only editable local message input and live model
-and effort controls; the app keeps launch defaults without duplicating those
-selectors in the conversation.
+**Interface.** The saved mode also selects the local interface. Chat uses the
+structured conversation, and Terminal uses the native TUI. A terminal tab does
+not have a second transcript screen or a local control to change the screen.
+The terminal fills its area. It does not have a permanent composer, a footer
+with controls or controls above the native output.
 
-Selecting, dropping or pasting files inserts paths into that native input
-without submitting it. Browser context, review notes and text previews remain
-staged in the tools dialog for explicit insertion. Asynchronous preparation
-captures the original tab and native process generation; failure retains that
-tab's draft, and insertion never resumes or retargets a process. Canonical
-history remains independent of presentation and continues to support persistence,
-status, notifications and sharing. Remote members consume that canonical history
-because the native PTY runs only on the owner's machine.
+- The workspace menu at the right of the central tab bar opens a dialog. The
+  context menus of tabs and the menus of the desk header also open it. This
+  dialog contains the shared product actions, MCP, plugins, skills, context,
+  dictation and remote access.
+- Quotation and manual resume use those menus when they are available.
+- Pending context and queued messages have an indicator in the action group of
+  the tab bar or in the desk header. This indicator is separate from the agent
+  status that Prometeu sees. The person can open their content.
+- The person can see collaboration notices that are necessary for an action
+  without that dialog.
+  Thus the owner sees each approval.
 
-Attaching a visible local terminal tab automatically resumes its saved session
-when its process is stopped, including after app restart. This restores the
-selected interface without an extra click or a synthetic message. Resume remains
-bound to the existing native identity and launch checks; concurrent surfaces do
-not create duplicate processes, and failures expose manual retry rather than
-restarting indefinitely. Unopened terminal tabs do not launch merely because
-they exist on the board.
+Thus the product capabilities stay available, and it is not necessary for Prometeu to
+keep a second input surface. The CLI owns the only local message input that a
+person can edit. It also owns the live model and effort controls. The app keeps
+the launch defaults, but it does not show those selectors again in the
+conversation.
 
-For the first terminal version, Cursor and Antigravity approvals, questions and
-plan decisions remain in their native TUIs. Cursor's pre-execution hooks cannot
-answer an already-open dialog while preserving local interaction. Antigravity's
-parallel Remote Control has no documented public local attachment API. ACP owns
-a separate session in both products. The chosen trade-off is native interaction
-instead of recreating or instrumenting private UI and remote protocols. This
-exception is scoped to saved Cursor and Antigravity terminal conversations;
-Chat keeps its existing capabilities. Shared viewers receive an
-encrypted per-tab decision-surface capability, and the owner rejects unsupported
-responses independently of presentation. See the
+**Files and context.** When a person selects, drops or pastes files, Prometeu
+puts their paths into that native input. It does not send the input. Browser
+context, review notes and text previews stay in the tools dialog until the
+person inserts them explicitly. Asynchronous preparation records the initial
+tab and the native process generation. If a failure occurs, that tab keeps its
+draft. The insertion does not resume a process or send text to a different
+process at any time.
+
+The canonical history does not depend on the presentation. It continues to
+operate for persistence, status, notifications and sharing. Remote members use
+that canonical history, because the native PTY runs only on the machine of the
+owner.
+
+**Automatic resume.** When a local terminal tab that the person sees attaches,
+and its process does not operate, Prometeu resumes its saved session automatically. This also
+occurs after the app starts again. Thus the selected interface comes back
+without one more click or a synthetic message. The resume stays bound to the
+current native identity and to the launch checks. Surfaces that operate at the
+same time do not make two processes. A failure shows a manual retry. Prometeu
+does not start the process again and again without a limit. Terminal tabs that
+the person did not open do not launch only because they are on the board.
+
+**Native decisions of Cursor and Antigravity.** In the first terminal version,
+some decisions of Cursor and Antigravity stay in their native TUIs. These are
+the approvals, the questions and the plan decisions.
+
+- The pre-execution hooks of Cursor cannot answer a dialog that is open and also
+  keep the local interaction.
+- The parallel Remote Control of Antigravity has no public local attachment API
+  with documentation.
+- In the two products, ACP owns a different session.
+
+This decision keeps the native interaction. As a result, Prometeu does not make
+again or instrument the private UI and remote protocols. This special rule applies
+only to saved terminal conversations of Cursor and Antigravity. Chat keeps its
+current capabilities. Shared viewers receive an encrypted decision-surface
+capability for each tab. The owner rejects responses that the tab cannot
+accept, and the presentation has no effect on this rule. See the
 [Cursor decision boundary](../contracts/cursor.md#native-decision-channel-limit)
 and [Antigravity decision boundary](../contracts/native-antigravity-decisions.md).
 
-The native PTY exposes a `ProcessHandle` for its existing child, allowing the
-conversation host to reuse process identity and lifecycle rules. Its owning
-waiter remains unique. OSC program-status parsing and record reduction live at
-the protocol edge; they do not create assistant messages, approve tools or
-infer completion from silence.
+**Process identity.** The native PTY gives a `ProcessHandle` for its current
+child process. Thus the conversation host can use the process identity and the
+lifecycle rules again. Only one waiter owns the process. The parse of the OSC
+program status and the record reduction are at the protocol edge. They do not
+make assistant messages, approve tools or find a completion from silence.
 
-The native Codex engine owns a separate process group from its TUI. Tauri exit
-does not guarantee dropping conversation references before terminating the app,
-so an explicit exit hook stops and joins all engine owners. Startup admission
-and exit share a barrier: already admitted bounded bootstraps cannot escape the
-shutdown snapshot, and no new engine starts after exit begins. This preserves
-exact-session resume without leaving a previous engine holding native resources.
+**Codex engine.** The native Codex engine owns a process group that is
+different from the process group of its TUI. When Tauri exits, it does not
+always drop the conversation references before it stops the app. Thus an
+explicit exit hook stops all engine owners and waits for them. The startup admission and
+the exit share a barrier. Bounded bootstraps that Prometeu accepted cannot go
+out of the shutdown snapshot. No new engine starts after the exit starts. Thus
+the resume of the accurate session operates, and no previous engine keeps
+native resources.
 
-Antigravity's empty startup does not provide the idle evidence observed when
-starting with a native prompt argument. Its version-pinned empty composer may
-admit one first input in a fresh process before any native activity. Any composer
-write consumes this admission, including local input whose hook has not arrived
-yet. Resume and later inputs keep native idle authority. The exception avoids
-a first-input deadlock without synthesizing execution or completion events.
+**Antigravity startup.** When Antigravity starts empty, it does not give the
+idle evidence that Prometeu sees when it starts with a native prompt argument.
+Its empty composer, for the pinned version, can accept one first input in a new
+process before native activity occurs. Each composer write uses this admission.
+This includes local input whose hook did not come at that time. A resume and
+subsequent inputs keep the native idle authority. This special rule prevents a
+deadlock at the first input. It does not make synthetic execution or
+completion events.
 
-Observed execution crosses the conversation boundary as the additive ephemeral
-`execution.observed` event. Reusing `assistant.started` would invent content;
-reusing `request.opened` for a status observation would advertise an answer
-route it does not prove. Genuine decision channels, such as the
-[Claude PermissionRequest bridge](../contracts/native-claude-decisions.md), emit
-requests only while an authenticated invocation can receive an explicit reply.
-The separate read-only event lets the shared Work reducer, tab
-status and notifications observe activity and blocking without either claim.
-Root and background scope remain distinct so child activity cannot reopen a
-completed primary turn. Loss of evidence is explicit `unknown`, published
-before an uncertain background drain, never completion by absence.
+**Execution events.** Execution that Prometeu sees goes through the
+conversation boundary as the additive ephemeral `execution.observed` event.
 
-Explicit root active-to-idle is availability evidence, distinct from a removed
-or lost record. It settles the primary activity without a success outcome or
-notification, as required by Antigravity's native Escape sequence. Source tails
-remain readable without reopening that activity; active children and actual
-requests still hold their own work. The existing Done completion barrier is
-unchanged by this availability rule.
+- If Prometeu uses `assistant.started` again, it makes content that is not
+  there.
+- If Prometeu uses `request.opened` for a status, it advertises an answer
+  path that it cannot prove.
 
-The content boundary also records root idle following Done/Error without closing
-or consuming a pending completion ticket. Antigravity's file-exploration
-interruption emits Done before Idle, so using cancellation closure alone to quiet
-the source tail would reopen the backend tab on a late thinking block while the
-frontend already showed idle. Availability and successful completion therefore
-remain separate facts: late content stays readable, and success still requires
-the provider's source evidence.
+Correct decision channels, for example the
+[Claude PermissionRequest bridge](../contracts/native-claude-decisions.md),
+send requests only while an authenticated invocation can receive an explicit
+reply. The separate read-only event lets the shared Work reducer, the tab status
+and notifications see activity and blocks without one of those claims. The
+root scope and the background scope stay different. Thus child activity cannot
+open a completed primary turn again. When the evidence is lost, the status is an explicit
+`unknown`. Prometeu publishes it before an uncertain background drain. An
+absence of evidence is not a completion at any time.
 
-The pure execution projector returns a completion ticket for an explicit root
-active-to-done/error transition. The host may commit it only after draining the
-native transcript; canonical completion or resumed activity invalidates it.
-Accepted input opens a new cycle, while the first input arriving behind its
-initial activity claims that still-open provisional cycle. Closed cycles require
-new accepted input or a distinct generation proven by the host; stale status
-reports cannot create repeated completion. Native and canonical background
-snapshots are merged without allowing one source to erase the other. This is
-observation plumbing, not native approval or remote-control parity.
+**Idle after activity.** An explicit change of the root from active to idle is
+evidence of availability. It is different from a record that Prometeu removed
+or lost. It stops the primary activity without a success outcome or a
+notification. The native Escape sequence of Antigravity makes this necessary.
+The source tails stay readable, and they do not open that activity again.
+Active children and requests that are there continue to hold their own work. This
+availability rule does not change the current Done completion barrier.
 
-The Claude/Antigravity host also requires source-specific persistence
-proof. A raw user boundary excludes earlier unread responses, and an ordinal
-ties that proof to the exact PSP Done report that created the execution ticket.
-The host previews completion without closing the projector, then revalidates
-the ticket and records its source receipt under the canonical commit gate.
-Only a successful durable commit settles and publishes the turn. A stale proof,
-an already captured source or a failed commit cannot finish a newer input.
+The content boundary also records a root idle that follows Done or Error. It
+does not close or use a pending completion ticket. When Antigravity interrupts
+a file exploration, it sends Done before Idle. Prometeu does not use only the
+closure of the cancellation to stop the source tail. If it did, a late thinking
+block can open the backend tab again while the frontend shows idle. Thus availability and
+correct completion stay separate facts. Late content stays readable, and a
+success continues to have the source evidence as a condition of the provider.
 
-The pinned Cursor TUI uses a different successful-stop fence because it does
-not emit PSP. A process-private witness captures the authorized transcript's
-metadata before the hook listener acknowledges Stop. Completion requires a
-later stable success trailer, the exact hook generation/native request match,
-complete acknowledged source coverage and the current empty composer. The
-trailer is emitted after the whole Stop hook chain; ordinary writes discard an
-old trailer. Optional run records constrain the proof when present but are not
-invented when the native store omits them. A source receipt commits before any
-completion publication or execution change. This avoids treating either the
-Stop callback or an early empty composer as the end of the turn.
+**Completion tickets.** The pure execution projector returns a completion
+ticket for an explicit change of the root from active to done or error. The
+host can commit the ticket only after it drains the native transcript. A
+canonical completion or a resumed activity makes the ticket not valid.
 
-The macOS execution host enables native terminal conversations for all four
-providers. Settings / General exposes Chat or Terminal as the default for new
-tabs, including action tabs. Existing tabs keep their saved mode. Linux retains
-Chat and rejects `terminal` explicitly. The native transport includes
-canonical source ingestion, durable input, explicit decision channels where
-supported, shared transcript consumption and restorable screen snapshots.
-The [provider matrix](../quality/provider-matrix.md) distinguishes verified macOS
-Tauri flows from native CLI smokes, automated integration tests and the remaining
-provider-specific conformance checks.
+- Accepted input opens a new cycle. The first input that comes after its
+  initial activity takes that provisional cycle that is open.
+- A closed cycle must have new accepted input or a different generation that the
+  host proves. Status reports that are not current cannot make a second
+  completion.
+- Prometeu merges native and canonical background snapshots. One source cannot
+  erase the other.
 
-Slash commands and permission-mode changes belong to the native TUI for every
-provider. The shared transcript UI omits those controls and validates manually typed
-commands before clearing drafts, while user Actions expand first. Individual
-Claude/Codex approval and question responses retain their integrated paths.
-Encrypted per-tab mode metadata lets shared viewers apply the same command
-boundary; the owner also rejects stale or legacy unsupported input.
+This is plumbing for observation. It does not give native approval or the same
+functions as remote control.
 
-Native CLI versions are gated by a minimum, never an exact build. Each
-integration names the oldest build it was verified on and accepts every newer
-one through `prometeu_protocols::cli_version`: semver CLIs order a prerelease of
-the floor before it, and Cursor's dated builds ignore their hash. Provider CLIs ship
-weekly; an exact pin broke terminal mode for everyone on each release and told
-people to "update" a CLI that was already newer. The trade-off is that a newer
-build can change a private format or layout. Readers of native stores, the
-Codex engine bootstrap and the screen parsers still fail closed on content they
-do not recognize, and such a break is fixed forward with a new release.
+**Claude and Antigravity proof.** The host for Claude and Antigravity also
+must have a persistence proof for each source. A raw user boundary does not include
+earlier responses that the person did not read. An ordinal connects that proof
+to the accurate PSP Done report that made the execution ticket. The host shows
+the completion before it closes the projector. Then it validates the ticket
+again and records its source receipt under the canonical commit gate. Only a
+durable commit that is correct settles and publishes the turn. A proof that is
+not current, a source that Prometeu captured before, or a commit with a failure
+cannot complete a newer input.
+
+**Cursor proof.** The pinned Cursor TUI uses a different fence for a correct
+stop, because it does not send PSP. A witness that is private to the process
+records the metadata of the authorized transcript before the hook listener
+acknowledges Stop. A completion must have these items:
+
+- A subsequent stable success trailer.
+- The hook generation and the native request agree accurately.
+- Full acknowledged source coverage.
+- The current empty composer.
+
+Cursor writes the trailer after the full Stop hook chain. Usual writes discard
+an earlier trailer. Optional run records limit the proof when they are there.
+Prometeu does not make them when the native store does not have them. A source
+receipt commits before the publication of a completion or a change of the
+execution. Thus Prometeu does not use the Stop callback or an early empty
+composer as the end of the turn.
+
+**Platforms.** The macOS execution host enables native terminal conversations
+for all four providers. Settings / General shows Chat or Terminal as the
+default for new tabs. This includes action tabs. Current tabs keep their saved
+mode. Linux keeps Chat and rejects `terminal` explicitly. The native transport
+includes these items:
+
+- Canonical source ingestion and durable input.
+- Explicit decision channels where they are available.
+- Shared transcript consumption and screen snapshots that Prometeu can
+  restore.
+
+The [provider matrix](../quality/provider-matrix.md) shows the difference
+between verified macOS Tauri flows, native CLI smokes, automated integration
+tests and the provider-specific conformance checks that stay.
+
+**Slash commands.** Slash commands and permission-mode changes are part of the
+native TUI for all providers. The shared transcript UI does not show those
+controls. It validates commands that the person types manually before it
+clears drafts. User Actions expand first. The approval and question responses
+of Claude and Codex keep their integrated paths. Encrypted mode metadata for
+each tab lets shared viewers apply the same command boundary. The owner also
+rejects input that is not current or that a legacy version cannot accept.
+
+**CLI versions.** A minimum version controls the native CLIs, not an accurate
+build. Each integration names the earliest build that the team verified. It
+accepts all newer builds through `prometeu_protocols::cli_version`:
+
+- For semver CLIs, a prerelease of the minimum comes before the minimum.
+- For the dated builds of Cursor, Prometeu ignores the hash.
+
+Providers publish new CLIs each week. An accurate pin stopped the terminal mode
+for all persons at each release. It also told persons to "update" a CLI that was
+newer at that time. As a result of this decision, a newer build can change a
+private format or layout. The readers of native stores, the Codex engine
+bootstrap and the screen parsers continue to fail closed on content that they
+do not know. The team repairs such a break with a new release.
 
 ## Consequences
 
-Existing boards and transcripts retain their meaning. Changing the
-default affects newly created tabs only. Switching a saved tab's mode requires
-an explicit history/identity conversion contract; it is not a settings side
-effect.
+The meaning of current boards and transcripts does not change. A change to the
+default has an effect only on new tabs. To change the mode of a saved tab, an
+explicit conversion contract for the history and the identity is necessary. It
+is not a side effect of a setting.
 
-Downgrades can discard the new fields, since older versions ignore unknown
-fields. Native-history resume through an older structured adapter has not been
-validated.
+A downgrade can discard the new fields, because earlier versions ignore unknown
+fields. The team did not validate a native-history resume through an earlier
+structured adapter.
 
 Raw terminal bytes and status observations do not replace the canonical
-conversation stream. Native source projection owns retained content, the
-emulator owns screen restoration, and verified channels own explicit controls.
+conversation stream. The native source projection owns the content that
+Prometeu keeps. The emulator owns the screen restoration. Verified channels own
+the explicit controls.
 
-The native transport remains inside `Chat`, sharing its pump, telemetry capture,
-account context and process identity. It drains raw bytes independently of input
-and publication locks. Native identity, output and exit wait until the tab has
-been published; otherwise a fast CLI failure could report closure before its
-registry entry exists. One waiter reaps the child before lifecycle callbacks.
-Each PTY incarnation also has a transport generation: snapshot replay, live
-output and queued input/resize cannot be mixed with a replacement process.
+**Transport in the chat.** The native transport stays in `Chat`. It shares the
+pump, the telemetry capture, the account context and the process identity of
+the chat. It drains raw bytes independently of the input locks and the
+publication locks. The native identity, output and exit wait until Prometeu
+publishes the tab. If not, a fast CLI failure can report a closure before its
+registry entry is there. One waiter reaps the child process before the
+lifecycle callbacks. Each PTY incarnation also has a transport generation.
+Thus snapshot replay, live output and queued input or resize cannot go to a
+replacement process.
 
-Codex control endpoints remain local to each derived configuration home. Sharing
-durable account/session data does not imply sharing `app-server-control`: the
-native engine rejects a symlink there and owns directory validation and creation.
-Preparation migrates old derived aliases without modifying their original target
-or any already physical control directory.
+**Codex control endpoints.** Codex control endpoints stay local to each derived
+configuration home. When Prometeu shares durable account and session data, it
+does not share `app-server-control`. The native engine rejects a symlink at
+that location. It owns the validation and the creation of the folder. The
+preparation migrates derived aliases from earlier versions. It does not change
+their initial target or a physical control folder that is there before.
 
-An authenticated root hook also records the exact native transcript path in a
-private versioned binding. Resume reauthorizes that path against the captured
-account and reads its silent baseline before spawning the CLI. Waiting for a
-new hook would deadlock providers that report resume only on the next prompt;
-searching all native histories would weaken session isolation. A missing or
-invalid binding therefore rejects resume. Cursor can also reauthorize its exact
-original session database before a derived transcript path exists. AGY 1.5.10
-uses the same private DB/WAL copy boundary for its exact cascade and trajectory;
-its truncated JSONL export cannot prove tool/result identity. The original
-protobuf call IDs and scoped complete output files provide that evidence without
-opening other sessions or changing native files. See the
+**Transcript binding.** An authenticated root hook also records the accurate
+native transcript path in a private versioned binding. A resume authorizes that
+path again against the captured account. It reads its silent baseline before it
+starts the CLI.
+
+- Prometeu does not wait for a new hook. If it did, providers that report a
+  resume only on the next prompt stop in a deadlock.
+- Prometeu does not examine all native histories. If it did, the session
+  isolation becomes less strong.
+
+Thus a binding that is not there or that is not valid rejects the resume.
+Cursor can also authorize again its accurate initial session database before a
+derived transcript path is there. AGY 1.5.10 uses the same private DB/WAL copy
+boundary for its accurate cascade and trajectory. Its truncated JSONL export
+cannot prove the identity of a tool or a result. The initial protobuf call IDs
+and the full output files in the scope give that evidence. They do not open
+other sessions or change native files. See the
 [native-store contract](../contracts/native-antigravity-store.md). Baseline and
-compaction projections never replace already published canonical lines or
-repeat their reactions. Source-provenance recovery is composed for each provider;
-unrecognized native content withholds source coverage instead of silently
-discarding output or authorizing completion.
+compaction projections do not replace canonical lines that Prometeu published
+before, and they do not repeat their reactions. The source-provenance recovery
+has a composition for each provider. Native content that Prometeu does not know
+does not give source coverage. Prometeu does not discard the output or
+authorize a completion without a message.
 
-Recovery uses a separate private ingestion journal, instead of
-adding provenance to public V1 rows or replacing the transcript with native
-snapshots. Source occurrence/version keys preserve repeated prompts and mutable
-native steps. A durable intent precedes canonical append; acknowledgment follows
-canonical sync. Recovery can therefore finish an exact pending prefix without
-moving existing line indices or replaying its reactions. The native host composes
-the journal, native source decoders and single writer gate. It recovers
-missing native tails before seeding canonical Lines; acknowledged live batches
-follow the same durable commit order. Provider-specific coverage and native
-control limits stay explicit in their contracts and the provider matrix.
+**Ingestion journal.** The recovery uses a separate private ingestion journal.
+Prometeu does not add provenance to public V1 rows. It does not replace the
+transcript with native snapshots. Source occurrence keys and version keys keep
+repeated prompts and native steps that can change.
 
-The source commit port also receipts ephemeral metadata without retaining its
-payload as a public line. It shares the ordinary output reduction path, so a
-failed or duplicate receipt cannot repeat telemetry or context effects. Replay
-is storage-only. Late revisions of ephemeral metadata update private receipts;
-retained summary/notice/report text uses quiet append without execution or
-reaction effects. This preserves the append-only history and the default Chat
-policy while making native source capture idempotent.
+- A durable intent comes before the canonical append.
+- The acknowledgment comes after the canonical sync.
 
-AGY's source-recognized native `/compact` is maintenance rather than a model
-turn. Its causally bound terminal checkpoint, durable source catch-up and PSP
-Idle/Done/Error can settle `execution.observed` to idle without `turn.completed`
-or a completion alert. Replay and `context.compacted` metadata do not open a
-model cycle. The maintenance marker is private and optional; native user/source
-identities and canonical history remain append-only.
+Thus the recovery can complete an accurate pending prefix. It does not move
+current line indices or replay their reactions. The native host composes the
+journal, the native source decoders and the single writer gate. It collects
+the missing native tails before it seeds canonical Lines. Acknowledged live batches
+follow the same durable commit order. The contracts and the provider matrix
+show the provider-specific coverage and the native control limits explicitly.
 
-The private journal uses schema 4 and can begin with an absent native identity.
-An authenticated binding records that identity once, rejecting a different one.
-This supports CLIs that allocate their identity after launch while preserving
-the durable receipt for the first app input. Schemas 1–3 migrate without changing
-canonical bytes or receipts. Resume can recover a committed native identity
-before its board update; Fresh never adopts an old bound journal. Recovery still
-reauthorizes the captured account's exact native source.
+**Ephemeral metadata.** The source commit port also records receipts for
+ephemeral metadata. It does not keep the payload of the metadata as a public
+line. It shares the usual output reduction path. Thus a receipt with a failure
+or a duplicate receipt cannot repeat telemetry or context effects. A replay
+only writes to the storage. Late revisions of ephemeral metadata update private
+receipts. Summary, notice and report text that Prometeu keeps uses a quiet
+append without execution or reaction effects. Thus the history stays
+append-only, the default Chat policy stays, and the native source capture is
+idempotent.
 
-Sealed Claude rows and Antigravity steps do not prove a completed turn. Private
-causal-user receipts distinguish current output from historical revisions;
-completion is indexed only after its canonical bytes commit. A later committed
-input range also prevents old results from affecting its successor, including
-an interrupted turn that never produced a completion. Original ranges remain
-stable across aliases and replay. Unknown ancestry cannot authorize live work,
-and the Antigravity trajectory identity is separately pinned across restart.
-These rules stay at the ingestion boundary; no provider provenance enters V1.
+**AGY compaction.** A native `/compact` of AGY that the source identifies is
+maintenance, not a model turn. Its terminal checkpoint, which has a causal
+binding, the durable source catch-up and PSP Idle, Done or Error can settle
+`execution.observed` to idle. This occurs without `turn.completed` and without
+a completion alert. Replay and `context.compacted` metadata do not open a model
+cycle. The maintenance marker is private and optional. Native user and source
+identities and the canonical history stay append-only.
 
-Native queued input also needs durable identity before process writes. An
-additive `Tab.native_dispatch` holds one immutable `{id,text}` item separately
-from later `pending_prompt` text. A board barrier commits that item before
-dispatch. The private journal then persists a prepared input intent before any
-PTY write, and the canonical acceptance receipt precedes clearing the board
-slot. This covers both crash windows: write before receipt and receipt before
-board clear. A restored exact receipt returns `AlreadyAccepted` without another
-write or capture. An unresolved intent requires causal native acceptance proof;
-silence, absent source rows and matching text elsewhere never authorize retry.
-The original text stays visible while uncertain. Ordinary Chat retains its
-existing queue and persistence policy.
+**Journal schema.** The private journal uses schema 4. It can start without a
+native identity. An authenticated binding records that identity one time and
+rejects a different identity. Thus Prometeu can operate with CLIs that make
+their identity after the launch, and it keeps the durable receipt for the first
+app input. Schemas 1–3 migrate without a change to canonical bytes or
+receipts. A resume can recover a committed native identity before the board
+update for it. Fresh does not use a bound journal from an earlier session at
+any time. The recovery continues to authorize again the accurate native source
+of the captured account.
 
-The portable pump exposes `feed_committed` for this ordering without importing
-native source formats or SQLite into the core. Its injected callback commits
-sanitized public bytes before execution observations, delivery, telemetry or
-reactions. A duplicate durable occurrence and a failed commit cause no live
-effects. This explicit ingestion path leaves ordinary chat's existing
-best-effort persistence policy intact; native recovery cannot safely publish an
-occurrence whose durable ownership is still uncertain. The corresponding pump
-tests verify both policies and prove that committed bytes are not appended twice.
-The optional commit port also covers app echoes and notices. Proven revisions
-of finished native content publish updates without rearming execution or
-notifications. Causal input aliases use opaque receipts and native user
-occurrences, including Cursor's proven paste normalization, rather than global
-text deduplication.
+**Completed turns.** Sealed Claude rows and Antigravity steps do not prove a
+completed turn. Private causal-user receipts show the difference between
+current output and historical revisions. Prometeu indexes a completion only
+after its canonical bytes commit. A subsequent committed input range also
+prevents earlier results from an effect on the next turn. This includes an
+interrupted turn that did not make a completion. Initial ranges stay stable
+through aliases and replay. An unknown ancestry cannot authorize live work.
+Prometeu pins the Antigravity trajectory identity independently through a restart.
+These rules stay at the ingestion boundary. No provider provenance goes into
+V1.
+
+**Queued native input.** Native queued input must also have a durable
+identity before the process writes. An additive `Tab.native_dispatch` holds one
+immutable `{id,text}` item, independently from the subsequent `pending_prompt`
+text.
+
+1. A board barrier commits that item before the dispatch.
+2. The private journal then keeps a prepared input intent before a PTY write.
+3. The canonical acceptance receipt comes before Prometeu clears the board
+   slot.
+
+This sequence covers the two crash windows: a write before the receipt, and a
+receipt before Prometeu clears the board. A restored accurate receipt returns
+`AlreadyAccepted` without one more write or capture. An unresolved intent must have
+a causal proof that the native agent accepted the input. Silence, missing
+source rows and the same text in a different location do not authorize a retry
+at any time. The person continues to see the initial text while the status is uncertain. The
+usual Chat keeps its current queue and persistence policy.
+
+**Committed feed.** The portable pump gives `feed_committed` for this sequence.
+It does not import native source formats or SQLite into the core. Its injected
+callback commits sanitized public bytes before execution observations,
+delivery, telemetry or reactions. A duplicate durable occurrence and a commit
+with a failure cause no live effects. This explicit ingestion path does not
+change the best-effort persistence policy of the usual chat. Native recovery
+cannot safely publish an occurrence while its durable ownership is uncertain.
+The related pump tests make sure that the two policies operate. They also prove
+that Prometeu does not append committed bytes two times. The optional commit
+port also covers app echoes and notices. Proven revisions of completed native
+content publish updates, but they do not start the execution or the
+notifications again. Causal input aliases use opaque receipts and native user
+occurrences, for example the proven paste normalization of Cursor. They do not
+use a global deduplication of text.
 
 ## Evidence
 
-- Core board and launch tests cover old data, explicit overrides and independent
-  board/tab values; desktop session tests cover saved mode on resume.
-- `crates/process/src/terminal/tests.rs` checks input, resize, process control,
-  exit state and the single owning waiter with real PTYs.
-- `crates/protocols/src/terminal_status.rs` and `terminal_status/state.rs` check
-  bounded byte parsing, chunk boundaries, explicit lifecycle and child records.
-- `crates/protocols/src/terminal_execution/tests.rs`, core Work/session tests
-  and `src/alert.test.ts` check completion barriers, late first input, child
-  holds, lost evidence and repeated notifications without fabricated messages.
-- `src-tauri/src/terminal_agent_launch.rs` tests native argument construction;
-  these are not real-provider inference or end-to-end conformance tests.
+- Core board and launch tests cover old data, explicit overrides and
+  independent values for the board and the tab. Desktop session tests cover the
+  saved mode on resume.
+- `crates/process/src/terminal/tests.rs` examines input, resize, process
+  control, exit state and the single owner waiter with real PTYs.
+- `crates/protocols/src/terminal_status.rs` and `terminal_status/state.rs`
+  examine the parse of bounded bytes, chunk boundaries, the explicit lifecycle
+  and child records.
+- `crates/protocols/src/terminal_execution/tests.rs`, the core Work and session
+  tests and `src/alert.test.ts` examine completion barriers and a late first
+  input. They also examine child holds, lost evidence, and notifications that
+  occur again without synthetic messages.
+- `src-tauri/src/terminal_agent_launch.rs` tests the construction of native
+  arguments. These tests are not real-provider inference tests or end-to-end
+  conformance tests.
 - `crates/protocols/src/cursor_store/tests.rs` and
   `src-tauri/src/terminal_agent_cursor_store/tests.rs` cover stable native IDs,
   bounded protobuf decoding and private copied DB/WAL reads. The journal tests
-  cover exact-prefix recovery, source versions and distinct repeated inputs.
+  cover the recovery of an accurate prefix, source versions and different
+  repeated inputs.
 
 See the [runtime contract](../contracts/agent-runtime.md),
 [persistence contract](../contracts/persistence.md) and

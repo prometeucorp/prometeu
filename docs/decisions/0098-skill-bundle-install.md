@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0098 — Install skill-bundle repositories as portable packages"
-description: "Synthesize Claude and Codex manifests for skill-only Git sources so Install works without upstream plugin.json."
+description: "Prometeu makes Claude and Codex manifests for Git sources that contain only skills. Thus Install operates without an upstream plugin.json."
 status: stable
 ---
 
@@ -11,58 +11,63 @@ Date: 2026-11-07
 
 ## Context
 
-Authors increasingly publish agent skills as a Git repository with
-`skills/*/SKILL.md` and, for Claude Code, a marketplace entry that lists those
-skills with `strict: false` and no `.claude-plugin/plugin.json`. Prometeu's
-installer only accepted folders that already carried a portable plugin
-manifest ([ADR 0005](0005-portable-plugin-marketplace.md)), so pasting such a
-URL failed with "no portable plugin". Clone directories also used the repository
-basename alone, so two GitHub repos named `skills` could not coexist.
+More and more authors publish agent skills as a Git repository with
+`skills/*/SKILL.md`. For Claude Code, the repository also has a marketplace
+entry that lists those skills with `strict: false` and no
+`.claude-plugin/plugin.json`. The installer of Prometeu accepted only folders
+that had a portable plugin manifest ([ADR 0005](0005-portable-plugin-marketplace.md)).
+Thus, when a person pasted such a URL, the installation stopped with the
+error "no portable plugin".
 
-Standalone skills and plugin-shipped skills already run through the same
-Claude `--plugin-dir` and Codex derived-marketplace pipeline. The gap was
-import, not execution.
+The clone folders also used only the base name of the repository. Thus two
+GitHub repositories with the name `skills` cannot be on the same computer.
+
+Standalone skills and skills that come in a plugin go through the same
+pipeline. Claude uses `--plugin-dir`, and Codex uses a derived marketplace. The
+missing function was the import, not the execution.
 
 ## Options considered
 
-1. Ask authors to republish with `plugin.json` before Prometeu can install.
-2. Import each `SKILL.md` body into the standalone skill hub and drop Git
-   updates and supporting assets.
-3. On install, synthesize Prometeu-owned portable packages from skill-bundle
-   marketplaces and bare `skills/*/SKILL.md` trees, and clone GitHub URLs into
+1. Tell authors to publish again with `plugin.json` before Prometeu can
+   install their repository.
+2. Import the body of each `SKILL.md` into the standalone skill hub. Do not
+   keep Git updates and supporting assets.
+3. At installation, make portable packages that Prometeu owns from skill-bundle
+   marketplaces and from bare `skills/*/SKILL.md` trees. Clone GitHub URLs into
    `owner-repo` folders.
 
 ## Decision
 
-Adopt option 3.
+Use option 3.
 
-- Discovery, after the existing root and marketplace `plugin.json` paths,
-  accepts marketplace entries whose `skills` array points at directories that
-  contain `SKILL.md`, and as a last resort each `skills/*/SKILL.md` under the
-  clone.
-- For those units, Prometeu writes
-  `<clone>/.prometeu/packages/<id>/` with `.claude-plugin/plugin.json`,
-  `.codex-plugin/plugin.json` (`skills: "./skills/"`) and a copy of each skill
-  tree. Hub `source` points at that package; `from` keeps the Git URL; `made`
-  is true.
-- GitHub clone directories use `owner-repo` so `caldoai/skills` and
-  `typesafe-ai/skills` do not collide. Non-GitHub URLs keep the basename.
-- Plugin update re-runs discovery on the clone root so synthesized packages
-  refresh after `git pull`.
-- Selection stays on the plugins axis; *Start with* continues to list
-  `skills/*/SKILL.md` inside installed packages. Cursor remains without hub
-  plugin/skill injection.
+- Discovery first examines the current root and marketplace `plugin.json`
+  paths. Then it accepts marketplace entries with a `skills` array that points
+  to folders with `SKILL.md`. As a last step, it accepts each
+  `skills/*/SKILL.md` in the clone.
+- For those units, Prometeu writes `<clone>/.prometeu/packages/<id>/`. This
+  folder contains `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`
+  (`skills: "./skills/"`) and a copy of each skill tree. The hub `source` points
+  to that package. `from` keeps the Git URL. `made` is true.
+- GitHub clone folders use `owner-repo`. Thus `caldoai/skills` and
+  `typesafe-ai/skills` do not use the same folder. URLs that are not from GitHub
+  keep the base name.
+- A plugin update runs discovery again on the clone root. Thus the packages
+  that Prometeu made change after `git pull`.
+- The selection stays on the plugins axis. *Start with* continues to list
+  `skills/*/SKILL.md` in installed packages. Prometeu does not add hub
+  plugins and skills to Cursor.
 
 ## Consequences
 
-- Pasting a skill-only repository URL installs through the same dialog as
-  plugins, without requiring upstream `plugin.json`.
-- Supporting files next to `SKILL.md` survive the copy into the synthesized
-  package.
-- Existing clones under bare repository names keep working; only new installs
-  use `owner-repo`.
-- Empty repositories still fail, with copy that mentions skills as well as
-  manifests.
+- When a person pastes the URL of a repository that contains only skills, the
+  same dialog as for plugins installs it. An upstream `plugin.json` is not
+  necessary.
+- The supporting files adjacent to `SKILL.md` stay in the copy in the package that
+  Prometeu makes.
+- Current clones with bare repository names continue to operate. Only new
+  installations use `owner-repo`.
+- Empty repositories continue to cause an error. The error text tells about
+  skills and also about manifests.
 
 ## Evidence
 

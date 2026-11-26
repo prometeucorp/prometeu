@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0038 — selected elements as tags in the conversation"
-description: "Selected elements as tags in the conversation."
+description: "The draft shows selected page elements as tags, and the message sends them in a versioned text block."
 status: stable
 ---
 
@@ -11,43 +11,47 @@ Date: 2026-09-10
 
 ## Context
 
-The browser from ADR 0037 added HTML, CSS and geometry directly to the editable
-text. That JSON took over the composer and the history, making it harder to
-write the request. The context must stay complete for the agent and in the
-replay.
+The browser of ADR 0037 added HTML, CSS and geometry directly to the editable
+text. That JSON filled the composer and the history. Thus, it was not easy to write
+the request. The agent must get the full context, and the replay must
+also show the full context.
 
 ## Options considered
 
-- Introduce a content type in the conversation protocol: it requires changing
-  adapters, the queue, persistence and collaboration for a presentation change.
-- Hide the data only in memory: it loses the presentation after a replay and
-  prevents peers from recognizing the context the agent received.
-- Keep tags in the draft and use an identified textual block on send: it
-  preserves the existing transports and allows a compact presentation in the
-  replay.
+- Add a content type to the conversation protocol. This makes changes necessary
+  in the adapters, the queue, the storage and the collaboration, only for a
+  change to the presentation.
+- Keep the data hidden only in memory. The presentation then stops after a
+  replay. Also, peers cannot identify the context that the agent got.
+- Keep tags in the draft and send an identified text block. This keeps the
+  current transports and lets the replay show a compact presentation.
 
 ## Decision
 
-Keep elements and their captures in the per-conversation draft, separate from
-the text. Show removable tags, with details reachable through a button. On send,
-serialize each element in the versioned textual format defined in the
+Keep the elements and their captures in the draft of each conversation,
+apart from the text. Show tags that the person can remove. A button shows the
+full data. When the person sends the message, serialize each element in the
+versioned text format of the
 [browser contract](../contracts/browser.md#context-in-the-message-text).
 
-Only the presentation recognizes those blocks. The reducer, the adapters and the
-relay neither remove nor reinterpret them. Strict reading bounds the structure,
-size and types; invalid blocks stay literal. Page content is always displayed as
-text, without executing HTML and without reading local paths from the history.
+Only the presentation identifies those blocks. The reducer, the adapters and the
+relay do not remove them or change their meaning. A strict parser puts a limit on
+the structure, the dimension and the types. An incorrect block stays as literal
+text. The application always shows page content as text. It does not operate
+HTML, and it does not read local paths from the history.
 
 ## Consequences
 
-Desktop, desk and phone show tags for new messages without extending V1 or IPC.
-Previous clients keep showing the complete block. Old transcripts are not
-rewritten. Removing a tag also removes the associated capture from the send;
-standalone captures are still ordinary attachments.
+The desktop, the desk and the phone show tags for new messages without a change
+to V1 or IPC. Previous clients continue to show the full block. The application
+does not write the transcripts of a previous version again. When a person removes a tag, the
+application also removes the related capture from the message. A capture
+without an element continues to be a usual attachment.
 
 ## Evidence
 
-- `src/browser-context.test.ts`: roundtrip and fallback for invalid content.
-- `e2e/browser.spec.ts`: draft, removal, sent content, replay and the persisted
-  queue.
-- `e2e/mobile.spec.ts`: tags and details in the shared history.
+- `src/browser-context.test.ts`: a roundtrip and the fallback for incorrect
+  content.
+- `e2e/browser.spec.ts`: the draft, the removal, the sent content, the replay and
+  the stored queue.
+- `e2e/mobile.spec.ts`: tags and their full data in the shared history.

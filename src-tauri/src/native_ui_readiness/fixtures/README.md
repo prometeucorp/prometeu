@@ -1,127 +1,157 @@
 # Native input fixtures
 
-These emulator snapshots were captured by the opt-in tests in
-`terminal_agent_hooks/smoke.rs`, using empty temporary workspaces and synthetic
-prompts. Home/workspace paths are replaced with `/home/test-user` and
-`/tmp/native-smoke/workspace`. They contain no account credentials or unrelated
-conversation history.
+The opt-in tests in `terminal_agent_hooks/smoke.rs` recorded these emulator
+snapshots. The tests used empty temporary workspaces and synthetic prompts. The
+home path is `/home/test-user` and the workspace path is
+`/tmp/native-smoke/workspace`. These paths replace the paths of the test
+computer. The snapshots do not
+contain account credentials or unrelated conversation history.
 
-The captured builds are Claude Code `2.1.326`, Cursor Agent
-`2026.11.13-eacade1` and Antigravity `1.5.10`. Readiness is version-specific and only admits input; it
-does not establish completion, success, or notification eligibility. Names such
-as `rest` describe the capture stage, not a readiness assertion. A final native
-status can coexist briefly with a busy footer.
+The recorded builds are Claude Code `2.1.326`, Cursor Agent
+`2026.11.13-eacade1` and Antigravity `1.5.10`. Readiness is different for each
+version, and it only lets input in. It does not prove completion, success, or
+that a notification is applicable. A name such as `rest` gives the stage of the
+capture. It does not tell that the terminal can accept input. For a short time, a last
+native status and a busy footer can show together.
 
-The readiness regression also consumes the existing
+The readiness regression also uses the current
 `terminal_agent_controls/fixtures/antigravity-1.5.10-interrupted.json` capture.
-After Escape, this build places its interruption banner directly above the
-empty composer's top border, without a blank spacer. That exact native banner
-is compatible with the empty-input predicate; pasted-content chips and modal
-rows in the same position remain rejected. Separate native idle evidence is
-still required for subsequent queued input.
+After Escape, this build puts its interruption banner directly above the top
+border of the empty composer, without an empty line between them. The empty-input predicate accepts only that
+native banner. The predicate
+continues to reject pasted-content chips and modal rows at the same position.
+For subsequent queued input, different native idle evidence continues to be
+necessary.
 
-Cursor `wrapped`, `multiline`, `unicode`, `scrolled`, and `chip` snapshots come
-from draft-only bracketed pastes, with no Enter or model call. The `unicode`
-case covers combining characters, CJK, and emoji. Cell columns come directly
-from the emulator because native layout and xterm's Unicode widths can differ.
-The chip follows the installed CLI's atomic pasted-content map and UTF-16
-length threshold. The host must reserve the empty composer and obtain a newer
-paint before this acknowledgment can authorize Enter.
+The Cursor `wrapped`, `multiline`, `unicode`, `scrolled`, and `chip` snapshots
+come from bracketed pastes into the draft only, without Enter or a model call.
+The `unicode` snapshot includes combining characters, CJK, and emoji. The cell
+columns come directly from the emulator, because the native layout and the
+Unicode widths of xterm can be different. The chip agrees with the atomic map of
+pasted content and the UTF-16 length limit of the installed CLI. The host must
+reserve the empty composer and get a newer paint. Only then can this
+acknowledgment let Enter operate.
 
-Claude `empty-placeholder`, `literal-draft`, `literal-home`, and `cleared-draft`
-snapshots compare the native example with identical text typed as a real draft,
-then Ctrl-A and Ctrl-U. This draft-only test enables colors on its own process
-to preserve the native placeholder's dim attribute. Production does not force
-colors: an ambiguous unstyled example cannot clear a local-editing fence.
+The Claude `empty-placeholder`, `literal-draft`, `literal-home`, and
+`cleared-draft` snapshots compare the native example with the same text in a
+typed draft. Then they use Ctrl-A and Ctrl-U. This test only uses the draft. It
+enables colors for its own process to keep the dim attribute of the native
+placeholder. Production does not force colors. An unclear example without style
+cannot clear a fence for local edits.
 
-The source evidence for placeholder and paste behavior is in the installed
-Cursor modules `src/components/text-input.tsx`, `src/hooks/use-text-input.ts`,
-and the submit/paste handlers in chunk `2986.index.js`. The native helper's
-required `viewportLines`, `viewportStyles`, and `viewportCharacterColumns`
-represent the active viewport; no second VT parser reconstructs them here.
+The source evidence for the placeholder behavior and the paste behavior is in
+the installed Cursor modules. These modules are `src/components/text-input.tsx`,
+`src/hooks/use-text-input.ts`, and the submit and paste handlers in the
+`2986.index.js` chunk. The native helper must supply `viewportLines`,
+`viewportStyles`, and `viewportCharacterColumns`. These fields show the active
+viewport. No second VT parser makes them again in this code.
 
-Cursor `app-unfocused-empty` is a real Tauri snapshot from the owned app
-conformance workspace, before its queued synthetic prompt was submitted. Paths
-are replaced without changing row widths. At 83 columns its footer path wraps;
-the physical cursor is six rows below the composer rather than five. The native
-window-focus report removes the inverse caret but leaves its empty placeholder
-and arrow dim. Literal drafts have a normal arrow, including disabled drafts.
-The owned-paste variants in the unit tests are synthetic changes to existing
-captures; they are not a claim that the app-level send has passed.
+The Cursor `app-unfocused-empty` snapshot is a Tauri snapshot from the
+conformance workspace that the app owns. The app recorded it before it sent its
+queued synthetic prompt. The paths have replacements of the same row widths. At
+83 columns, the footer path goes onto a second row. Thus, the physical cursor is
+six rows below the composer, not five.
 
-Installed `2986.index.js` passes `notifications-context`'s window focus to
-`showCursor`, separately from the input's `focus` predicate. Its prompt arrow is
-dim only when the input value is empty. `8920.index.js` renders a dim empty
-placeholder when `showCursor` is false and ordinary draft text without an inverse
-caret. Its SHA-256 is
-`a98878d47223628a27a97e67f54fa074aa1603bc5d90c6638b3c0683d17cf3ad`;
-the installed `2986.index.js` hash is recorded in the Cursor contract.
-Paste acknowledgment still requires exclusive ownership, a newer paint, exact
-native wrapping/content and no modal footer. Footer wrapping does not determine
-the paste's row count, and dimmed ordinary draft text cannot acknowledge input.
+The native window focus report removes the inverse caret. But the empty
+placeholder and the arrow stay dim. Literal drafts have a usual arrow, also
+when they are disabled. The owned-paste variants in the unit tests are synthetic
+changes to current captures. They do not tell that the send at the app level
+operated correctly.
 
-Cursor `app-small-auto` and Codex `app-wrapped-footer` are further owned Tauri
-captures, at 61×17 and 80×24 respectively. Their paths are replaced at the same
-row widths. They cover the native model/location/hints blocks rather than a
-fixed distance from the composer. Cursor's installed `autorun-headline-label.ts`
-returns `Run Everything` for the current unrestricted mode, rendered separately
-on the prompt footer's right side. Its approval menu instead adds `(shift+tab)`
-and other decision rows. Only the exact status label at the footer position is
-exempted from the modal veto; a similarly named decision remains blocked.
-Additional wrapped rows and paste cases in the tests are synthetic variants.
+The installed `2986.index.js` gives the window focus of `notifications-context`
+to `showCursor`. This value is different from the `focus` predicate of the
+input. The prompt arrow is dim only when the input value is empty.
+`8920.index.js` renders a dim empty placeholder when `showCursor` is false. It
+renders usual draft text without an inverse caret. Its SHA-256 is
+`a98878d47223628a27a97e67f54fa074aa1603bc5d90c6638b3c0683d17cf3ad`. The Cursor
+contract records the hash of the installed `2986.index.js`.
 
-Cursor `app-followup-scrolled` is the same owned small-panel session after its
-first response: the welcome banner is outside the viewport. The current version,
-empty-input attributes, cursor and footer remain required; the banner is only a
-delimiter when present. Tests retain literal-draft, decision and owned-paste
-checks for this capture. Antigravity `app-auto-placeholder-uncolored` records
-the corresponding post-response mode hint with `NO_COLOR=1` inherited by the
-test app. Without distinctive attributes, its text alone cannot prove empty.
+For a paste acknowledgment, these conditions continue to be necessary:
 
-Antigravity `app-auto-placeholder-colored`, `app-auto-literal`, and
-`app-auto-cleared` capture the same owned mode hint with colors enabled only in
-the test app environment. The placeholder uses foreground palette 8; identical
-text pasted without Enter and moved to Home uses default foreground at the same
-cursor position. Ctrl-E/Ctrl-U then restores a plain empty input. Production
-preserves an explicit `NO_COLOR` preference and refuses ambiguous hints.
+- exclusive ownership
+- a newer paint
+- the accurate native wrap and content
+- no modal footer
 
-In the pinned binary, `PromptModel.View` calls `EditArea.Value` at `0x10319cff0`
-and takes the hint branch at `0x10319d014` only for an empty value. It selects the
-exact Auto, Plan, Accept-edits or Best-of-N hint, calls `truncateToWidth` at
-`0x10319d1b4`, and renders the separate hint style at `0x10319d204`. The available
-width is the terminal width minus the two-column prompt and one trailing cell.
-`truncateToWidth` (`0x1031a0220`) retains that width and replaces the final three
-characters with `...` when needed. Narrow-width tests are synthetic variants of
-the real colored capture; they retain the exact content and style checks.
+The wrap of the footer does not set the number of rows of the paste. Dim usual
+draft text cannot acknowledge input.
 
-Antigravity `fresh-final` and `fresh-busy` were captured during the existing
-instruction smoke in a private scratch workspace. Its one-line empty composer
-has a visible cursor at column 2, two full-width rules, and the idle shortcut
-footer. Whitespace/Home, chips and modal variants in the unit tests are explicit
-mutations of that capture, not additional native recordings. Native idle is
-still required after input; the UI never completes a turn.
+The Cursor `app-small-auto` and Codex `app-wrapped-footer` snapshots are more
+Tauri captures that the app owns, at 61×17 and 80×24. Their paths have
+replacements of the same row widths. They examine the native blocks for the
+model, the location and the hints, not a constant distance from the composer.
+The installed `autorun-headline-label.ts` of Cursor returns `Run Everything` for
+the current mode without limits. The app renders this text independently on the
+right side of the prompt footer.
 
-Antigravity `app-empty` is an owned Tauri conformance capture after dismissing
-the native startup promotion. The account label and workspace path are replaced
-without changing row lengths. Its 83-column, 44-row composer passes the same
-empty-input predicate; this fixture does not supply an idle report or prove that
-the app queue has dispatched its pending prompt. The host may admit one initial
-input using this shape only for a fresh process without observed activity or
-previous composer writes. The packaged-helper regression checks that a modal
-rejects admission and that neither local Enter nor application input can reopen
-the startup gate from a later empty repaint.
+The approval menu of Cursor adds `(shift+tab)` and other decision rows. The
+modal veto does not apply only to the accurate status label at the footer position.
+A decision with an equivalent name stays blocked. The other wrapped rows and the
+paste conditions in the tests are synthetic variants.
 
-The whitespace equivalence is pinned to the macOS arm64 `agy` 1.5.10 binary,
-SHA-256 `780ee763a9938a37b45c7f9d6ae31747d7c574358fd10c64d3a1cdc36faf2798`,
-audited read-only on 2026-11-17. Its Go function
+The Cursor `app-followup-scrolled` snapshot is the same owned session in a small
+panel after its first response. The welcome banner is not in the viewport. The
+current version, the empty-input attributes, the cursor and the footer continue
+to be necessary. The banner is only a delimiter when it shows. The tests keep
+the literal-draft, decision and owned-paste checks for this capture.
+
+The Antigravity `app-auto-placeholder-uncolored` snapshot records the same mode
+hint after a response. The test app inherits `NO_COLOR=1`. Without special
+attributes, the text alone cannot prove that the input is empty.
+
+The Antigravity `app-auto-placeholder-colored`, `app-auto-literal`, and
+`app-auto-cleared` snapshots record the same owned mode hint. Colors are enabled
+only in the environment of the test app. The placeholder uses the foreground
+palette color 8. The same text, pasted without Enter and moved to Home, uses the
+default foreground at the same cursor position. Ctrl-E/Ctrl-U then gives a
+plain empty input again. Production keeps an explicit `NO_COLOR` preference and
+rejects unclear hints.
+
+In the pinned binary, `PromptModel.View` calls `EditArea.Value` at `0x10319cff0`.
+It goes to the hint branch at `0x10319d014` only for an empty value. It selects
+the accurate Auto, Plan, Accept-edits or Best-of-N hint. It calls `truncateToWidth`
+at `0x10319d1b4`, and renders the different hint style at `0x10319d204`. The
+available width is the terminal width less the prompt of two columns and one
+cell at the end. `truncateToWidth` (`0x1031a0220`) keeps that width. When it is
+necessary, it replaces the last three characters with `...`. The tests for
+narrow widths are synthetic variants of the colored capture from the binary. They keep the accurate checks of content and style.
+
+The Antigravity `fresh-final` and `fresh-busy` snapshots come from the current
+instruction smoke test in a private scratch workspace. The empty composer has
+one line, a cursor that shows at column 2, two full-width rules and the idle
+shortcut footer. The variants for spaces and Home, chips and modals in the unit
+tests are explicit changes to that capture. They are not more native
+recordings. After input, native idle continues to be necessary. The UI does not
+complete a turn.
+
+The Antigravity `app-empty` snapshot is a Tauri conformance capture that the app
+owns. The app recorded it after it closed the native promotion at startup. The
+account label and the workspace path have replacements of the same row lengths.
+Its composer of 83 columns and 44 rows passes the same empty-input predicate.
+This fixture does not supply an idle report. It does not prove that the app
+queue sent the prompt that waits.
+
+The host can let one initial input in with this shape only for a new process.
+That process must have no activity that the host saw and no previous composer writes.
+The regression for the packaged helper examines two conditions. A modal rejects
+the input. Local Enter and application input cannot open the startup gate again
+from a subsequent empty repaint.
+
+The equivalence of spaces is pinned to the macOS arm64 `agy` 1.5.10 binary,
+SHA-256 `780ee763a9938a37b45c7f9d6ae31747d7c574358fd10c64d3a1cdc36faf2798`. We
+examined this binary in read-only mode on 2026-11-17. Its Go function
 `google3/third_party/jetski/cli/model/model.PromptModel.handleInputWithOptions`
-calls `editing.EditArea.Value` at `0x103199890`, then `strings.TrimSpace` on that
-value at `0x103199bd4`. The non-slash path tests the trimmed length at
-`0x103199eac`. For zero length and no `pastePlaceholderRanges`
-(`0x103199eb8`), it sets an empty value with `SetValueWithUndo`
-(`0x103199ef8`) and returns a nil command (`0x103199f38`–`0x103199f4c`).
-The addresses are unslid Mach-O virtual addresses, resolved from its Go pclntab;
-they describe this build rather than an upstream API guarantee. The readiness
-predicate admits the observed plain-space input or a verified colored mode hint
-in the focused single-row geometry, without chips or overlays. It does not trim application payloads, infer hook
-alias normalization, or accept arbitrary invisible characters.
+calls `editing.EditArea.Value` at `0x103199890`. Then it calls
+`strings.TrimSpace` on that value at `0x103199bd4`. The path without a slash
+command examines the trimmed length at `0x103199eac`. If the length is zero and
+there are no `pastePlaceholderRanges` (`0x103199eb8`), it sets an empty value
+with `SetValueWithUndo` (`0x103199ef8`). Then it returns a nil command
+(`0x103199f38`–`0x103199f4c`).
+
+The addresses are unslid Mach-O virtual addresses from the Go pclntab of the
+binary. They apply to this build only. They are not a guarantee of an upstream
+API. The readiness predicate lets in the input of plain spaces that the host saw, or a colored mode hint
+that it examined. The geometry must have one focused row, without
+chips or overlays. The predicate does not trim application payloads. It does
+not guess the normalization of hook aliases. It does not accept random
+invisible characters.

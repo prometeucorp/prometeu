@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0088 — GitHub App for issues, PRs and notifications"
-description: "GitHub App for issues, PRs and notifications through the Cloud."
+description: "A GitHub App for issues, PRs and notifications through the Cloud."
 status: stable
 ---
 
@@ -9,149 +9,174 @@ status: stable
 
 Date: 2026-10-05
 
-This decision replaced the GitHub inbox through the local `gh` credential and
-narrows the "no provider credentials" rule of [ADR 0015](0015-cloud-rails.md)
-for GitHub webhook metadata.
+This decision replaced the GitHub inbox that used the local `gh` credential. It
+also makes the "no provider credentials" rule of
+[ADR 0015](0015-cloud-rails.md) narrower for GitHub webhook metadata.
 
 ## Context
 
-The GitHub integration depends on the installed `gh` CLI and its credential.
-PR state is discovered by periodic `gh pr list` scans, and the app knows only
-number, title, draft flag and state. Nothing tells the person that a PR was
-approved, that someone commented or that CI failed; they find out on GitHub.
+The GitHub integration uses the installed `gh` CLI and its credential.
+Periodic `gh pr list` scans find the PR state. The app knows only the number,
+the title, the draft flag and the state. Prometeu does not tell the person that
+a PR got an approval, that a person wrote a comment or that CI had a failure. The
+person must find this on GitHub.
 
-GitHub delivers events through webhooks, which need a public HTTPS endpoint.
-The desktop has none. The Cloud already has a public origin, a desktop Bearer
-and the GitHub numeric ID of accounts that signed in with GitHub
+GitHub sends events through webhooks. A webhook must have a public HTTPS
+endpoint, and the desktop has no such endpoint. The Cloud has a public origin, a
+desktop Bearer and the GitHub numeric ID of accounts that signed in with GitHub
 (`identities.uid`). It has no inbound webhook and no push channel to the
-desktop; the desktop already polls it.
+desktop. The desktop polls the Cloud at this time.
 
 ## Options considered
 
-1. Keep `gh` and poll GitHub's Notifications API from the desktop. No new
-   service, covers every repository, but is not event-driven, depends on the
-   person's GitHub subscription settings, does not report CI reliably and
-   requires a classic token (the endpoint rejects GitHub App and fine-grained
-   tokens).
-2. A classic OAuth App whose `repo`-scoped token lives in the Cloud, which
-   proxies all GitHub reads and writes. Broad credential stored on the server,
-   and the three-thread Rails process becomes an API gateway.
-3. One GitHub App: the Cloud receives its webhooks and stores only derived
-   metadata; the desktop obtains its own user token through the App's device
-   flow and calls GitHub directly.
+1. Keep `gh`, and poll the GitHub Notifications API from the desktop. This adds
+   no new service, and it includes all repositories. But it does not operate
+   from events. It uses the GitHub subscription settings of the person. It does
+   not report CI reliably. It also must have a classic token, because the
+   endpoint rejects GitHub App tokens and fine-grained tokens.
+2. A classic OAuth App with a `repo`-scoped token in the Cloud. The Cloud sends
+   all GitHub reads and writes for the desktop. The server stores a credential
+   with wide access, and the Rails process with three threads becomes an API
+   gateway.
+3. One GitHub App. The Cloud receives its webhooks and stores only metadata
+   that it gets from them. The desktop gets its own user token through the
+   device flow of the App, and it calls GitHub directly.
 
 ## Decision
 
-Adopt option 3. A single GitHub App, owned by the `prometeucorp` organization,
-replaces the `gh` dependency in the app's GitHub adapters. Its reach is the
-intersection of the repositories where it is installed and the repositories
-the person can access. That one rule applies to issues, PR status and
+Prometeu selected option 3. One GitHub App, which the `prometeucorp`
+organization owns, replaces the `gh` dependency in the GitHub adapters of the
+app. The App can see only the repositories that have an installation of the App
+and that the person has access to. This one rule applies to issues, PR status and
 notifications.
 
 ### Desktop credential
 
-- The desktop runs GitHub's device flow with the App's public client ID. No
-  client secret ships in the binary or is needed for refresh: tokens issued by
-  the device flow refresh with `client_id` and `refresh_token` only.
-- Access tokens last 8 hours and refresh tokens 6 months. The pair is stored
-  privately in Rust at `<root>/github.json`, like `linear.json`, and never
-  crosses IPC. The Cloud never sees it.
-- `github_issues.rs` and the PR scan in `github.rs` call the REST/GraphQL API
-  with this token instead of `gh`. Agents may still run `gh` inside their own
-  terminals; that is the agent's tooling, not the app's.
-- Workspaces whose repository does not have the App installed keep their last
-  known PR but receive no new status; the issue lists and settings link to the
-  App installation. There is no `gh` fallback, so there is one path.
-- github.com only. Successful lists are cached in memory per login and scope;
-  no issue bodies are persisted.
+- The desktop does the GitHub device flow with the public client ID of the App.
+  The binary contains no client secret, and the refresh operates without one.
+  Tokens from the device flow refresh with only `client_id` and
+  `refresh_token`.
+- Access tokens stay correct for 8 hours, and refresh tokens for 6 months. Rust
+  stores the pair privately at `<root>/github.json`, as it does `linear.json`.
+  The pair does not go through IPC. The Cloud does not see it.
+- `github_issues.rs` and the PR scan in `github.rs` call the GitHub REST or GraphQL API
+  with this token, not with `gh`. Agents can continue to run `gh` in their own
+  terminals. These are the tools of the agent, not of the app.
+- If the App is not installed on the repository of a workspace, the workspace
+  keeps its last known PR. But it receives no new status. The issue lists and
+  the settings have a link to the App installation. There is no `gh` fallback.
+  Thus there is only one path.
+- Only github.com. Prometeu keeps the lists that load correctly in a cache in
+  memory, for each login and scope. It does not save issue bodies.
 
 ### Issues
 
-Keep one Issues destination with Linear and GitHub tabs. The GitHub tab follows
-the Linear integration: connect button, **Mine** (assigned open issues) and
-**Available** (unassigned open issues) tabs, a repository filter in place of
-Linear's team filter, and a claim action that assigns the issue to the person.
-Authored PRs and requested reviews remain. The repository scope comes from the
-App's installations, so the manual selection in `github-issues.json` is retired.
+Keep one Issues destination with Linear and GitHub tabs. The GitHub tab
+operates as the Linear integration does. It has these items:
 
-Source navigation and workspace creation stay separate actions; the existing
-launcher owns creation. GitHub data is normalized before IPC and namespaces the
-existing `IssueRef.id`, preserving the board and sharing formats. Local projects
-are matched by canonical repository names from their Git remotes. PRs are
-prepared by fetching the base repository's pull ref into a unique review branch
-without switching the original clone; the target branch stays the diff base and
-the PR URL stays the explicit identity for discovery. Synthetic branches support
-forks and protect local branches, at the cost of not following later pushes.
+- a connect button
+- the **Mine** tab (open issues that GitHub gives to the person) and the
+  **Available** tab (open issues without an assignee)
+- a repository filter, where Linear has a team filter
+- a claim action that makes the person the assignee of the issue
+
+The PRs of the person and the requested reviews stay. The repository scope
+comes from the installations of the App. Thus Prometeu retired the manual
+selection in `github-issues.json`.
+
+The navigation to the source and the creation of a workspace stay two
+different actions. The current launcher controls the creation. Prometeu
+normalizes the GitHub data before IPC. The data uses a namespace in the current
+`IssueRef.id`, so the formats of the board and of the shared data do not change. Prometeu
+connects local projects to issues through the canonical repository names from
+their Git remotes. To prepare a PR, Prometeu fetches the pull ref of the base
+repository into a unique review branch. It does not change the branch of the
+original clone. The target branch stays the base of the diff. The PR URL stays
+the explicit identity for discovery. Synthetic branches operate with forks and
+keep local branches safe. But they do not follow subsequent pushes.
 
 ### Cloud webhooks
 
-- `POST /webhooks/github` verifies `X-Hub-Signature-256` against the App's
-  webhook secret, ignores duplicate `X-GitHub-Delivery` IDs and processes the
-  notification metadata inside the request. Optional supervisor callbacks use
-  the separate persistent delivery queue from
+- `POST /webhooks/github` examines `X-Hub-Signature-256` against the webhook
+  secret of the App. It ignores duplicate `X-GitHub-Delivery` IDs. It processes
+  the notification metadata during the request. Optional supervisor callbacks
+  use the different saved delivery queue of
   [ADR 0106](0106-workspace-supervision.md).
-- Recipients are Cloud users whose `identities.uid` appears in the payload as
-  the PR or issue author, an assignee, a requested reviewer or an `@login`
-  mention. The acting user is excluded. Mentions require the GitHub login,
-  stored beside the UID and refreshed when seen.
-- Notification kinds: `review_approved`, `changes_requested`,
+- The recipients are Cloud users with an `identities.uid` in the payload. The
+  payload can have that UID for these persons:
+  - the PR or issue author
+  - an assignee
+  - a requested reviewer
+  - an `@login` mention
+
+  The user who did the action is not a recipient. For mentions, the GitHub login
+  is necessary. The Cloud stores it adjacent to the UID and updates it when it
+  sees it.
+- Notification types: `review_approved`, `changes_requested`,
   `review_requested`, `commented`, `mentioned`, `assigned`, `merged`, `closed`
-  and `ci_failed`. CI uses `workflow_run` failures and notifies the triggering
-  actor, so no installation token is needed.
-- Each row stores only metadata: recipient, kind, `owner/repository`, number,
-  issue or PR, actor login, the GitHub ID of the comment or review, installation
-  ID, delivery ID and time. Titles and bodies are never stored; comment bodies
-  are read in memory only to detect mentions. Content can be edited on GitHub,
-  and the desktop fetches it on demand with its own token.
-- Rows expire after 30 days: the feed hides older rows and a daily scheduled
-  task deletes them, so retention holds even when an installation stops
-  receiving deliveries. A scheduler entry is lighter than a job process.
-  `installation.deleted` removes that installation's rows. There is no
-  installation table.
-- A signed-in Cloud user can link GitHub from account settings; today linking
-  only happens on GitHub sign-in by matching the verified email.
+  and `ci_failed`. CI uses `workflow_run` failures and tells the actor that
+  started the workflow. Thus an installation token is not necessary.
+- Each row stores only metadata:
+  - the recipient and the type
+  - `owner/repository`, the number, and issue or PR
+  - the login of the actor
+  - the GitHub ID of the comment or review
+  - the installation ID, the delivery ID and the time The Cloud does
+  not store titles or bodies. It reads comment bodies only in memory to find
+  mentions. A person can edit the content on GitHub. The desktop gets it when
+  necessary, with its own token.
+- Rows expire after 30 days. The feed does not show older rows, and a daily
+  scheduled task deletes them. Thus the retention limit applies also when an
+  installation stops to receive deliveries. A scheduler entry uses fewer
+  resources than a job process. `installation.deleted` removes the rows of that
+  installation. There is no installation table.
+- A Cloud user who signed in can link GitHub from the account settings. At this
+  time, the link occurs only when a person signs in with GitHub and the email that
+  GitHub examined agrees.
 
 ### Delivery and presentation
 
-- The desktop polls `GET /api/notifications?after=<id>` with its existing
-  Bearer every 30 seconds while signed in. Read state is local to each Mac; the
-  Cloud is a time-limited feed, not an inbox.
+- While the person is signed in, the desktop polls
+  `GET /api/notifications?after=<id>` with its current Bearer each 30 seconds.
+  Each Mac keeps its own read state. The Cloud is a feed with a time limit, not
+  an inbox.
 - A permanent **Notifications** destination in the rail replaces the
-  conditional Mentions item and its modal sheet. It merges GitHub events and
-  relay comment mentions in one chronological list with All, GitHub and
-  Mentions filters. Mentions keep their current rule: they leave when the
-  thread is resolved.
-- Clicking a GitHub notification opens it on GitHub. Row actions open the
-  workspace whose PR matches and expand the row to fetch the comment or review
-  text. A matching workspace is also marked unread and its PR status refreshed
-  immediately.
-- Local notifications ([ADR 0054](0054-local-notifications.md)) gain a
-  `github` event under the same master switch, which starts disabled, and the
-  Dock badge counts unread notifications. The first load after startup never
-  notifies.
+  conditional Mentions item and its modal sheet. It shows GitHub events and
+  relay comment mentions together in one chronological list. It has All, GitHub
+  and Mentions filters. Mentions keep their current rule: they go away when the
+  person resolves the thread.
+- When the person clicks a GitHub notification, it opens on GitHub. Row actions
+  open the workspace with the same PR. They also expand the row to get the text
+  of the comment or review. Prometeu also shows the related workspace as unread
+  and refreshes its PR status immediately.
+- Local notifications ([ADR 0054](0054-local-notifications.md)) get a `github`
+  event under the same master switch. This switch is off at the start. The Dock
+  badge counts unread notifications. The first load after the app starts does
+  not show a notification.
 
 ## Consequences
 
-- The Cloud now handles GitHub payloads from private repositories in memory and
-  persists who did what, where and when. It still stores no titles, bodies or
-  credentials beyond the existing UID link.
-- Installing the App on an organization requires an organization owner.
-  Repositories without it produce no issues, PR status or notifications.
-- Polling adds up to 30 seconds of latency and one cheap request per Mac.
-  Server push (SSE or Action Cable) would hold Puma threads and is deferred.
-- People who relied on `gh` must connect once through the device flow; the
-  retired `github-issues.json` is ignored.
-- Webhook development needs a tunnel to the local Cloud.
-- The desktop and the browser mock implement the commands.
+- With this decision, the Cloud processes GitHub payloads from private repositories in memory.
+  It saves who did what, where and when. It continues to store no titles,
+  bodies or credentials, other than the current UID link.
+- Only an organization owner can install the App on an organization.
+  Repositories without the App give no issues, PR status or notifications.
+- Polling adds a wait of a maximum of 30 seconds, and one small request for
+  each Mac. A server push (SSE or Action Cable) holds Puma threads. Prometeu
+  moved it to a subsequent version.
+- Persons who used `gh` must connect one time through the device flow.
+  Prometeu ignores the retired `github-issues.json`.
+- For webhook development, a tunnel to the local Cloud is necessary.
+- The desktop and the browser mock contain the commands.
 
 ## Evidence
 
 Contracts and tests: [GitHub issues](../contracts/github-issues.md),
 [GitHub notifications](../contracts/github-notifications.md),
 [local notifications](../contracts/notifications.md) and
-[account](../contracts/cloud-account.md), plus the `prometeu-cloud` webhook,
-feed and linking tests. GitHub documents the device flow, token refresh
-without a client secret for device-flow tokens, and the user-token access
-intersection under "Generating a user access token for a GitHub App" and
-"Refreshing user access tokens". The real device flow, installation reach and
-webhook delivery need a manual check against github.com.
+[account](../contracts/cloud-account.md), and the `prometeu-cloud` tests for
+the webhook, the feed and the link. GitHub documents the device flow, the token
+refresh without a client secret for device-flow tokens, and the access rule for
+user tokens. The pages are "Generating a user access token for a GitHub App"
+and "Refreshing user access tokens". The device flow on github.com, the installation
+access and the webhook delivery must have a manual check against github.com.

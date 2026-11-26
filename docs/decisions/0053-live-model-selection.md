@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0053 — Live model catalogs and explicit selection identity"
-description: "Live model catalogs and explicit selection identity."
+description: "Live model catalogs and an explicit identity for each selection."
 status: stable
 ---
 
@@ -11,50 +11,65 @@ Date: 2026-09-19
 
 ## Context
 
-The picker combined a hand-maintained Claude fallback with Codex's local cache.
-Failures looked like valid catalogs, model IDs implicitly selected a provider,
-and a cyclic effort control invented levels when discovery supplied none.
-Antigravity increases list size and can advertise names also offered by another
-agent. These assumptions no longer produce reliable choices.
+The picker used a Claude fallback list that persons edited manually, together
+with the local cache of Codex. These problems occurred:
+
+- A failure looked like a correct catalog.
+- A model ID selected a provider implicitly.
+- A cyclic effort control showed effort values that discovery did not supply.
+
+Antigravity makes the list longer. It can also show model names that a
+different agent shows. With these assumptions, the selections that the
+picker showed were not reliable.
 
 ## Decision
 
-Discover installations independently from asynchronous account-scoped catalogs.
-Use each CLI's native discovery, including paginated Codex app-server model/list.
-Bound discovery subprocesses and expose empty, failed, loading and stale states.
-Refresh after account changes and on picker opening once five minutes old, with
-an explicit refresh action; no background timer or persistent catalog cache.
+Find the installations independently from the catalogs of each account. These
+catalogs load asynchronously. Use the native discovery of each CLI. For Codex,
+this includes the app-server model/list with pages. Put a time limit on the
+discovery subprocesses. Show these states: empty, failure, load and expired.
+Refresh the catalog after an account change. Also refresh it when the picker
+opens and the catalog is older than five minutes. Give an explicit refresh
+action. Do not use a background timer or a catalog cache on the disk.
 
-Use explicit agent/model identity in every selector and persisted preference.
-Reuse a searchable design-system primitive; compose model groups, local
-favorites and additional-model filtering in the application. Favorites do not
-establish availability. Existing conversations remain within their own provider.
+Use an explicit agent and model identity in each selector and in each saved
+preference. Use the searchable primitive of the design system again. The
+application adds model groups, local favorites and the filter for more
+models. A favorite does not prove that a model is available. Current
+conversations stay with their own provider.
 
-Effort is selected directly from native catalog values or the provider default.
-Remove synthetic Claude Ultracode and generic effort fallbacks. Preserve legacy
-labels and saved choices; interpret Codex's old spelling at the boundary.
+The person selects the effort directly from the native catalog values or the
+provider default. Remove the synthetic Claude Ultracode and the general effort
+fallbacks. Keep the labels and the saved selections from before this change.
+Translate the previous spelling of Codex at the boundary.
 
 ## Alternatives and consequences
 
-Keeping cache files avoids a subprocess but cannot establish freshness or account
-availability. Always querying on open adds latency; a five-minute in-memory cache
-with visible failures balances responsiveness and accuracy. Discovery still
-reflects the CLI's advertised list, not a promise that every inference succeeds.
+Cache files do not start a subprocess. But they cannot show if the data is new
+or if the account has access. A query each time the picker opens makes the
+picker slow. A cache in memory for five minutes, with failures that the person
+can see, gives a good balance between speed and precision. Discovery continues to
+show the list that the CLI gives. It does not promise that each model request
+will complete correctly.
 
-A unified model-and-effort form adds confirmation to a frequent interaction.
-Separate compact controls retain direct selection; changing a model explicitly
-resets only an incompatible effort and indicates the adjustment.
+One form for the model and the effort adds a confirmation to a frequent
+operation. Two small different controls let the person select each value directly. When the
+person changes the model, Prometeu changes the effort only if the new model
+cannot use it. The interface then shows this change.
 
-No board, transcript or relay migration is needed. Local preference migration
-must avoid guessing providers from duplicate IDs. Account changes invalidate
-in-flight work; catalog updates never restart a conversation or overwrite choices.
+A migration of the board, the transcript or the relay is not necessary. The
+migration of the local preferences must not guess a provider from a duplicate
+ID. An account change cancels the work that continues at that time. A catalog update
+does not start a conversation again and does not replace the selections of the
+person.
 
 ## Contracts and evidence
 
 - [Runtime discovery](../contracts/agent-runtime.md#model-discovery)
 - [IPC](../contracts/ipc.md#model-catalogs)
 - [Local preferences](../contracts/persistence.md#model-selection-preferences)
-- Rust `agents::catalog::tests`: protocol parsing, pagination, errors and cleanup.
-- `src/agents.test.ts`, `src/model-choice.test.ts`: races, freshness, identity and migration.
+- Rust `agents::catalog::tests`: protocol parsing, pages, errors and cleanup.
+- `src/agents.test.ts`, `src/model-choice.test.ts`: race conditions, how new the
+  data is, identity and migration.
 - `e2e/model-picker.spec.ts`, `e2e/search-picker.spec.ts`, `e2e/actions.spec.ts`:
-  large catalogs, keyboard, favorites, dialogs and historical choices.
+  large catalogs, keyboard, favorites, dialogs and saved selections from before.

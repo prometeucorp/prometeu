@@ -1,25 +1,33 @@
 ---
 type: Contract
 title: "Remote host protocol"
-description: "Installation, SSH attachment, NDJSON methods and events of prometeu-host."
+description: "The installation, the SSH attachment, the NDJSON methods and the events of prometeu-host."
 status: stable
 ---
 
 # Remote host protocol
 
-Decisions: [ADR 0101](../decisions/0101-remote-machines.md); for the registry
-and agent clients, [ADR 0103](../decisions/0103-agents-on-remote-machines.md); for
-several computers attached at once,
-[ADR 0104](../decisions/0104-several-computers-on-one-machine.md); for Codex,
-[ADR 0105](../decisions/0105-codex-on-remote-machines.md).
-Implementation: `src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
+Decisions: [ADR 0101](../decisions/0101-remote-machines.md). For the registry
+and the agent clients, see [ADR
+0103](../decisions/0103-agents-on-remote-machines.md). For many computers that
+attach at the same time, see [ADR
+0104](../decisions/0104-several-computers-on-one-machine.md). For Codex, see
+[ADR 0105](../decisions/0105-codex-on-remote-machines.md). Implementation:
+`src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
 
 ## Installation
 
-The desktop ships one Linux x86_64 build. The build is found through
-`PROMETEU_REMOTE_HOST`, then `Contents/Resources/remote-host/prometeu-host-x86_64-linux`
-in the app bundle, then (debug only) `src-tauri/target/x86_64-unknown-linux-musl/release/prometeu-host`.
-Its install directory is the first 16 hex digits of its SHA-256.
+The desktop has one Linux x86_64 build. The desktop looks for the build in
+these locations, in this sequence:
+
+1. `PROMETEU_REMOTE_HOST`.
+2. `Contents/Resources/remote-host/prometeu-host-x86_64-linux` in the app
+   bundle.
+3. Only for a debug build:
+   `src-tauri/target/x86_64-unknown-linux-musl/release/prometeu-host`.
+
+The installation folder of the build is the first 16 hexadecimal digits of its
+SHA-256.
 
 ```text
 ~/.prometeu-remote[-dev]/
@@ -41,574 +49,728 @@ Its install directory is the first 16 hex digits of its SHA-256.
   prometeu-mcp                 client executable the host keeps current, 0755
 ```
 
-Installation checks that `uname -sm` is `Linux x86_64`, streams the build over
-SSH stdin to a temporary file, and verifies its SHA-256 before the rename. It
-then updates `current` and `previous`, and removes every other build that no host
-process runs and no `sessions/*/settings.json` names (running conversations call
-the hook helper of the build that launched them). It then tries
-`loginctl enable-linger`. A host deletes `sessions/` when it starts, since it owns
-no terminal yet.
+The installation does these steps:
+
+1. It makes sure that `uname -sm` is `Linux x86_64`.
+2. It streams the build through SSH stdin to a temporary file.
+3. It examines the SHA-256 of the file before the rename.
+4. It updates `current` and `previous`.
+5. It removes all other builds that no host process runs and that no
+   `sessions/*/settings.json` file names.
+6. It tries `loginctl enable-linger`.
+
+Step 5 keeps the builds that these settings files name, because a
+conversation that operates calls the hook helper of the build that started it.
+A host deletes `sessions/` when it starts, because it owns no terminal at that
+time.
 
 ## Attachment
 
-The desktop runs, through the system `ssh` with `BatchMode=yes`,
-`ControlMaster=no`, `ControlPath=none`, `ServerAliveInterval=5` and
-`ServerAliveCountMax=3`:
+The desktop uses the system `ssh` with `BatchMode=yes`, `ControlMaster=no`,
+`ControlPath=none`, `ServerAliveInterval=5` and `ServerAliveCountMax=3` to run
+this command:
 
 ```text
 exec "$HOME/<root>/host/<hash>/prometeu-host" attach --root "$HOME/<root>" \
   --device '<device id>' --label '<computer name>' --release '<app version>'
 ```
 
-`attach` starts `serve --release <app version>` with `setsid` when the socket
-does not answer, then sends
+If the socket does not answer, `attach` starts `serve --release <app version>`
+with `setsid`. Then it sends
 `{"attach":{"protocol":1,"device":"…","label":"…"}}` and relays stdio. Desktops
-before ADR 0104 send neither field.
+from before ADR 0104 do not send the two fields.
 
 ### Several computers
 
-The device matches `[A-Za-z0-9_-]{1,128}`; another value counts as none. The
-label is cut to 64 characters without control characters. The host serves at
-most 8 attachments. A new attachment replaces those with the same device,
-including the empty one, with `replaced`; attachments from other devices remain.
-Beyond the limit it answers `{"event":"error","error":"busy"}` and closes. An
-attachment with more than 16 MiB of frames waiting to be written is closed; file
-streaming waits below half of that instead.
+The device must agree with `[A-Za-z0-9_-]{1,128}`. The host uses no device for
+a different value. The host removes control characters from the label and cuts
+it to 64 characters. The host serves a maximum of 8 attachments. A new
+attachment replaces the attachments with the same device with `replaced`. This
+includes the empty device. Attachments from other devices stay.
 
-Every attachment that called `terminal_attach` for a terminal receives its
-`output` and `exit`, and every attachment receives `registry`. Hooks other than
-permission requests are kept per terminal (the last 512) with the set of them
-each device confirmed. Desktops send `hook_reply` for every hook, and for these
-hooks it is that confirmation; each reply confirms only its own hook, whatever
-order replies arrive in. `terminal_attach` sends a device every kept hook it has
-not confirmed. The first time a terminal serves a device, even with no hooks
-kept yet, the hooks another device already confirmed count as confirmed for it,
-and every later hook is owed to it. A hook queued to an attachment that was
-already dead is therefore sent again when its desktop comes back. A desktop that
-handled a hook but lost the connection before its confirmation arrived can
-receive it twice. A permission request is sent to every attachment following the
-terminal and is not kept. The first `hook_reply` with output is printed; the
-others that received it get `hook_resolved`. An empty reply, or an attachment
-ending, abstains, and when every recipient abstained the hook prints nothing.
-When the wait ends without a decision, recipients also get `hook_resolved`.
+After the limit, the host answers `{"event":"error","error":"busy"}` and closes
+the connection. The host closes an attachment that has more than 16 MiB of
+frames that wait for a write. The file stream waits at half of that value. It
+does not close the attachment.
 
-The PTY takes the size of the attachment that opened the terminal or last wrote
-to it. `terminal_resize` from another attachment is recorded and applied when
-that one writes. With no such attachment present, any resize applies.
-`terminal_forget` from an attachment while another still follows the exited
-terminal only stops this one following it; the terminal is dropped when the last
-follower forgets it or ends. Exit status 127 or
-`No such file` before the ready frame means the build is not installed. If the
-ready frame's `executable` belongs to another build, the desktop shuts that host
-down only when it runs no terminal; otherwise it keeps using it and reports a
-pending update. While the update is pending and the attachment lasts, the desktop
-checks again when an `exit` event arrives and at least every 60 seconds, and
-never while one of its requests is in flight. The host's own `shutdown` check
-still decides: `exec`, `file_write` and `terminal_open` delay a non-forced
-`shutdown` like the agent requests that change the machine, and fail with
-`host_stopping` once one has started.
+Each attachment that called `terminal_attach` for a terminal gets the `output`
+and `exit` events of that terminal. Each attachment gets `registry`. The host
+keeps the hooks for each terminal, but not the permission requests. It keeps the
+last 512 hooks, with the set of devices that confirmed each hook.
+
+Desktops send `hook_reply` for each hook. For the kept hooks, this reply is the
+confirmation. Each reply confirms only its own hook, in all sequences of the
+replies. `terminal_attach` sends to a device each kept hook that the device did
+not confirm. When a terminal serves a device for the first time, the hooks that
+a different device confirmed count as confirmed for the new device. This rule
+also applies when the terminal has no kept hooks. The terminal owes all
+subsequent hooks to the new device.
+
+The host can put a hook in the queue of an attachment that was not connected. In
+this condition, the host sends the hook again when the desktop comes back. A
+desktop can get a hook two times if it processed the hook but lost the
+connection before the confirmation arrived.
+
+The host sends a permission request to each attachment that follows the
+terminal. The host does not keep permission requests. The hook prints the first
+`hook_reply` with output. The other attachments that got the request get
+`hook_resolved`. An empty reply, or an attachment that ends, abstains. When all
+the attachments abstain, the hook prints nothing. If the wait ends without a
+decision, the attachments also get `hook_resolved`.
+
+The PTY uses the size of the attachment that opened the terminal or wrote to it
+last. The host records a `terminal_resize` from a different attachment. It
+applies the resize when that attachment writes. If no such attachment is
+connected, all resizes apply.
+
+An attachment can send `terminal_forget` while a different attachment follows
+the stopped terminal. Then only this attachment stops to follow it. The host
+removes the terminal when the last follower forgets it or ends.
+
+Exit status 127 or `No such file` before the ready frame tells that the build
+is not installed. The `executable` of the ready frame can belong to a different
+build. In this condition, the desktop stops that host only when it runs no
+terminal. If it runs a terminal, the desktop continues to use it and shows an
+update that waits.
+
+While the update waits and the attachment stays, the desktop examines the host
+again in these conditions:
+
+- When an `exit` event arrives.
+- At intervals of 60 seconds or less.
+
+The desktop does not do this check while one of its requests waits for a reply.
+The `shutdown` check of the host continues to make the decision. `exec`,
+`file_write` and `terminal_open` delay a `shutdown` that is not forced, as the
+agent requests that change the machine do. After a shutdown starts, these
+requests return the error `host_stopping`.
 
 ## Framing
 
-NDJSON, at most 8 MiB per line. Requests are `{ id, method, params }`; replies
-are `{ id, result }` or `{ id, error }` with a diagnostic string. Frames with an
-`event` field are unsolicited. Requests are handled in the order they arrive,
-except `exec`, `stats` and `shutdown`, which run beside the stream, so a client
-may send an attach right after its open, or input without waiting for replies. Nothing is retried: a lost reply has an
-unknown outcome.
+The protocol uses NDJSON, with a maximum of 8 MiB for each line. A request is
+`{ id, method, params }`. A reply is `{ id, result }` or `{ id, error }` with a
+diagnostic string. Frames with an `event` field are not replies to requests.
+
+The host processes requests in the sequence in which they arrive. `exec`,
+`stats` and `shutdown` are exceptions: they operate in parallel with the stream.
+Thus, a client can send an attach immediately after its open, or send input
+without a wait for replies. There are no retries. If a reply is lost, the
+outcome is unknown.
 
 ## Events
 
 | Event | Fields | Meaning |
 | --- | --- | --- |
-| `ready` | `protocol`, `version`, `executable`, `pid`, `home`, `user`, `root`, `os`, `arch`, `linger`, `scopes`, `clients`, `release` | first frame of every attachment; `clients` is true when several computers may attach, `release` is the app version that started the host or null |
-| `replaced` | none | the same computer attached again, or another computer disconnected this one; this one is detached |
-| `hook_resolved` | `hook` | another attachment decided that permission request, or nobody did in time; withdraw it |
-| `output` | `id`, `seq`, `data` (base64) | terminal output after the attachment's replay |
-| `exit` | `id`, `code`, `seq` | terminal exited, after its output was drained (up to 2 s, in case a background process keeps the PTY open); also sent at attachment for an exited terminal |
-| `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | a native hook invocation for the terminal `session` |
-| `file` | `watch`, `path`, `offset`, `reset`, `data` (base64) | bytes of a watched file from `offset`; `reset` restarts it from zero |
-| `registry` | none | an agent request that may add or close registry entries finished; the desktop synchronizes again |
+| `ready` | `protocol`, `version`, `executable`, `pid`, `home`, `user`, `root`, `os`, `arch`, `linger`, `scopes`, `clients`, `release` | The first frame of each attachment. `clients` is true when many computers can attach. `release` is the app version that started the host, or null. |
+| `replaced` | none | The same computer attached again, or a different computer disconnected this one. This attachment is detached. |
+| `hook_resolved` | `hook` | A different attachment made a decision for that permission request, or no attachment made a decision in time. Remove the request. |
+| `output` | `id`, `seq`, `data` (base64) | Terminal output after the replay of the attachment. |
+| `exit` | `id`, `code`, `seq` | The terminal stopped, after the host sent all its output. The host waits a maximum of 2 s, because a background process can keep the PTY open. The host also sends this event at attachment for a stopped terminal. |
+| `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | A native hook call for the terminal `session`. |
+| `file` | `watch`, `path`, `offset`, `reset`, `data` (base64) | Bytes of a watched file from `offset`. `reset` starts the file again from zero. |
+| `registry` | none | An agent request that can add or close registry entries is complete. The desktop synchronizes again. |
 
 ## Methods
 
 | Method | Params | Result |
 | --- | --- | --- |
 | `ping` | none | `{}` |
-| `exec` | `argv`, `cwd?`, `env?`, `stdin?` (base64), `timeout_ms?` (default 30 s, at most 600 s) | `{ code, timeout, stdout, stderr }` (base64, 4 MiB each) |
-| `file_write` | `path` (absolute), `data` (base64), `mode?` (default 0600) | `{}`; parents created 0700, atomic rename |
+| `exec` | `argv`, `cwd?`, `env?`, `stdin?` (base64), `timeout_ms?` (default 30 s, at most 600 s) | `{ code, timeout, stdout, stderr }` (base64, a maximum of 4 MiB each) |
+| `file_write` | `path` (absolute), `data` (base64), `mode?` (default 0600) | `{}`. The host makes the parent folders with 0700 and uses an atomic rename. |
 | `file_read` | `path`, `limit?` | `{ data }` |
-| `terminal_open` | `id`, `workspace?`, `argv`, `cwd`, `env?`, `unset?`, `cols`, `rows`, `limits?` | `{ pid, unit }`; rejects with `terminal_exists` an `id` that is running or whose process another open is starting, so concurrent opens start one process |
-| `terminal_attach` | `id`, `seq` | `{ data, reset, seq, running, code, pid }`, then live `output`/`exit` and queued `hook` frames |
+| `terminal_open` | `id`, `workspace?`, `argv`, `cwd`, `env?`, `unset?`, `cols`, `rows`, `limits?` | `{ pid, unit }`. Refuses with `terminal_exists` an `id` that operates, or an `id` whose process a different open starts. Thus, opens at the same time start one process. |
+| `terminal_attach` | `id`, `seq` | `{ data, reset, seq, running, code, pid }`, then live `output`/`exit` frames and the `hook` frames in the queue. |
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |
 | `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}` |
-| `terminal_stop` | `id`, `instance` | `{}`; kills only the listed process instance; rejects a replaced or ended process with `terminal_changed` |
-| `terminal_forget` | `id` | `{}`; drops an exited terminal and `sessions/<id>`; rejects a running terminal |
-| `terminal_list` | none | `[{ id, instance, workspace, pid, unit, started, running, code, seq }]`; older hosts omit `instance` |
-| `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`; streams `file` events every 250 ms while this attachment lives |
-| `watch_flush` | `id` | `{}` after every byte the watch had not sent is on the stream |
-| `hook_reply` | `hook`, `stdout` (base64) | `{}`; empty `stdout` abstains |
-| `clients_list` | none | `[{ device, label, connected, current }]`, `connected` in Unix seconds, `current` for the asking attachment |
-| `client_detach` | `device` | `{}`; sends `replaced` to that device's attachment; `unknown_client` for none or the asking one |
-| `registry_list` | none | the registry, with each conversation's `state`, `state_at` and `notification` |
-| `registry_put` | `project?`, `workspace?` (registry records) | `{}`; inserts a project by path; inserts a workspace by ID, or merges into the one held: its title and new conversations, keeping every other field and conversation |
-| `registry_close` | `id` | `{}`; marks a workspace closed after the desktop cleaned it |
-| `stats` | `workspaces` | per workspace slice `{ memory, memory_max, cpu_usec, cpu_max }`, plus `memory_total`, `memory_available`, `load`, `cpus`, `terminals` |
-| `shutdown` | `force?` | `{}`, then the host exits; without `force` it rejects with `host_busy` while a terminal runs, an `exec`, `file_write` or `terminal_open` is in progress, or an agent request that changes the machine is; once it starts, those fail with `host_stopping` |
+| `terminal_stop` | `id`, `instance` | `{}`. Kills only the specified process instance. Refuses a replaced or stopped process with `terminal_changed`. |
+| `terminal_forget` | `id` | `{}`. Removes a stopped terminal and `sessions/<id>`. Refuses a terminal that operates. |
+| `terminal_list` | none | `[{ id, instance, workspace, pid, unit, started, running, code, seq }]`. Older hosts do not send `instance`. |
+| `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`. Streams `file` events each 250 ms while this attachment is connected. |
+| `watch_flush` | `id` | `{}`, after all the bytes that the watch did not send are on the stream. |
+| `hook_reply` | `hook`, `stdout` (base64) | `{}`. An empty `stdout` abstains. |
+| `clients_list` | none | `[{ device, label, connected, current }]`. `connected` is in Unix seconds. `current` marks the attachment that asks. |
+| `client_detach` | `device` | `{}`. Sends `replaced` to the attachment of that device. Returns `unknown_client` for no attachment or for the attachment that asks. |
+| `registry_list` | none | The registry, with the `state`, `state_at` and `notification` of each conversation. |
+| `registry_put` | `project?`, `workspace?` (registry records) | `{}`. Adds a project by path. Adds a workspace by ID, or merges into the workspace that is there: its title and new conversations. It keeps all other fields and conversations. |
+| `registry_close` | `id` | `{}`. Marks a workspace as closed after the desktop cleaned it. |
+| `stats` | `workspaces` | For each workspace slice, `{ memory, memory_max, cpu_usec, cpu_max }`, and also `memory_total`, `memory_available`, `load`, `cpus`, `terminals`. |
+| `shutdown` | `force?` | `{}`, then the host stops. Without `force`, it refuses with `host_busy` while a terminal operates or while an `exec`, a `file_write`, a `terminal_open` or an agent request that changes the machine operates. After it starts, those requests return the error `host_stopping`. |
 
-Terminal and watch IDs match `[A-Za-z0-9_-]{1,128}`. Unknown terminals answer
-`unknown_terminal`, which the desktop treats as a process lost with the host.
+Terminal IDs and watch IDs must agree with `[A-Za-z0-9_-]{1,128}`. For an
+unknown terminal, the host answers `unknown_terminal`. The desktop processes
+this answer as a process that stopped with the host.
 
 ### Terminal sequence
 
-Every output chunk gets the next sequence number. `terminal_attach` with the last
-sequence the client applied replies with the bytes after it. When the retained
-2 MiB no longer reaches that sequence, or the sequence is ahead of the host's,
-the reply carries the whole buffer with `reset: true`, and the desktop clears the
-screen first. Replay, live output and queued hooks are ordered under the
-terminal's buffer lock, so they never overlap or leave a gap.
+Each output chunk gets the next sequence number. `terminal_attach` with the last
+sequence that the client applied replies with the bytes after that sequence. The
+host keeps 2 MiB of output. In two conditions, the reply contains the full
+buffer with `reset: true`. In the first condition, the buffer does not go back
+to that sequence. In the second condition, the sequence is after the sequence of
+the host. The desktop then clears the screen first. The replay, the live output
+and the hooks in the queue are in sequence under the buffer lock of the
+terminal. Thus, they do not overlap and no bytes are missing.
 
 ### Limits
 
-With linger enabled and `systemd-run` available (`ready.scopes`), a terminal
+If linger is enabled and `systemd-run` is available (`ready.scopes`), a terminal
 opened with `workspace` runs as
 `systemd-run --user --scope --slice=prometeu-w<uuid>.slice --unit=prometeu-t<id>-<n>`.
-`limits.memory_max`, `memory_high`, `cpu_quota` and `tasks_max` (systemd syntax)
-are applied to the slice with `systemctl --user set-property --runtime`. Without
-scopes, limits are ignored.
+The host applies `limits.memory_max`, `memory_high`, `cpu_quota` and `tasks_max`
+(systemd syntax) to the slice with `systemctl --user set-property --runtime`.
+Without scopes, the host ignores the limits.
 
 ## Hooks
 
-Claude's settings name `'<host>' hook --root '<root>'` as the command of every
-hook. The hook process reads at most 1 MiB of stdin and forwards every
+The Claude settings name `'<host>' hook --root '<root>'` as the command of each
+hook. The hook process reads a maximum of 1 MiB of stdin. It sends each
 `PROMETEU_TERMINAL_HOOK_*` variable with the payload. Only `PermissionRequest`
-waits for a reply (up to 300 s). Every other hook is acknowledged at once, then
-delivered, or queued when the terminal has no attached desktop. The desktop
-rewrites transcript paths to its mirror, replaces the bridge socket, token and
-nonce with its own, and returns any decision the local bridge produced. A failing
-hook command prints nothing and exits 0.
+waits for a reply, for a maximum of 300 s. The host acknowledges all other
+hooks immediately. Then it sends them, or puts them in a queue when no desktop
+is attached to the terminal.
+
+The desktop changes the transcript paths to its mirror. It replaces the bridge
+socket, the token and the nonce with its own values. It returns the decision of
+the local bridge, if there is one. If the hook command has a failure, it prints
+nothing and stops with status 0.
 
 ## Codex engines
 
-A remote Codex conversation uses three terminals, opened with the ordinary
-methods: the engine `<tab>-codex` (`codex app-server --listen
-unix://<root>/sessions/<tab>/rpc`, with the workspace and its limits), the TUI
-`<tab>` (`codex --remote unix://… resume <thread>`), and one relay per desktop
-incarnation, `<tab>-rpc-<12 alphanumerics>`, which runs
+A remote Codex conversation uses three terminals. The desktop opens them with
+the usual methods:
+
+- The engine `<tab>-codex`: `codex app-server --listen
+  unix://<root>/sessions/<tab>/rpc`, with the workspace and its limits.
+- The TUI `<tab>`: `codex --remote unix://… resume <thread>`.
+- One relay for each desktop incarnation, `<tab>-rpc-<12 alphanumerics>`. The
+  relay runs this command:
 
 ```text
 <root>/host/<hash>/prometeu-host codex-relay --socket <root>/sessions/<tab>/rpc --pid <engine pid>
 ```
 
-The relay switches its PTY to raw mode, waits up to 20 seconds for the socket,
-and checks it as the desktop's local engine client does: the alias names Codex's
-SHA-256 endpoint, whose directory is 0700 and whose socket has no group or other
-bits, both owned by the user. The socket's peer must be the engine's process or a
-descendant. It exits with status 1 and writes nothing to stdout when a check
-fails. Otherwise it prints `{"prometeu":"codex-relay","ready":1}` and then relays
-one JSON object per line in each direction, at most 64 MiB from the engine and
-1 MiB to it. An input line that is not a JSON object is dropped. The relay exits
-when the WebSocket closes or its input ends.
+The relay changes its PTY to raw mode. It waits a maximum of 20 seconds for the
+socket. Then it examines the socket as the local engine client of the desktop
+does:
 
-The desktop reads relay lines only after the announcement, and ends the link when
-a line is malformed or the host replies to `terminal_attach` with `reset` after
-the first attachment. It writes to the relay with `terminal_write` requests and
-treats a missing reply as unsent. It never kills another incarnation's relay, and
-before its TUI it ends only an engine it opened itself. When the TUI exits it
-terminates the engine; at each attachment it terminates an engine whose
-TUI is not running and that started at least 60 seconds earlier.
+- The alias names the SHA-256 endpoint of Codex.
+- The folder of the endpoint is 0700.
+- The socket has no group bits and no other bits.
+- The user owns the folder and the socket.
+- The peer of the socket is the engine process or a descendant of it.
+
+If a check finds a problem, the relay stops with status 1 and writes nothing to
+stdout. If not, it prints `{"prometeu":"codex-relay","ready":1}`. Then it relays
+one JSON object on each line in the two directions. The maximum is 64 MiB from
+the engine and 1 MiB to the engine. The relay ignores an input line that is not
+a JSON object. The relay stops when the WebSocket closes or its input ends.
+
+The desktop reads relay lines only after the announcement. It stops the link in
+these conditions:
+
+- A line is malformed.
+- After the first attachment, the host replies to `terminal_attach` with
+  `reset`.
+
+The desktop writes to the relay with `terminal_write` requests. If a reply is
+missing, the desktop thinks that the request was not sent. The desktop does not
+kill the relay of a different incarnation. Before it opens its TUI, it stops
+only an engine that it opened. When the TUI stops, the desktop terminates the
+engine. At each attachment, the desktop terminates an engine if its TUI does not
+operate and the engine started 60 seconds or more before.
 
 ## Transcript mirror
 
-After a terminal exits, the desktop calls `watch_flush` on its conversation's
-watch, so the conversation reads its last turn before it stops, and then
-`terminal_forget`. When it reattaches and finds a finished terminal that belongs
-to a conversation on the board, it adopts that terminal without starting Claude,
-collects its output, queued hooks and transcript the same way, and forgets it.
-Finished terminals that no conversation will read again are forgotten at once.
+After a terminal stops, the desktop calls `watch_flush` on the watch of its
+conversation. Thus, the conversation reads its last turn before it stops. Then
+the desktop calls `terminal_forget`.
+
+When the desktop attaches again, it can find a stopped terminal that belongs to
+a conversation on the board. The desktop adopts that terminal and does not start
+Claude. It collects the output, the hooks in the queue and the transcript in the
+same way. Then it forgets the terminal. The desktop forgets immediately the
+stopped terminals that no conversation will read again.
 
 For a conversation in `<cwd>`, the desktop watches
-`<home>/.claude/projects/<slug>` (depth 3, which includes subagents). It writes
-the bytes to `<root>/remote/<machine>/mirror/<absolute remote path>` (0700
-directories, 0600 files), and sends the mirror's sizes as offsets after every
-reattachment. The slug replaces every character outside `[A-Za-z0-9]` with `-`.
+`<home>/.claude/projects/<slug>`, with depth 3, which includes subagents. It
+writes the bytes to `<root>/remote/<machine>/mirror/<absolute remote path>`. The
+folders are 0700 and the files are 0600. After each new attachment, the desktop
+sends the sizes of the mirror files as offsets. The slug replaces each
+character that is not in `[A-Za-z0-9]` with `-`.
 
-Before adopting a terminal, the desktop waits for `watch_flush` to finish. A
-Claude `SessionStart` hook may have bound a transcript path before the first
-prompt creates that file. When the bound file is still absent and the journal
-contains neither native receipts nor prepared input, and the canonical log
-contains only status metadata, adoption keeps the existing process, identity
-and journal while observing its first prompt as new input. This exception never
-launches a replacement process or bypasses verification of existing history.
-The next authenticated hook binds observation to the transcript as usual.
+Before the desktop adopts a terminal, it waits for `watch_flush` to complete. A
+Claude `SessionStart` hook can bind a transcript path before the first prompt
+makes that file. The adoption keeps the current process, identity and journal,
+and it records the first prompt as new input, when all these conditions are
+true:
+
+- The bound file is not there.
+- The journal contains no native receipts and no prepared input.
+- The canonical log contains only status metadata.
+
+This exception does not start a replacement process. It does not skip the
+verification of the current history. The next authenticated hook binds the
+observation to the transcript as usual.
 `remote_reattachment_before_first_prompt_preserves_identity_and_requires_empty_history`
-in `chat/terminal/ingestion/tests.rs` covers this behavior without changing any
-persisted format or host protocol.
+in `chat/terminal/ingestion/tests.rs` examines this behavior. The behavior does
+not change a persisted format or the host protocol.
 
 ## Desktop process inspection
 
-Settings exposes **Running processes** on each connected machine. The additive
+Settings shows **Running processes** on each connected machine. The added
 desktop IPC commands `machine_terminals { id }` and
 `machine_terminal_stop { id, terminal, instance }` use `terminal_list` and
-`terminal_stop`. They require a connected machine and only address terminals
-owned by its host, never arbitrary PIDs. Each terminal launch receives a fresh
-UUID in `instance`, retained across attachments. The confirmation carries that
-exact instance through IPC to the host, which checks it and signals the same
-process handle without looking up the terminal ID again. Reusing a conversation
-ID or PID cannot retarget an earlier confirmation; the process control also
-serializes signaling with reaping to prevent signaling a reused OS PID.
+`terminal_stop`. They operate only on a connected machine. They operate only on
+the terminals that its host owns. They do not operate on arbitrary PIDs.
 
-The new host method and list field are additive within protocol 1, with no
-persisted format change. Old desktops still use `terminal_signal`. Hosts without
-`instance` remain inspectable, but their stop buttons are disabled with guidance
-to end work from the conversation or machine terminal before upgrading. A stop
-sent after reconnecting to an old host fails as an unknown method; there is no
-fallback to an unguarded signal. Adding an optional identity to `terminal_signal`
-would be unsafe because older hosts silently ignore unknown parameters.
+Each terminal launch gets a new UUID in `instance`. The host keeps it across
+attachments. The confirmation sends that accurate instance through IPC to the
+host. The host examines it and signals the same process handle. It does not look
+for the terminal ID again. If a conversation ID or a PID is used again, an
+earlier confirmation cannot apply to a different process. The process control
+also serializes the signals with the reaping. This prevents a signal to an OS
+PID that the system used again.
 
-The list uses the host's `running` flag, including idle conversations, sign-in
-terminals and terminals absent from the desktop board. Board names are resolved
-only within that machine. It shows the conversation or terminal ID, workspace,
-PID and start time, refreshes every three seconds while open, and clears stale
-controls when a query fails. Ending a process requires confirmation and kills
-its process group without removing its workspace or saved transcript. Normal
-exit handling still drains and mirrors its output. The pending-update notice
-explains that idle processes also block replacement; remaining host requests
-can still delay replacement after the list becomes empty.
+The new host method and list field only add to protocol 1. There is no change to
+a persisted format. Old desktops continue to use `terminal_signal`. A person can
+examine the processes of hosts without `instance`. But their stop buttons are
+disabled, with an instruction to stop the work from the conversation or the
+machine terminal before the upgrade. A stop request after a new connection to an
+older host gets the error for an unknown method. There is no fallback to a
+signal without this protection. An optional identity in `terminal_signal` is not
+safe, because older hosts silently ignore unknown parameters.
 
-`src/machine-processes.test.ts` covers host liveness, machine-scoped labels,
-confirmation races, legacy hosts, targeted stopping and polling lifetime.
-`stopping_a_listed_process_never_kills_a_replacement_under_the_same_id` verifies
-that stale or missing instances leave a replacement running and its current
-instance can stop it. The existing
-`terminals_survive_detachment_and_replay_the_gap` host test verifies list and
-kill compatibility, including the listed state after exit.
+The list uses the `running` flag of the host. This includes idle conversations,
+sign-in terminals and terminals that are not on the board of the desktop. The
+desktop finds board names only on that machine. The list shows the conversation
+or terminal ID, the workspace, the PID and the start time. While the list is
+open, it refreshes each three seconds. If a query has an error, it removes the
+controls that are not current.
+
+To stop a process, the person must confirm. The desktop kills the process group.
+It does not remove the workspace or the saved transcript. The usual exit
+procedure continues to send and mirror the output. The notice about the update
+that waits tells that idle processes also prevent the replacement. Other host
+requests can delay the replacement after the list becomes empty.
+
+`src/machine-processes.test.ts` examines these items: host liveness, labels for
+each machine, confirmation races, legacy hosts, stops of specified processes and
+the lifetime of the polling.
+`stopping_a_listed_process_never_kills_a_replacement_under_the_same_id` proves
+that an expired or missing instance does not stop a replacement. It also proves
+that the current instance can stop the replacement. The current
+`terminals_survive_detachment_and_replay_the_gap` host test examines the
+compatibility of the list and the kill operation. This includes the listed state
+after the exit.
 
 ## Desktop project selection
 
-Settings > Projects lists registered folders filtered by computer. The launcher
-uses the same exact `Project.host` filter; origin aliases only group the sidebar.
-Remote registration and cloning use the existing `remote_list_dir` and
-`remote_add_project` desktop commands in separate dialogs. They do not change
-the host protocol or persisted project IDs. Existing backend origin resolution
-remains compatible with callers that pass a local project ID.
+Settings > Projects shows the registered folders with a filter by computer. The
+launcher uses the same `Project.host` filter. Origin aliases only make
+groups in the sidebar. The remote registration and the clone operation use the
+current `remote_list_dir` and `remote_add_project` desktop commands in different
+dialogs. They do not change the host protocol or the persisted project IDs. The
+current backend resolution of the origin stays compatible with callers that send
+a local project ID.
 
-`src/machines.test.ts` covers local, selected-host, other-host and aliased clones.
-`src/settings-navigation.test.ts` preserves the saved `projects` destination.
+`src/machines.test.ts` examines local clones, clones on the selected host,
+clones on a different host and clones with aliases.
+`src/settings-navigation.test.ts` keeps the saved `projects` destination.
 
 ## Connected computers
 
-The additive desktop IPC commands `machine_clients { id }` and
-`machine_client_detach { id, device }` use `clients_list` and `client_detach` on a
-connected machine. Settings offers them from the machine's menu only when
-`ready.clients` is true, lists this computer first and asks before
-disconnecting another one. A disconnected desktop shows **In use by another
-computer** and stops reconnecting, as after a replacement. An older host answers
-`clients_list` as an unknown method, which the desktop reports as needing a host
-update. `src/machine-clients.test.ts` covers ordering and confirmation.
+The added desktop IPC commands `machine_clients { id }` and
+`machine_client_detach { id, device }` use `clients_list` and `client_detach` on
+a connected machine. Settings shows them in the menu of the machine only when
+`ready.clients` is true. The list shows this computer first. The desktop asks
+the person before it disconnects a different computer. A disconnected desktop
+shows **In use by another computer** and stops its connection attempts, as after
+a replacement. An older host answers `clients_list` as an unknown method. The
+desktop then tells that a host update is necessary.
+`src/machine-clients.test.ts` examines the sequence and the confirmation.
 
-The desktop also passes `--release` and keeps an idle host from another build
-when `ready.release` is newer than its own version, so computers on different
-releases never retire each other's host. A host without `release` is replaced
-when idle, as before.
+The desktop also sends `--release`. It keeps an idle host from a different
+build when `ready.release` is newer than its own version. Thus, computers on
+different releases do not stop the host of each other. The desktop replaces an
+idle host without `release`, as before.
 
 ## Registry
 
-`registry.json` is `{ version: 2, projects, workspaces, supervision }`; only the host writes
-it, with an atomic rename through a uniquely named temporary file. Version 1
-records remain readable and are upgraded on the next successful write. A registry
-with a newer `version` is refused instead of being rewritten without the fields
-this host does not know. Records:
+`registry.json` is `{ version: 2, projects, workspaces, supervision }`. Only the
+host writes it, with an atomic rename through a temporary file with a unique
+name. The host can read version 1 records. It changes them to version 2 at the
+next correct write. The host refuses a registry with a newer `version`. It does
+not write that registry again without the fields that it does not know.
+Records:
 
-- project: `{ path, name, origin?, added_at, added_by }`;
+- project: `{ path, name, origin?, added_at, added_by }`.
 - workspace: `{ id, project, title, branch, base, worktree, created_at,
-  created_by, closed, keep_branch, conversations, supervision? }`;
-- conversation: `{ id, title, created_at, permission }`, where `id` is the tab,
-  Claude session and terminal ID and `permission` is `auto` or `ask`;
+  created_by, closed, keep_branch, conversations, supervision? }`.
+- conversation: `{ id, title, created_at, permission }`. The ID is the tab ID,
+  the Claude session ID and the terminal ID. `permission` is `auto` or `ask`.
 - creator: `{ kind: "desktop" | "agent", name? }`.
 
-Unknown fields are ignored. Times are Unix seconds.
+The host ignores unknown fields. Times are in Unix seconds.
 
-Version 2 protects supervisor bindings and the persistent outbox from older
-hosts that would otherwise discard unknown fields. Downgrading requires keeping
-a host that supports this registry version; the file must not be relabeled as
-version 1 or overwritten to make an older host start.
+Version 2 protects the supervisor links and the durable outbox from older
+hosts. Without it, these hosts delete unknown fields. For a downgrade, keep a
+host that can read this registry version. Do not change the file label to
+version 1. Do not replace the file to start an older host.
 
-The desktop synchronizes its board with `registry_list` on every attachment
-and on every `registry` event (`src-tauri/src/remote/registry.rs`). It adopts
+The desktop synchronizes its board with `registry_list` at each attachment and
+at each `registry` event (`src-tauri/src/remote/registry.rs`). It adopts
 missing projects and open workspaces as remote board entries. Their
-conversations become terminal-mode Claude tabs with the same IDs, and the
-workspace names an agent creator in `creator`. It adds conversations an agent
-opened in a workspace it already shows, and marks workspaces an agent closed as
-cleaned and archived. It records with `registry_put` its own remote workspaces
-and conversations once their tab is on the board, and the projects added on the
-machine. Each synchronization also records the projects, open workspaces and
-conversations that the registry lacks, and repeats `registry_close` for a
-workspace the desktop cleaned that the registry still lists as open. An entry
-whose ID the board already uses for a local workspace, a workspace on another
-machine or another tab is never adopted or changed. A conversation an agent
-opened before closing its workspace still becomes a tab of the closed
-workspace. Synchronization and the terminal reattachment that follows run one
-at a time per machine, and `registry` events that arrive while one is queued
-join it. It calls `registry_close` after cleaning a workspace. A
-workspace removed from the board without cleanup, a conversation whose tab was
-closed, or a project removed from the board (until it is added again) stays in
-the registry and is listed in
-`<root>/remote/<machine>/dismissed.json` on the desktop, which keeps it from
-being adopted again. An adopted conversation without a terminal on the
-host gets the transcript binding its first hook would have written.
+conversations become Claude tabs in terminal mode with the same IDs. The
+workspace names an agent creator in `creator`. The desktop adds the
+conversations that an agent opened in a workspace that the desktop shows. It
+marks the workspaces that an agent closed as cleaned and archived.
+
+The desktop uses `registry_put` to record its own remote workspaces and
+conversations when their tab is on the board. It also records the projects that
+a person added on the machine. Each synchronization also records the projects,
+open workspaces and conversations that are not in the registry. It sends
+`registry_close` again for a workspace that the desktop cleaned and that the
+registry continues to show as open.
+
+The board can use the ID of an entry for a local workspace, a workspace on a
+different machine or a different tab. The desktop does not adopt or change
+such an entry. A
+conversation that an agent opened before it closed its workspace becomes a tab
+of the closed workspace. The synchronization and the subsequent terminal
+attachment operate one at a time for each machine. `registry` events that
+arrive while a synchronization waits in the queue join it. The desktop calls
+`registry_close` after it cleans a workspace.
+
+These items stay in the registry:
+
+- A workspace that a person removed from the board without cleanup.
+- A conversation whose tab a person closed.
+- A project that a person removed from the board, until the person adds it
+  again.
+
+The desktop lists these items in `<root>/remote/<machine>/dismissed.json`. This
+file prevents a new adoption of the items. An adopted conversation without a
+terminal on the host gets the transcript link that its first hook writes in the
+usual condition.
 
 ## Observed state
 
-The host reads the event name of every hook it serves and keeps, per
-conversation, `state` and `state_at`: `idle` after `SessionStart`, `Stop` or
-`StopFailure`; `working` after `UserPromptSubmit` or a tool hook; `permission`
-after `PermissionRequest`. `Notification` records its `message` as
-`notification` until the next working hook. A conversation whose terminal is
-not running reports `ended`; a running one with no hook yet reports `starting`.
+The host reads the event name of each hook that it serves. It keeps `state` and
+`state_at` for each conversation:
+
+- `idle` after `SessionStart`, `Stop` or `StopFailure`.
+- `working` after `UserPromptSubmit` or a tool hook.
+- `permission` after `PermissionRequest`.
+
+`Notification` records its `message` as `notification` until the next hook that
+sets the working state. A conversation whose terminal does not operate shows
+`ended`. A conversation that operates and has no hook shows `starting`.
 
 ## Agent socket
 
 Agents connect to the path in `agents.json`. Setup records `agents-v1.sock` in
-the default agent directory `<root>-agents` (`~/.prometeu-remote-agents`) unless
-`--socket` names another. Without a record, which is an install from before that
-default, the path stays `<root>/agents/agents-v1.sock`; the next setup moves it
-and reports `moved_from`. The host serves it
-only while `agents/token` exists. It checks the token and the path every 3
-seconds and rebinds, so `prometeu-host agents setup [--socket PATH] [--rotate]
-[--client-uid ID] [--json]` and `agents disable` apply without a restart. When
-agents are disabled, the listener stops and its socket is removed.
+the default agent folder `<root>-agents` (`~/.prometeu-remote-agents`), if
+`--socket` does not name a different path. If there is no record, the
+installation is from before that default. Then the path stays
+`<root>/agents/agents-v1.sock`. The next setup moves it and shows `moved_from`.
 
-`agents setup` creates missing socket directories with mode 0700 and leaves
-existing directory permissions unchanged. It never opens the home or other
-parent folders to additional users. Setup and the host's bind refuse a directory
-not owned by the host's user or writable by its group or others, and a parent
-owned by anyone other than that user or root, or writable by group or others
-without the sticky bit. Setup also refuses a directory holding a `prometeu-mcp`
-it did not record, and a socket path taken by something other than a socket.
+The host serves the socket only while `agents/token` is there. It examines the
+token and the path each 3 seconds and binds again. Thus,
+`prometeu-host agents setup [--socket PATH] [--rotate]
+[--client-uid ID] [--json]` and `agents disable` apply without a new start.
+When a person disables agents, the listener stops and the host removes its
+socket.
 
-Setup records the socket and `<directory>/prometeu-mcp` in `agents.json`, removes
-a previously recorded client elsewhere, copies itself there (0755), then creates
-or rotates the token. The host refreshes the recorded copy atomically, only when
-it differs, every time it binds the socket. `agents disable` deletes the token
-and the recorded copy. For compatibility, setup preserves the `opened` list
-written by older versions without changing those folders. Disabling still
-removes `o+x` from those legacy folders, skips only folders confirmed gone,
-retains records it could not check or close, and fails naming them. The removed
-`--open-home` flag fails before any setup changes.
+`agents setup` makes missing socket folders with mode 0700. It does not change
+the permissions of current folders. It does not open the home folder or other
+parent folders to more users. Setup and the bind operation of the host refuse
+these folders:
 
-`agents status --json` prints `{ enabled, socket, serving, error }`: whether
-something answers at the socket, and the last bind error, stored in
-`agents/bind-error` and removed once the host serves or agents are disabled.
+- A folder that the user of the host does not own.
+- A folder that its group or other users can write to.
+- A parent folder that an owner other than that user or root owns.
+- A parent folder that its group or other users can write to, without the
+  sticky bit.
+
+Setup also refuses a folder with a `prometeu-mcp` that it did not record. It
+refuses a socket path that an item other than a socket uses.
+
+Setup records the socket and `<directory>/prometeu-mcp` in `agents.json`. It
+removes a client that it recorded before in a different location. It copies
+itself to the new location (0755). Then it makes or rotates the token. Each
+time that the host binds the socket, it updates the recorded copy with an
+atomic operation, but only when the copy is different. `agents disable` deletes
+the token and the recorded copy.
+
+For compatibility, setup keeps the `opened` list that older versions wrote. It
+does not change those folders. Disable continues to remove `o+x` from those
+legacy folders. It skips only the folders that it confirms are not there. It
+keeps the records that it cannot examine or close, and it shows an error with
+their names. The removed `--open-home` flag stops with an error before setup
+changes anything.
+
+`agents status --json` prints `{ enabled, socket, serving, error }`. These
+fields tell if a process answers at the socket, and give the last bind error.
+The host stores the bind error in `agents/bind-error`. It removes the error
+when the host serves the socket or when a person disables agents.
 
 `agents setup` prints a local stdio MCP entry:
 `{ command: "<directory>/prometeu-mcp", args: ["mcp", "--socket", "<socket>"], env }`.
-Both paths are resolved against setup's working directory when `--root` is
-relative, so the copied configuration works from another directory. Resolution
-does not require the daemon's socket to exist or rewrite stored paths. Setup
-validates the emitted address against the platform's Unix socket path limit
-before writing configuration or tokens; an invalid address is rejected with
-guidance to choose another path using `--socket`.
-`env` holds `PROMETEU_AGENT_TOKEN`,
-`PROMETEU_AGENT_NAME: "agent"` and `PROMETEU_AGENT_HOST_UID`. The expected peer ID
-is the setup user's actual UID, or the explicit `--client-uid` override. Setup
-makes no assumption about user namespaces. With `--json` it prints
+When `--root` is relative, setup resolves the two paths against its working
+folder. Thus, the copied configuration operates from a different folder. The
+resolution does not use the socket of the daemon, and it does not change stored
+paths.
+
+Before setup writes the configuration or the tokens, it validates the address
+against the Unix socket path limit of the platform. Setup refuses an address
+that is not valid. The error tells the person to select a different path with
+`--socket`.
+
+`env` contains `PROMETEU_AGENT_TOKEN`, `PROMETEU_AGENT_NAME: "agent"` and
+`PROMETEU_AGENT_HOST_UID`. The expected peer ID is the actual UID of the setup
+user, or the explicit `--client-uid` value. Setup does not make assumptions
+about user namespaces. With `--json`, it prints
 `{ token, socket, client, moved_from, server }`.
 
-The desktop's `machine_agents_enable { id, rotate }` and `machine_agents_disable`
-run these commands through `exec` with the installed build they attach with,
-even when an older daemon is still running. Enabling waits up to 8 seconds for
-`serving` or `error` before publishing status. It returns
-`{ config, preview, moved_from }` to Settings: the pretty-printed
-`{"mcpServers": {"prometeu": server}}` with the token for copying, and a masked
-preview for display. `MachineView.agents` carries status read at each attachment.
-The desktop IPC and mock change together; the setup output no longer contains
-mounts, namespace hints or a permission-consent outcome.
+The desktop commands `machine_agents_enable { id, rotate }` and
+`machine_agents_disable` run these commands through `exec`. They use the
+installed build that the desktop attaches with, also when an older daemon
+operates. Before the enable command publishes the status, it waits a maximum of
+8 seconds for `serving` or `error`. It returns `{ config, preview, moved_from }`
+to Settings. The first value is the formatted
+`{"mcpServers": {"prometeu": server}}` with the token, for a copy. The second
+value is a masked version for the display. `MachineView.agents` contains the
+status that the desktop reads at each attachment. The desktop IPC and the mock
+change together. The setup output does not contain mounts, namespace hints or a
+permission-consent outcome.
 
-Any MCP client that can execute the command and reach the socket can use this
-configuration. The default configuration targets the same machine and Unix user
+Each MCP client that can run the command and connect to the socket can use this
+configuration. The default configuration is for the same machine and Unix user
 as the daemon. Containers, volumes, remote command execution, network access and
-permission changes belong to the integrator. No HTTP listener is added. An
-integration that maps paths or user identities must adapt the command, socket
-path and expected peer UID without removing token or peer authentication.
-Existing client configurations, recorded socket paths and directory permissions
-remain usable across upgrades; generating a new configuration produces local
-paths even for a previously customized installation.
+permission changes are the responsibility of the integrator. There is no HTTP
+listener. An integration that maps paths or user identities must adapt the
+command, the socket path and the expected peer UID. It must keep the token
+authentication and the peer authentication.
 
-An existing socket entry is replaced only when a non-blocking connection is
-refused. An answering socket or a full queue is kept; otherwise the host logs
-the refusal once and retries at every check. When the path changes, the old
-listener stops and its socket is removed.
+The current client configurations, the recorded socket paths and the folder
+permissions stay usable after upgrades. A new configuration contains local
+paths, also for an installation that a person customized before.
+
+The host replaces a current socket entry only when a non-blocking connection is
+refused. The host keeps a socket that answers or that has a full queue. In the
+other conditions, the host writes the refusal to the log one time and tries
+again at each check. When the path changes, the previous listener stops and the
+host removes its socket.
 
 The first frame is `{"hello":{"protocol":1,"token":"…","client":"<label>"}}`.
-The token is read from `agents/token` and compared in constant time on the hello
-frame and again before every request. A mismatch answers
-`{"event":"error","error":"unauthorized"}`, an unknown protocol `"protocol"`,
-and the connection closes. At most 16 connections may wait for their hello, each
-for at most 10 seconds; more are closed without an answer. At most 64
-authenticated connections are served; the next gets `"busy"`. Otherwise the
-host answers `{"event":"ready","protocol":1,"version"}` and serves `{ id,
-method, params }` requests in order with `{ id, result }` or `{ id, error }`.
-`client` (at most 64 characters) is recorded as the creator's `name`.
-Requests that change the machine (`project_add`, `project_clone`,
-`workspace_create`, `conversation_open`, `conversation_send`,
-`conversation_interrupt`, `workspace_close`) delay a non-forced `shutdown`. Once a
-shutdown has started, they fail with `host_stopping`.
+The host reads the token from `agents/token`. It compares the token in constant
+time on the hello frame and again before each request. If the token is not the
+same, the host answers `{"event":"error","error":"unauthorized"}` and closes the
+connection. For an unknown protocol, it answers `"protocol"` and closes the
+connection.
 
-The token authorizes running commands as the host's user, so only that user may
-be able to write to the socket's directory: whoever can replace the socket can
-collect the token from the next client.
+A maximum of 16 connections can wait for their hello frame, each for a maximum
+of 10 seconds. The host closes more connections without an answer. The host
+serves a maximum of 64 authenticated connections. The next connection gets
+`"busy"`. In the other conditions, the host answers
+`{"event":"ready","protocol":1,"version"}`. Then it serves `{ id,
+method, params }` requests in order with `{ id, result }` or `{ id, error }`.
+The host records `client` (a maximum of 64 characters) as the `name` of the
+creator.
+
+Requests that change the machine delay a `shutdown` that is not forced. These
+requests are `project_add`, `project_clone`, `workspace_create`,
+`conversation_open`, `conversation_send`, `conversation_interrupt` and
+`workspace_close`. After a shutdown starts, they return the error
+`host_stopping`.
+
+The token lets a client run commands as the user of the host. Thus, only that
+user must have write permission for the folder of the socket. A person who can
+replace the socket can get the token from the next client.
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `projects_list` | none | projects |
-| `project_add` | `path` (absolute, inside a Git repository) | the project registered at the repository's top level |
-| `project_clone` | `url`, `path?` (default `~/code/<name>`) | the cloned project |
-| `workspace_create` | `project` (path or name), `prompt`, `title?`, `branch?`, `base?` | the workspace with its first conversation |
-| `workspace_list` | `all?` | open workspaces, or all of them |
-| `workspace_get` | `id` | the workspace |
-| `conversation_open` | `workspace`, `prompt` | the conversation and its `workspace` |
+| `projects_list` | none | The projects. |
+| `project_add` | `path` (absolute, in a Git repository) | The project, registered at the top level of the repository. |
+| `project_clone` | `url`, `path?` (default `~/code/<name>`) | The cloned project. |
+| `workspace_create` | `project` (path or name), `prompt`, `title?`, `branch?`, `base?` | The workspace with its first conversation. |
+| `workspace_list` | `all?` | The open workspaces, or all workspaces. |
+| `workspace_get` | `id` | The workspace. |
+| `conversation_open` | `workspace`, `prompt` | The conversation and its `workspace`. |
 | `conversation_read` | `id`, `cursor?`, `limit?` (1–200, default 50) | `{ messages, cursor, more, status }` |
 | `conversation_send` | `id`, `text` | `{ resumed }` |
-| `conversation_interrupt` | `id` | `{}`; sends Escape |
-| `workspace_close` | `id`, `force?` | `{}`, or `{ branch_kept, detail }` when the worktree is gone but the branch could not be deleted |
+| `conversation_interrupt` | `id` | `{}`. Sends Escape. |
+| `workspace_close` | `id`, `force?` | `{}`, or `{ branch_kept, detail }` when the worktree is removed but the host cannot delete the branch. |
 
-Workspaces and conversations carry the observed state fields above.
+Workspaces and conversations contain the observed state fields above.
 
-`workspace_create` fetches `origin` (best effort) and picks a fresh
-`prometeu/<noun>-<adjective>-<NNNN>` branch when none is given. The base is
-`origin/HEAD`, or else `HEAD`. The worktree path is
-`<root>/worktrees/<project name>/<flattened branch>`, with symbolic links in the
-parent resolved, because Claude names transcript folders after its physical
-working directory. Before Git creates anything, the host marks that exact folder
-trusted in `~/.claude.json` (`projects[<path>].hasTrustDialogAccepted`) under a
-lock shared by its own edits. Claude asks about folder trust even without
-permission prompts, and a trusted parent does not count. The host then adds the
-worktree and records the workspace; if recording fails, it removes the worktree
-and the new branch. Finally it launches:
+`workspace_create` fetches `origin`, if it can. If no branch is given, it
+selects a new `prometeu/<noun>-<adjective>-<NNNN>` branch. The base is
+`origin/HEAD`, or `HEAD` if the remote has no default head. The worktree path is
+`<root>/worktrees/<project name>/<flattened branch>`. The host resolves the
+symbolic links in the parent, because Claude names transcript folders from its
+physical working folder.
+
+Before Git makes a file, the host marks that folder as trusted in
+`~/.claude.json` (`projects[<path>].hasTrustDialogAccepted`). It does this under
+a lock that its own edits also use. Claude asks about folder trust also without
+permission prompts, and a trusted parent folder does not count. Then the host
+adds the worktree and records the workspace. If the record operation has an
+error, the host removes the worktree and the new branch. Then it starts:
 
 ```text
 claude --session-id|--resume <id> --dangerously-skip-permissions \
   --settings <root>/sessions/<id>/settings.json <prompt>
 ```
 
-If the launch fails, the error names the recorded workspace and conversation:
-`conversation_send` retries the launch and `workspace_close` removes the
-workspace. `conversation_open` removes its conversation from the registry when
-its launch fails.
+If the launch has an error, the error names the recorded workspace and
+conversation. `conversation_send` tries the launch again, and `workspace_close`
+removes the workspace. If the launch of `conversation_open` has an error, the
+host removes its conversation from the registry.
 
-The terminal is 120×40 with the workspace slice and no limits. Its hook
-environment names the session and `claude`, with placeholder token and nonce
-that a desktop relay replaces. Variables a parent Claude exports to its children
-are unset. `--resume` is used when the transcript already exists. `PROMETEU_HOST_CLAUDE`
-replaces the `claude` program, for tests.
+The terminal is 120×40, with the workspace slice and no limits. Its hook
+environment names the session and `claude`. It has a placeholder token and
+nonce that a desktop relay replaces. The host removes the variables that a
+parent Claude exports to its child processes. The host uses `--resume` when the
+transcript is there. For tests, `PROMETEU_HOST_CLAUDE` replaces the `claude`
+program.
 
 `conversation_read` parses `~/.claude/projects/<slug>/<id>.jsonl`. A message is
-`{ role, kind: text | tool_use | tool_result, text, tool?, error?, at }`. Tool
-text is cut to 2,000 characters and message text to 20,000. Meta and subagent
-lines are skipped. Without a cursor, it returns the last `limit` messages from
-the last 8 MiB of the file. With a cursor, it returns the messages after that
-byte offset, reading at most 8 MiB. The reply's `cursor` always ends at a line
-boundary. A single record longer than 8 MiB is skipped: the cursor moves past
-it, and a `{ role: "system", kind: "skipped" }` message reports its size. A
-reply carries at most 4 MiB of serialized messages: a page ends before the
-record that would exceed it, and a record that alone exceeds it keeps the
-messages that fit, followed by a `skipped` message counting the rest. A tail
-read drops its oldest messages to fit. A cursor that does not follow a newline
-points inside a record, which a tail read returns when its window holds no line
-boundary. Reading from it waits for that record to end, then continues after
-it with a `skipped` message.
+`{ role, kind: text | tool_use | tool_result, text, tool?, error?, at }`. The
+host cuts tool text to 2,000 characters and message text to 20,000 characters.
+It skips meta lines and subagent lines. Without a cursor, it returns the last
+`limit` messages from the last 8 MiB of the file. With a cursor, it returns the
+messages after that byte offset, and it reads a maximum of 8 MiB. The `cursor`
+of the reply always stops at the end of a line.
 
-`conversation_send` writes the text as a bracketed paste and, 150 ms later,
-Enter, holding the terminal's input across both so that concurrent messages
-never merge. It relaunches an ended conversation with the text as its prompt,
-except one whose `permission` is not `auto`: the host launches only without
-prompts, so such a conversation must be resumed from the desktop.
-`conversation_interrupt` and every other conversation method accept only IDs in
-the registry, never other terminals of the host.
+The host skips a record that is longer than 8 MiB. The cursor moves after it,
+and a `{ role: "system", kind: "skipped" }` message gives its size. A reply
+contains a maximum of 4 MiB of serialized messages. A page stops before the
+record that makes it larger than this limit. If one record alone is larger than
+this limit, the reply keeps the messages that fit. A `skipped` message then
+counts the remaining messages. A tail read removes its oldest messages to fit.
 
-`workspace_close` refuses, unless `force`, a worktree with `git status
---porcelain` output (`uncommitted_changes`). It also refuses
-(`unpushed_commits`) when the worktree's `HEAD`, or the branch when it is to be
-deleted, has commits on neither the base, resolved in the main checkout, nor
-any remote. A kept branch counts as holding its commits. A branch that Git confirms no longer exists under its recorded name (renamed or
-deleted) is not checked, and only `HEAD` is. When the lookup itself fails, the
-close is refused. Without `force`, only a branch the checks examined is
-deleted. It checks before ending the
-conversations' terminals and again after they exit. When the second check
-refuses, the conversations stay ended: `conversation_send` resumes those whose
-`permission` is `auto`, and the others resume from the desktop.
-While a workspace is closing, launches and messages into it fail with
-`workspace_closed`, and a second close fails with `workspace_closing`. It then
-forgets the terminals, removes the worktree (`git worktree remove`, with
-`--force` only when `force` is set) and, unless `keep_branch`, deletes the
-branch. Finally it marks the workspace closed. When the branch it meant to
-delete survives (the lookup failed without `force`, or `git branch -D` failed),
-the result names it in `branch_kept` with Git's `detail`.
+A cursor that does not follow a newline points into a record. A tail read
+returns such a cursor when its window contains no line end. A read from this
+cursor waits for the end of that record. Then it continues after the record
+with a `skipped` message.
+
+`conversation_send` writes the text as a bracketed paste. After 150 ms, it
+writes Enter. It holds the terminal input during the two writes, so that
+messages at the same time do not merge. If the conversation stopped, the host
+starts it again with the text as its prompt. This does not apply to a
+conversation whose `permission` is not `auto`. The host starts conversations
+only without permission prompts, so the desktop must resume such a
+conversation. `conversation_interrupt` and all other conversation methods
+accept only IDs in the registry. They do not accept other terminals of the
+host.
+
+Without `force`, `workspace_close` refuses a worktree with `git status
+--porcelain` output (`uncommitted_changes`). It also refuses with
+`unpushed_commits` in this condition: the `HEAD` of the worktree has commits
+that are not on the base or on a remote. The host resolves the base in the main
+checkout. The same rule applies to the branch when the host will delete it. A
+kept branch counts as a branch that holds its commits.
+
+The host does not examine a branch if Git confirms that the recorded name is not
+there (the branch was renamed or deleted). It examines only `HEAD`. If the
+lookup has an error, the host refuses the close. Without `force`, the host
+deletes only a branch that the checks examined. The host does the check before
+it stops the terminals of the conversations, and again after they stop. If the
+second check refuses, the conversations stay stopped. `conversation_send`
+resumes the conversations whose `permission` is `auto`. The other conversations
+resume from the desktop.
+
+While a workspace closes, launches and messages to it return the error
+`workspace_closed`. A second close returns the error `workspace_closing`. Then
+the host forgets the terminals. It removes the worktree with
+`git worktree remove`. It adds `--force` only when `force` is set. If
+`keep_branch` is not set, it deletes the branch. Then it marks the workspace as
+closed. If the branch that the host tried to delete stays, the result names it
+in `branch_kept` with the `detail` from Git. This occurs when the lookup had an
+error without `force`, or when `git branch -D` had an error.
 
 ### MCP server
 
-Remote workspaces can opt into [workspace supervision](supervision.md).
-The host accepts a configured `supervisor_id` when creating a workspace and
-exposes tools to list the configured destination, assign/remove supervision and
-link a GitHub PR. Publication is independent of desktop attachment. The registry
-adds optional workspace `supervision` and defaulted root supervision state for
-execution observations, PR associations and the durable outbox. Desktop merges
-preserve the host's binding. Credentials stay in private `supervision.json`,
-never the registry or MCP responses. Existing callers remain unsupervised.
+Remote workspaces can use [workspace supervision](supervision.md). The host
+accepts a configured `supervisor_id` when it makes a workspace. It gives tools
+to show the configured destination, to add or remove supervision and to link a
+GitHub PR. The publication does not depend on a desktop attachment. The
+registry adds an optional workspace `supervision` field. It also adds a root
+supervision state, with default values, for execution observations, PR
+associations and the durable outbox. Desktop merges keep the supervisor link
+of the host. Credentials stay in the private `supervision.json`. They do not go
+into the registry or MCP responses. Current callers stay without supervision.
 
-`prometeu-host mcp [--socket PATH]` speaks MCP over stdio, newline-delimited
-JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.
-Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
-label, `PROMETEU_AGENT_NAME`, and connects lazily. When `PROMETEU_AGENT_HOST_UID`
-is set, it sends the token only to a listener whose peer credentials report
-that user ID, as the client's user namespace sees it. `agents setup` always
-adds the variable using the local user by default (see above); a missing or
-non-numeric `--client-uid` fails the command before anything is written. It answers `initialize` with
-the client's protocol version when it is 2025-06-18, 2025-03-26 or 2024-11-05,
-and with 2025-06-18 otherwise. When the connection fails before a request is
-sent, it reconnects and sends the request once more. When the connection is lost
-after sending, it repeats only the read-only methods (`projects_list`,
-`workspace_list`, `workspace_get`, `conversation_read`). For any other method, it
-reports that the outcome is unknown. Tools map one to one to the agent methods: `list_projects`,
+`prometeu-host mcp [--socket PATH]` speaks MCP through stdio, with JSON-RPC
+messages on separate lines. It answers `initialize`, `ping`, `tools/list` and
+`tools/call`. Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and,
+as the client label, `PROMETEU_AGENT_NAME`. It connects only when it must send a
+request.
+
+When `PROMETEU_AGENT_HOST_UID` is set, the server sends the token only to a
+listener whose peer credentials give that user ID. The user namespace of the
+client gives this ID. `agents setup` always adds the variable, with the local
+user by default (see above). If `--client-uid` is missing or is not a number,
+the command stops with an error before it writes anything.
+
+The server answers `initialize` with the protocol version of the client when it
+is 2025-06-18, 2025-03-26 or 2024-11-05. For other versions, it answers with
+2025-06-18. If the connection has an error before the server sends a request,
+the server connects again and sends the request one more time. If the connection
+is lost after the server sent the request, the server sends again only the
+read-only methods (`projects_list`, `workspace_list`, `workspace_get`,
+`conversation_read`). For all other methods, it tells that the outcome is
+unknown.
+
+Each tool agrees with one agent method: `list_projects`,
 `add_project`, `clone_project`, `create_workspace`, `list_workspaces`,
 `get_workspace`, `open_conversation`, `read_conversation`, `send_message`,
-`interrupt_conversation` and `close_workspace`. Results are pretty-printed
-JSON text, and host errors set `isError`.
+`interrupt_conversation` and `close_workspace`. The results are formatted JSON
+text. Host errors set `isError`.
 
-Tests: `src-tauri/crates/host/tests/agents.rs` drives the agent socket and the
-MCP server against the real binary with a stand-in Claude, and the unit tests in
-`agents.rs`, `registry.rs`, `transcript.rs`, `naming.rs` and `mcp.rs` cover the
-rest. `the_generated_local_config_lists_tools_and_relays_calls` executes the
-emitted command, arguments and environment without deployment-specific edits.
-`a_relative_root_generates_an_mcp_config_usable_from_another_directory` covers
-relative roots before the socket exists and actual tool calls from another directory.
-`setup_rejects_an_oversized_absolute_socket_before_saving` covers rejection
-without enabling agents and recovery with a short explicit socket path.
-`setup_under_a_private_home_never_opens_parent_permissions` covers private homes;
-`setup_preserves_legacy_access_and_disable_cleans_it_up` covers existing paths,
-tokens, directory modes and legacy permission cleanup. The desktop test
-`setup_output_becomes_a_masked_local_mcp_config` verifies token masking.
+Tests: `src-tauri/crates/host/tests/agents.rs` operates the agent socket and the
+MCP server against the actual binary with a substitute Claude. The unit tests in
+`agents.rs`, `registry.rs`, `transcript.rs`, `naming.rs` and `mcp.rs` examine
+the remaining code. These tests also apply:
+
+- `the_generated_local_config_lists_tools_and_relays_calls` runs the command,
+  the arguments and the environment that setup prints, without changes for a
+  deployment.
+- `a_relative_root_generates_an_mcp_config_usable_from_another_directory`
+  examines relative roots before the socket is there, and actual tool calls from
+  a different folder.
+- `setup_rejects_an_oversized_absolute_socket_before_saving` examines the
+  refusal without the enable operation, and the recovery with a short explicit
+  socket path.
+- `setup_under_a_private_home_never_opens_parent_permissions` examines private
+  home folders.
+- `setup_preserves_legacy_access_and_disable_cleans_it_up` examines current
+  paths, tokens, folder modes and the cleanup of legacy permissions.
+- The desktop test `setup_output_becomes_a_masked_local_mcp_config` examines the
+  token mask.
 
 ## Compatibility
 
-A protocol change that older desktops or hosts cannot ignore bumps `PROTOCOL`,
-which renames the socket. Fields are additive within a protocol. The attachment
-identity, `hook_resolved`, `clients_list` and `client_detach` are additive: an
-older host ignores the identity and keeps replacing attachments, and an older
-desktop never asks for hooks by device, so it receives what its device missed. The agent socket
-has its own `AGENT_PROTOCOL`, carried in its hello frame. The registry carries its
-own `version`. Tests:
+If older desktops or hosts cannot ignore a protocol change, the change
+increases `PROTOCOL`. This changes the name of the socket. In one protocol,
+changes only add fields. The attachment identity, `hook_resolved`,
+`clients_list` and `client_detach` only add to the protocol. An older host
+ignores the identity and continues to replace attachments. An older desktop
+does not ask for hooks by device, so it gets the hooks that its device did not
+get. The agent socket has its own `AGENT_PROTOCOL`, in its hello frame. The
+registry has its own `version`. Tests:
 `src-tauri/crates/host/tests/host.rs` and the `remote` unit tests.
 
 ## Event delivery during MCP setup
 
-The desktop's MCP connection form optionally provisions the remote host's
-supervisor using its existing Cloud account and SSH access. The host's additive
-`supervision identity` command exposes its stable public executor ID before
-setup; `supervision test` checks publication through to the receiver's delivery
-receipt. Ingestion credentials arrive only on setup's standard input, never in
-the copied MCP configuration. Existing connections can enable events without
-rotating their MCP token. See the [supervision contract](supervision.md) for
-endpoints, IPC, failure recovery, compatibility and tests.
+The MCP connection form of the desktop can do the provisioning of the
+supervisor of the remote host. It uses the current Cloud account and SSH
+access. The added `supervision identity` command of the host gives its stable
+public executor ID before setup. `supervision test` examines the publication up
+to the delivery receipt of the receiver. Ingestion credentials go only to the
+standard input of setup. They do not go into the copied MCP configuration.
+Current connections can enable events without a rotation of their MCP token.
+See the [supervision contract](supervision.md) for the endpoints, the IPC, the
+recovery after failures, the compatibility and the tests.

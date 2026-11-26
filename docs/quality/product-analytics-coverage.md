@@ -1,122 +1,151 @@
 ---
 type: Quality
 title: "Product analytics coverage"
-description: "Feature inventory, named interactions, observation boundaries and verification."
+description: "The list of features, the named interactions, the limits of observation and the checks."
 status: stable
 ---
 
 # Product analytics coverage
 
-Implemented vocabulary and source inventory; live delivery requires a
-release with the key and explicit consent. Read the [tracking contract](../contracts/product-analytics.md)
-for exact meanings and the [generated catalog](../contracts/product-analytics-catalog.json)
-for control identities and closed event fields.
+This page gives the vocabulary in the code and the list of sources. Live
+delivery occurs only in a release with the key and with the explicit consent of
+the person. For the accurate meanings, read the
+[tracking contract](../contracts/product-analytics.md). For the control
+identities and the closed event fields, read the
+[generated catalog](../contracts/product-analytics-catalog.json).
 
-The product inventory groups the application into the following areas. Names of
-customer-created workspaces, files, actions, models and resources are never
-control identities. Repeated items share an authored action token.
+The product list divides the application into the areas below. The names of
+workspaces, files, actions, models and resources that customers make are not
+control identities at any time. Items that occur many times use the same action
+token, which the code author writes.
 
 | Feature/module | Feature-use evidence and interaction scope |
 | --- | --- |
-| Navigation/layout | `screen_viewed`; named navigation, back/forward, tabs and panel controls |
-| Projects | `project_action_used`: register, create Git project, remove and configure; named project forms |
-| Sidebar organization | Project group/order changes, workspace pins, manual read/unread actions; named groups/rows |
-| Workspace lifecycle | Existing creation plus `workspace_action_used`: rename, finish, archive, restore, remove, cleanup |
-| Desk | `desk_layout_changed`, `conversation_opened`; panel controls and resize completion |
-| Conversation tabs | Existing additional-tab creation, explicit tab/desk opening and Continue use; no turn-end event |
-| Composer/context | New attachments and structured context; named send/stop/attachment controls; keyboard, paste/drop share attachment paths |
-| Output/requests | Copied message/code, accepted question responses and tool/plan decisions from conversation or island; named detail, link and decision controls |
-| Models/effort/favorites | Explicit selection/change events; static model picker and option identities |
-| Provider accounts | Login start/cancel, selection, removal, quota opening; account data excluded |
-| Usage/context tools | Summary/quota views; named compact/report/new-conversation controls; automatic usage updates excluded |
-| File tree/Quick Open | Explicit successful file opening; named folder/file rows, palette, contextual actions |
-| File viewing/editing | Successful file open/save; explicit find opening; format is a closed category |
-| Git changes/history | Diff/comparison entry and completed mutations; named stage, diff, history and conflict controls |
-| Review notes | Note persistence and local batch submission; named note/summary/send controls |
-| Terminal/Run | New PTY spawn and script start/explicit stop; reattaching an existing terminal is excluded from spawn count |
-| Browser preview | Opening, capture and inspected-context attachment; only Prometeu controls, not the inspected page's arbitrary content |
-| Dictation | Recognition start and first final insertion per session; no transcription content |
-| MCP setup | Explicit resource setup/auth/check/discovery and selection; configuration is not invocation |
-| Plugins/skills | Install/save/update/remove/catalog actions and selection; plugin generation means job acceptance |
-| Actions | Prompt expansion or agent launch, plus configuration changes; no custom names |
-| Integration setup | Explicit Linear/GitHub/Cloud/TypeSafe setup actions; see contract for authentication boundaries |
-| Issues/PRs | Claim, source/existing-workspace opening and launcher preparation; creation stays a separate workspace fact |
-| Notification inbox | Explicit read/open/navigation actions; arrivals and background fetches excluded |
-| Local alerts/island | Preference actions and owned island navigation/answers; delivery itself is not use |
-| Sharing/remote input | Explicit desktop-shell sharing, rights and pending-input actions; no participant identifiers |
-| Comments/mentions | Accepted comment/reply/resolve actions; named threads/mention options; no text |
-| Cloud/organizations/devices | Explicit login/organization/companion settings; no automatic-reconnect count |
-| Delegation MCP | Successful authorized tool calls, with internal/external category; these can be automation and retries |
-| Preferences/updates/support | Preference changes, explicit update/release-note/feedback actions; recovery controls are named |
-| Companion surfaces | Existing UI reuse; **no product transport** in these shells, so absence is not non-use |
-| Resource inheritance/trust | Defaults/global/workspace selection and explicit project trust decisions; no provider invocation inference |
-| Machine status/power | Opening machine/quota panels; named keep-awake controls; background sampling excluded |
-| Local history | Visible panel exposure, explicit refresh/filter, export and clear; all history content stays local |
-| Optional TypeSafe setup | Configuration and synthetic test only; the evaluator has no feature consumer |
+| Navigation/layout | `screen_viewed`. Named navigation, back and forward, tab and panel controls. |
+| Projects | `project_action_used`: register, make a Git project, remove and configure. Named project forms. |
+| Sidebar organization | Changes to project groups and order, workspace pins, manual read and unread actions. Named groups and rows. |
+| Workspace lifecycle | The current creation event and `workspace_action_used`: rename, finish, archive, restore, remove, cleanup. |
+| Desk | `desk_layout_changed`, `conversation_opened`. Panel controls and the end of a resize. |
+| Conversation tabs | The current events for an added tab, an explicit open of a tab or the desk, and Continue. No event at the end of a turn. |
+| Composer/context | New attachments and structured context. Named send, stop and attachment controls. Keyboard, paste and drop use the same attachment paths. |
+| Output/requests | Copied messages and code, accepted answers to questions and tool or plan decisions from the conversation or the island. Named detail, link and decision controls. |
+| Models/effort/favorites | Explicit selection and change events. Static identities for the model picker and its options. |
+| Provider accounts | Login start and cancel, selection, removal, quota open. No account data. |
+| Usage/context tools | Summary and quota views. Named compact, report and new-conversation controls. No automatic usage updates. |
+| File tree/Quick Open | An explicit file open that is satisfactory. Named folder and file rows, palette, contextual actions. |
+| File viewing/editing | A file open or save that is satisfactory. An explicit open of the find bar. The format is a closed category. |
+| Git changes/history | The start of a diff or comparison and completed changes. Named stage, diff, history and conflict controls. |
+| Review notes | The storage of notes and the local batch submission. Named note, summary and send controls. |
+| Terminal/Run | A new PTY and the start or explicit stop of a script. A connection to a current terminal is not in the count of new PTYs. |
+| Browser preview | Open, capture and the attachment of inspected context. Only Prometeu controls, not the content of the inspected page. |
+| Dictation | The start of recognition and the first final insertion for each session. No transcription content. |
+| MCP setup | Explicit resource setup, authentication, check, discovery and selection. Configuration is not a call. |
+| Plugins/skills | Install, save, update, remove, catalog actions and selection. Plugin generation means that the job is accepted. |
+| Actions | Prompt expansion or agent launch, and configuration changes. No custom names. |
+| Integration setup | Explicit setup actions for Linear, GitHub, Cloud and TypeSafe. Refer to the contract for the authentication limits. |
+| Issues/PRs | Claim, open from the source or from a current workspace, and launcher preparation. The creation of a workspace stays a different event. |
+| Notification inbox | Explicit read, open and navigation actions. No arrivals and no background fetches. |
+| Local alerts/island | Preference actions and the navigation and answers in the island. A delivery alone is not use. |
+| Sharing/remote input | Explicit sharing actions in the desktop shell, rights and actions on pending input. No participant identifiers. |
+| Comments/mentions | Accepted comment, reply and resolve actions. Named threads and mention options. No text. |
+| Cloud/organizations/devices | Explicit login, organization and companion settings. No count of automatic new connections. |
+| Delegation MCP | Satisfactory authorized tool calls, with an internal or external category. These calls can be automation or retries. |
+| Preferences/updates/support | Preference changes, explicit update, release-note and feedback actions. The recovery controls have names. |
+| Companion surfaces | They use the current interface again. These shells have **no product transport**. Thus, no events does not mean no use. |
+| Resource inheritance/trust | Default, global and workspace selection, and explicit project trust decisions. No conclusion about provider calls. |
+| Machine status/power | Open of the machine and quota panels. Named keep-awake controls. No background samples. |
+| Local history | The panel comes into view, explicit refresh, filter, export and clear. All history content stays local. |
+| Optional TypeSafe setup | Configuration and the synthetic test only. The evaluator has no feature consumer. |
 
 ## Interaction inventory
 
-The Privacy toggle has an authored target and area like other controls. Consent
-defaults to off and is enforced by the native delivery boundary; the preference
-value is not uploaded as a feature-event property.
+The Privacy switch has a target and an area that the code author writes, as
+the other controls have. Consent is off by default. The native delivery limit
+makes sure that the application obeys it. The application does not upload the preference value as a property
+of a feature event.
 
-The generated catalog contains explicit static targets with their sources, and
-separately lists composed metadata expressions such as a dialog's `.save` and
-`.cancel` suffixes. This distinction avoids claiming that a source scan has
-executed every control state. Shared controls accept optional metadata; desktop
-consumers author the target and area. Changing a state-dependent action must
-change its target accordingly.
+The generated catalog contains explicit static targets with their sources. It
+also has a different list of composed metadata expressions, for example the
+`.save` and `.cancel` suffixes of a dialog. Thus, the catalog does not claim
+that a source scan operated each control state. Shared controls accept optional
+metadata. Desktop consumers write the target and the area. If you change an
+action that changes with the state, you must also change its target.
 
-The listener covers actionable controls. Disabled controls cannot activate and
-are ignored until enabled. Hidden but enabled controls remain inspectable.
-Content selections, arbitrary websites inside the preview, embedded PDF internals
-and OS-owned menu actions are outside this capture boundary. Owned native menus
-are instrumented; their callback cannot distinguish accelerator from mouse.
+The listener includes the controls that a person can operate. Disabled controls
+cannot operate. The listener ignores them until they are enabled. Hidden
+controls that are enabled stay available for inspection.
+
+These items are out of the capture limit:
+
+- Content selections.
+- Websites in the preview.
+- The internal parts of embedded PDF files.
+- Menu actions that the operating system owns.
+
+The native menus that Prometeu owns have instrumentation. Their callback cannot
+tell the difference between a keyboard shortcut and the mouse.
 
 ## Verification evidence
 
-`npm run analytics:check` checks source-catalog freshness and uses Chromium over
-real shared components to verify named fields, choices, nested menus, dialogs,
-pickers and feedback. It exercises portal context, invalid metadata, unclicked
-controls, and disabling/re-enabling controls. The test sends no PostHog traffic.
+`npm run analytics:check` makes sure that the source catalog is current. It uses
+Chromium on the shared components of the product to validate these items:
 
-A browser-mock audit during implementation exercised 24 rendered states covering
-Desk, workspace, all Settings pages, model/effort/tool menus, actions, launcher
-pickers, resource menus/dialogs and the empty Desk. All actionable controls in
-those snapshots had target and area. This is evidence for those states, not a
-claim of exhaustive real-device or third-party content coverage.
+- Named fields.
+- Choices.
+- Nested menus.
+- Dialogs.
+- Pickers.
+- Feedback.
 
-Relevant permanent tests:
+It also examines the portal context, metadata that is not correct, controls that
+nobody clicked and controls that become disabled and enabled again. The test
+does not send data to PostHog.
+
+During the implementation, an audit with the browser mock examined 24 rendered
+states. These states included the Desk, the workspace and all Settings pages. They
+also included the model, effort and tool menus, the actions and the launcher
+pickers. Also, they included the resource menus and dialogs and the empty Desk. All the controls that a person can operate
+in those snapshots had a target and an area. This is evidence for those states
+only. It does not claim full coverage of physical devices or of
+third-party content.
+
+These permanent tests apply:
 
 - [`src/analytics.test.ts`](../../src/analytics.test.ts): explicit metadata,
-  nested control resolution, missing/invalid identities, screen changes and
-  shared question/approval outcome classification.
+  resolution of nested controls, identities that are missing or not correct,
+  screen changes and the shared classification of question and approval
+  results.
 - [`src/notification-window.test.ts`](../../src/notification-window.test.ts):
-  island feature counts after accepted responses, failure/non-response exclusion
-  and request-content privacy.
+  island feature counts after accepted answers. It does not include failures and
+  requests without an answer, and keeps the content of requests private.
 - [`src/analytics-events.test.ts`](../../src/analytics-events.test.ts) and
-  [`analytics.rs`](../../src-tauri/src/analytics.rs): frontend/native vocabulary,
-  closed fields, content exclusion, non-null identities, batch offsets and consent.
+  [`analytics.rs`](../../src-tauri/src/analytics.rs): the frontend and native
+  vocabulary, closed fields, content exclusion, identities that are not null,
+  batch offsets and consent.
 - [`src/analytics-settings.test.ts`](../../src/analytics-settings.test.ts) and
   [`e2e/audit-regressions.spec.ts`](../../e2e/audit-regressions.spec.ts): consent
-  saves, errors, unsupported backends, control metadata and focus restoration;
-  the first-run browser scenario also exercises real accept/decline buttons,
-  Escape, pending-save dismissal guards, failed-save retries and reloads.
+  saves, errors, backends without support, control metadata and focus
+  restoration. The browser scenario for the first run also examines the accept
+  and decline buttons and Escape. It also examines the protection against a
+  close during a pending save, retries after a save failure and reloads.
 - [`src/actions.test.ts`](../../src/actions.test.ts),
   [`src/workspace-review.test.ts`](../../src/workspace-review.test.ts),
-  [`src/voice.test.ts`](../../src/voice.test.ts): actual action acceptance,
-  review persistence and final dictation insertion.
+  [`src/voice.test.ts`](../../src/voice.test.ts): the acceptance of an action,
+  the storage of a review and the final insertion of dictation.
 - [`src/typesafe-settings.test.ts`](../../src/typesafe-settings.test.ts),
   [`src/telemetry-settings.test.ts`](../../src/telemetry-settings.test.ts),
   [`src/update.test.ts`](../../src/update.test.ts),
   [`src/team-organizations.test.ts`](../../src/team-organizations.test.ts):
-  successful/failed/cancelled configuration and shell actions.
-- Existing browser scenarios use [`e2e/fixtures.ts`](../../e2e/fixtures.ts) to
-  fail on missing analytics metadata when an app control is activated. This
-  strengthens those journeys without adding new interactions. Native service
-  tests continue to protect files, Git, workspace lifecycle and process behavior.
+  configuration and shell actions that are satisfactory, that have a failure or
+  that the person cancels.
+- The current browser scenarios use [`e2e/fixtures.ts`](../../e2e/fixtures.ts).
+  A scenario has a failure if a person operates an app control that has no
+  analytics metadata. This makes those journeys stronger without new interactions. The
+  native service tests continue to examine files, Git, the workspace lifecycle
+  and the process behavior.
 
-The full repository check covers docs, architecture, builds, IPC contracts,
-web tests, browser scenarios, native tests, formatting and lint. Test success
-does not establish release ingestion. Verify payloads, contexts and supported
-shells in PostHog after release before interpreting adoption or non-use.
+The full repository check includes these items: documentation, architecture,
+builds, IPC contracts, web tests, browser scenarios, native tests, format and
+lint. Satisfactory tests do not show that PostHog gets the events from a release.
+After a release, examine the payloads, the contexts and the shells with support
+in PostHog. Do this before you decide about adoption or no use.

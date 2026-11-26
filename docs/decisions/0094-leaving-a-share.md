@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0094 — Leaving a share, enforced by the relay"
-description: "A viewer leaves a share for all of their devices; the relay keeps them out until the owner readmits them."
+description: "A viewer goes out of a share for all of the devices of that viewer. The relay keeps the viewer out until the owner lets the viewer in again."
 status: stable
 ---
 
@@ -9,80 +9,100 @@ status: stable
 
 Date: 2026-10-23
 
-Complements the audience rules of [ADR 0022](0022-end-to-end-encryption.md),
-companion devices in [ADRs 0027](0027-companion-devices.md) and
-[0036](0036-second-mac-as-companion.md), and remote control in
-[ADR 0030](0030-remote-control.md).
+This ADR adds to these decisions:
+
+- The audience rules of [ADR 0022](0022-end-to-end-encryption.md).
+- The companion devices in [ADRs 0027](0027-companion-devices.md) and
+  [0036](0036-second-mac-as-companion.md).
+- The remote control in [ADR 0030](0030-remote-control.md).
 
 ## Context
 
-Only the owner decides who receives a share. A viewer had no way out: a share
-from a teammate they no longer follow, or one whose owner disappeared, stayed in
-"Shared" for good. The relay keeps an offline owner's shares listed until that
-owner reconnects, and only the owner may `unshare`. A Mac that was formatted, or
-a membership whose first Mac is gone, therefore leaves shares that nobody can
-remove, including on the owner's own companion devices.
+Only the owner selects the persons who receive a share. A viewer did not have a
+procedure to go out of a share. Some shares came from a teammate that the viewer did not follow
+at that time. Other shares had an owner that was not there at that time. These
+shares stayed in "Shared" without a limit in time.
+
+The relay keeps the shares of an owner that is offline in the list until that
+owner connects again. Only the owner can send `unshare`. Thus a Mac that a
+person formatted, or a membership without its first Mac, keeps shares that no
+person can remove. This also occurs on the companion devices of the owner.
 
 ## Options considered
 
-1. **Hide locally.** The viewer keeps a list of hidden shares. No protocol change,
-   but the owner keeps encrypting content for that person and nothing tells the
-   owner they left.
-2. **Let anyone cancel the share.** Simple, but a viewer would remove the share
-   for every other viewer.
-3. **Leave for one's own person, enforced by the relay.** The relay drops the
-   person's devices from the share's audience and keeps them out of later
-   announcements until the owner readmits them. The owner learns who left and
-   stops encrypting for them.
+1. **Hide locally.** The viewer keeps a list of hidden shares. The protocol
+   does not change. But the owner continues to encrypt content for that person.
+   The owner does not get information that the person went out.
+2. **Let all persons cancel the share.** This option is simple. But a viewer
+   can then remove the share for all other viewers.
+3. **Exit that the relay controls.** The relay removes the devices of the person from the audience of the share. It
+   keeps these devices out of subsequent announcements until the owner lets the
+   person in again. The owner knows which person went out and stops encryption
+   for that person.
 
 ## Decision
 
-Option 3.
+Use option 3.
 
-- **Leaving.** `leave { ws }` comes from any device in the audience other than
-  the owner. The relay removes every device of that person (`Member.person` or the
-  device itself) from the stored audience, adds the person to the entry's `left`
-  list, detaches them, sends `unshare` and drops the share's inbox items, exactly
-  as when the owner narrows the audience. The owner does not need to be online.
-- **Staying out.** While a person is in `left`, the relay filters their devices
-  out of every `share` announcement. An owner that was offline re-announces its
-  stored audience on reconnection, and that stale audience must not bring the
-  person back.
-- **The owner learns.** `Shared.left` reaches the owner with its own share. The
-  owner's channel then leaves those people out of the recipients it encrypts for,
-  and the owner discards their watch, input and snapshots. The board audience is
-  not rewritten: an organization-wide share stays organization-wide, and people
-  who join later still receive it.
-- **Readmission.** Only the owner sends `readmit { ws, person }`. The relay drops
-  the person from `left`; the next announcement brings them back. The share menu
-  marks people who left; picking one readmits them, and an explicit audience
-  gains them if the owner had removed them in the meantime. For the owner's own
-  person, turning remote control on again readmits the owner's devices.
-- **Lifetime.** `left` lives in the relay entry. Stopping the share deletes the
-  entry and the list: sharing again is a new decision and includes everyone it
-  names. The roster drops people who left the organization from `left`, keeping
-  it within the 64-member limit.
+- **Exit.** A device in the audience that is not the owner sends
+  `leave { ws }`. The relay does these steps, as when the owner makes the
+  audience smaller:
+  - It removes all devices of that person (`Member.person` or the device) from
+    the stored audience.
+  - It adds the person to the `left` list of the entry.
+  - It disconnects the devices of the person.
+  - It sends `unshare`.
+  - It removes the inbox items of the share.
+
+  It is not necessary that the owner is online.
+- **Stay out.** While a person is in `left`, the relay removes the devices
+  of that person from each `share` announcement. When an owner that was offline
+  connects again, it announces its stored audience again. That audience is not
+  current, and it must not put the person back.
+- **The owner learns.** `Shared.left` goes to the owner with the share of the
+  owner. The channel of the owner then removes those persons from the
+  recipients for which it encrypts. The owner ignores the watch requests, input and
+  snapshots of those persons. Prometeu does not write the board audience again. A share for all
+  of the organization stays a share for all of the organization. Persons that
+  become members after this time continue to receive it.
+- **Readmission.** Only the owner sends `readmit { ws, person }`. The relay
+  removes the person from `left`. The next announcement puts the person back.
+  The share menu identifies the persons who went out. When the owner selects one,
+  Prometeu lets that person in again. If the owner removed that person from an
+  explicit audience during this time, the audience gets the person again. For
+  the person of the owner, when the owner enables remote control again, the
+  devices of the owner come back in.
+- **Lifetime.** `left` is in the relay entry. When the owner stops the share,
+  the relay deletes the entry and the list. A new share is a new decision, and
+  it includes all persons that it names. The roster removes persons who went
+  out of the organization from `left`. Thus the list stays in the limit of 64
+  members.
 
 ## Consequences
 
-- A viewer can always clean up "Shared", even from a share whose owner will never
-  return. Leaving one's own share from another device of the same person removes
-  it from all of that person's companions.
-- Trust does not change. A malicious relay could already withhold content from
-  anyone; a forged `left` only makes the owner stop encrypting for someone, and
-  the relay cannot readmit anyone the owner removed. Content already received is
-  not revocable.
-- `left` and the two frames are additive in protocol v4. Older clients ignore
-  `Shared.left` and an older relay answers `leave` with a `bad` error, so the
-  Worker ships before the desktop, as usual.
-- The mobile shell does not offer leaving yet.
+- A viewer can always remove items from "Shared". The viewer can also remove a
+  share when the owner will not come back. A person can go out of a share of
+  that person from a different device. Then Prometeu removes the share from all
+  the companion devices of that person.
+- The trust model does not change. A malicious relay can, at this time, keep
+  content from all persons. An incorrect `left` only makes the owner stop the
+  encryption for a person. The relay cannot let in again a person that the
+  owner removed. The relay cannot get back content that a device received
+  before.
+- Protocol v4 adds `left` and the two frames. Earlier clients continue to operate. Clients from earlier
+  versions ignore `Shared.left`. A relay from an earlier version answers `leave`
+  with a `bad` error. Thus, as usual, the team deploys the Worker before
+  it publishes the desktop app.
+- The mobile shell does not let a person go out of a share at this time.
 
 ## Evidence
 
 - `relay/src/logic.test.ts` ("leaving"): audience, detachment, inbox, stale
   announcements, readmission, companion devices, refusal and persistence.
-- `relay/src/protocol.test.ts`: parsing of `leave`, `readmit` and `Shared.left`.
-- `src/team-channel.test.ts`: the owner stops encrypting for a person who left
-  and resumes after readmitting them, through the real relay reducer.
-- `src/team-owner.test.ts`: input from a person who left is discarded before its
-  receipt, and readmission restores it or widens an explicit audience.
+- `relay/src/protocol.test.ts`: the parse of `leave`, `readmit` and `Shared.left`.
+- `src/team-channel.test.ts`: the owner stops encryption for a person who went
+  out. It starts again after the owner lets the person in again. The test uses
+  the relay reducer of the production code.
+- `src/team-owner.test.ts`: the owner ignores input from a person who went out
+  before its receipt. Readmission puts the input back or adds the person to an
+  explicit audience.

@@ -1,133 +1,159 @@
-# Design System da Prometeu
+# Prometeu Design System
 
-`@prometeu/design-system` 0.4.0 distribui componentes executáveis: renderização,
-estado, eventos, teclado, foco, validação, CSS e marca. A implementação vive
-neste pacote. O desktop importa os componentes TypeScript; o Cloud usa o
-adaptador Rails do pacote e o mesmo runtime JavaScript no navegador.
+`@prometeu/design-system` 0.5.0 supplies executable components. They include
+rendering, state, events, keyboard operation, focus, validation, CSS and the
+brand. The implementation is in this package. The desktop imports the
+TypeScript components. The Cloud uses the Rails adapter of the package and the
+same JavaScript runtime in the browser.
 
-Não exige React, Vue, Web Components ou dependências JavaScript em runtime.
-O adaptador Ruby usa Action View e FormBuilder nativos. Regras de negócio,
-traduções e transporte permanecem nos produtos.
+The package does not use React, Vue, Web Components or JavaScript dependencies
+at runtime. The Ruby adapter uses the native Action View and FormBuilder. The
+business rules, the translations and the transport stay in the products.
 
-## Instalação e distribuição
+## Installation
 
-Na raiz do repositório Prometeu:
+At the root of the Prometeu repository, run these commands:
 
 ```sh
 npm run design-system:build
 npm pack ./packages/design-system
 ```
 
-O artefato `prometeu-design-system-0.4.0.tgz` inclui módulos ESM, declarações
-TypeScript, bundle de navegador, adaptador Ruby, CSS, SVG e galeria. `prepack`
-reconstrói o JavaScript para impedir a distribuição de código desatualizado.
-O pacote ainda não foi publicado em um registry.
+The `prometeu-design-system-0.5.0.tgz` artifact includes ESM modules,
+TypeScript declarations, a browser bundle, the Ruby adapter, CSS, SVG and the
+gallery. `prepack` builds the JavaScript again. Thus, the package cannot contain
+JavaScript that is older than the source. Nobody published the package to a
+registry at this time.
 
-Em outro projeto:
+In a different project, run this command:
 
 ```sh
-npm install /caminho/prometeu-design-system-0.4.0.tgz
+npm install /path/to/prometeu-design-system-0.5.0.tgz
 ```
 
 ```ts
 import { button, field, input, formDialog } from "@prometeu/design-system";
 import "@prometeu/design-system/components.css";
 
-const name = input("Equipe");
+const name = input("Team");
 name.required = true;
 
-const edit = button("Editar perfil", () => {
+const edit = button("Edit profile", () => {
   const dialog = formDialog({
-    title: "Editar perfil", save: "Salvar", cancel: "Cancelar",
+    title: "Edit profile", save: "Save", cancel: "Cancel",
     submit: async () => { await saveProfile({ name: name.value }); },
-    error: () => "Não foi possível salvar. Tente novamente.",
+    error: () => "Could not save. Try again.",
   });
-  dialog.body.append(field("Nome", name, "Como você aparece no produto."));
+  dialog.body.append(field("Name", name, "How you appear in the product."));
   dialog.open();
 });
 document.querySelector("main")!.append(edit);
 ```
 
-`saveProfile` pertence ao consumidor. O componente cria o diálogo, associa
-rótulos, valida o formulário, impede envio duplicado, controla estado de envio,
-apresenta falhas sem perder dados e devolve o foco ao fechar. Não faz requests.
+`saveProfile` belongs to the consumer. The component does these tasks:
 
-## Catálogo implementado
+- It makes the dialog.
+- It connects the labels to the controls.
+- It validates the form.
+- It prevents a second submit of the same data.
+- It controls the state of the submit.
+- It shows failures and keeps the data.
+- It moves the focus back when the dialog closes.
 
-| API DOM/TypeScript | Responsabilidade |
+The component does not send requests.
+
+## Catalog of components
+
+| API DOM/TypeScript | Responsibility |
 | --- | --- |
-| `button(label, callback, variant)` | botão nativo, variantes `outline`, `pri`, `ghost`, `danger`, foco e evento |
-| `input(value, multiline)` | input ou textarea nativo; atributos HTML continuam disponíveis |
-| `field(label, control, hint)` | estrutura de campo, rótulo, ID e descrição acessível |
-| `checkbox(label, checked)` | input nativo e rótulo; retorna `control` e `label` |
-| `password(value, {show, hide})` | campo e botão para revelar/ocultar sem substituir o valor |
-| `select(value, options, attributes)` | seleção com menu, teclado, atualização de opções e campo nativo para submissão |
-| `dropdown(button, groups, get, set)` | comportamento de seleção sobre um botão existente |
-| `menuButton(label, items)` | menu de ações com foco, Escape, Home/End e submenus por teclado |
-| `menu.openAt`, `menu.selectAt`, `menu.close`, `menu.onClose` | menu contextual e lifecycle; `openAt` devolve o painel aberto e `selectAt` retoma a seleção do teclado num item; `onClose` devolve função de cancelamento |
-| `formDialog(options)` | formulário modal assíncrono, validação, foco, estado de envio e recuperação de erro |
-| `confirmDialog(options)` | confirmação acessível que resolve `Promise<boolean>` e aceita `AbortSignal` |
-| `disclosure(title, ...content)` | disclosure nativo sem controle de estado externo |
-| `card`, `badge`, `notice` | renderização de contêineres, indicadores e feedback com roles apropriados |
-| `avatar(image, kind, size)` | foto ou logotipo; sem imagem, glifo de pessoa ou organização, decorativo |
-| `iconNames` | nomes tipados dos ícones para catálogos e descoberta |
-| `icon(name, size)` | catálogo tipado de ícones vetoriais compartilhados |
-| `enhance(root)` | conecta o HTML do adaptador Rails ao runtime; devolve função de limpeza |
+| `button(label, callback, variant)` | a native button with the `outline`, `pri`, `ghost` and `danger` variants, focus and an event |
+| `input(value, multiline)` | a native input or textarea. The HTML attributes stay available |
+| `field(label, control, hint)` | the structure of a field, the label, the ID and an accessible description |
+| `checkbox(label, checked)` | a native input and its label. It returns `control` and `label` |
+| `password(value, {show, hide})` | a field and a button that shows or hides the value. The button does not replace the value |
+| `select(value, options, attributes)` | a selection with a menu, keyboard operation, updates of the options and a native field for the submit |
+| `dropdown(button, groups, get, set)` | the selection behavior on a current button |
+| `menuButton(label, items)` | a menu of actions with focus, Escape, Home/End and submenus that the keyboard can open |
+| `menu.openAt`, `menu.selectAt`, `menu.close`, `menu.onClose` | the context menu and its lifecycle. `openAt` returns the open panel. `selectAt` moves the keyboard selection to an item again. `onClose` returns a function that cancels the callback |
+| `formDialog(options)` | an asynchronous modal form with validation, focus, the state of the submit and the recovery after an error |
+| `confirmDialog(options)` | an accessible confirmation that resolves `Promise<boolean>` and accepts `AbortSignal` |
+| `disclosure(title, ...content)` | a native disclosure without an external control of its state |
+| `card`, `badge`, `notice` | the rendering of containers, indicators and feedback with the applicable roles |
+| `avatar(image, kind, size)` | a photo or a logo. Without an image, it shows a decorative glyph of a person or an organization |
+| `iconNames` | the typed names of the icons for catalogs and for discovery |
+| `icon(name, size)` | a typed catalog of shared vector icons |
+| `enhance(root)` | connects the HTML of the Rails adapter to the runtime. It returns a cleanup function |
 
-`select` devolve `control`, `root`, `native`, `value`, `onchange` e `setOptions`.
-Use `root` com `{ name, required, disabled }` para participar de um formulário
-nativo: o seletor preserva validação e dados de `FormData`. `control` permanece
-compatível com as telas antigas que leem `value` e enviam comandos próprios.
+`select` returns `control`, `root`, `native`, `value`, `onchange` and
+`setOptions`. To make the selector a part of a native form, use `root` with
+`{ name, required, disabled }`. The selector keeps the validation and the data
+of `FormData`. `control` stays compatible with the screens from before that read `value`
+and send their own commands.
 
 `formDialog` returns `root` (the native dialog), `body`, `save` (the submit
-button), `cancel`, `open`, and `close`. Consumers can compose content and adjust labels or
-availability through these elements while the shared form owns validation,
-focus, busy state, and cancellation. A pending submit blocks Escape and cancel;
-a rejected submit keeps the dialog open and displays its error.
-The first text field receives focus when the dialog opens. Dialogs starting
-with actions or selection focus the title, avoiding a preselected-looking
-button while keeping keyboard focus indicators and navigation intact.
-If the opener is replaced while the dialog is open, its stable `id` or
-`data-focus` key lets the dialog restore focus to the replacement.
+button), `cancel`, `open`, and `close`. Consumers can use these elements to
+compose content and to change labels or availability. The shared form owns the
+validation, the focus, the busy state and the cancellation.
 
-As primitivas recebem texto, não templates HTML. Rótulos, ajuda e erros usam
-`textContent`. O slot `glyph` dos menus aceita somente SVG produzido pelo
-próprio código; nunca passe HTML de usuários. Componentes retornam elementos
-DOM e podem ser compostos dentro de qualquer host. Feche diálogos e menus ao
-remover a tela; chame o retorno de `enhance` ao desmontar um host dinâmico.
+While a submit is not complete, Escape and cancel do not operate. If a submit
+gives an error, the dialog stays open and shows the error. The first text field gets the focus when
+the dialog opens. If a dialog starts with actions or a selection, the title gets
+the focus. Thus, no button looks like a preselected button. The keyboard focus indicators
+and the keyboard navigation continue to operate. The opener can change while
+the dialog shows. Then, its stable `id` or its `data-focus` key lets the dialog
+move the focus to the new opener.
+
+The primitives accept text, not HTML templates. Labels, help and errors use
+`textContent`. The `glyph` slot of the menus accepts only SVG that the code of
+the product makes. Do not give HTML from users to it. Components return DOM
+elements, and you can compose them in all hosts. Close dialogs and menus when
+you remove the screen. When you remove a dynamic host, call the function that
+`enhance` returns.
 
 ## Authored interaction metadata
 
-Consumers can pass a static `track` identifier to controls (the final optional
-argument), `select` attributes, menu items, dialogs and searchable pickers.
+Consumers can give a static `track` identifier to these items:
+
+- controls (the last optional argument)
+- `select` attributes
+- menu items
+- dialogs
+- searchable pickers
+
 `identifyControl(element, target, area?)` and `identifyArea(element, area)` also
-annotate existing controls and surfaces. Menus copy their explicit `area` or
-anchor area into their portal; dialogs accept `area` or inherit it from the
-opener. Pass `anchor` or `area` to `menu.openAt`. Dialog `track` prefixes name
-`.save` and `.cancel`; picker prefixes name `.search`, `.select`, `.secondary`,
-`.refresh` and `.filter`. Item, secondary, refresh and filter metadata can
-override those names. Values must be authored product identifiers, never item
-IDs, translated text, field values or user content. The package carries DOM
-metadata only: the consuming product owns collection, delivery and coverage
-checks. Desktop coverage includes hidden but enabled controls. Native disabled
-controls and `aria-disabled="true"` controls are ineligible; the same checks
-apply when they become enabled. The desktop check is
+add metadata to current controls and surfaces. Menus copy their explicit `area`,
+or the area of their anchor, into their portal. Dialogs accept `area`, or they
+get it from the opener. Give `anchor` or `area` to `menu.openAt`.
+
+The `track` prefix of a dialog gives the names `.save` and `.cancel`. The prefix
+of a picker gives the names `.search`, `.select`, `.secondary`, `.refresh` and
+`.filter`. The metadata of an item, a secondary action, a refresh or a filter
+can replace those names. The values must be product identifiers that an author
+wrote. They must not be item IDs, translated text, field values or user
+content.
+
+The package contains only DOM metadata. The product that uses the package owns
+the collection, the delivery and the coverage checks. The desktop coverage
+includes hidden controls that are enabled. Native disabled controls and
+`aria-disabled="true"` controls are not in the coverage. When these controls
+become enabled, the same checks apply to them. The desktop check is
 `node scripts/check-analytics.mjs`.
 
 ## Rails
 
-O pacote inclui `rails/prometeu_design_system.rb`. O Cloud importa uma versão
-explícita, com os hashes de todos os arquivos:
+The package includes `rails/prometeu_design_system.rb`. The Cloud imports an
+explicit version, with the hashes of all the files:
 
 ```sh
 bin/design-system ../prometeu/packages/design-system
 bin/design-system --check ../prometeu/packages/design-system
 ```
 
-`vendor/design-system/assets` contém CSS, SVG e `design-system.js` (bundle único,
-sem imports remotos). `vendor/design-system/rails` contém o adaptador Ruby e
-não entra no caminho público de assets. O servidor e o build do Cloud não
-precisam de Node nem do checkout desktop. Para integrar outro Rails:
+`vendor/design-system/assets` contains CSS, SVG and `design-system.js` (a single
+bundle without remote imports). `vendor/design-system/rails` contains the Ruby
+adapter. It is not in the public path of the assets. The server and the build of
+the Cloud do not use Node or the desktop checkout. To connect a different Rails
+application, use this code:
 
 ```ruby
 require_relative "../../vendor/design-system/rails/prometeu_design_system"
@@ -146,99 +172,146 @@ end
 <% end %>
 ```
 
-O adaptador renderiza campos completos, rótulos, mensagens e botões. Não copie
-seu markup para as views. `form.field` aceita `text`, `email`, `password`,
-`textarea`, `number` e `date`. `form.checkbox` preserva o valor desmarcado nativo
-do Rails. Helpers `ds_button_to`, `ds_link`, `ds_card`, `ds_badge`, `ds_notice`,
-`ds_disclosure`, `ds_menu`, `ds_tabs` e `ds_avatar` compõem as demais primitivas
-do servidor. `ds_menu` aceita `:sep` entre grupos, itens com `method:`,
-renderizados como formulário nativo com CSRF, `danger: true` para ações
-destrutivas e `avatar:` no gatilho. `ds_avatar(image:, kind:, size:)` mostra
-foto ou logotipo; sem imagem, o glifo de pessoa ou de organização. `ds_tabs`
-renderiza abas sublinhadas (`ui-tabs`) e `ui-nav-link` serve a barras laterais.
+The adapter renders full fields, labels, messages and buttons. Do not copy its
+markup into the views. `form.field` accepts `text`, `email`, `password`,
+`textarea`, `number` and `date`. `form.checkbox` keeps the native Rails value for
+a checkbox that is not checked.
 
-Inclua `components.css` e o bundle `design-system.js` pelo pipeline de assets.
-O bundle executa `enhance()` uma vez. O Cloud permite scripts locais, usa nonce
-no script e não permite `unsafe-inline` nem `eval`. Os componentes não leem
-cookies, tokens ou credenciais e não fazem requests.
+The helpers `ds_button_to`, `ds_link`, `ds_card`, `ds_badge`, `ds_notice`,
+`ds_disclosure`, `ds_menu`, `ds_tabs` and `ds_avatar` compose the other server
+primitives. `ds_menu` accepts these items:
 
-Com JavaScript, o runtime acrescenta menus, revelar senha, validação acessível,
-confirmações opcionais (`confirm: {title:, message:, accept:, cancel:}`), bloqueio
-de envio duplicado e restauração após voltar pelo navegador. Botões de envio
-mantêm `name` e `value` no POST. Sem JavaScript, formulários, checkboxes, links e
-disclosures continuam nativos. Autorização, CSRF e confirmações obrigatórias
-continuam validados pelo servidor, independentemente dos diálogos opcionais.
+- `:sep` between groups
+- items with `method:`, which it renders as a native form with CSRF
+- `danger: true` for destructive actions
+- `avatar:` on the button that opens the menu
 
-## Identidade, galeria e manutenção
+`ds_avatar(image:, kind:, size:)` shows a photo or a logo. Without an image, it
+shows the glyph of a person or an organization. `ds_tabs` renders tabs with a
+line below them (`ui-tabs`). `ui-nav-link` is for sidebars.
 
-A fonte de tokens é `tokens.css`; os controles não dependem de `style.css` do
-aplicativo. O produto define composição e texto base. A densidade padrão é a
-compacta (controles de 32px), a mesma do desktop e das telas de aplicativo do
-Cloud; `ui-comfortable` oferece controles de 44px para fluxos de toque, como
-login e autorização do Mac. `--fg-3` serve a
-estados inativos e decoração, não a texto essencial. A marca é `prometeu.svg`.
+Include `components.css` and the `design-system.js` bundle through the asset
+pipeline. The bundle runs `enhance()` one time. The Cloud lets local scripts operate.
+It uses a nonce on the script, and it does not let `unsafe-inline` or `eval`
+operate.
+The components do not read cookies, tokens or credentials, and they do not send
+requests.
 
-`npm run dev` na raiz abre o Vite. Acesse
-`/packages/design-system/index.html`: a galeria usa a API do pacote para criar
-todos os componentes, incluindo menus, submenus, seleção, senha e diálogo com
-falha simulada. A galeria também funciona com um servidor estático depois do
-build do pacote. `/design-system.html` verifica o consumo nas telas do desktop.
+With JavaScript, the runtime adds these functions:
 
-Mudanças começam no pacote, na galeria e nos testes. Atualize a versão antes
-de distribuir: correções compatíveis incrementam patch; adições, minor;
-remoções ou contratos incompatíveis, major (durante 0.x, minor). Reimporte no
-Cloud e versione o manifesto junto. Rollback reverte pacote, adaptador e assets
-juntos. Nenhum produto busca versões novas pela rede em runtime.
+- menus
+- a button that shows the password
+- accessible validation
+- optional confirmations (`confirm: {title:, message:, accept:, cancel:}`)
+- a lock that prevents a second submit of the same data
+- the recovery of the form after the person goes back in the browser
+
+Submit buttons keep `name` and `value` in the POST. Without JavaScript, forms,
+checkboxes, links and disclosures stay native. The server continues to validate
+the authorization, CSRF and the mandatory confirmations. The optional dialogs do
+not change this validation.
+
+## Identity, gallery and maintenance
+
+The source of the tokens is `tokens.css`. The controls do not use the
+`style.css` of the application. The product sets the composition and the base
+text. The default density is compact, with controls of 32px. The desktop and the
+application screens of the Cloud use this density. `ui-comfortable` gives
+controls of 44px for touch flows, for example the login and the authorization of
+the Mac. `--fg-3` is for states that are not active and for decoration, not for important
+text. The brand is `prometeu.svg`.
+
+At the root, `npm run dev` opens Vite. Go to
+`/packages/design-system/index.html`. The gallery uses the API of the package to
+make all the components. These include menus, submenus, the selection, the
+password and a dialog with a simulated failure. The gallery also operates with a
+static server after the build of the package. `/design-system.html` examines
+how the desktop screens use the package.
+
+A change starts in the package, in the gallery and in the tests. Before you publish a new version, update the version number with these rules:
+
+- A compatible repair increases the patch number.
+- A new function increases the minor number.
+- A removal or a contract that is not compatible increases the major number. During
+  0.x, it increases the minor number.
+
+Import the package into the Cloud again, and commit the manifest in the same
+change. A rollback moves the package, the adapter and the assets back together.
+No product downloads new versions from the network at runtime.
 
 Checks: `e2e/design-system.spec.ts` and `e2e/actions.spec.ts` in the desktop
-repository; `test/helpers/design_system_components_test.rb`,
+repository. `test/helpers/design_system_components_test.rb`,
 `test/design_system_test.rb` and `test/browser/accounts.spec.js` in the Cloud.
 
-## Widget de feedback
+## Feedback widget
 
-`feedbackWidget({ labels, submit, capture?, error, publicIssue? })` monta uma
-composição portátil com link opcional para issue pública, categorias, descrição,
-upload opcional, miniatura e envio assíncrono.
-`submit` recebe `{ kind, description, image?: File }`; `capture` retorna um `File`
-ou `undefined` ao cancelar. `publicIssue` abre a URL sem copiar dados do formulário.
-Textos chegam traduzidos. O host controla transporte e captura. `trigger` expõe
-o botão para que o host possa colocá-lo em sua própria navegação.
-`destroy()` remove listeners, popover e URLs temporárias.
+`feedbackWidget({ labels, submit, capture?, error, publicIssue? })` builds a
+portable composition with these parts:
 
-O widget usa top layer e acompanha o modal ativo para permanecer interativo.
-Não limpa o formulário em erro. PNG, JPEG e WebP têm limite de 5 MiB.
-A galeria demonstra envio local; `e2e/feedback.spec.ts` cobre integração desktop.
+- an optional link to a public issue
+- categories
+- a description
+- an optional upload
+- a thumbnail
+- an asynchronous submit
+
+`submit` gets `{ kind, description, image?: File }`. `capture` returns a `File`,
+or `undefined` if the person cancels. `publicIssue` opens the URL and does not
+copy data from the form. The host gives the texts after translation. The host controls the
+transport and the capture. `trigger` gives access to the button, so that the host
+can put it in its own navigation. `destroy()` removes the listeners, the popover
+and the temporary URLs.
+
+The widget uses the top layer and follows the active modal, so that it stays
+interactive. It does not clear the form after an error. PNG, JPEG and WebP have
+a limit of 5 MiB. The gallery shows a local submit. `e2e/feedback.spec.ts` tests
+the integration with the desktop.
 
 ## Searchable collections
 
-`searchablePicker(anchor, options)` opens a constrained panel in the shared menu
-lifetime (`menu.isOpen`, `menu.close`, `menu.onClose`). It joins the anchor's
-open dialog when present. `options` supplies translated `label`,
-`searchPlaceholder`, `empty`, `items`, `select(key)`, optional `status`,
-`refresh: { label, run }`, `additional: { label, checked, change }`, `closed`
-and `search(query)`. With `search`, the caller owns ranking: the picker reports
-each query and shows the items passed to `update` without filtering them again,
-so fuzzy backend results are not discarded by the local term match. Between a
-keystroke and the next `update`, the previous results stay visible but disabled
-and the list is `aria-busy`, so Enter or a click cannot select an answer to an
-older query.
-Items contain stable `key`, `label`, optional `detail`, `searchText`, `group`,
-`checked`, `disabled`, and `secondary: { label, pressed, run }`. The secondary
-button is independent of selection and exposes `aria-pressed`; the caller owns
-its updated state and accessible action label.
+`searchablePicker(anchor, options)` opens a small panel in the shared menu
+lifetime (`menu.isOpen`, `menu.close`, `menu.onClose`). If the anchor is in an
+open dialog, the picker goes into that dialog. `options` supplies these values:
 
-The returned `update(items, status?)` preserves the search query and focused
-item/action by key, falling back to search if that item disappears. Search is
-case- and accent-insensitive: every whitespace-separated term must match across
-label, detail and searchText, in any order. The search
-input receives initial focus; arrows navigate choices, Enter selects, Home/End
-navigate while a choice is focused, and Tab reaches secondary/footer controls.
-Escape closes the picker before its parent dialog. Outside interaction, blur,
-or `close()` release the shared menu lifetime. Call `close()` before removing
-the host. This component does not load data or store preferences.
+- the translated `label`, `searchPlaceholder` and `empty`
+- `items` and `select(key)`
+- an optional `status`
+- `refresh: { label, run }`
+- `additional: { label, checked, change }`
+- `closed` and `search(query)`
 
-The standalone gallery demonstrates 100 choices, disabled and selected items,
-secondary actions, refresh, additional choices, asynchronous remote search and
-use inside a dialog.
-`e2e/search-picker.spec.ts` checks keyboard search, accents, pointer selection,
-focus order and a narrow dialog in Chromium and WebKit.
+With `search`, the caller owns the order of the results. The picker reports each query and
+shows the items that the caller gives to `update`. It does not filter them
+again. Thus, the picker does not compare the terms locally and remove fuzzy results
+from the backend. Between a keystroke and the next `update`, the previous results stay on the screen but disabled, and the list is `aria-busy`. Thus, Enter or a click cannot
+select an answer to an older query.
+
+Items contain a stable `key`, a `label` and these optional fields: `detail`,
+`searchText`, `group`, `checked`, `disabled` and
+`secondary: { label, pressed, run }`. The secondary button does not change the
+selection, and it shows `aria-pressed`. The caller owns its updated state and
+its accessible action label.
+
+The `update(items, status?)` function that the picker returns keeps the search
+query, and the focused item or action, by key. If that item is not there, the
+focus goes to the search field. The search ignores uppercase, lowercase and accents. Each term between spaces
+must agree with the label, the detail or the searchText. The terms can be in a
+different sequence. The search input gets the first focus.
+
+These keys operate in the picker:
+
+- The arrows move between the items.
+- Enter selects an item.
+- Home and End move between the items while an item has the focus.
+- Tab goes to the secondary controls and the footer controls.
+- Escape closes the picker before its parent dialog.
+
+An interaction out of the picker, a blur or `close()` releases the shared menu
+lifetime. Call `close()` before you remove the host. This component does not
+load data or store preferences.
+
+The standalone gallery shows 100 items, disabled items and selected items. It
+also shows secondary actions, refresh, the additional option, an asynchronous
+remote search and the picker in a dialog. `e2e/search-picker.spec.ts` tests the search with the
+keyboard, accents, the selection with the pointer, the focus sequence and a
+narrow dialog in Chromium and WebKit.

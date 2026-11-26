@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0013 — Account removal and empty selection"
-description: "Account removal and empty selection."
+description: "A person can remove each account, and a provider can have no selected account."
 status: stable
 ---
 
@@ -9,50 +9,54 @@ status: stable
 
 Date: 2026-09-05
 
-Complements the local profiles of [ADR 0012](0012-provider-accounts.md) with
-removal and an optional selection per provider.
+This decision adds the removal of accounts and an optional selection for each
+provider to the local profiles of [ADR 0012](0012-provider-accounts.md).
 
 ## Context
 
-The person needs to remove accounts, including the last account and the one
-inherited from the CLI. Processes capture their profiles and may keep running
-after the removal. Deleting credentials or the directories at that moment could
-interrupt a turn or affect the links to the shared history.
+The person must be able to remove accounts. This includes the last account and
+the account that the application imported from the CLI. Processes keep the
+profile that they got at their start, and they can continue to operate after
+the removal. If the application deletes the credentials or the directories at
+that time, it can stop a turn or break the links to the shared history.
 
 ## Options considered
 
-- Prevent removing the external profile: it preserves the mandatory selection,
-  but does not allow clearing the list as requested.
-- Delete credentials and profiles: it requires coordinating every running
-  process and query, plus each provider's specific storage.
-- Remove the registration and allow an empty selection: it serves the selector
-  without changing the terminal's login or interrupting existing processes.
+- Do not let a person remove the external profile: the mandatory selection
+  stays, but the person cannot make the list empty.
+- Delete credentials and profiles: the application must coordinate each process
+  and query that operates. It must also know the special storage of each
+  provider.
+- Remove the registration and let the selection be empty: the selector does
+  what the person wants. The login of the terminal does not change, and the
+  current processes do not stop.
 
 ## Decision
 
-Allow removing any account from the registry. Removing the active account leaves
-the provider without a selection; it does not choose another account
-automatically. New messages require an explicit choice, while the turn already
-started may finish.
+Let a person remove each account from the registry. If the person removes the
+active account, the provider has no selection. The application does not select
+a different account automatically. A new message must have an explicit selection.
+A turn that started before can continue until it is complete.
 
-The empty registry is persisted. Terminal profiles are imported only if the
-registry file does not exist yet. Adding another account starts the official
-login without asking for a nickname; the email identifies the account. Old
-registries with `label` stay readable, but that field is no longer used or
-written.
+The application stores the empty registry. It imports terminal profiles only if
+there is no registry file. When a person adds a different account, the
+official login starts and the application does not tell the person to type a nickname. The
+email identifies the account. The application can read previous registries with
+`label`, but it does not use or write that field.
 
 ## Consequences
 
-Removal does not log out and does not revoke credentials. Private directories,
-Keychain and history are preserved. Removed profiles stop being queried in the
-next quota rounds, and late responses do not recreate them in the registry.
-There is no collection of orphaned profiles in this operation; that collection
-will require coordinating every reader before deleting credentials and links.
+The removal does not log out, and it does not revoke credentials. The private
+directories, the Keychain and the history stay. The application does not query
+removed profiles in the next quota rounds. Responses that come late do not
+add the profiles to the registry again. This operation does not collect profiles
+that have no registration. That collection must coordinate each reader before
+it deletes credentials and links.
 
 ## Evidence
 
-The [accounts contract](../contracts/accounts.md) describes the optional
-selection, the removal IPC and the cleanup limit. `accounts.rs` tests a legacy
-registry, complete removal and an empty re-read. `e2e/accounts.spec.ts` checks
-removal, reopening, a new login and the preservation of the conversation and of
-the other provider.
+The [accounts contract](../contracts/accounts.md) tells about the optional
+selection, the removal IPC and the limit of the cleanup. Tests in `accounts.rs` examine a
+legacy registry, a full removal and a read of an empty registry.
+`e2e/accounts.spec.ts` examines the removal, the next opening, a new login, and
+that the conversation and the other provider do not change.

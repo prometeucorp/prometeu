@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0022 — end-to-end encryption in collaboration"
-description: "End-to-end encryption in collaboration."
+description: "Collaboration content has end-to-end encryption."
 status: stable
 ---
 
@@ -9,129 +9,142 @@ status: stable
 
 Date: 2026-09-07
 
-Defines the encrypted content boundary for
-[ADR 0021](0021-cloud-organizations.md). Publication is a separate operational
-step from local implementation and tests.
+This ADR specifies the encrypted content boundary for [ADR
+0021](0021-cloud-organizations.md). Publication is a different step from the
+local implementation and the tests.
 
 ## Context
 
-TLS terminates at the relay. The v3 protocol exposed the conversation, remote
-messages, comments, quotes, inbox previews and titles to the operator. The
-product choice is automatic configuration: trusting the server's directory on
-first contact (trust on first use, TOFU), without mandatory code comparison.
+TLS stops at the relay. The v3 protocol let the operator read these items: the
+conversation, remote messages, comments, quoted text, inbox previews and titles.
+The product selected automatic configuration. The client trusts the directory of
+the server at the first contact (trust on first use, TOFU). It is not necessary
+for the person to compare codes.
 
 ## Decision
 
-The [v4 protocol](../contracts/relay-v4.md) encrypts content on the device for
-each recipient in the audience, with HPKE Auth from
-[RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html): P-256, HKDF-SHA256 and
-AES-256-GCM. We use `@hpke/core`, pinned at 1.9.0, over WebCrypto. We do not
-implement the primitives or the KEM. The content format, TOFU, authorization,
-replay control and persistence belong to Prometeu and require their own review.
+The [v4 protocol](../contracts/relay-v4.md) encrypts the content on the device
+for each recipient in the audience. It uses HPKE Auth from [RFC
+9180](https://www.rfc-editor.org/rfc/rfc9180.html): P-256, HKDF-SHA256 and
+AES-256-GCM. We use `@hpke/core` at the constant version 1.9.0, on WebCrypto. We
+do not write the primitives or the KEM. Prometeu owns the content format, TOFU,
+authorization, replay control and storage. These items must have their own
+review.
 
-Each local scope generates a private identity, independent of tickets and
-enrollment credentials. The relay receives the public key and an ECDSA proof of
-possession bound to the member and to that connection's challenge. Clients pin
-each member's key before sending content. A changed peer key is persisted and
-adopted automatically, without a block, review, comparable code or signed
-transition, as defined in [ADR 0042](0042-automatic-key-rotation.md). A write
-failure prevents use of the new key. Replacing the scope's own key still fails.
+Each local scope makes a private identity. This identity is not related to
+tickets and enrollment credentials. The relay receives the public key and an
+ECDSA proof of possession. The proof is bound to the member and to the challenge
+of that connection. Clients pin the key of each member before they send content.
+When the key of a peer changes, the client stores and uses the new key
+automatically. There is no stop, review, comparable code or signed change,
+as [ADR 0042](0042-automatic-key-rotation.md) specifies. If the client
+cannot write the new key, it does not use the new key. The client continues to
+reject a replacement of the own key of the scope.
 
-The scope includes the origin, the organization/team and the membership;
-persistence also separates local Cloud accounts. Renewing a ticket,
-reconnecting or restarting does not erase links. There is one active identity
-per relay member. The first Mac keeps the membership identity; browsers and
-additional Macs join as companion members with their own keys under
-[ADRs 0027](0027-companion-devices.md) and
-[0036](0036-second-mac-as-companion.md). Devices do not synchronize private keys
-or automatically recover old comments addressed to another identity.
+The scope includes the origin, the organization or team and the membership. The
+storage also keeps local Cloud accounts isolated. A new ticket, a new connection
+or a new start of the app does not delete links. Each relay member has one
+active identity. The first Mac keeps the membership identity. Browsers and other
+Macs connect as companion members with their own keys under [ADRs
+0027](0027-companion-devices.md) and [0036](0036-second-mac-as-companion.md).
+Devices do not copy private keys to other devices. They do not automatically get
+previous comments for a different identity.
 
-The owner is still the authority over their process and the local audience.
-`watch` grants no access. Authenticated audience announcements have persisted
-revisions; the relay cannot replace the owner or restore a revision already
-superseded in the client. Remote messages have a two-minute deadline and a
-receipt persisted before execution, including after a restart. They run only
-for people granted the matching right in that workspace and only from a member
-and key the owner approved on that Mac
-([ADR 0090](0090-approved-remote-input.md)). After decryption, the validation
-of `chat_control_remote` against requests open on the owner's Mac remains.
+The owner continues to be the authority for the process and the local audience.
+`watch` does not give access. Authenticated audience announcements have stored
+revisions. The relay cannot replace the owner or put back a revision that the
+client replaced before.
+
+Remote messages have a deadline of two minutes. The client stores a receipt
+before it operates the message. This also applies after a new start of the app.
+A remote message operates only for persons who have the related right in that
+workspace. It must also come from a member and key with the approval of the
+owner on that Mac ([ADR 0090](0090-approved-remote-input.md)). After decryption,
+the validation of `chat_control_remote` against the open requests on the Mac of
+the owner stays.
 
 ## Alternatives and costs
 
-Encrypting at the relay or using the enrollment secret does not protect against
-the operator. MLS was considered for group ratcheting, but it introduces group
-state, commit distribution and offline recovery that the current transport does
-not have. HPKE Auth allows independent envelopes for persisted comments and
-stateless reconnections, without shared state between senders.
+Encryption at the relay or with the enrollment secret does not give protection
+against the operator. We thought about MLS for a group ratchet. But MLS adds
+group state, the supply of commits and offline recovery, and the current
+transport does not have these items. HPKE Auth gives each stored comment its own
+envelope. It also lets a new connection operate without stored state. Senders do
+not share state.
 
-The cost is one encrypted copy per recipient, up to 64 members, and the absence
-of forward secrecy and of automatic post-compromise recovery. Stealing a
-recipient's private key allows opening old ciphertext recorded for that key.
-This implementation is not equivalent to the Signal Protocol/WhatsApp. Adding a
-ratchet requires another version of the contract, a migration and a security
-review; swapping the cipher is not enough.
+The cost is one encrypted copy for each recipient, up to 64 members. There is no
+forward secrecy and no automatic recovery after a compromise. If a person gets
+the private key of a recipient, that person can open previous ciphertext for
+that key. This implementation is not equivalent to the Signal Protocol or
+WhatsApp. To add a ratchet, the team must make a new version of the contract, a
+migration and a review of the cryptographic protection. A different cipher alone
+is not sufficient.
 
 ## Security limits
 
-- A malicious server can replace keys, at first contact and afterwards: since
-  ADR 0042 the change is adopted silently for content, so the server can read
-  that person's new content. There is no external code comparison and no key
-  transparency.
-- Remote input is execution, not only disclosure: agents run tools without
-  per-tool approval by default and `request.respond` answers the human gate.
-  Messages and control therefore run only from member and key pairs approved on
-  the owner's Mac ([ADR 0090](0090-approved-remote-input.md)). A changed key, a
-  new device, including the owner's own, and a member that first appears in the
-  directory keep receiving content, but their input is discarded until the
-  owner approves them. Approval itself still trusts the keys the directory
-  shows at that moment.
-- The relay knows the organization, members, names, workspace/tab IDs,
-  recipients, mentions, presence, timestamps, sizes and terminal dimensions. It
-  can omit, delay or reorder messages and deny service. The cipher does not
-  authenticate display names, delivery, history completeness or timestamps.
-- The owner stops new content for a removed person according to their local
-  audience. Comments sent by peers use the last authenticated announcement they
-  received. A relay that omits the change may delay its application on those
-  peers; there is no guarantee of instant global revocation.
-- Opening a shared session sends the complete snapshot the Mac keeps, according
-  to the existing consent to share the conversation. Persisted comments open
-  only with a box addressed to that identity. New participants do not
-  automatically gain boxes for old comments.
-- Content already received cannot be revoked. Authors outside the current
-  audience, replaced keys or history without a readable box are omitted from
-  reading.
-- E2EE does not protect a compromised Mac/webview, backups of private keys or
-  content sent to the providers. Local transcripts keep their format. Data sent
-  in v3 does not become retroactively private.
-- Local tests do not constitute an independent cryptographic audit.
+- A malicious server can replace keys at the first contact and after it. Since
+  ADR 0042, the client uses the changed key for content without a message. Thus
+  the server can read the new content of that person. There is no external
+  procedure to compare codes and no key transparency.
+- Remote input operates actions. It does not only show data. By default, agents
+  operate tools without approval for each tool, and `request.respond` answers
+  the human gate. Thus messages and control operate only from pairs of member
+  and key with the approval of the owner on the Mac ([ADR
+  0090](0090-approved-remote-input.md)). Some senders continue to receive
+  content, but the client ignores their input until the owner gives approval.
+  These senders are a changed key, a new device (also a device of the owner) and
+  a member that is new in the directory. The approval also trusts the keys that
+  the directory shows at that time.
+- The relay knows the organization, members, names, workspace and tab IDs,
+  recipients, mentions, online status, timestamps, data quantities and terminal
+  dimensions. It can ignore messages, send them late or change their sequence,
+  and it can stop the service. The cipher does not authenticate display names,
+  delivery, the completeness of the history or timestamps.
+- The owner stops new content for a removed person through the local audience.
+  Comments from peers use the last authenticated announcement that the peers
+  received. If a relay does not send the change, the peers can apply it late.
+  There is no guarantee that revocation occurs immediately on all devices.
+- When a person opens a shared session, the Mac sends the complete snapshot that
+  it keeps. This agrees with the current consent to share the conversation. A
+  stored comment opens only with a box for that identity. New participants do
+  not automatically get boxes for previous comments.
+- It is not possible to revoke content that a client received before. The client
+  does not show items from authors that are not in the current audience. It also
+  does not show items from replaced keys or history without a box that it can
+  read.
+- E2EE does not give protection for a compromised Mac or webview, copies of
+  private keys or content that goes to the providers. Local transcripts keep
+  their format. Data that the client sent in v3 does not become private after
+  this change.
+- Local tests are not a cryptographic audit by an external team.
 
 ## Compatibility and publication
 
-The client requires v4 and `e2ee: 1`; there is no fallback to plaintext. Legacy
-credentials and enrollments stay valid. The Worker now reads/writes
-collaboration only under `v4:`. v3 rows stay intact, but do not appear in the v4
-client. There is no automatic conversion and no v3 comment viewer.
+The client must have v4 and `e2ee: 1`. There is no fallback to plaintext. Legacy
+credentials and enrollments stay applicable. The Worker reads and writes
+collaboration data only under `v4:`. The v3 rows stay, but the v4 client does
+not show them. There is no automatic conversion and no viewer for v3 comments.
 
-Publish relay v4 before distributing desktop v4. Local work continues if the
-negotiation fails. A rollback must preserve both namespaces and the private
-security file. Restoring a v3 relay/desktop goes back to v3's plaintext
-guarantees and cannot be announced as a rollback that keeps E2EE.
-Do not publish releases and do not migrate production during the local
-validation.
+Publish relay v4 before you supply desktop v4. Local work continues if the
+negotiation has a failure. A rollback must keep the two namespaces and the
+private file with the keys and the TOFU links. A v3 relay or desktop gives the
+plaintext guarantees of v3 again. Do not call it a rollback that keeps E2EE. Do
+not publish releases and do not migrate production during the local validation.
 
 ## Evidence
 
-- `src/team-crypto.test.ts`: real encryption, authentication, context, tampering
-  and key validation; `src/team-security.test.ts`: TOFU, persistence and
-  failures.
-- `src/team-channel.test.ts`: two clients, snapshot/live, messages, comments,
-  inbox, replay, audience and downgrade rejection.
-- `src/team.test.ts` and `src/team-organizations.test.ts`: the app's transport,
-  encryption, scopes and reconnection; `relay/src/worker.integration.test.ts`: a
-  local Worker, ciphertext, identity, audience and persistence.
-- `src-tauri/src/team.rs`: the private file, atomic writing and corruption;
-  `e2e/critical-flows.spec.ts`: comments with encrypted peers in
-  Chromium/WebKit.
-- The [provider matrix](../quality/provider-matrix.md) declares the same
+- `src/team-crypto.test.ts` has tests for encryption without a mock,
+  authentication, context, changed ciphertext and key validation.
+  `src/team-security.test.ts` has tests for TOFU, storage and failures.
+- `src/team-channel.test.ts` has tests for two clients, snapshot and live
+  data, messages, comments, inbox, replay, audience and a rejected downgrade.
+- `src/team.test.ts` and `src/team-organizations.test.ts` have tests for the
+  transport of the app, encryption, scopes and new connections.
+  `relay/src/worker.integration.test.ts` has tests for a local Worker,
+  ciphertext, identity, audience and storage.
+- `src-tauri/src/team.rs` has tests for the private file, atomic write
+  operations and corruption. `e2e/critical-flows.spec.ts` has tests for comments
+  with encrypted peers in Chromium and WebKit.
+- The [provider matrix](../quality/provider-matrix.md) gives the same
   protection for Claude and Codex. Publication and an external audit are not
   part of this evidence.

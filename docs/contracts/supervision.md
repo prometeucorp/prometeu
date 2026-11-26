@@ -1,153 +1,210 @@
 ---
 type: Contract
 title: "Workspace supervision"
-description: "Remote workspace bindings, durable metadata events and generic signed webhook delivery through Prometeu Cloud."
+description: "The links between remote workspaces and supervisors, the durable metadata events and the delivery of signed webhooks through Prometeu Cloud."
 status: stable
 ---
 
 # Workspace supervision
 
-Decision: [ADR 0106](../decisions/0106-workspace-supervision.md).
-The first executor is `prometeu-host`. Desktop-created local workspaces and a
-reverse network transport to the local MCP are deferred. The external
-supervisor uses the existing remote MCP for reads and instructions; the Cloud
-does not execute agents.
+Decision: [ADR 0106](../decisions/0106-workspace-supervision.md). The first
+executor is `prometeu-host`. Two items are not in this version: local workspaces
+that the desktop makes, and a network transport from the local MCP back to the
+Cloud. The external supervisor uses the current remote MCP to read data and to
+send instructions. The Cloud does not operate agents.
 
 ## Destination and host setup
 
-The Cloud account's Supervisor settings configure one HTTPS webhook destination,
-its name, enabled state, event filters and webhook format (`prometeu` by default,
-or `openbot`). Creating a Prometeu destination generates a signing secret unless
-one is supplied. OpenBot requires the receiver's signing secret on creation.
-The form accepts secrets of 16 to 1024 characters; editing with an empty secret
-keeps the stored value. Secrets remain encrypted and are never prefilled.
+The Supervisor settings of the Cloud account configure one HTTPS webhook
+destination. The settings contain these items:
 
-Creating or rotating credentials shows the new ingestion token once. In Prometeu
-mode it also shows the signing secret; in OpenBot mode rotation changes only the
-host token and preserves the receiver's secret. Replace the OpenBot secret through
-the destination form. The ingestion token authenticates host publication; the
-signing secret lets the receiver verify callbacks. They have distinct purposes
-and never enter MCP results.
+- The name of the destination.
+- The enabled state.
+- The event filters.
+- The webhook format: `prometeu` (the default) or `openbot`.
+
+When a person makes a Prometeu destination, the Cloud makes a signing secret if
+the person does not supply one. For OpenBot, the person must supply the signing
+secret of the receiver when they make the destination. The form accepts secrets
+of 16 to 1024 characters. If a person saves the form with an empty secret, the
+stored value does not change. The Cloud keeps secrets encrypted and does not
+show them again in the form.
+
+When a person makes or replaces credentials, the Cloud shows the new ingestion
+token one time. In Prometeu mode, it also shows the signing secret. In OpenBot
+mode, rotation changes only the host token and keeps the secret of the receiver.
+To replace the OpenBot secret, use the destination form. The ingestion token
+authenticates the publication from the host. The signing secret lets the
+receiver examine the callbacks. The two secrets have different purposes, and
+they do not go into MCP results.
 
 On the remote machine, `prometeu-host supervision setup --url <cloud-origin>`
 reads the ingestion token from standard input and validates it with the Cloud.
-`supervision status` reports the public identity, publication configuration and
-`pending_events` count;
-`supervision disable` pauses publication while preserving pending events.
-The host stores its stable executor identity and private configuration under
-its own root, independently of desktop credentials.
+`supervision status` shows the public identity, the publication configuration
+and the `pending_events` count. `supervision disable` stops publication for a
+time and keeps the events that wait for delivery. The host stores its stable
+executor identity and its private configuration in its own root. The host does
+not use the desktop credentials for these items.
 
-The remote MCP exposes `list_supervisors`, returning entries with `id`, `name`
-and `executor_id` so the receiver can correlate callbacks with its MCP connection.
-`create_workspace` accepts optional
-`supervisor_id`; absence preserves ordinary creation. An unknown or unconfigured
-supervisor is rejected before work begins. A supervised workspace records its
-binding before launching the first conversation.
+The remote MCP gives `list_supervisors`. It returns entries with `id`, `name`
+and `executor_id`, so that the receiver can find the MCP connection for each
+callback. `create_workspace` accepts an optional `supervisor_id`. Without this
+field, the host makes the workspace as usual. The host refuses an unknown
+supervisor or a supervisor without configuration before the work starts. A
+supervised workspace records its link to the supervisor before it starts the
+first conversation.
 
-`set_workspace_supervisor { id, supervisor_id }` assigns supervision to an
-existing remote workspace. `remove_workspace_supervisor { id }` removes that
-binding and emits `workspace.unsupervised`; it does not close the workspace.
-`link_workspace_pr { id, repository, number }` associates the workspace with a
-GitHub PR. These methods use the existing authenticated remote MCP authority,
-not the callback URL as an authorization credential.
+`set_workspace_supervisor { id, supervisor_id }` adds supervision to a current
+remote workspace. `remove_workspace_supervisor { id }` removes that link and
+sends `workspace.unsupervised`. It does not close the workspace.
+`link_workspace_pr { id, repository, number }` links the workspace to a
+GitHub PR. These methods use the authority of the current authenticated remote
+MCP. They do not use the callback URL as an authorization credential.
 
 ## Provisioning with the remote MCP
 
-Settings / Machines / Enable agents offers an optional **Receive workspace events**
-choice. The account's existing destination is reused; if none exists, the person
-supplies a webhook URL, format and the receiver's signing secret in the same form.
-The default format is OpenBot. Existing MCP connections offer **Enable events**
-without replacing their MCP token. Ordinary MCP setup requires no Cloud account.
-Supervision remains an explicit workspace binding selected through the host MCP;
-provisioning does not attach all existing or future workspaces automatically.
+Settings / Machines / Enable agents shows an optional **Receive workspace
+events** option. The app uses the current destination of the account again. If
+there is no destination, the person supplies a webhook URL, a format and the
+signing secret of the receiver in the same form. The default format is OpenBot.
+For a current MCP connection, the app shows **Enable events**. This option does
+not replace the MCP token of the connection. A Cloud account is not necessary
+for the usual MCP setup.
+
+Supervision stays an explicit link of a workspace that a person selects
+through the host MCP. Provisioning does not attach all current or future
+workspaces automatically.
 
 The desktop authenticates provisioning with its stored Cloud session. The form
-retains the account identity, destination ID and configuration revision; a changed account or destination
-requires reopening it. A disabled destination must be enabled in Cloud settings.
-Creation does not overwrite a destination another client created in the meantime.
-The desktop obtains the executor's stable public ID over the existing SSH access,
-requests a credential, then pipes that credential to `supervision setup` on that
-machine. Neither the account Bearer nor the receiver's signing secret reaches the
-host. Ingestion credentials stay out of the webview, clipboard and MCP responses.
-The one copyable result remains the existing MCP configuration.
+keeps the identity of the account, the ID of the destination and the revision of
+the configuration. If the account or the destination changes, the person must
+open the form again. A person must enable a disabled destination in the Cloud
+settings. When the app makes a destination, it does not replace a destination
+that a different client made in the same period.
 
-Desktop Bearer endpoints (JSON writes, same Origin and size guards as the other
-desktop endpoints):
+The desktop gets the stable public ID of the executor through the current SSH
+access. Then it requests a credential and sends that credential through a pipe
+to `supervision setup` on that machine. The Bearer token of the account and the
+signing secret of the receiver do not go to the host. Ingestion credentials do
+not go into the webview, the clipboard or MCP responses. The only result that a
+person can copy is the current MCP configuration.
 
-- `GET /api/supervisor` returns `{ supervisor: null }` or public destination
-  fields `id`, `revision`, `name`, `url`, `enabled`, `webhook_protocol`; never secrets.
-- `POST /api/supervisor/connections` accepts `executor_id`, optional
-  `supervisor_id` and `supervisor_revision` for an existing destination, or `destination` with `name`, `url`,
-  `webhook_protocol` and `signing_secret` for a new one. It returns
-  `{ supervisor: { id, name }, ingest_token }` with `Cache-Control: no-store`.
-  A stale destination returns 409; invalid input or a disabled destination returns
-  422. Browser cookies and ingestion credentials do not authorize provisioning.
+Desktop Bearer endpoints use JSON writes. They have the same Origin limit and
+the same maximum body dimension as the other desktop endpoints:
 
-The destination `revision` is an opaque SHA-256 fingerprint of its ID, name, URL,
-enabled state, filters, format, encrypted signing material and legacy ingestion
-digest. It does not reveal plaintext secrets and does not depend on timestamp
-resolution. The server compares the submitted revision under the supervisor lock
-before changing credentials. Missing or stale revisions return 409 `changed` for
-existing destinations, leaving all executor digests unchanged. Provisioning another
-executor does not invalidate the revision. The companion desktop must echo the
-revision read when the form opened; it must not silently refresh that consent on
-submission. Legacy manual setup and host ingestion endpoints are unchanged.
+- `GET /api/supervisor` returns `{ supervisor: null }` or these public fields of
+  the destination: `id`, `revision`, `name`, `url`, `enabled`,
+  `webhook_protocol`. It does not return secrets.
+- `POST /api/supervisor/connections` accepts `executor_id` and one of these
+  two items:
+  - For a current destination: an optional `supervisor_id` and
+    `supervisor_revision`.
+  - For a new destination: `destination` with `name`, `url`,
+    `webhook_protocol` and `signing_secret`.
 
-Cloud stores one ingestion digest per supervisor/executor in
-`supervision_credentials`. Reprovisioning replaces only that executor's token;
-it preserves the receiver secret, other executors and the legacy ingestion token.
-Each new token authorizes ingestion and test receipts only for its executor.
-Legacy destination tokens retain their existing authority. Disabling a destination
-rejects all its tokens; deleting it removes its credentials. Explicit credential
-rotation in Cloud settings revokes all executor credentials too.
+  It returns `{ supervisor: { id, name }, ingest_token }` with
+  `Cache-Control: no-store`. A revision of the destination that is not current
+  gives 409. Incorrect input or a disabled destination gives 422. Browser
+  cookies and ingestion credentials do not authorize provisioning.
 
-Provisioning spans Cloud and SSH, without a distributed transaction. If the SSH
-step fails after credential issuance, repeat **Enable events** to repair that
-executor. Its outbox and workspaces remain intact. Initial setup configures events
-before creating the MCP credential, so a failed event setup cannot hide a newly
-rotated MCP token. MCP token rotation remains a separate explicit action.
+The `revision` of a destination is a SHA-256 fingerprint. Clients only compare
+this value and send it back. The fingerprint uses these items of the
+destination:
 
-`supervision identity --root DIR` returns `{ executor_id }` without credentials or
-enabling publication. The daemon persists this ID in the private
-`supervision-executor` file; existing `supervision.json` identities take precedence.
-Setup, disabling and restarting preserve it. These additive files and commands do
-not change the registry version or existing MCP arguments.
+- The ID, the name and the URL.
+- The enabled state, the filters and the format.
+- The encrypted signing material.
+- The legacy ingestion digest.
+
+The fingerprint does not show secrets as plain text. The resolution of
+timestamps does not change it.
+
+The server compares the revision in the request under the supervisor lock before
+it changes credentials. For a current destination, a missing revision or a
+revision that is not current returns 409 `changed`, and all executor digests
+stay the same. When the app does provisioning for a different executor, the
+revision does not change. The companion desktop must send back the revision that
+it read when the form opened. It must not get a new revision silently when the
+person sends the form, because the revision records the consent of the person.
+The legacy manual setup and the ingestion endpoints of the host do not change.
+
+The Cloud stores one ingestion digest for each pair of supervisor and executor
+in `supervision_credentials`. A new provisioning replaces only the token of that
+executor. It keeps the secret of the receiver, the other executors and the
+legacy ingestion token. Each new token authorizes ingestion and test receipts
+only for its executor. Legacy destination tokens keep their current authority.
+When a person disables a destination, the Cloud refuses all its tokens. When a
+person deletes a destination, the Cloud deletes its credentials. An explicit
+rotation of credentials in the Cloud settings also revokes all executor
+credentials.
+
+Provisioning uses the Cloud and SSH without one transaction for the two
+systems. If the
+SSH step has a failure after the Cloud issues the credential, click
+**Enable events** again to repair that executor. Its outbox and workspaces stay
+complete. The first setup configures events before it makes the MCP credential.
+Thus, a failure of the event setup cannot hide a new MCP token after a rotation.
+The rotation of the MCP token stays a different and explicit action.
+
+`supervision identity --root DIR` returns `{ executor_id }`. It does not return
+credentials, and it does not enable publication. The daemon keeps this ID in the
+private file `supervision-executor`. If a current `supervision.json` has an
+identity, the host uses that identity first. Setup, disable and a new start of
+the host keep the ID. These added files and commands do not change the version
+of the registry or the current MCP arguments.
 
 ### Test from the machine
 
 After provisioning, the desktop runs `supervision test --root DIR` on the host.
-The host uses its own saved credential to POST `{ id, executor_id }` to
-`/api/supervision/tests`. Cloud persists a separate `webhook.test` delivery with
-that executor and a null workspace; no workspace or execution is created. Test
-IDs are idempotent within retained delivery history. Tests never batch across
-executors or with browser tests. `GET /api/supervision/tests/:id` returns
-`{ id, status, last_error }`, scoped to the authenticated destination and, for new
-credentials, executor. The receiver uses the existing signature and envelope.
+The host uses its saved credential to send a POST request with
+`{ id, executor_id }` to `/api/supervision/tests`. The Cloud keeps a different
+`webhook.test` delivery with that executor and a null workspace. The Cloud
+does not make a workspace or an execution.
 
-The host polls this receipt for a bounded diagnostic window, stopping on delivery
-or a reported failure, and returns only `{ status, failed }`. The UI says connected
-only after `delivered`; pending, rejected and unreachable paths never become success.
-The copyable MCP configuration stays available if the diagnostic fails. **Test
-events from this machine** retries the diagnostic independently. This proves
-receipt by the receiver, not MCP installation there or an agent's completion.
-The ordinary publisher and Cloud dispatcher still do not poll host or agent state.
+Test IDs are idempotent in the delivery history that the Cloud keeps. The Cloud
+does not put tests from different executors or browser tests in one batch.
+`GET /api/supervision/tests/:id` returns `{ id, status, last_error }`. The
+scope is the authenticated destination and, for new credentials, the executor.
+The receiver gets the current signature and envelope.
 
-Desktop IPC additions:
+The host polls this receipt for a diagnostic period with a maximum time. It
+stops after the delivery or after a failure report, and it returns only
+`{ status, failed }`. The UI shows a connection only after `delivered`. A
+delivery that waits, a refused delivery and a receiver that the Cloud cannot
+connect to do not show success. If the diagnostic has a failure, the person can
+continue to copy the MCP configuration. **Test events from this machine** runs
+the diagnostic again independently.
 
-- `machine_supervision_options()` returns `{ account, supervisor }` (both nullable).
-- `machine_agents_enable` accepts optional `supervision: { account,
-  supervisor_id?, supervisor_revision?, destination? }`; omission preserves existing behavior and output.
-- `machine_supervision_enable({ id, setup })` configures events for an existing MCP.
+This test proves that the receiver got the event. It does not prove that the
+receiver has the MCP installed or that an agent completed its work. The usual
+publisher and the Cloud dispatcher do not poll the state of the host or the
+agent.
+
+New desktop IPC calls:
+
+- `machine_supervision_options()` returns `{ account, supervisor }`. The two
+  values can be null.
+- `machine_agents_enable` accepts an optional `supervision: { account,
+  supervisor_id?, supervisor_revision?, destination? }`. Without this field, the
+  behavior and the output do not change.
+- `machine_supervision_enable({ id, setup })` configures events for a current
+  MCP.
 - `machine_supervision_test({ id })` returns `{ status, failed }`.
 
-`src/mock.ts` implements the same calls with synthetic state. Native provisioning
-and receipt parsing are covered in `remote/supervision.rs` and host supervision
-tests; `machine-supervision.test.ts` covers consent, existing MCP preservation and
-receipt presentation. Cloud's `supervision_connections_test.rb` covers account and
-executor isolation, credential compatibility and a signed callback acknowledgement.
-Deploy the additive Cloud migration and endpoints before the desktop/host update.
-A Cloud rollback must retain the schema; old code cannot authenticate newly issued
-executor tokens, so keep compatible Cloud code while those hosts publish.
+`src/mock.ts` gives the same calls with synthetic state. The tests in
+`remote/supervision.rs` and the host supervision tests examine the native
+provisioning and how the host parses receipts. `machine-supervision.test.ts`
+examines consent, the protection of the current MCP and the display of the
+receipt. The Cloud test `supervision_connections_test.rb` examines these items:
+
+- The accounts and executors stay isolated from each other.
+- The compatibility of credentials.
+- The acknowledgement of a signed callback.
+
+Deploy the added Cloud migration and endpoints before the desktop and host
+update. A rollback of the Cloud must keep the schema. Earlier Cloud code cannot
+authenticate the new executor tokens. Thus, keep compatible Cloud code while
+those hosts publish.
 
 ## Host publication
 
@@ -157,7 +214,8 @@ executor tokens, so keep compatible Cloud code while those hosts publish.
 {"supervisor":{"id":"20000000-0000-4000-8000-000000000001","name":"Example supervisor"}}
 ```
 
-`POST /api/supervision/events` accepts JSON and the same Bearer. A host event is:
+`POST /api/supervision/events` accepts JSON and the same Bearer. A host event
+is:
 
 ```json
 {
@@ -175,98 +233,133 @@ executor tokens, so keep compatible Cloud code while those hosts publish.
 }
 ```
 
-IDs match `[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}`. Requests are limited to 16 KiB.
-`occurred_at` is Unix seconds. Optional
-metadata consists of conversation/execution IDs, `owner/repository`, branch,
-`pull_request` number from 1 through 2,147,483,647 and `head_sha` (40–64 lowercase
-hexadecimal characters). Branch names are limited to 255 UTF-8 bytes and contain
-no whitespace or control characters. No field carries user text or
-provider output. The server rejects unknown fields, unsupported versions,
-invalid metadata, a mismatched supervisor and reused event IDs with different
-content. Repeating an accepted identical event is safe.
+IDs agree with `[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}`. The maximum dimension of a
+request is 16 KiB. `occurred_at` is in Unix seconds. The optional metadata is
+these items:
 
-The host omits optional branch metadata that exceeds these limits, including
-Unicode whitespace, while preserving the original workspace branch locally.
+- The conversation ID and the execution ID.
+- The repository as `owner/repository`.
+- The branch.
+- The `pull_request` number, from 1 to 2,147,483,647.
+- The `head_sha`, with 40 to 64 lowercase hexadecimal characters.
 
-An unseen host event must have occurred within the last 90 days and no more than
-five minutes in the future. An older unseen event returns HTTP 410 with
-`expired_event`; a future event outside that clock tolerance is invalid. Known
-receipts still return success for identical events or a conflict for changed
-content before checking age. Receipts are retained for 91 days after acceptance,
-so forgetting an old receipt cannot reactivate a workspace through replay.
+A branch name has a maximum of 255 UTF-8 bytes. It does not contain whitespace
+or control characters. No field contains text from a person or output from a
+provider. The server refuses these items:
 
-Host kinds:
+- Unknown fields.
+- Versions that it does not know.
+- Incorrect metadata.
+- A supervisor that is not the supervisor of the token.
+- An event ID that the server got before with different content.
 
-| Kind | Meaning |
+The host can send an accepted event again with the same content without a
+problem. If the optional branch metadata is more than these limits, the host
+does not send it. This includes Unicode whitespace. The host keeps the initial
+branch name of the workspace locally.
+
+A host event that the Cloud did not get before must have occurred in the last 90
+days. It must not be more than five minutes in the future. For an older new
+event, the Cloud returns HTTP 410 with `expired_event`. The Cloud refuses a
+future event that is more than that clock tolerance. The Cloud examines known
+receipts before the age. A known receipt continues to return success for the
+same event, or a 409 response for changed content. The Cloud keeps receipts for
+91 days after it accepts them. Thus, an expired event that the Cloud gets again
+cannot make a workspace active again after the Cloud deletes the receipt.
+
+Event types from the host:
+
+| Type | Meaning |
 | --- | --- |
-| `workspace.created` | Supervision begins, including explicit assignment to an existing workspace. |
-| `workspace.pr_linked` | Repository and PR association changes. |
-| `workspace.closed` | The workspace closes and GitHub watching ends. |
-| `workspace.unsupervised` | The supervisor is removed and GitHub watching ends. |
-| `execution.completed` | The observed root turn and its known children have finished. |
-| `execution.failed` | Execution fails or an unfinished execution is recovered after host restart. |
-| `execution.blocked` | The execution needs intervention, once per observed blocking episode. |
+| `workspace.created` | Supervision starts. This includes an explicit link to a current workspace. |
+| `workspace.pr_linked` | The relation between the repository and the PR changes. |
+| `workspace.closed` | The workspace closes and the Cloud stops to monitor GitHub for it. |
+| `workspace.unsupervised` | A person removes the supervisor and the Cloud stops to monitor GitHub for the workspace. |
+| `execution.completed` | The root turn that the host saw and its known child turns are complete. |
+| `execution.failed` | The execution has a failure. Also, after a new start of the host, the host finds an execution that was not complete. |
+| `execution.blocked` | A person must help the execution. The host sends this event one time for each period of blocked work that it sees. |
 
-Session start, idle snapshots, tokens, tool output and repeated stop signals do
-not independently imply completion. Execution observations and pending events
-are persisted together. Known children hold completion until they finish.
-An interrupted execution never announces success. A completed turn is not proof
-that a PR meets merge criteria: the supervisor checks current GitHub state.
+These items alone do not show completion:
 
-The publisher uses a persistent outbox, acknowledges only successful ingestion
-and retries with backoff after network failure. New events wake it immediately;
-there is no periodic state query. A host restart recovers pending deliveries.
-The host cannot keep executing through its own process or machine failure.
+- The session start.
+- The snapshots when the agent does not operate.
+- Tokens.
+- Tool output.
+- Stop signals that occur again. The host
+keeps the execution observations and the events that wait for delivery together.
+Known child turns stop the completion until they are complete. If an execution
+stops before it is complete, it does not show success. A completed turn does not
+prove that a PR obeys the merge criteria. The supervisor examines the current
+GitHub state.
 
-After more than 90 days without accepted publication, an unseen queued event can
-expire at the Cloud boundary. The host retains it and reports HTTP 410 in its
-log; `supervision status` still includes it in `pending_events`. An operator can
-inspect and preserve the pending metadata, then use the explicit reset below and
-reattach supervision. Expired metadata is never silently acknowledged or removed
-from the host's outbox.
+The publisher uses a durable outbox. It acknowledges only a correct
+ingestion, and after a network failure it tries again with a backoff. A new
+event starts the publisher immediately. There is no periodic query of the state.
+After a new start of the host, the host loads the deliveries that wait and
+sends them. The
+host cannot continue to operate if its own process or machine has a failure.
 
-Before changing to a different Cloud or supervisor, detach workspaces and let
-their pending events reach the previous destination. If that credential was
-revoked or the destination was deleted, `supervision reset --discard-pending`
-is the explicit administrative recovery: it discards unsent metadata, removes
-local supervisor bindings and disables publication while preserving executor
-identity, workspaces, worktrees and conversations. It cannot retract events
-already accepted by the previous Cloud; remove the old destination there too.
+After more than 90 days without an accepted publication, an event in the queue
+that the Cloud did not get can expire at the Cloud. The host keeps it and shows
+HTTP 410 in its log. `supervision status` continues to include it in
+`pending_events`. An operator can examine and keep the metadata in the queue.
+Then the operator can use the explicit reset command below and attach
+supervision again. The host does not silently acknowledge expired metadata or
+remove it from its outbox.
+
+Before you change to a different Cloud or supervisor, remove the workspaces from
+supervision. Then let their events in the queue go to the previous destination.
+If the Cloud revoked that credential or a person deleted the destination,
+`supervision reset --discard-pending` is the explicit administrative recovery.
+It deletes the metadata that the host did not send and removes the local links
+to the supervisor. It also disables publication. It keeps the executor identity,
+the workspaces, the worktrees and the conversations. It cannot cancel events
+that the previous Cloud accepted. Also remove the previous destination in that
+Cloud.
 
 ## GitHub
 
-The existing authenticated GitHub App webhook endpoint also feeds supervision.
-The App needs subscriptions for `pull_request`, `pull_request_review`,
-`pull_request_review_comment`, `pull_request_review_thread`, `issue_comment`,
-`workflow_run`, `check_suite`, `check_run` and `status`, with their corresponding
-read permissions. Repository installation and subscription changes are separate
-operational steps; code deployment does not enable them automatically.
-Only explicitly watched workspaces participate. Repository/branch metadata can
-discover a PR; explicit PR association handles known PRs. Registration alone
-does not authorize private GitHub metadata: a signed GitHub event must establish
-the account's linked GitHub identity as a participant before installation and
-PR routing become trusted. A previously existing PR can therefore wait for a
-qualifying event after registration. App installation deletion clears routing.
+The current authenticated GitHub App webhook endpoint also sends data to
+supervision. The App must have subscriptions for `pull_request`,
+`pull_request_review`, `pull_request_review_comment`,
+`pull_request_review_thread`, `issue_comment`, `workflow_run`, `check_suite`,
+`check_run` and `status`, with the related read permissions. The installation on
+a repository and the changes to subscriptions are different steps for the
+operator. A code deployment does not enable them automatically.
 
-The supervisor receives relevant CI, review/comment and PR changes, including
-successful CI, without the human notification feed's actor suppression. Bodies,
-titles, logs and code are not persisted or forwarded. GitHub events are wakeups,
-not authoritative readiness verdicts; the receiver reads the current head,
-required checks and reviews before deciding. Repeated deliveries are deduplicated.
+Supervision includes only the workspaces that a person explicitly monitors. The
+repository and branch metadata can find a PR. An explicit link to a PR gives the
+known PRs. A registration alone does not authorize private GitHub metadata.
+First, a signed GitHub event must show that the linked GitHub identity of the
+account is a participant in the PR. After that, the Cloud trusts the
+installation and the PR routing. Thus, a PR that was there before can wait for a
+related event after the registration. When a person deletes the App
+installation, the Cloud deletes the routing.
 
-GitHub event kinds are `github.ci_changed`, `github.review_changed` and
-`github.pr_changed`. Successful individual `check_run` events are suppressed;
-completed suites/workflows and failed checks can wake the supervisor. Legacy
-commit status events require a previously associated PR head. The receiver
-queries current GitHub state rather than inferring success from the event kind.
+The supervisor gets the related changes to CI, reviews, comments and PRs. This
+includes CI that has no failures. The supervisor gets these changes also when
+the actor is the person. The notification list of the person does not show these
+changes. The Cloud does not keep or send bodies, titles, logs or code. GitHub
+events only tell the receiver to look again. They do not give the last decision
+about readiness. The receiver reads the current head, the necessary checks and
+the reviews before it makes a decision. The Cloud removes duplicate deliveries.
 
-Durable recovery covers events accepted by the Cloud. A GitHub delivery that
-never reaches ingestion must be redelivered from GitHub's delivery history;
-this feature does not periodically scan GitHub to reconstruct missed events.
+The GitHub event types are `github.ci_changed`, `github.review_changed` and
+`github.pr_changed`. The Cloud does not send an individual `check_run` event
+without a failure. Completed suites, completed workflows and checks with a
+failure can start the supervisor. For a legacy commit status event, the Cloud
+must have a PR head that a link recorded before. The receiver queries the
+current GitHub state. It does not use the event type as proof that the work has
+no failures.
+
+The durable recovery applies only to the events that the Cloud accepted. If a
+GitHub delivery does not go to ingestion, a person must send it again from the
+delivery history of GitHub. This feature does not examine GitHub at intervals to
+find events that it did not get.
 
 ## Outgoing callbacks
 
-The destination receives a batch scoped to one supervisor, executor and workspace:
+The destination gets a batch for one supervisor, one executor and one workspace:
 
 ```json
 {
@@ -279,98 +372,144 @@ The destination receives a batch scoped to one supervisor, executor and workspac
 }
 ```
 
-Actual event batches contain events; the empty array above abbreviates their
-shape. `fixtures/cloud-api.json` contains a full executable example. Metadata
-events from GitHub use the same envelope. No receiver product is assumed.
+Actual event batches contain events. The empty array above shows only the shape.
+`fixtures/cloud-api.json` contains a full example that a test can run. The
+metadata events from GitHub use the same envelope. The contract does not specify
+a receiver product.
 
 The settings test sends `webhook.test`. Its envelope has `executor_id: null`
-and `workspace_id: null` because it tests the destination without creating work.
-The event includes `version`, `id`, `supervisor_id`, `kind` and `occurred_at`.
-Receivers should verify and acknowledge this event without starting supervision.
+and `workspace_id: null`, because it tests the destination and does not make
+work. The event includes `version`, `id`, `supervisor_id`, `kind` and
+`occurred_at`. We recommend that receivers examine and acknowledge this event
+without the start of supervision.
 
 Headers for the default `prometeu` format:
 
 - `Content-Type: application/json`
 - `X-Prometeu-Delivery`: the stable delivery ID.
-- `X-Prometeu-Timestamp`: the current attempt's Unix timestamp as decimal text.
-- `X-Prometeu-Signature`: `sha256=` followed by lowercase hexadecimal
-  HMAC-SHA256 of `timestamp + "." + raw_request_body`, keyed by the signing secret.
+- `X-Prometeu-Timestamp`: the Unix timestamp of the current request as decimal
+  text.
+- `X-Prometeu-Signature`: `sha256=` and then the lowercase hexadecimal
+  HMAC-SHA256 of `timestamp + "." + raw_request_body`. The key is the signing
+  secret.
 
-The secret is the displayed string's UTF-8 bytes; do not base64-decode it.
+The secret is the UTF-8 bytes of the string that the Cloud shows. Do not decode
+it from base64.
 
-Receivers verify the signature against the raw bytes with a constant-time
-comparison, reject stale timestamps, require `X-Prometeu-Delivery` to match the
-signed body's `id`, and deduplicate that signed ID. A retry
-retains the ID and body and receives a fresh timestamp/signature. A `2xx`
-response acknowledges durable receipt; redirects and other statuses do not.
-Store the event before acknowledging it, then process asynchronously.
+Receivers must do these steps:
+
+1. Examine the signature against the raw bytes. Compare in constant time.
+2. Refuse expired timestamps.
+3. Make sure that `X-Prometeu-Delivery` is the same as the `id` of the signed
+   body.
+4. Remove duplicates of that signed ID.
+
+A retry keeps the ID and the body. It gets a new timestamp and a new signature.
+A `2xx` response acknowledges a durable receipt. Redirects and other statuses
+do not acknowledge it. Store the event before you acknowledge it. Then process
+it asynchronously.
 
 ### OpenBot format
 
-Selecting `openbot` changes only the outbound callback boundary. Host ingestion,
-MCP supervisor identities, metadata filtering and batching remain unchanged.
-The body is `{"type":"prometeu.events","data":<delivery envelope above>}`.
-Individual event kinds remain in `data.events`, including `webhook.test` for the
-settings test. The receiver routes `prometeu.events` and inspects those events.
+When a person selects `openbot`, only the outbound callback changes. The host
+ingestion, the MCP supervisor identities, the metadata filters and the batches
+do not change. The body is
+`{"type":"prometeu.events","data":<delivery envelope above>}`. The individual
+event types stay in `data.events`. This includes `webhook.test` for the
+settings test. The receiver sends `prometeu.events` to its handler and examines
+those events.
 
 Headers:
 
 - `Content-Type: application/json`
-- `X-OpenBot-Timestamp`: the attempt's Unix timestamp as decimal text.
-- `X-OpenBot-Delivery-Id`: the stable delivery ID, equal to `data.id`.
-- `X-OpenBot-Signature`: `sha256=` followed by lowercase hexadecimal HMAC-SHA256
-  of `timestamp + "." + delivery_id + "." + raw_request_body`.
+- `X-OpenBot-Timestamp`: the Unix timestamp of the request as decimal text.
+- `X-OpenBot-Delivery-Id`: the stable delivery ID. It is the same as `data.id`.
+- `X-OpenBot-Signature`: `sha256=` and then the lowercase hexadecimal
+  HMAC-SHA256 of `timestamp + "." + delivery_id + "." + raw_request_body`.
 
-Use the supplied secret's literal UTF-8 bytes, including any `whsec_` prefix;
-do not base64-decode it. The signature covers the exact wrapped JSON body sent.
-Retries retain the delivery ID and body and receive a fresh timestamp/signature.
-The same acknowledgement, deduplication and timestamp checks apply.
+Use the literal UTF-8 bytes of the supplied secret. This includes a `whsec_`
+prefix if there is one. Do not decode the secret from base64. The signature
+applies to the accurate JSON body with the wrapper that the Cloud sends. A retry
+keeps the delivery ID and the body. It gets a new timestamp and a new signature.
+The same rules for acknowledgement, duplicates and timestamps apply.
 
-Editing the format, URL or secret affects subsequent attempts, including queued
-retries; a request already sent cannot be changed. A format change re-encodes the
-same stored metadata envelope using the selected format. Existing destinations
-keep `prometeu` after the additive migration. Before rolling Cloud back to a
-version without OpenBot support, disable OpenBot destinations; older code only
-sends the Prometeu format. Preserve the new column, encrypted secrets and queue.
+A change to the format, the URL or the secret applies to the subsequent
+requests. This includes retries in the queue. A request that the Cloud sent
+cannot change. A format change encodes the same stored metadata envelope again
+in the selected format. After the added migration, current destinations keep
+`prometeu`. Before a rollback of the Cloud to a version without OpenBot, disable
+OpenBot destinations. Older code sends only the Prometeu format. Keep the new
+column, the encrypted secrets and the queue.
 
-Cloud browser tests cover create/edit, blank preservation, validation, secret
-filtering and host-token rotation. Delivery tests verify the OpenBot signature,
-wrapped metadata, retries and conversion of a queued Prometeu test delivery.
-The existing producer/consumer fixtures still cover the unchanged Prometeu
-format; desktop and host clients require no update for this receiver option.
+The Cloud browser tests cover these items:
 
-Cloud groups nearby events and permits one HTTP delivery attempt at a time.
-Its worker recovers persistent pending deliveries on startup and wakes on
-new work or retry deadlines. This is delivery serialization, not a lock on an
-external model: receivers must serialize evaluations by executor/workspace,
-retain changes arriving during an evaluation, and read current state before
-sending a new instruction. GitHub and host events can arrive out of order.
+- Make and edit operations on the destination.
+- An empty secret that keeps the stored secret.
+- Validation.
+- The removal of secrets from the output.
+- The rotation of the host token.
 
-Delivered and cancelled callback history is retained for 30 days; pending and
-sending deliveries are never removed by retention. The worker performs local
-database maintenance at startup and daily without querying hosts or GitHub.
+The delivery tests examine the OpenBot signature, the metadata in the wrapper,
+the retries and the conversion of a Prometeu test delivery in the queue. The
+current producer and consumer fixtures continue to cover the Prometeu format,
+which did not change. An update of the desktop and host clients is not necessary
+for this receiver option.
 
-Destinations require HTTPS, public network addresses, bounded timeouts and no
-redirect following. DNS addresses are checked and pinned for each attempt to
-prevent private-network requests through DNS changes. Callback bodies, secrets
-and arbitrary error responses are not written to delivery logs.
+The Cloud puts events that occur near the same time in one group. It sends only
+one HTTP delivery request at a time. At startup, its worker loads the durable
+deliveries that wait. The worker starts again when there is new work or when a
+retry is due. This is a serialization of the deliveries. It is not a lock on an
+external model.
+
+Receivers must do these steps:
+
+1. Examine the events one batch after the other for each executor and
+   workspace.
+2. Keep the changes that come while you examine a batch.
+3. Read the current state before you send a new instruction.
+
+GitHub events and host events can come in a different sequence.
+
+The Cloud keeps the history of sent and cancelled callbacks for 30 days.
+The retention does not remove deliveries that wait or that the Cloud sends at
+that time. At startup and one time each day, the worker does maintenance of the
+local database. It does not query hosts or GitHub.
+
+Destinations must use HTTPS and public network addresses. The Cloud uses
+timeouts with a maximum time and does not follow redirects. For each request,
+the Cloud examines the DNS addresses and keeps them for that attempt. This
+prevents requests to a private network through DNS changes. The Cloud does not
+write callback bodies, secrets or error responses from the receiver to the
+delivery logs.
 
 ## Verification and compatibility
 
-Old registry records omit supervision and keep their original behavior. MCP
-creation arguments are additive. Existing local MCP ownership and provider
-support do not change. Future local executors can use the same IDs, events and
-binding model, but need their own authenticated reverse transport and grants.
+Registry records from earlier versions do not have supervision fields. They keep
+their initial behavior. The MCP creation arguments only add fields. The
+ownership of the local MCP and the agents of each provider do not change. Future
+local executors can use the same IDs, events and link model. But they must have
+their own authenticated transport back from the Cloud and their own grants.
 
-Host registry writes use version 2 and migrate version 1 records on write.
-Older hosts refuse that version instead of rewriting away bindings and pending
-events; a downgrade must retain a compatible host and preserve the registry.
+Host registry writes use version 2. When the host writes, it changes version 1
+records to version 2. Older hosts refuse that version. They do not write the
+registry again without the links and the events in the queue. Before a
+downgrade, keep a compatible host and keep the registry.
 
-`prometeu-core::supervision` tests check root/child completion, duplicate events,
-blocking episodes, interruption, restart and the shared JSON examples. Host
-tests exercise private configuration, MCP assignment and persistent HTTP
-delivery using synthetic hooks. The Cloud's supervision integration and
-service tests cover request authentication, metadata validation, account
-isolation, GitHub routing, signatures, grouping, retries and destination
-validation. The shared fixture is imported with `bin/contracts` in the Cloud.
-These checks do not claim a deployment or a live external supervisor run.
+The `prometeu-core::supervision` tests examine the completion of root and child
+turns, duplicate events and periods of blocked work. They also examine
+interruptions, a new start and the shared JSON examples. The host tests examine
+the private configuration, the MCP link and the durable HTTP delivery with
+synthetic hooks. The supervision integration tests and service tests of the
+Cloud cover these items:
+
+- The authentication of requests.
+- The validation of metadata.
+- The accounts stay isolated from each other.
+- The GitHub routing.
+- The signatures.
+- The groups of events.
+- The retries.
+- The validation of destinations.
+
+The Cloud imports the shared fixture with `bin/contracts`. These checks do not
+prove a deployment or a run with a live external supervisor.

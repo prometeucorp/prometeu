@@ -1,63 +1,72 @@
 ---
 type: Contract
 title: "Optional context evaluation"
-description: "Bring-your-own-key TypeSafe adapter, evaluation port and key test in Settings."
+description: "The TypeSafe adapter with the key of the person, the evaluation port and the key test in Settings."
 status: stable
 ---
 
 # Optional context evaluation
 
-Current contract. Decision in
-[ADR 0058](../decisions/0058-optional-context-evaluation.md).
+This contract is current.
+[ADR 0058](../decisions/0058-optional-context-evaluation.md) records the
+decision.
 
 ## Responsibilities
 
 | Part | Location | Owns |
 | --- | --- | --- |
-| evaluation port | `src-tauri/src/evaluation.rs`, `src/evaluation.ts` | closed request/answer types, bounds, validation, error codes, configuration generation |
-| TypeSafe adapter and credential | `src-tauri/src/typesafe.rs` | private key file, enable flag, HTTP transport, retries, vendor validation and error translation |
-| Settings | `src/typesafe-settings.ts` | save, replace and remove the key; **Test key** |
+| evaluation port | `src-tauri/src/evaluation.rs`, `src/evaluation.ts` | closed request and answer types, limits, validation, error codes, the configuration generation |
+| TypeSafe adapter and credential | `src-tauri/src/typesafe.rs` | the private key file, the enable flag, the HTTP transport, new tries, the validation of the vendor format and the translation of errors |
+| Settings | `src/typesafe-settings.ts` | save, replace and remove the key. **Test key** |
 
-No product feature consumes the port today. Settings only manages the key and
-offers **Test key**, which enables the integration if needed (the enable flag
-only gates `context_evaluate`, and Test is its only caller) and sends one fixed
-synthetic request with a single `task_kind` question. Success shows the
-effective model; failures show the localized error code. A future feature must
-import only the port types, never a vendor payload, the key or the HTTP status. The timeline, the
-relay and the conversation protocol are unchanged; the integration is
-independent of Claude, Codex and Antigravity and of the Prometeu Cloud account.
+At this time, no product feature uses the port. Settings only controls the key
+and gives **Test key**. This action enables the integration if necessary. The
+enable flag controls only `context_evaluate`, and the test is its only caller.
+The test sends one synthetic request that does not change, with one `task_kind` question. If the
+test is correct, it shows the model that the service used. If the test has a failure, it
+shows the localized error code. A future feature must import only the port
+types. It must not import a vendor payload, the key or the HTTP status. The
+timeline, the relay and the conversation protocol do not change. The
+integration is not connected to Claude, Codex, Antigravity or the Prometeu Cloud
+account.
 
 ## Credential and enablement lifecycle
 
-- The integration is **disabled** by default. A missing file, an old
-  installation, or a file without `enabled: true` and a key is disabled.
-- Saving a key stores it and **does not** enable evaluation. Replacing a key
-  keeps the current choice. Removing the key deletes the file, so a later key
+- The integration is **disabled** by default. It is also disabled in these
+  conditions:
+  - The file is missing.
+  - The installation is from an earlier version.
+  - The file does not have `enabled: true` and a key.
+- When a person saves a key, the app stores it and **does not** enable the
+  evaluation. When a person replaces a key, the current selection stays. When a
+  person removes the key, the app deletes the file. Thus, a subsequent key
   starts disabled again.
-- Enabling requires a saved key (`err.evaluation.noKey` otherwise).
-- Every save, replacement, removal, enable or disable bumps an in-memory
-  configuration generation while holding the configuration lock. An evaluation
-  reads the key, the enablement and the generation together under that lock;
-  if the generation changed after that snapshot it returns `stale` without
-  sending the old key, or discards the answer and stops retrying when the
-  change happens during the call.
-- An unreadable or invalid file keeps the integration disabled and reports
-  `err.evaluation.storage` as the status `problem`; it never blocks normal
-  work. Saving a key over such a file fails with the same
-  code instead of overwriting it; a missing file is the default configuration.
+- To enable the integration, a saved key is necessary. If not, the app returns
+  `err.evaluation.noKey`.
+- Each save, replacement, removal, enable or disable increases a configuration
+  generation in memory. The app holds the configuration lock during this change.
+- An evaluation reads the key, the enablement and the generation together under
+  that lock. If the generation changed after that snapshot, the evaluation
+  returns `stale` and does not send the previous key. If the change occurs
+  during the call, the evaluation discards the answer and stops the new tries.
+- If the app cannot read the file or the file is incorrect, the integration
+  stays disabled. The status `problem` reports `err.evaluation.storage`. This
+  does not stop usual work. If a person saves a key in this condition, the
+  save has a failure with the same code and does not replace the file.
+  A missing file is the default configuration.
 
 ## Persistence
 
-`<root>/typesafe.json`, private (`0600` in a `0700` directory) with the atomic
-writer used by other credentials:
+`<root>/typesafe.json` is private (`0600` in a `0700` folder). The app writes it
+with the same atomic writer as other credentials:
 
 ```json
 { "version": 1, "enabled": false, "key": "…" }
 ```
 
-All fields default when absent. The file is additive: older app versions ignore
-it, and it never enters the board, `team.json`, the relay, Cloud catalogs,
-transcripts or the repository. Rolling back leaves it inert.
+All fields have default values when they are missing. The file adds to the
+formats. Older versions of the app ignore it. It does not go into the board,
+`team.json`, the relay, Cloud catalogs, transcripts or the repository. After a rollback, the file stays and has no effect.
 
 ## IPC
 
@@ -69,55 +78,73 @@ transcripts or the repository. Rolling back leaves it inert.
 | `typesafe_set_enabled` | `{ enabled }` | the same status |
 | `context_evaluate` | `{ request: { context, questions: [{ id, prompt, outcomes }] } }` | `{ answers: [{ id, outcome, confidence }], model: string | null }` |
 
-The status never contains the key or any part of it. `problem` is `null` or an
-i18n-coded error. Failures reject with `i18n:{"code":"err.evaluation.<code>"}`:
+The status does not contain the key or a part of it. `problem` is `null` or an
+error with an i18n code. Failures reject with
+`i18n:{"code":"err.evaluation.<code>"}`:
 
 | Code | Meaning |
 | --- | --- |
-| `disabled` | integration off or without a key; no call was made |
+| `disabled` | the integration is off or has no key. The app did not send a call |
 | `auth` | the service rejected the key (401/403) |
-| `rate_limited` | 429 after bounded retries |
-| `unavailable` | offline, timeout, 5xx or 529 after bounded retries, or any other status |
-| `malformed` | response outside the closed questions, invalid confidence, oversized or not JSON |
-| `invalid` | request outside the port bounds, or refused by the service (400/413/422) |
-| `stale` | configuration changed during the call; callers ignore it silently |
+| `rate_limited` | 429 after the maximum number of new tries |
+| `unavailable` | offline, timeout, 5xx or 529 after the maximum number of new tries, or a different status |
+| `malformed` | the response is not in the closed questions, has an incorrect confidence, is too large or is not JSON |
+| `invalid` | the request is not in the limits of the port, or the service refused it (400/413/422) |
+| `stale` | the configuration changed during the call. Callers ignore it silently |
 | `key`, `noKey`, `storage` | configuration errors from the `typesafe_*` commands |
 
-Bounds checked before any network call: context is a nonempty string or JSON object, up to 24 KiB of UTF-8 (serialized JSON bytes for objects), one to
-eight questions, identifiers and outcomes of lowercase letters, digits, `_` and
-`.` up to 40 bytes, two to eight unique outcomes per question, prompts up to
-600 bytes. Answers must name a requested question and one of its outcomes, at
-most once, with a finite confidence between 0 and 1; omitted questions mean
-abstention. The optional effective `model` is a nonempty ASCII identifier of at most 80 bytes (`A-Z`, `a-z`, digits, `.`, `_`, `-`); missing/null identity remains unknown and never inherits the requested pin.
+The app examines these limits before it sends a network call:
 
-Old string contexts remain accepted; old results without `model` deserialize with `None`. The field is additive for older consumers.
+- The context is a string that is not empty or a JSON object. It has a maximum
+  of 24 KiB of UTF-8 (the serialized JSON bytes for objects).
+- There are one to eight questions.
+- Identifiers and outcomes contain only lowercase letters, digits, `_` and `.`.
+  They have a maximum of 40 bytes.
+- Each question has two to eight unique outcomes.
+- Each prompt has a maximum of 600 bytes.
 
-`context_evaluate` runs on a blocking worker thread, never on the UI or async
-threads. The browser mock implements the evaluation commands without a key or any
-network: it stores only whether a key was configured, and answers with a local
-deterministic fake. `mock:typesafeFail` simulates a failure code; `mock:typesafeModel` overrides effective identity. No real key or network is needed.
+Each answer must identify a requested question and one of its outcomes, and it
+can occur only one time. It must have a finite confidence between 0 and 1. A
+question without an answer is an abstention. The optional `model` identifies the model that the service used. It is
+an ASCII identifier that is not empty. It has a maximum of 80 bytes (`A-Z`,
+`a-z`, digits, `.`, `_`, `-`). When the identity is missing or null, it stays
+unknown. It does not get the value of the requested model.
+
+The app continues to accept previous string contexts. Previous results without
+`model` deserialize with `None`. The field adds to the format for older
+consumers.
+
+`context_evaluate` operates on a worker thread that can wait. It does not
+operate on the UI threads or the async threads. The browser mock has the
+evaluation commands without a key and without a network. It stores only if a
+person configured a key, and it answers with a local deterministic simulation.
+`mock:typesafeFail` simulates a failure code. `mock:typesafeModel` replaces the
+identity of the model. An actual key or a network is not necessary.
 
 ## Transport
 
-- Origin `https://api.typesafe.ai`, overridable with `PROMETEU_TYPESAFE_URL`
-  (HTTPS, or HTTP on loopback). The override must be an origin only: userinfo,
-  a path other than `/`, a query or a fragment disable the adapter. The
-  endpoint is built from the parsed origin, and redirects are not followed.
-- 5-second connect and 15-second request timeouts; responses above 256 KiB are
-  malformed.
-- At most three attempts for network errors, 429, 529 and 500/502/503/504, with
-  400 ms and 1.2 s backoff or a `Retry-After` of at most three seconds.
-- The key travels only as `Authorization: Bearer`. Response bodies, URLs and
-  library errors are discarded; errors carry only the application code.
+- The origin is `https://api.typesafe.ai`. `PROMETEU_TYPESAFE_URL` can replace
+  it (HTTPS, or HTTP on loopback). The replacement must be only an origin. If
+  it has userinfo, a path other than `/`, a query or a fragment, the app
+  disables the adapter. The adapter makes the endpoint from the parsed origin, and it does
+  not follow redirects.
+- The connect timeout is 5 seconds, and the request timeout is 15 seconds.
+  Responses larger than 256 KiB are malformed.
+- The adapter makes a maximum of three tries for network errors, 429, 529 and
+  500/502/503/504. It waits 400 ms and 1.2 s between the tries, or a
+  `Retry-After` of a maximum of three seconds.
+- The key goes only in `Authorization: Bearer`. The adapter discards response
+  bodies, URLs and library errors. Errors contain only the application code.
 
 ### TypeSafe System One wire shape
 
-The adapter follows the [TypeSafe HTTP API](https://docs.typesafe.ai/api) and
-keeps its request and response shape isolated in `typesafe.rs::wire`. Original
-string requests returned live Choice answers on 2026-09-24, including eight
-questions in one call. The current structured request below is checked against
-the vendor documentation and synthetic fixtures on 2026-09-27; it has not yet
-been evaluated in a live quality study:
+The adapter follows the [TypeSafe HTTP API](https://docs.typesafe.ai/api). It
+keeps the shape of the request and of the response isolated in
+`typesafe.rs::wire`. On 2026-09-24, the initial string requests returned live
+Choice answers, also with eight questions in one call. On 2026-09-27, we
+compared the current structured request below with the documentation of the
+vendor and with synthetic fixtures. No live quality study examined it at this
+time:
 
 ```http
 POST /v1/systemone
@@ -130,37 +157,51 @@ Authorization: Bearer <key>
 { "model": "jev-1.13.0", "answers": { "task_kind": { "type": "choice", "choice": "bug_fix", "confidence": 0.93, "probabilities": { "bug_fix": 0.93, "feature": 0.07 } } } }
 ```
 
-The Choice result becomes the application-owned `{ id, outcome, confidence }`; the effective response `model` travels alongside the answers. Probabilities and usage remain outside the port. A missing model is unknown, and a non-string model is malformed.
-An omitted answer is an abstention. Any other shape is `malformed`.
+The Choice result becomes the `{ id, outcome, confidence }` value that the
+application owns. The `model` of the response goes together with the
+answers. The values for each outcome and the usage stay out of the port. A missing model is
+unknown, and a model that is not a string is malformed. An answer that is
+missing is an abstention. All other formats are `malformed`.
 
 ## External data flow
 
-Only **Test key** calls `context_evaluate`. It sends the fixed synthetic
-request to TypeSafe with the person's key; no draft, issue, project or other
-user data leaves the Mac.
+Only **Test key** calls `context_evaluate`. It sends the synthetic
+request to TypeSafe with the key of the person. No draft, issue, project or
+other user data goes out of the Mac.
 
 ## Removed features
 
-Earlier versions offered a missing-context **Review request** in the launcher,
-a Settings toggle to enable it and an opt-in local calibration history. All
-three were removed; an existing `typesafe.json` keeps working. Current versions
-neither read, write nor delete `<root>/review-calibration.json` and
-`<root>/review-calibration.jsonl`; the `review_calibration_*` commands no
-longer exist.
+Earlier versions had these features:
+
+- A **Review request** in the launcher for missing context.
+- A toggle in Settings to enable it.
+- A local calibration history that a person had to enable.
+
+We removed these three features. A current `typesafe.json` continues to
+operate. Current versions do not read, write or delete
+`<root>/review-calibration.json` and `<root>/review-calibration.jsonl`. The
+`review_calibration_*` commands are not available.
 
 ## Tests
 
-- `src-tauri/src/evaluation.rs`: disabled path makes no call, bounds, closed-set
-  validation, stale generation during the call and after the credential
-  snapshot.
-- `src-tauri/src/typesafe.rs`: disabled defaults and old files, saving does not
-  enable, removal disables, `0600` file, key absent from status and errors, the
-  System One wire shape, 401/429/529/503/offline/timeout/non-JSON translation, bounded
-  retries, recovery after a transient failure, cancellation between retries, a
-  key replaced, disabled or removed after the credential snapshot, no overwrite
-  of an invalid file, origin-only overrides.
-- `src/typesafe-settings.test.ts`: Test enables a saved key, sends only the
-  synthetic request, surfaces backend errors and never overlaps a pending
-  request after Settings re-renders.
-- `src-tauri/tests/mock.rs`: command parity across Rust, the typed map and the
-  mock.
+- `src-tauri/src/evaluation.rs`: the disabled path sends no call. It also
+  examines the limits, the validation of the closed set, and an expired
+  generation during the call and after the credential snapshot.
+- `src-tauri/src/typesafe.rs`: these tests examine these items:
+  - The disabled default values and files from earlier versions.
+  - A save does not enable the integration, and a removal disables it.
+  - The `0600` file, and that the status and the errors do not contain the key.
+  - The System One wire shape.
+  - The translation of 401, 429, 529, 503, offline, timeout and responses that
+    are not JSON.
+  - The maximum number of new tries, the recovery after a temporary failure and the
+    cancellation between new tries.
+  - A key that a person replaced, disabled or removed after the credential
+    snapshot.
+  - The app does not replace an incorrect file.
+  - Replacements of the origin that contain only an origin.
+- `src/typesafe-settings.test.ts`: the test enables a saved key and sends only
+  the synthetic request. It shows backend errors. A new request does not start
+  while a request waits, also after Settings renders again.
+- `src-tauri/tests/mock.rs`: the same commands in Rust, in the typed map and in
+  the mock.

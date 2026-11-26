@@ -1,200 +1,293 @@
 ---
 type: Quality
 title: "Issue #148 energy profiling"
-description: "Measurement protocol and source baseline at b03e768, without verified battery-life claims."
+description: "The measurement protocol and the source baseline at b03e768. It does not claim a measured change in battery life."
 status: stable
 ---
 
 # Issue #148 energy profiling
 
-Measurement protocol and source-level baseline for commit `b03e768`.
-The native release-build comparison belongs to the implementation review; the
-figures below do not establish a battery-life change.
+This page gives the measurement protocol and the baseline from the source code
+for commit `b03e768`. To compare native release builds is a task is part of the
+implementation review. The values below do not show a change in battery life.
 
 ## Reproduce the comparison
 
-1. Build the before and after revisions with `npm run build:app`; run the native
-   bundle, not Vite or the browser mock. Record the Git SHA, bundle version,
-   macOS/Linux version, power source, display brightness, external displays,
-   selected sleep preference, thermal conditions, account/provider count,
-   workspace/repository count and visible panels. Use an isolated
-   `PROMETEU_ROOT` containing the same fixture state for both builds. Never
-   publish credentials, local paths or raw process samples.
-2. Repeat each scenario at least three times for equal intervals after a warm-up:
-   idle foreground, hidden/minimized idle, one active streaming conversation,
-   several visible desk conversations, and Files and Changes visible. Run on AC and battery when the hardware state
-   is available. Change only the app revision between paired runs.
-3. For each run, record main-process, WebKit and provider CPU separately;
-   wakeups; app-started `ps`, provider, `git` and `gh` process launches; disk and
-   network work; and sleep assertions (`pmset -g assertions` on macOS). Use
-   Activity Monitor Energy Impact or controlled battery discharge when available.
-   Record unavailable counters as unavailable, rather than extrapolating them
-   from process CPU or wall time.
-4. Capture time from focus/return/panel opening to refresh dispatch and to a
-   usable result. A network or CLI timeout is separate from the scheduling
-   budget. Confirm transcript, terminal, sharing and opt-in PR work continue
-   while discretionary UI work is reduced.
+1. Build the revisions before and after the change with `npm run build:app`.
+2. Run the native bundle. Do not use Vite or the browser mock.
+3. Record the Git SHA, the bundle version and the macOS or Linux version.
+4. Record the power source, the display brightness and the external displays.
+5. Record the selected sleep preference and the thermal conditions.
+6. Record the number of accounts, providers, workspaces and repositories.
+7. Record the panels that are open.
+8. Use an isolated `PROMETEU_ROOT` with the same fixture state for the two
+   builds.
+9. Do not publish credentials, local paths or raw process samples.
+10. After a warm-up, do each scenario a minimum of three times for equal
+    intervals.
+
+    The scenarios are:
+
+    - The app is idle in the foreground.
+    - The app is idle and hidden or in the Dock.
+    - One conversation streams.
+    - Many desk conversations are open.
+    - The Files and Changes views are open.
+11. If the hardware state lets you, run on AC power and on battery.
+12. Between paired runs, change only the revision of the app.
+13. For each run, record the CPU of the primary process, WebKit and the
+    provider independently.
+14. Record the wakeups.
+15. Record the launches of `ps`, provider, `git` and `gh` processes that the app
+    starts.
+16. Record the disk and network work.
+17. Record the sleep assertions. On macOS, use `pmset -g assertions`.
+18. If available, use Energy Impact in Activity Monitor or a controlled battery
+    discharge.
+19. If a counter is not available, record it as not available. Do not calculate
+    it from the process CPU or the clock time.
+20. Measure the time from a focus, a return or an open panel to the refresh
+    request.
+21. Measure the time from the same action to a result that a person can use.
+
+A network or CLI timeout is different from the scheduling budget. Make sure that
+the transcript, terminal, sharing and optional PR work continue while the app
+does less optional interface work.
 
 ## Source-level baseline at `b03e768`
 
 | Work | Current trigger | Approximate idle frequency or cost |
 | --- | --- | --- |
-| Detailed process sampling | `machine.rs::watch` | One `ps` per 3 seconds while the app runs, about 1,200 per hour. |
-| Account identity/quota probes | `usage.rs::watch` | Every registered profile is probed sequentially, followed by a 60-second sleep; actual per-profile spacing also includes probe duration. |
-| Antigravity quota child wait | `antigravity.rs::discover` | Completion check every 20 ms, up to 10 seconds per invocation. |
-| General PR discovery | `main.ts` | At startup and every 60 seconds. |
-| Visible Changes and Files | `workspace.ts`, `tree.ts` | Each has a five-second fallback; workspace board redraws can add status requests. |
-| Full status for one repository | `session/git.rs` | Multiple Git subprocesses per request; the issue's throwaway benchmark measured ten read-only commands at 165.1 ms median wall time and 82.5 ms mean child CPU on its repository. |
+| Detailed process sampling | `machine.rs::watch` | One `ps` each 3 seconds while the app runs. This is approximately 1,200 each hour. |
+| Account identity/quota probes | `usage.rs::watch` | The app examines each profile in the list, one after the other. Then it waits 60 seconds. The time between the probes of a profile also includes the time of each probe. |
+| Antigravity quota child wait | `antigravity.rs::discover` | A completion check each 20 ms, for a maximum of 10 seconds for each call. |
+| General PR discovery | `main.ts` | At startup and each 60 seconds. |
+| Visible Changes and Files | `workspace.ts`, `tree.ts` | Each view has a fallback of five seconds. When the workspace board renders again, it can add status requests. |
+| Full status for one repository | `session/git.rs` | Many Git subprocesses for each request. A temporary benchmark of the issue measured ten read-only commands on its repository. The median clock time was 165.1 ms. The mean CPU time of the child processes was 82.5 ms. |
 
-These frequencies are read from the source, not measured energy. The
+We read these frequencies from the source code. They are not energy
+measurements. The
 [investigation in issue #148](https://github.com/prometeucorp/prometeu/issues/148)
-observed sleep assertions and a short CPU sample on a different running
-release, with the limitations described there.
+recorded sleep assertions and a short CPU sample on a different release that
+operated at that time. That page gives the limits of these data.
 
 ## Local baseline attempt, 2026-09-25
 
-The `b03e768` release binary was compiled on macOS 26.5.2 and launched with an
-isolated `PROMETEU_ROOT`. The machine was connected to AC; the battery was
-charging at 68%. Three five-second `top` samples of the isolated main process
-reported 0.0%, 0.0% and 0.1% CPU and about 27 MB resident memory. The system
-load average was about 25, with other Prometeu and unrelated processes active.
-`pmset -g assertions` showed no assertion attributable to this isolated app;
-its saved sleep preference was off. The native UI did not have a controlled
-workload, so these readings are **not** comparable scenario measurements.
+We compiled the `b03e768` release binary on macOS 26.5.2. We started it with an
+isolated `PROMETEU_ROOT`. The machine was on AC power, and the battery charge was
+68%. Three `top` samples of five seconds each for the isolated primary process
+showed 0.0%, 0.0% and 0.1% CPU. They showed approximately 27 MB of resident
+memory. The system load average was approximately 25. Other Prometeu processes
+and processes that are not related were active.
 
-`npm run build:app` produced a release binary but exited with an updater
-packaging error because `TAURI_SIGNING_PRIVATE_KEY` is unavailable. This
-Command Line Tools installation also lacks Instruments' `xctrace`. Battery
-runs, WebKit/provider CPU, process-launch counts, wakeups and Energy Impact
-were unavailable for this baseline. The source-level counts above and focused
-launch-count tests are the current comparison points; a controlled native
-before/after energy measurement remains required before claiming a battery
-gain.
+`pmset -g assertions` did not show an assertion from this isolated app. The
+saved sleep preference of the app was off. The native interface did not have a
+controlled workload. Thus, these values are **not** scenario measurements that
+you can compare.
+
+`npm run build:app` made a release binary. But it stopped with an error in the
+updater packaging, because `TAURI_SIGNING_PRIVATE_KEY` was not available. This
+Command Line Tools installation also does not have `xctrace` from Instruments.
+These measurements were not available for this baseline:
+
+- Runs on battery.
+- The CPU of WebKit and of the provider.
+- The number of process launches.
+- The wakeups.
+- Energy Impact.
+
+At this time, the comparison points are the counts from the source code above
+and the focused tests of launch counts. A controlled native energy measurement
+before and after the change continues to be necessary before a claim of better
+battery life.
 
 ## Acceptance record
 
-For each implementation slice, add a dated comparison with its two Git SHAs,
-build and workload description, three run values with median/range, observed
-assertions, refresh latency, and any deferred candidate. Check these outcomes
-independently of Energy Impact:
+For each part of the implementation, add a comparison with a date. Include these
+items:
 
-- Hidden idle performs no detailed process or Git scans.
-- Account and general-PR probes respect their documented background budgets.
-- Returning to the app queues stale refreshes immediately and preserves the
-  last valid quota reading during provider failures.
-- A machine reading changes only the resource display, not unrelated footer
-  controls.
-- The selected sleep assertion matches the saved preference and the actual
-  local agent state, including native background children.
+- The two Git SHAs.
+- The description of the build and the workload.
+- Three run values with the median and the range.
+- The assertions that you saw.
+- The refresh latency.
+- Each candidate that you did not do.
 
-Do not report a battery-life gain unless a controlled energy or discharge
-comparison supports it.
+Examine these results independently of Energy Impact:
+
+- When the app is hidden and idle, it does no detailed process or Git scans.
+- The account probes and the general PR probes obey their documented
+  background budgets.
+- When a person goes back to the app, the app immediately queues the refreshes
+  that are not current. During provider failures, it keeps the last correct quota
+  value.
+- A machine value changes only the resource display. It does not change footer
+  controls that are not related.
+- The selected sleep assertion agrees with the saved preference and with the
+  state of the local agents. This includes native background child processes.
+
+Do not report better battery life if a controlled energy or discharge comparison
+does not show it.
 
 ## Sleep-assertion check, 2026-09-25
 
-On AC power, a short isolated `caffeinate -i -s -w <pid>` run produced
-`PreventUserIdleSystemSleep` and `PreventSystemSleep`, without
-`PreventUserIdleDisplaySleep`. Adding `-d` produced all three. Both children
-were terminated after inspection. The macOS native test in `awake.rs` verifies
-the app chooses these exact flags and releases the child on mode change and
-normal shutdown. Battery assertions remain unverified on this machine.
+On AC power, a short isolated run of `caffeinate -i -s -w <pid>` made
+`PreventUserIdleSystemSleep` and `PreventSystemSleep`. It did not make
+`PreventUserIdleDisplaySleep`. With `-d`, it made all three assertions. We
+stopped the two child processes after the inspection. The native macOS test in
+`awake.rs` makes sure that the app selects these flags. It also makes sure that
+the app releases the child process when the mode changes and at a usual
+shutdown. We did not examine the assertions on battery on this machine.
 
 ## Quota scheduling verification
 
-The implementation keeps `usage.json` unchanged and schedules each registered
-profile separately. The controlled-clock tests in `usage_scheduler.rs` count
-due tickets, the point where a provider probe is launched: on foreground AC,
-one selected profile is due after 60 seconds while one inactive profile is not
-due until 600 seconds. On battery these intervals are 120 and 1,200 seconds;
-when hidden they are 900 and 1,800 seconds. Failures back off per profile and
-an old in-flight generation cannot publish after removal, reconnection or a
-newer live event. These deterministic counts are a source-level comparison,
-not a native process-launch trace or an energy measurement. A native provider
-fixture with identical account count remains necessary for before/after launch
-counts.
+The implementation does not change `usage.json`. It schedules each profile in the
+list independently. The tests in `usage_scheduler.rs` use a controlled clock.
+They count the due tickets. A due ticket is the point where the app launches a
+provider probe. The intervals are these:
 
-Login lifecycle regressions additionally cover a probe already in flight when
-login starts, and immediate eligibility after cancellation or failure without
-a revision change. Both selected and inactive profiles resume, and an older
-ticket cannot finish the replacement probe. Login entry and every exit wake
-the scheduler after synchronizing the pending state, so a successful login does
-not wait for the watcher's fallback deadline.
+| Condition | Selected profile | Profile that is not active |
+| --- | ---: | ---: |
+| Foreground, AC power | 60 seconds | 600 seconds |
+| Battery | 120 seconds | 1,200 seconds |
+| Hidden | 900 seconds | 1,800 seconds |
+
+After a failure, the interval of that profile increases. A previous generation that
+operates at that time cannot publish after a removal, a new connection or a
+newer live event. These deterministic counts are a comparison from the source
+code. They are not a trace of native process launches or an energy measurement.
+For counts of launches before and after the change, a native provider fixture
+with the same number of accounts continues to be necessary.
+
+Login lifecycle regression tests also include these conditions:
+
+- A probe operates when the login starts.
+- A cancellation or a failure without a revision change makes the profile
+  immediately eligible.
+
+The selected profiles and the profiles that are not active resume. An older ticket cannot
+complete the replacement probe. The start of a login and each exit from a login
+start the scheduler again after the pending state agrees. Thus, after a
+satisfactory login, the scheduler does not wait for the fallback deadline of the
+watcher.
 
 ## Resource sampling verification
 
-The `machine.rs` fake-clock tests count sample eligibility before `/bin/ps`
-launches. A foreground compact display is eligible every 15 seconds on AC
-(240 per hour) or 30 seconds on battery (120 per hour), versus the original
-three-second loop (1,200 per hour). An open panel keeps the previous
-three-second AC cadence or uses five seconds on battery. A hidden or unfocused
-window has no detailed sample deadline and refreshes when it returns; the native
-context wakes the sampler directly, without a webview round trip. A gap longer
-than twice the cadence that produced the samples resets the CPU history, so
-compact samples keep theirs and the panel does not open empty; CPU percentage
-still divides the cumulative CPU delta by actual elapsed time. Terminal and
-port counts are published when a dock PTY starts or exits or a workspace's
-assigned port changes, without a `ps` sample. A port-assignment regression checks
-publication after saving and releasing the board lock, including replacement of
-a browser-blocked port. These counts assume the app
-remains in each state for the whole hour and are **not** measured `ps` launches
-or watts. A native process-launch trace was unavailable in the baseline.
+The `machine.rs` tests use a fake clock. They count when a sample is eligible,
+before the launch of `/bin/ps`. The intervals are these:
 
-`e2e/statusbar.spec.ts` covers a browser-specific menu-anchor and process-row
-preservation risk: replacing footer DOM after a resource event would detach the
-open sleep menu's button and reset panel state. Rust unit tests can prove
-sampling deadlines but cannot prove browser node identity.
+| Condition | Interval | Samples each hour |
+| --- | ---: | ---: |
+| Initial loop | 3 seconds | 1,200 |
+| Small display in the foreground, AC power | 15 seconds | 240 |
+| Small display in the foreground, battery | 30 seconds | 120 |
+| Open panel, AC power | 3 seconds | 1,200 |
+| Open panel, battery | 5 seconds | 720 |
+
+A hidden window or a window without focus has no deadline for a detailed sample.
+It refreshes when it comes back. The native context starts the sampler again
+directly, without a round trip through the webview.
+
+If the time between two samples is more than two times the interval, the CPU history
+starts again. Thus, the small display keeps its samples, and the panel is not
+empty when it opens. The CPU percentage continues to divide the cumulative CPU
+change by the clock time.
+
+The app publishes the terminal and port counts when one of these events occurs:
+
+- A dock PTY starts or stops.
+- The assigned port of a workspace changes.
+
+This publication does not use a `ps` sample. A port-assignment regression test
+examines the publication after the app saves and releases the board lock. It
+also examines the replacement of a port that the browser blocks. For these counts,
+the app stays in each state for the full hour. They are **not**
+measured `ps` launches or watts. A trace of native process launches was not
+available in the baseline.
+
+`e2e/statusbar.spec.ts` examines a risk that only a browser can show. It is
+about the menu anchor and the process rows. A resource event can cause a change to the
+footer DOM. Then the button of the open sleep menu can disconnect. Also, the
+panel state can go back to its initial value. Rust unit tests can show the sampling
+deadlines. But they cannot show the identity of browser nodes.
 
 ## Git refresh verification
 
-The Changes view now schedules fallback scans every five seconds on foreground
-AC or ten seconds on battery. Visible Files marks use 15 or 30 seconds. Both
-pause while hidden or unfocused and refresh on return. Board redraws that do
-not change the workspace or repository identity no longer request status. Files
-marks reuse the porcelain snapshot that a Changes status read within the last
-second, while per-worktree single-flight prevents overlapping scans. Changes
-always reads its own porcelain between its index fingerprints, so the commit
-token matches the listed files; an invalidation during a scan forces follow-up
-scans before returning its result.
-Native Git actions and app file saves invalidate immediately. Real-repository
-tests cover an external edit after the fallback, concurrent consumers,
-conflicts and multi-repository status. These tests count Git invocations in a
-controlled fixture; a comparable native multi-repository process trace is
-unavailable from the baseline, so no measured energy reduction is claimed.
+At this time, the Changes view schedules fallback scans each five seconds in the
+foreground on AC power. On battery, it schedules them each ten seconds. The Files
+marks use 15 or 30 seconds. The two views pause while they are hidden or without
+focus. They refresh when they come back.
+
+When the board renders again and the identity of the workspace or repository
+does not change, the views do not request status. The Files marks use the
+porcelain snapshot that a Changes status read in the last second. A single-flight
+lock for each worktree prevents scans at the same time.
+
+The Changes view always reads its own porcelain between its index fingerprints.
+Thus, the commit token agrees with the listed files. If an invalidation occurs
+during a scan, the view does more scans before it returns its result. Native Git
+actions and file saves in the app cause an invalidation immediately.
+
+Tests with git repositories on the disk include an external edit after the fallback,
+consumers at the same time, conflicts and status for many repositories. These
+tests count Git calls in a controlled fixture. The baseline does not have a
+native process trace for many repositories that you can compare. Thus, we do not
+claim a measured decrease in energy.
 
 No `fswatch`, `inotifywait` or `watchman` tool is available in this environment.
-A watcher would also need to follow the resolved gitdir, index, branch and
-worktree on both macOS and Linux. Without a comparable idle-cost and
-correctness benchmark, the visible fallback remains the implementation.
+A watcher must also follow the resolved gitdir, index, branch and worktree on
+macOS and on Linux. There is no benchmark of the idle cost and the correctness
+that you can compare. Thus, the fallback for open views stays the implementation.
 
 ## General PR discovery verification
 
-The source-level general scan interval changes from 60 seconds (up to 60
-scheduled attempts per hour) to three minutes on foreground AC (up to 20),
-five minutes on foreground battery (up to 12) and 15 minutes while hidden or
-unfocused (up to four). Opening a workspace adds an immediate request for its
-own repositories, and so does a turn that settles in the open workspace, at
-most every 20 seconds per workspace. Board updates record short turns even while
-menus or rename inputs defer rendering, retaining one refresh for the next
-allowed redraw. Returning to the foreground adds an
-immediate general request only when the last one is at least a minute old, so
-frequent app switching adds at most one scan per minute. A request during a
-slow scan queues only one follow-up;
-one clone is queried once per general scan. Rust tests cover the gate, an
-aborted CLI process, archived/cleaned exclusion, and preservation of known PR
-metadata. These are scheduler limits, not measured `gh` launches or watts; a
-controlled fixture with the same clone count and authenticated `gh` state is
-still needed for a native before/after comparison.
+The interval of the general scan in the source code changes from 60 seconds to
+these values:
+
+| Condition | Interval | Maximum scheduled scans each hour |
+| --- | ---: | ---: |
+| Before the change | 60 seconds | 60 |
+| Foreground, AC power | 3 minutes | 20 |
+| Foreground, battery | 5 minutes | 12 |
+| Hidden or without focus | 15 minutes | 4 |
+
+When a person opens a workspace, the app immediately adds a request for the
+repositories of that workspace. A turn that stops in the open workspace also adds
+a request. These requests occur a maximum of one time each 20 seconds for each
+workspace. Board updates record short turns also when menus or rename inputs
+stop the rendering for a short time. One refresh stays for the next permitted render.
+
+When the app comes back to the foreground, it immediately adds a general request
+only if the last request occurred one minute ago or before. Thus, if a person changes
+between apps frequently, the app adds a maximum of one scan each minute. A
+request during a slow scan queues only one more scan. The app examines one clone
+only one time in each general scan.
+
+Rust tests examine the gate and a CLI process that stops before the end. They
+also examine the exclusion of archived and cleaned workspaces and the PR
+metadata that the app keeps. These values are limits of the scheduler. They are not measured `gh`
+launches or watts. To compare the native app before and after the change, a
+controlled fixture is necessary. It must have the same number of clones and the
+same authenticated `gh` state.
 
 ## WebKit streaming and preview profile
 
-A production Vite build in Playwright WebKit streamed 60 Markdown deltas after
-an initial roughly 6 KiB block, one frame apart, first in a workspace and then
-to two visible desk conversations. Temporary in-app performance marks counted
-flushes, Markdown parses, piece grouping, composer and comment-pin paints, and
-the preview's body observer callbacks. The marks and profiling-only test were
-removed after measurement. Each row is one run on the same AC machine under
-uncontrolled load; timing is diagnostic rather than a statistically comparable
-energy result. This browser fixture is not the native WKWebView release bundle.
+We made a production Vite build and ran it in Playwright WebKit. After an initial
+block of approximately 6 KiB, the test streamed 60 Markdown deltas, one frame
+apart. It did this first in a workspace, then in two open desk conversations.
+
+Temporary performance marks in the app counted these items:
+
+- Flushes.
+- Markdown parses.
+- Piece grouping.
+- Paints of the composer and of the comment pins.
+- The body observer callbacks of the preview.
+
+We removed the marks and the profiling test after the measurement. Each row is
+one run on the same machine on AC power, with a load that we did not control.
+The timing is for diagnosis. It is not an energy result that you can compare
+statistically. This browser fixture is not the native WKWebView release bundle.
 
 | Scenario and measure | Before `c7c888c` | After `c7c888c` |
 | --- | ---: | ---: |
@@ -208,34 +301,53 @@ energy result. This browser fixture is not the native WKWebView release bundle.
 | Two desk conversations, composer / pin paints | 122 / 122 | 2 / 2 |
 | Two desk conversations, body observer callbacks | 122 | 0 |
 
-Markdown parsing was 23% of summed workspace flush time in the initial fixture,
-and piece grouping was under 1%; neither justified a riskier incremental parser
-or timeline cache. The post-change desk timing increased despite removing work,
-which reinforces the need for repeated controlled native measurements. A WebKit
-journey verifies that a token update keeps the send icon connected and that
-hidden transcript content catches up on return. The existing preview WebKit
-journeys cover opening, dialogs, resizing and workspace lifecycle.
+In the initial fixture, Markdown parsing used 23% of the summed flush time of
+the workspace. Piece grouping used less than 1%. Thus, these results did not
+justify an incremental parser or a timeline cache, which have more risk. After
+the change, the desk timing increased, although the change removed work. This
+result shows again that more controlled native measurements are necessary.
+
+A WebKit journey makes sure that a token update keeps the send icon connected.
+It also makes sure that hidden transcript content becomes current when the
+person comes back. The current preview journeys in WebKit examine the opening,
+the dialogs, the resize operations and the workspace lifecycle.
 
 ## Final implementation verification, 2026-09-25
 
-The source-level starting point is `b03e768`; the implementation through
-streaming/preview is `c7c888c`, followed by the hidden-Git guard and file-tree
-redraw correction in this change. The final `npm run check` passed: 515 web unit
-tests, 464 Rust unit tests (seven ignored), the two Rust IPC-parity tests, 172
-Chromium/WebKit E2E scenarios, documentation/architecture/format checks, web
-and mobile builds, and the configured Rust Clippy gate. Five additional WebKit
-repetitions passed the file-save/tree-row regression after canceling a redundant
-delayed redraw.
-`npm run build:app -- --no-bundle` produced the optimized native binary;
-signing and updater packaging still require the private updater key.
+The starting point in the source code is `b03e768`. The implementation through
+streaming and preview is `c7c888c`. After that, this change added the guard for
+hidden Git work and the correction for the file-tree render.
 
-The deterministic checks cover account removal during a probe, native child
-settlement for sleep assertions, a long resource-sampling gap, external Git
-edits and concurrent status consumers, general-PR scan overlap and timeout,
-and preview/dialog and hidden-transcript journeys. They do not replace a paired
-native process-launch or energy log. The baseline in `969fe64` had no controlled
-battery run, equal authenticated account fixtures or usable Instruments trace;
-the machine remained on AC under unrelated load. No native before/after watts,
-Energy Impact or discharge comparison is available, so this issue has no
-verified battery-life gain. A release review should repeat the worksheet above
-on an otherwise idle machine with equivalent fixture state on AC and battery.
+The last `npm run check` was satisfactory. It included these items:
+
+- 515 web unit tests.
+- 464 Rust unit tests, with seven ignored tests.
+- The two Rust IPC-parity tests.
+- 172 E2E scenarios in Chromium and WebKit.
+- The documentation, architecture and format checks.
+- The web and mobile builds.
+- The configured Rust Clippy gate.
+
+Five more WebKit runs of the regression test for the file save and the tree row
+were satisfactory. These runs occurred after the change that cancels an
+second render that is not necessary. `npm run build:app -- --no-bundle` made the
+optimized native binary. The signature and the updater packaging continue to
+use the private updater key.
+
+The deterministic checks include these conditions:
+
+- The removal of an account during a probe.
+- The end of native child processes for sleep assertions.
+- A long interval without resource samples.
+- External Git edits and status consumers at the same time.
+- General PR scans that overlap, and a timeout.
+- The preview and dialog journeys and the hidden transcript journeys.
+
+These checks do not replace a paired native log of process launches or energy.
+The baseline in `969fe64` did not have a controlled battery run, equal
+authenticated account fixtures or a usable Instruments trace. The
+machine stayed on AC power with a load that was not related. There is no native
+comparison of watts, Energy Impact or discharge before and after the change.
+Thus, this issue does not show a measured improvement of battery life. A
+release review must do the procedure above again on an idle machine. Use the
+same fixture state, on AC power and on battery.

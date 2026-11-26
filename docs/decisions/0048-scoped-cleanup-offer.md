@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0048 — Offer scoped worktree cleanup after archiving"
-description: "Scoped worktree cleanup after archiving or finishing."
+description: "Prometeu offers worktree cleanup for one workspace after the archive or finish operation."
 status: stable
 ---
 
@@ -11,84 +11,113 @@ Date: 2026-09-17
 
 ## Context
 
-Archiving and finishing deliberately preserved the worktree, local branch and
-transcript. Cleanup was available only from the archived-workspaces screen, so
-recovering disk space depended on remembering a separate later action.
+The archive and finish operations kept the worktree, the local branch and the
+transcript. This was intentional. The person was able to start cleanup only
+from the screen of archived workspaces. Thus, to get disk space back, the
+person had to remember a different action at a subsequent time.
 
-Removing a worktree can also remove uncommitted or unmerged work. The existing
-cleanup dialog already classifies that risk, requires explicit force selection
-and protects original clones.
+When Prometeu removes a worktree, it can also remove work that the person did
+not commit or merge. The current cleanup dialog puts this risk into classes.
+For a risk, the person must select force. The dialog also keeps original
+clones safe.
 
 ## Options considered
 
-1. Delete every worktree automatically after archiving.
-2. Add a new confirmation prompt that duplicates cleanup safety rules.
-3. Open the existing cleanup dialog scoped to the workspace just archived.
+1. Delete all worktrees automatically after the archive operation.
+2. Add a new confirmation prompt that copies the safety rules of cleanup.
+3. Open the current cleanup dialog only for the workspace that the person
+   archived.
 
 ## Decision
 
-By default, after a successful manual archive or finish, open the cleanup dialog
-with only that workspace. Keep archive and cleanup as separate decisions. A safe row
-starts selected; a blocked row starts unselected and must be selected before the
-destructive action becomes available. The dialog states that cleanup removes
-the folder and, for a newly created branch, the local branch, while preserving
-the archived card and PR metadata. The scoped title explicitly states that the
-workspace is already archived, and
-the dismissal button says **Keep worktree** instead of **Cancel**. This avoids
-presenting the cleanup choice as an archive confirmation (issue #100). Keeping
-the worktree leaves **Unarchive** available; the full cleanup screen retains its
-ordinary **Cancel** label.
+By default, after a manual archive or finish that completes correctly, open the
+cleanup dialog with only that workspace. Keep archive and cleanup as two
+different decisions:
 
-Use the same `cleanup_list` eligibility scan and `cleanup_worktree` command as
-the full cleanup screen. Do not offer cleanup for original clones, remote
-workspaces or workspaces already cleaned. A cancellation is not persisted;
-cleanup remains available from the archived-workspaces screen.
+- The dialog selects a safe row at the start.
+- A blocked row is not selected at the start. The person must select it before
+  the destructive action becomes available.
+- The dialog tells that cleanup removes the folder. For a branch that Prometeu
+  made for the workspace, cleanup also removes the local branch. The archived
+  card and the PR metadata stay.
+- The title of the scoped dialog tells that Prometeu archived the workspace
+  before. The button that closes the dialog shows **Keep worktree**, not
+  **Cancel**. Thus the person does not think that the cleanup selection is a
+  confirmation of the archive operation (issue #100).
+- If the person keeps the worktree, **Unarchive** stays available. The full
+  cleanup screen keeps its usual **Cancel** label.
 
-Settings / General also offers explicit opt-in automatic cleanup (issue #260).
-The preference is local to the webview and off on new installs and upgrades.
-When enabled, inspect only the selected row from the existing scan, then clean
-it with `force: true`: opting in is the approval to lose uncommitted or unmerged
-work, because Git merge detection misses squash merges and PRs the GitHub
-integration cannot read. Force still requires an archived, non-original
-checkout and keeps saved existing branches. Desktop archive/finish
-commands wait for the foreground archive hook to exit before replying; merely
-spawning it would let automatic deletion race resource teardown. Hooks must
-not detach teardown work. This preserves existing exit-status policy and adds
-no hook timeout. Desktop closes per-workspace launch admission across teardown, waits for
-already admitted launches to publish their tabs, and stops agents both before
-the hook and before archive completion. Admission reopens after completion,
-but an archived workspace must be explicitly restored before launching again.
-The same memory-only gate excludes cleanup during a repeated archive hook.
-Errors are reported without retrying. Manual cleanup remains unchanged. The setting explains that this
-removes the whole worktree, including ignored files, rather than only
-`node_modules`. This reuses the cleanup boundary instead of introducing a
-second filesystem deletion policy. It trades a repeated confirmation for an
-explicit persistent choice that also covers dirty or unmerged work.
+Use the same `cleanup_list` scan and `cleanup_worktree` command as the full
+cleanup screen. The scan tells which worktrees cleanup can remove. Do not offer
+cleanup for original clones, remote workspaces or workspaces that cleanup
+removed before. Prometeu does not save a cancellation. Cleanup stays available
+from the screen of archived workspaces.
+
+Settings / General also has an optional automatic cleanup (issue #260). The
+person must select it. This setting is local to the webview. It is off after a
+new installation and after an upgrade. When the setting is on, Prometeu does
+these steps:
+
+- It examines only the selected row from the current scan.
+- It removes the worktree with `force: true`. When the person selects the
+  setting, the person accepts the loss of work that is not committed or not
+  merged. This is necessary because the merge detection of Git does not find
+  squash merges. It also does not find PRs that the GitHub integration cannot
+  read.
+- Force continues to apply only to an archived checkout that is not an
+  original clone. It keeps the saved branches that the person selected as
+  current branches.
+
+The archive and finish commands of the desktop wait until the foreground
+archive hook stops. Then they send their response. If the commands only start
+the hook, the automatic deletion can occur at the same time as the cleanup of
+the resources. Hooks must not move this cleanup work to a background process.
+This keeps the current rules for the exit status, and it does not add a hook
+timeout.
+
+The desktop prevents new launches in the workspace while it does this cleanup
+of resources. It waits until the launches that it accepted before publish their
+tabs. It stops the agents before the hook and again before the archive
+operation completes. After the archive operation, the desktop accepts launches
+again. But the person must unarchive an archived workspace before an agent can
+start in it again. The same gate, which is only in memory, prevents cleanup
+while an archive hook operates again.
+
+Prometeu shows errors and does not try again. Manual cleanup does not change.
+The setting tells that it removes the full worktree, with the ignored files.
+It does not remove only `node_modules`. This decision uses the current cleanup
+boundary. It does not add a second policy for deletions in the file system.
+The person makes one saved selection, and does not accept each deletion again. This
+selection also applies to work that is not committed or not merged.
 
 ## Consequences
 
-People can reclaim disk space at the lifecycle point where it becomes relevant
-without weakening the backend guards. Blocked worktrees still permit explicit
-force cleanup, but require both selecting the risk-marked row and confirming the
-destructive action.
+The person can get disk space back at the step of the lifecycle where this is
+important. The protections of the backend stay as strong as before. The person can
+continue to use force cleanup on a blocked worktree. But the person must select
+the row with the risk mark and then click the destructive action.
 
-Cleanup deletes branches created for the workspace but preserves branches
-already present in the clone or selected as existing at creation. The persisted
-`preserve_branches` list records clone paths separately; an older board defaults
-to an empty list and keeps its previous cleanup behavior. A preserved branch
-does not need to be merged before its clean worktree is removed. Refusing the
-offer keeps the diff reachable and does not suppress future cleanup access.
+Cleanup deletes the branches that Prometeu made for the workspace. It keeps the
+branches that were in the clone before and the branches that the person
+selected as current branches when Prometeu made the workspace. The saved
+`preserve_branches` list records the clone paths independently. An older board
+has an empty list by default and keeps its previous cleanup behavior. It is not
+necessary to merge a branch that cleanup keeps before Prometeu removes its clean
+worktree. If the person does not accept the offer, the diff stays available,
+and the person can start cleanup at a subsequent time.
 
 ## Evidence
 
-- `src/cleanup.test.ts` covers preference defaults, persistence, automatic
-  scoped cleanup, blocked/missing rows and failures without force.
+- `src/cleanup.test.ts` examines the defaults of the setting, how Prometeu saves
+  it, the automatic scoped cleanup, blocked or missing rows, and errors without
+  force.
 
-- `e2e/audit-regressions.spec.ts` covers scoped offers from both archive and
-  finish and confirms that only the affected workspace appears. It also covers
-  the explicit archived state and keeping a worktree for later restoration in
-  the English UI.
-- `src-tauri/src/session.rs` tests cover archived eligibility, force guards,
-  dirty worktrees and commits relative to the base.
-- [`../contracts/git.md`](../contracts/git.md) defines cleanup behavior and
-  preserved data.
+- `e2e/audit-regressions.spec.ts` examines scoped offers after archive and
+  after finish. It makes sure that only the related workspace shows. It also
+  examines the archived state in the dialog title, in the English UI. It also
+  examines a kept worktree that the person unarchives at a subsequent time.
+- The tests in `src-tauri/src/session.rs` examine which archived worktrees
+  cleanup can remove, the force protections, worktrees with changes and commits
+  that are not in the base.
+- [`../contracts/git.md`](../contracts/git.md) specifies how cleanup operates
+  and which data it keeps.

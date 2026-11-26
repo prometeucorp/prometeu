@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0101 — Workspaces on remote machines over SSH"
-description: "A resident host on the remote machine owns terminal agents; the desktop keeps the board, conversations and interface."
+description: "A resident host on the remote machine owns terminal agents. The desktop keeps the board, the conversations and the interface."
 status: stable
 ---
 
@@ -11,195 +11,244 @@ Date: 2026-11-22
 
 ## Context
 
-People want some workspaces to run on another computer they own, such as a home
-server or a VPS: more CPU and memory than a laptop, and agents that keep working
-while the laptop sleeps or the app is closed. The rest of the board stays local,
-and those workspaces should appear in it next to local ones.
+Persons want to run some workspaces on a different computer that they own, for
+example a home server or a VPS. That computer has more CPU and memory than a
+laptop. Its agents continue to operate while the laptop sleeps or after the person
+closes the app. The other parts of the board stay local, and those workspaces must
+show in the board adjacent to the local workspaces.
 
-Running the whole application on the machine and attaching the interface to it
-cuts at the top: every desktop command needs a second implementation on the
-machine, so coverage always lags the desktop. Orca, cmux and Claude Desktop's
-SSH sessions all cut lower: a small, versioned helper on the remote host owns
-processes and buffers their output, and the laptop stays the interface.
+One procedure is to run all of the application on the machine and attach the
+interface to it. This procedure divides the system at the top. Each desktop
+command must have a second implementation on the machine. Thus the coverage on
+the machine is always less than on the desktop. The SSH sessions of Orca, cmux
+and Claude Desktop divide the system at a lower level. A small helper with a
+version on the remote host owns the processes and keeps their output in a
+buffer. The laptop stays the interface.
 
 ## Options considered
 
-1. Run the whole application on the machine and attach the interface to it.
-2. Mount the machine's files locally (sshfs) and run only processes remotely.
-3. Keep the desktop as the owner of the board, conversations and interface, and
-   move only the terminal agent's process, its hooks and its native transcript
-   to a resident host on the machine.
+1. Run all of the application on the machine and attach the interface to it.
+2. Mount the files of the machine locally (sshfs) and run only the processes
+   remotely.
+3. Keep the desktop as the owner of the board, the conversations and the
+   interface. Move only the process of the terminal agent, its hooks and its
+   native transcript to a resident host.
 
 ## Decision
 
-Option 3.
+Use option 3.
 
 ### The host
 
 `prometeu-host` (`src-tauri/crates/host/`) is one statically linked Linux
-executable without Tauri. It reuses `prometeu-process` for PTYs and runs as a
-resident daemon on a private Unix socket under `~/.prometeu-remote` (or
-`~/.prometeu-remote-dev` for debug builds, matching their separate boards). One
-host serves one root; a second one exits when it cannot take the root's lock.
+executable without Tauri. It uses `prometeu-process` again for PTYs. It runs as
+a resident daemon on a private Unix socket in `~/.prometeu-remote`. For debug
+builds, the socket is in `~/.prometeu-remote-dev`, because these builds have a
+separate board. One host operates for one root. If a second host cannot get the lock
+of the root, it exits.
 
-- `attach` is what the desktop runs over SSH. It starts the host in its own
-  session when the socket does not answer, then relays stdio to the socket. Losing
-  SSH only detaches the client: the host keeps every terminal.
-- A new attachment from the same computer replaces the previous one. After sleep
-  the old SSH connection can look alive for many seconds, and the desktop the
-  person is using now must win. A replaced desktop stops reconnecting until the
-  person asks it to. Attachments from different computers coexist
+- The desktop runs `attach` through SSH. When the socket does not answer,
+  this command starts the host in its own session. Then it relays stdio to the
+  socket. When SSH disconnects, only the client detaches. The host keeps all
+  terminals.
+- A new attachment from the same computer replaces the previous attachment.
+  After sleep, the old SSH connection can look alive for many seconds. The
+  desktop that the person uses at this time must have priority. A replaced
+  desktop does not connect again until the person tells it to. Attachments from
+  different computers can operate at the same time
   ([ADR 0104](0104-several-computers-on-one-machine.md)).
-- Each terminal keeps its last 2 MiB of output in sequence-numbered chunks.
-  Reattachment replays exactly what the desktop has not applied yet, or the whole
-  retained buffer after a screen reset when part of the gap was dropped.
-- Hooks are kept on the host (512 per terminal) and delivered to each computer
-  that missed them when it reattaches that terminal. A permission request with
-  no desktop attached answers with no decision, so Claude's native dialog stays
-  in its TUI.
-- Transcript directories are streamed to the desktop from the offsets it already
-  has.
+- Each terminal keeps the last 2 MiB of its output in chunks with sequence
+  numbers. A reattachment replays only the output that the desktop did not
+  apply. If the host dropped a part of the gap, the reattachment does a screen
+  reset and replays all of the buffer that the host kept.
+- The host keeps hooks (512 for each terminal). When a computer attaches that
+  terminal again, the host sends the hooks that the computer did not receive. If
+  no desktop is attached, a permission request answers with no decision. Thus
+  the native dialog of Claude stays in its TUI.
+- The host streams transcript folders to the desktop from the offsets that the
+  desktop has.
 
-The host adopts the login shell's `PATH`, so agent CLIs installed under the
-person's home are found.
+The host uses the `PATH` of the login shell. Thus it finds agent CLIs that the
+person installed in the home folder.
 
 ### Resource limits
 
-When systemd linger is enabled, each terminal starts in a transient scope inside
-a slice per workspace (`prometeu-w<uuid>.slice` under `prometeu.slice`). The
-machine's per-workspace memory and CPU limits apply to that slice, so they cover
-the agent and everything it starts. Without linger, the person's systemd manager
-would stop the scopes at logout, so terminals run without limits and Settings says
-why. Installation tries `loginctl enable-linger`, which many distributions allow
-without root.
+When systemd linger is enabled, each terminal starts in a transient scope in a
+slice for each workspace (`prometeu-w<uuid>.slice` in `prometeu.slice`). The
+memory and CPU limits of the machine for each workspace apply to that slice.
+Thus the limits include the agent and all processes that it starts. Without
+linger, the systemd manager of the person stops the scopes at logout. Thus
+terminals run without limits, and Settings tells the cause. The installation
+tries `loginctl enable-linger`. Many distributions let a person run this
+command without root.
 
 ### The desktop
 
-- Machines live in `<root>/machines.json`: a name, an SSH destination passed as
-  one argument after `--`, and limits. The system `ssh` authenticates with the
-  person's keys and agent, so the app stores no credentials. Connection sharing
-  is disabled for these connections, because a master connection left stale by
-  sleep could hang them.
-- `Workspace.host` and `Project.host` name the machine. Their paths are paths on
-  that machine. Remote project IDs are `remote:<machine>:<path>`, so they never
-  collide with local folders.
-- A repository is one project wherever it runs. Projects record their normalized
-  `origin`, and a machine's clone with the same origin as a local project appears
-  as that project, with its workspaces marked by the machine. Choosing a
-  project is separate from choosing its execution location: the launcher only
-  lists registered projects whose `host` matches the selected machine. A local
-  repository with an `origin` is not offered as an implicit remote clone. Matching
-  by origin still groups sidebar workspaces without hiding remote registrations.
-- Settings has a dedicated Projects page filtered by computer. It lists each
-  registered folder on that computer, including remote clones with a local
-  counterpart. Existing remote repositories are added through a folder dialog;
-  cloning is an explicit action with a URL and destination on the machine. The
-  launcher offers no installation shortcuts: a machine is set up there first.
-  This separates installation from workspace creation and makes the selected
-  computer determine exactly which projects are offered. Existing backend
-  origin resolution remains for compatibility with older callers.
-- Workspace creation runs Git on the machine and puts new worktrees under the
-  host root. The first conversation always uses terminal mode. Branch listing for
-  remote projects also runs on the machine.
-- A remote conversation goes through the same terminal launch as a local one
-  (`chat::terminal::launch_on`), with an `Execution` that opens the terminal on the
-  host, writes Claude's hook settings there, and points observation at a private
-  local mirror of the machine's Claude project directory. Hooks reach the
-  conversation's local bridge through `terminal_agent_hooks::relay`. That relay
-  substitutes the bridge's own socket, credential and process nonce, so a process
-  that outlives an app restart still reports to the new bridge.
-- The connection reconnects with backoff (1–30 s) and reattaches every terminal
-  and mirror. After each attachment the desktop resumes, without being asked,
-  the conversations whose processes the host still runs, and adopts the ones that
-  finished while it was away without starting Claude again. Their status,
-  transcripts and notifications therefore update when the laptop wakes or the app
-  starts. A finished terminal is forgotten once its output, hooks and transcript
-  have been collected, so the host does not keep its buffer.
-- A process adopted before its first hook reached this desktop (for example,
-  Claude still on its folder-trust question when the laptop slept) has no
-  transcript binding yet. It is observed as a fresh start, so its queued
-  `SessionStart` binds it and its first prompt is still delivered. Before adopting,
-  the desktop flushes the transcript mirror, so turns written while it was away
-  are read from where it stopped.
-- A first hook can also bind a path before Claude creates its transcript. After
-  flushing the mirror, adoption may observe that process as awaiting its first
-  prompt only if the bound file is absent and both the journal and canonical log
-  prove no conversation work was captured. It retains the native identity and
-  journal. A replacement process or any captured work still requires the normal
-  verified history bootstrap; a missing file alone never proves an empty session.
-- A remote conversation's profile names the machine (`remote:<machine>`). It never
-  matches this computer's selected account, so switching local accounts does not
-  restart remote conversations.
-- A terminal this desktop just opened delivers its first output live, even though
-  it arrives through the attachment's replay: the program may still be waiting for
-  answers to its startup queries.
-- Bytes replayed after reattachment never answer terminal queries. Those queries
-  were answered when first produced, or the program stopped waiting for them.
-- Claude signs in on the machine, as in Orca. Settings runs `claude auth login
-  --claudeai` in one of the host's terminals, opens the authorization link in
-  this computer's browser, and writes the code Claude shows back to that
-  terminal. The credential is created and kept on the machine; this computer's
-  Claude account never leaves it, and remote work does not need Claude installed
-  or signed in here. Sending the local credential (Claude Desktop's
-  approach) was rejected, because anyone using the same Unix account on the
-  machine could read it. Each attachment refreshes `claude auth status`, so the
-  machine row shows whether its workspaces can start.
-- Quitting the app does not warn about remote work, and dropping a remote waiter
-  leaves its process running. Closing a tab, Stop and removing or cleaning a
-  workspace still end the remote process.
-- Settings lists the host's running terminals, including idle agents and
-  terminals no desktop tab represents. Each can be ended explicitly after
-  confirmation tied to its unique launch instance. The host validates that
-  instance and signals the same process handle, so a resumed conversation
-  cannot be killed by an earlier confirmation. The new `terminal_stop` method
-  fails closed on older hosts; an optional check on `terminal_signal` would be
-  silently ignored by them. Older hosts remain inspectable, with stopping from
-  the list disabled until they update. The list covers Prometeu terminals
-  rather than every operating-system process.
+- **Machines.** The machines are in `<root>/machines.json`. Each machine has a
+  name, an SSH destination and limits. Prometeu sends the destination as one
+  argument after `--`. The system `ssh` authenticates with the keys and the
+  agent of the person. Thus the app does not store credentials. Connection
+  sharing is disabled for these connections. A master connection that sleep
+  made stale can stop them.
+- **Host fields.** `Workspace.host` and `Project.host` name the machine. Their
+  paths are paths on that machine. Remote project IDs are
+  `remote:<machine>:<path>`. Thus they are not the same as local folders at any
+  time.
+- **Projects.** A repository is one project at all locations where it runs.
+  Projects record their normalized `origin`. A clone on a machine with the same
+  origin as a local project shows as that project. Its workspaces have the mark
+  of the machine. The selection of a project is different from the selection of
+  its execution location. The launcher lists only registered projects whose
+  `host` agrees with the selected machine. Prometeu does not show a local
+  repository with an `origin` as an implicit remote clone. The origin continues
+  to put sidebar workspaces in a group, and it does not hide remote
+  registrations.
+- **Projects page.** Settings has a Projects page with a filter for each
+  computer. It lists each registered folder on that computer. This includes
+  remote clones that have a local equivalent. The person adds current remote
+  repositories through a folder dialog. A clone is an explicit action with a URL
+  and a destination on the machine. The launcher does not show installation
+  shortcuts. The person must prepare a machine there first. Thus the
+  installation is different from the creation of a workspace. The selected
+  computer controls which projects Prometeu shows. The current backend
+  resolution of the origin stays for compatibility with callers from earlier
+  versions.
+- **Workspace creation.** The creation of a workspace runs Git on the machine
+  and puts new worktrees in the host root. The first conversation always uses
+  the terminal mode. The branch list for remote projects also comes from the
+  machine.
+- **Conversations.** A remote conversation uses the same terminal launch as a
+  local conversation (`chat::terminal::launch_on`). Its `Execution` opens the
+  terminal on the host and writes the hook settings of Claude there. It points
+  the observation to a private local mirror of the Claude project folder of the
+  machine. Hooks go to the local bridge of the conversation through
+  `terminal_agent_hooks::relay`. That relay puts in the socket, the credential
+  and the process nonce of the bridge. Thus a process that continues after a new
+  start of the app sends reports to the new bridge.
+- **Reconnection.** The connection connects again with backoff (1–30 s). It
+  attaches all terminals and mirrors again. After each attachment, the desktop
+  resumes the conversations whose processes continue to operate on the host. It
+  does this without a request from the person. It also adopts the conversations
+  that completed while it was away, and it does not start Claude again. Thus
+  their status, transcripts and notifications update when the laptop wakes or
+  the app starts. After the desktop collects the output, the hooks and the
+  transcript of a completed terminal, the host forgets that terminal. Thus the
+  host does not keep its buffer.
+- **Adoption before the first hook.** Sometimes the desktop adopts a process
+  before its first hook comes. For example, Claude waits at its folder-trust
+  question while the laptop sleeps. This process does not have a transcript
+  binding at that time. Prometeu sees it as a new start. Thus its queued
+  `SessionStart` binds it, and Prometeu continues to send its first prompt.
+  Before the adoption, the desktop flushes the transcript mirror. Thus Prometeu
+  reads the turns that the process wrote while the desktop was away from the
+  point where the desktop stopped.
+- **Binding before the transcript.** A first hook can also bind a path before
+  Claude makes its transcript. After the desktop flushes the mirror, the
+  adoption can see that process as one that waits for its first prompt. This
+  occurs only when these conditions are true:
+  - The bound file is not there.
+  - The journal and the canonical log prove that Prometeu captured no
+    conversation work.
+
+  The adoption keeps the native identity and the journal. A replacement process
+  or captured work continues to need the usual verified history bootstrap. A
+  missing file alone does not prove an empty session at any time.
+- **Profiles.** The profile of a remote conversation names the machine
+  (`remote:<machine>`). It does not agree with the selected account of this
+  computer at any time. Thus a change of the local account does not start
+  remote conversations again.
+- **First output.** A terminal that this desktop opened recently sends its
+  first output live, also when the output comes through the replay of the
+  attachment. The program can wait for answers to its startup queries at that
+  time.
+- **Replayed bytes.** Bytes that the host replays after a reattachment do not
+  answer terminal queries at any time. The desktop answered those queries when
+  the program first sent them, or the program stopped the wait for them.
+- **Claude login.** Claude signs in on the machine, as in Orca. Settings runs `claude auth login
+  --claudeai` in one of the terminals of the host. It opens
+  the authorization link in the browser of this computer. Then it writes the
+  code that Claude shows back to that terminal. Claude makes the credential and
+  keeps it on the machine. The Claude account of this computer does not go out
+  of it at any time. Remote work does not need Claude installed or signed in on
+  this computer. The team rejected the procedure of Claude Desktop, which sends
+  the local credential. The cause is that all persons who use the same Unix
+  account on the machine can read that credential. Each attachment updates
+  `claude auth status`. Thus the machine row shows if its workspaces can start.
+- **Quit.** When the person quits the app, the app does not show a warning
+  about remote work. When Prometeu drops a remote waiter, its process continues
+  to run. When the person closes a tab, clicks Stop, or removes or cleans a
+  workspace, Prometeu continues to stop the remote process.
+- **Running terminals.** Settings lists the terminals that run on the host.
+  This list includes idle agents and terminals that no desktop tab shows. The
+  person can stop each terminal explicitly after a confirmation. The
+  confirmation agrees with the unique launch instance of the terminal. The host
+  validates that instance and signals the same process handle. Thus an earlier
+  confirmation cannot stop a resumed conversation. The new `terminal_stop`
+  method fails closed on hosts from earlier versions. These hosts ignore an
+  optional check on `terminal_signal` without a message. The person can
+  continue to examine hosts from earlier versions. But the stop action in the
+  list is disabled until the host updates. The list shows Prometeu terminals,
+  not all processes of the operating system.
 
 ### Scope
 
-Claude and Codex declare the `remoteMachines` capability. Claude's hooks and
-transcript layout are the ones relayed and mirrored here; Codex runs its native
-engine on the machine and is read through a relay terminal
-([ADR 0105](0105-codex-on-remote-machines.md)). The host ships for Linux x86_64 only.
-Remote workspaces show conversations only: the file tree, Git panel, diff
-review, Setup/Run, docks, MCP and plugin selection, kickoff skills, delegation
-and multi-repository workspaces stay local until each gets a host
-implementation. Cleanup removes the remote worktree and branch through Git on the
-machine.
+Claude and Codex declare the `remoteMachines` capability. Prometeu relays and
+mirrors the hooks and the transcript layout of Claude. Codex runs its native
+engine on the machine, and Prometeu reads it through a relay terminal
+([ADR 0105](0105-codex-on-remote-machines.md)). The host is available only for
+Linux x86_64.
+
+Remote workspaces show only conversations. These features stay local until
+each one has an implementation on the host:
+
+- The file tree, the Git panel and the diff review.
+- Setup and Run, and the docks.
+- The MCP and plugin selection, and the kickoff skills.
+- Delegation and workspaces with more than one repository.
+
+The cleanup removes the remote worktree and branch through Git on the machine.
 
 ## Consequences
 
-- Execution survives the desktop's sleep, network changes and restarts. It does
-  not survive a reboot of the machine or the host's death: the transcript then
-  resumes in a new process, as for a local terminal agent after an app restart.
-- The interface needs no second implementation. Missing remote features are
-  hidden instead of half-working, and each can move to the host later without
-  changing the board format.
-- No input is retried after a lost connection. A keystroke sent while the SSH
-  process was already dead has an unknown outcome, like every other lost reply.
-- Remote work started from the desktop needs the desktop running. Agent clients
-  on the machine start work without it, through the host
-  ([ADR 0103](0103-agents-on-remote-machines.md)).
+- The execution continues through the sleep of the desktop, network changes and
+  new starts of the app. It does not continue after a reboot of the machine or
+  after the host stops. Then the transcript resumes in a new process, as for a
+  local terminal agent after a new start of the app.
+- The interface does not need a second implementation. Prometeu hides the
+  remote features that are not available. It does not show features that
+  do not operate fully. Each feature can move to the host later without a
+  change to the board format.
+- Prometeu does not send input again after the connection stops. A keystroke
+  that Prometeu sent after the SSH process stopped has an unknown result, as
+  all other lost replies.
+- Remote work that started from the desktop needs the desktop in operation.
+  Agent clients on the machine start work without the desktop, through the
+  host ([ADR 0103](0103-agents-on-remote-machines.md)).
 
 ## Evidence
 
 - [Remote host protocol](../contracts/remote-host.md).
 - `src-tauri/crates/host/tests/host.rs`: detachment and gap replay, queued hooks
-  and decisions, transcript streaming, attachment replacement. Several computers
-  are covered by [ADR 0104](0104-several-computers-on-one-machine.md).
+  and decisions, transcript streaming, attachment replacement.
+  [ADR 0104](0104-several-computers-on-one-machine.md) covers more than one
+  computer.
 - `src-tauri/src/remote/terminal.rs`, `connection.rs`, `agent.rs` and
-  `workspace.rs` unit tests: sequence ordering, lost terminals, mirror paths and
-  appends, transcript path rewriting, project identity.
-- `remote::journey::vps_journey` (opt-in, against a real machine): install,
-  terminal output across a dropped SSH connection with no gap or duplicate, and
-  the workspace slice's applied `memory.max` and `cpu.max`.
+  `workspace.rs` unit tests: the sequence order, lost terminals, mirror paths
+  and appends, the change of transcript paths, and the project identity.
+- `remote::journey::vps_journey` (opt-in, against a real machine):
+  - The installation.
+  - The terminal output through an SSH connection that stops, without a gap
+    or a duplicate.
+  - The `memory.max` and `cpu.max` that apply to the workspace slice.
 - `remote_hosts_round_trip_and_local_entries_omit_them` in
-  `crates/core/src/board.rs`: boards without remote entries save unchanged.
-- Manual run against a real machine (2026-11-23): a workspace created from a local
-  project on the machine received its prompt and started a 90-second task. The
-  desktop process was then stopped with `SIGSTOP` and its SSH connection killed.
-  The task finished on the machine. After `SIGCONT` the desktop reconnected,
-  and within 8 seconds the conversation showed the tool results, the final reply
-  and the completed turn.
+  `crates/core/src/board.rs`: boards without remote entries save without a
+  change.
+- A manual run against a real machine (2026-11-23):
+  1. A workspace from a local project on the machine received its prompt and
+     started a task of 90 seconds.
+  2. The team stopped the desktop process with `SIGSTOP` and stopped its SSH
+     connection.
+  3. The task completed on the machine.
+  4. After `SIGCONT`, the desktop connected again. In 8 seconds, the
+     conversation showed the tool results, the last reply and the completed
+     turn.

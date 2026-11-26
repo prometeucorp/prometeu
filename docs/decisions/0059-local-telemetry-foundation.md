@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0059 — Local telemetry with canonical events in SQLite"
-description: "Local telemetry with common columns and typed JSON payloads in SQLite."
+description: "Local telemetry in SQLite, with shared columns and typed JSON payloads."
 status: stable
 ---
 
@@ -11,157 +11,184 @@ Date: 2026-09-25
 
 ## Context
 
-Prometeu sees both product choices and the execution of work across providers,
-conversations, workspaces and pull requests. The board describes current state;
-transcripts contain content and are not an appropriate analytics dataset.
-Some execution metadata already reaches the adapters, but there is no durable,
-content-free history with canonical usage semantics.
+Prometeu sees the product selections of the person. It also sees how work
+operates across providers, conversations, workspaces and pull requests. The
+board gives the current state. Transcripts contain content, and they are not
+a correct data set for analytics. Some execution metadata gets to the adapters
+at this time. But there is no durable history without content that has
+canonical usage rules.
 
-The first delivery needs capture, queries by period and workspace, simple
-aggregates, export and deletion. Cloud synchronization and a full Insights page
-were outside that first delivery. The local Usage screen now builds on those
-queries; Cloud synchronization remains outside the implemented decision.
+The first delivery must record data, send queries by period and by workspace,
+calculate simple totals, export and delete. Cloud synchronization and a full
+Insights page were not in the first delivery. At this time, the local Usage
+screen uses these queries. Cloud synchronization stays out of this decision.
 
 ## Options considered
 
-1. **JSONL event files.** Straightforward append, but queries, deduplication and
-   deletion need additional application machinery.
-2. **SQLite with common columns and typed JSON payloads.** One event table
-   supports indexed queries, uniqueness constraints and transactions while
-   accommodating different event types.
-3. **Separate relational tables for every domain.** Strong specialized schemas,
-   but more migrations and relations before the event vocabulary is established.
+1. **JSONL event files.** It is easy to add records. But queries, the removal of
+   duplicates and deletion make more application code necessary.
+2. **SQLite with shared columns and typed JSON payloads.** One event table gives
+   indexed queries, unique constraints and transactions. It also accepts
+   different event types.
+3. **Different relational tables for each domain.** The schemas are strong and
+   specialized. But they make more migrations and relations necessary before the event
+   vocabulary is stable.
 
 ## Decision
 
-Use option 2, in a private `<root>/telemetry.sqlite3` owned by the Rust backend.
-Use direct SQL and a concrete telemetry module. Consumers call application
-queries through typed IPC; they do not access SQLite or provider payloads.
-JSONL remains an export format, not the primary store.
+Use option 2, in a private `<root>/telemetry.sqlite3` that the Rust backend
+owns. Write the SQL directly in one telemetry module. Consumers call application
+queries through typed IPC. They do not use SQLite or provider payloads directly.
+JSONL stays an export format. It is not the primary store.
 
-The [contract](../contracts/telemetry.md) owns event shapes, lifecycle,
-privacy, coverage and the implementation acceptance criteria. Its core choices
-are:
+The [contract](../contracts/telemetry.md) gives the event formats, the
+lifecycle, privacy, coverage and the criteria that the implementation must satisfy.
+These are its primary rules:
 
-- A telemetry turn is one message accepted for execution. Its main-agent
-  completion does not wait for background children. Request responses are not
-  new turns. This does not change the conversation settlement rule in
+- A telemetry turn is one message that Prometeu accepts for execution. The
+  completion of the primary agent does not wait for background children.
+  Responses to requests are not new turns. This does not change the rule for
+  the completion of a conversation in
   [ADR 0056](0056-background-tasks-hold-completion.md).
-- Record execution intervals so queries can return both their summed duration
-  and their union. Neither is a measurement of model compute time.
-- Measure human response waits only for explicit requests, identified by a
-  stable request ID. Do not interpret gaps between turns as human work or delay.
-- Input totals include cache tokens; output totals include reasoning tokens.
-  The breakdowns are subsets, not additional consumption. Unknown is null.
-- Keep the selected model separate from observed models. Attribute usage per
-  model only when the provider reports a trustworthy breakdown. A verified
-  whole-tree delta carries explicit `wholeTree` scope; otherwise retain the
-  main-agent scope and useful partial evidence.
-- Associate workspaces with multiple repositories and PRs without allocating
-  consumption automatically. Related PR totals are not additive across PRs.
-- Store opaque work identifiers, not project names, branch names, titles,
-  repository URLs or paths. Provider/model identifiers and PR numbers are
-  permitted metadata.
-- Acknowledge event persistence only after commit. Failed capture does not
-  block agent work; log sanitized diagnostics and expose incomplete-history
-  status in the summary and export, without per-event toasts or modals.
-- Give each event a UUID and a separate stable occurrence key. Retries retain
-  both; transcript replay and remote mirrors do not capture the event again.
-- Keep archive, PR association and merge as independent facts. Do not infer a
-  generic work-completed event or treat merge as deployment.
-- Preserve incomplete executions and known measurements. Never invent their
-  end time or outcome to make aggregates look complete.
-- Put the first user-facing summary in settings, with period/workspace
-  filters, coverage, export and complete deletion. Reuse i18n and shared UI.
-- Extend this store for issue 131's reply footers and workspace insights, rather
-  than creating an independent usage ledger. New canonical completions may carry
-  normalized usage; historical top-level `costUsd` remains legacy scope and is
-  never summed or used as a footer fallback.
-- Use cumulative deltas only with a verified fresh or same-process baseline.
-  A previous persisted terminal cannot prove whether external resumed work
-  changed the counter. Resets and unverified resumed baselines retain partial
-  evidence instead of inventing consumption or treating missing values as zero.
-- Restore native-transcript reply metadata through exact local lookup of a
-  conversation-scoped assistant-ID hash. Do not join by timestamp or turn order,
-  and do not backfill transcripts. Missing historical anchors remain unknown.
-- Keep app calls as separate paired facts with a closed source vocabulary.
-  Workspace naming has workspace scope; global plugin creation does not.
-  Action/delegation provenance uses opaque aliases and never copies commands.
-- Retain existing related-PR query semantics. More precise tenure requires
-  actual branch identity, lifecycle timestamps and a complete retained candidate
-  snapshot; incomplete evidence is related-only. Never sum PR shares across
-  repositories as independent workspace consumption.
-- Show context occupancy separately from consumption. Warning thresholds are
-  advisory; compact, report and new-conversation actions remain explicit.
+- Record execution intervals. Thus queries can return the sum of their times and
+  their union. These values do not measure how long a model calculates.
+- Measure the time until a person answers only for explicit requests. A
+  stable request ID identifies each request. Do not use the time between turns
+  as human work or as a wait.
+- Input totals include cache tokens. Output totals include reasoning tokens.
+  The breakdowns are subsets. They are not more consumption. An unknown value
+  is null.
+- Keep the selected model apart from the models that Prometeu sees. Record
+  usage for each model only when the provider reports a breakdown that
+  Prometeu can trust. A delta for the full tree that Prometeu examined has an explicit
+  `wholeTree` scope. If not, keep the scope of the primary agent and keep
+  useful evidence that is not full.
+- Connect workspaces to many repositories and PRs. Do not divide consumption
+  between them automatically. The totals of related PRs do not add across PRs.
+- Store opaque work identifiers. Do not store project names, branch names,
+  titles, repository URLs or paths. Prometeu can store provider and model
+  identifiers and PR numbers as metadata.
+- Tell that Prometeu saved an event only after the commit. A capture failure does not
+  stop agent work. Log diagnostics without private data. Show an
+  incomplete-history status in the summary and the export. Do not show a toast
+  or a modal for each event.
+- Give each event a UUID and a different stable occurrence key. Retries keep the
+  two values. A transcript replay and remote copies do not record the event
+  again.
+- Keep archive, PR association and merge as three different facts. Do not make a
+  general "work completed" event from them. A merge is not a deployment.
+- Keep incomplete executions and known measurements. Do not add an end time or
+  an outcome that Prometeu did not see to make totals look complete.
+- Put the first summary for the user in Settings. It has filters for period
+  and workspace, coverage, export and full deletion. Use the i18n catalogs and
+  the shared UI again.
+- Use this store for the reply footers and the workspace insights of issue 131.
+  Do not make a different usage ledger. New canonical completions can contain
+  normalized usage. The historical top-level `costUsd` stays in its legacy
+  scope. Prometeu does not add it to totals or use it as a footer fallback.
+- Use cumulative deltas only with a new baseline that Prometeu examined, or a
+  baseline from the same process. A previous saved terminal event cannot prove if resumed
+  external work changed the counter. When a counter starts again from zero, or when
+  Prometeu cannot make sure of a resumed baseline, it keeps the evidence that is not full.
+  Prometeu does not add consumption, and it does not use 0 for missing values.
+- Get the reply metadata of a native transcript again through an accurate local
+  lookup. The lookup uses a hash of the assistant ID in the scope of the
+  conversation. Do not connect records by timestamp or by turn sequence. Do not
+  add data to transcripts from before this change. Historical anchors that are missing stay unknown.
+- Keep app calls as different facts in pairs, with a closed vocabulary of
+  sources. When a person gives a name to a workspace, the call has a workspace
+  scope. The creation of a
+  global plugin does not. The provenance of actions and delegations uses opaque
+  aliases, and it does not copy commands.
+- Keep the current rules for related-PR queries. For a more accurate period of
+  ownership, Prometeu must have the branch identity, lifecycle timestamps and a
+  full candidate snapshot. If the evidence is not complete, the PR is only
+  "related". Do not add PR shares across repositories as if each share is workspace
+  consumption.
+- Show context occupancy apart from consumption. Warning thresholds only give
+  advice. Compact, report and new-conversation actions stay explicit.
 
-Canonical usage follows the existing encrypted conversation sharing contract;
-local app-call history, origins and lookup queries do not cross that boundary.
-The legacy conversation event already permits a CLI estimate. Erasing local
-history invalidates restored UI caches without rewriting conversation
-transcripts, shared copies or exported files.
+Canonical usage follows the current contract for the encrypted shared
+conversation. The local app-call history, the origins and the lookup queries do not
+go across that boundary. The legacy conversation event can contain a CLI estimate
+at this time. When the person erases the local history, Prometeu cancels the UI
+caches that it filled from that history. It does not change conversation transcripts, shared copies
+or exported files.
 
 ## Consequences
 
-SQLite is an additional desktop dependency. It avoids implementing an index,
-deduplication store and query engine around event files. Short committed writes
-are the initial policy; an in-memory batch queue is not the durability boundary.
+SQLite is one more desktop dependency. With SQLite, it is not necessary to
+write an index, a store that removes duplicates and a query engine for event
+files. The first policy is short committed writes. A batch queue in memory is
+not the durability boundary.
 
-Read-only WAL snapshots keep summaries and streaming exports outside the capture
-mutex. SQL joins and ordered row processing avoid loading retained history into
-application memory. This adds WAL disk growth while readers are active; deletion
-waits for readers and exports, then vacuums and truncates the WAL before success.
-Existing version-1 events remain readable; additional indexes are additive.
+Read-only WAL snapshots keep summaries and stream exports out of the capture
+mutex. SQL joins and the processing of rows in sequence do not load the kept
+history into application memory. Thus the WAL file on the disk becomes larger
+while readers are active. Deletion waits for readers and exports. Then it does
+a vacuum and truncates the WAL before it reports success. Prometeu can read the
+current version-1 events. New indexes only add to the schema.
 
-Telemetry stays independent of board and transcript retention. Archive and
-worktree cleanup must not remove it. Explicit deletion overrides append-only
-retention and must also prevent pending callbacks from restoring erased data.
+Telemetry stays apart from the retention of the board and the transcripts.
+Archive and worktree cleanup must not remove it. An explicit deletion is more
+important than the append-only retention. It must also prevent callbacks that
+wait from writing erased data again.
 
-There is no atomic transaction spanning a provider process, the JSON board and
-SQLite. The foundation promises idempotent persistence of captured facts, not
-exactly-once observation of all external activity. Crashes and storage failures
-remain visible as incomplete coverage where detectable.
+No atomic transaction includes a provider process, the JSON board and SQLite.
+The foundation promises that Prometeu saves each recorded fact one time, also
+after retries. It does not promise that Prometeu sees all external activity one
+time and only one time. When Prometeu can find crashes and storage failures,
+it shows them as incomplete coverage.
 
-Global IDs and event versions support a future consumer, but this change does
-not introduce a sync worker, cloud schema, organization access or a second
-taxonomy. A later Cloud design must address consent, deletion and recipients.
+Global IDs and event versions can help a subsequent consumer. But this change
+does not add a sync worker, a cloud schema, organization access or a second
+taxonomy. A subsequent design for the Cloud must include consent, deletion and
+recipients.
 
 ## Implementation and evidence
 
-The Usage screen extends `telemetry_insights` with per-conversation coverage
-instead of transferring event history to the webview. Computing the additional
-counts during the existing cohort query preserves final-or-latest semantics and
-avoids a second full-history read. Old stored events need no migration; older
-query responses remain usable with unknown coverage. Settings keeps ownership
-of filters, refresh, export and erasure, while the isolated presentation is also
-used by the component gallery. No new provider capture or pricing is implied.
+The Usage screen adds coverage for each conversation to `telemetry_insights`.
+It does not send the event history to the webview. Prometeu calculates the
+new counts during the current cohort query. Thus the query keeps its
+"final or latest" rules, and a second read of the full history is not
+necessary. A migration of the stored events from before this change is not
+necessary. Older query responses
+stay usable with unknown coverage. Settings continues to own the filters, the
+refresh, the export and the erasure. The component gallery also uses the
+isolated presentation. This change does not add provider capture or prices.
 
 - [Store and types](../../src-tauri/src/telemetry.rs),
   [capture](../../src-tauri/src/telemetry/capture.rs) and
-  [queries](../../src-tauri/src/telemetry/query.rs) implement the local boundary.
-- [Regression tests](../../src-tauri/src/telemetry/tests.rs) cover persistence,
-  privacy, retries, incomplete execution, overlap, query cohorts and erasure.
+  [queries](../../src-tauri/src/telemetry/query.rs) contain the local boundary.
+- [Regression tests](../../src-tauri/src/telemetry/tests.rs) examine
+  persistence, privacy, retries, incomplete executions, overlap, query cohorts
+  and erasure.
 - [Claude](../../src-tauri/src/claude.rs) and
-  [Codex](../../src-tauri/src/codex.rs) test native normalization and counter scope.
-  [Antigravity](../../src-tauri/src/antigravity.rs) tests observed step usage and
-  cumulative boundaries against its recorded fixtures.
+  [Codex](../../src-tauri/src/codex.rs) test native normalization and the scope
+  of counters. [Antigravity](../../src-tauri/src/antigravity.rs) tests the
+  usage of each step that Prometeu sees and the cumulative boundaries against
+  its recorded fixtures.
 - [Settings](../../src/telemetry-settings.ts), [IPC types](../../src/telemetry.ts)
-  and [mock tests](../../src/telemetry.test.ts) cover the first consumer.
-  The existing IPC parity test checks native registration and browser handlers.
+  and [mock tests](../../src/telemetry.test.ts) examine the first consumer.
+  The current IPC parity test examines the native registration and the browser
+  handlers.
 - [Usage presentation tests](../../src/usage-presentation.test.ts),
   [workspace refresh tests](../../src/workspace-usage.test.ts),
   [timeline tests](../../src/timeline.test.ts) and
-  [browser focus/draft coverage](../../e2e/usage-insights.spec.ts) protect the
-  conversation and workspace consumers. Synthetic Claude fixtures declare
-  their provenance rather than claiming a recorded CLI run.
+  [browser focus and draft coverage](../../e2e/usage-insights.spec.ts) prevent
+  regressions in the conversation and workspace consumers. Synthetic Claude fixtures declare
+  their provenance. They do not claim that they come from a recorded CLI run.
 
-The [contract](../contracts/telemetry.md) records the implemented payloads and
-coverage limits. Usage scope is explicit; child time remains independently
-observed, without invented child token allocation. Streaming input
-whose terminal cannot be correlated to an accepted message remains incomplete;
-normalization never guesses its owner. Cost remains a provider-client estimate.
-These limits are visible in measurement/capture coverage.
+The [contract](../contracts/telemetry.md) records the payloads of the
+implementation and the coverage limits. The usage scope is explicit. Prometeu
+records the time of child tasks independently. It does not give tokens to child
+tasks if the provider does not report them. If Prometeu cannot connect the
+terminal event of stream input to an accepted message, that input stays
+incomplete. Normalization does not guess its owner. The cost stays an estimate
+of the provider client. The measurement and capture coverage shows these limits.
 
-Old boards default the additive opaque identity map. Existing transcripts remain
-readable and are never backfilled. Unknown future SQLite versions are preserved.
-Provider fixtures and existing lifecycle tests establish regression behavior;
-no live conformance run for every installed CLI version is claimed.
+Boards from before this change get an empty opaque identity map by default. Current transcripts stay
+readable, and Prometeu does not add data to them. Prometeu keeps the data of
+unknown newer SQLite versions. Provider fixtures and the current lifecycle tests
+make the regression behavior stable. This decision does not claim a live
+run for each installed CLI version that shows agreement with the contract.
