@@ -324,6 +324,53 @@ fn history_pages_are_bound_ordered_and_reject_repeated_native_turns() {
 }
 
 #[test]
+fn inline_images_survive_live_delivery_and_cold_history_replay() {
+    for resume in [false, true] {
+        let fixture = Fixture::new();
+        let engine = fixture
+            .plan("inline-image", resume)
+            .start_bounded(&mut Command::new("codex"), Duration::from_secs(5))
+            .unwrap();
+        let item = inline_image_item();
+        assert_eq!(engine.history()[0]["items"][0], item);
+        let events = engine.take_events().unwrap();
+        loop {
+            let event = events
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            if event["method"] == "item/completed" {
+                assert_eq!(event["params"]["item"], item);
+                break;
+            }
+        }
+        assert!(engine.running());
+        drop(engine);
+        fixture.assert_reaped();
+    }
+}
+
+fn inline_image_item() -> Value {
+    json!({"id":"image-input","type":"userMessage","content":[{
+        "type":"image","image_url":format!("data:image/png;base64,{}", "A".repeat(2 * 1024 * 1024))
+    }]})
+}
+
+#[test]
+fn oversized_native_frame_reports_limit_and_reaps_engine() {
+    let fixture = Fixture::new();
+    let mut tui = Command::new("codex");
+    assert!(matches!(
+        fixture
+            .plan("oversized-frame", true)
+            .start_bounded(&mut tui, Duration::from_secs(3)),
+        Err(Error::Limit)
+    ));
+    assert_eq!(tui.get_args().count(), 0);
+    fixture.assert_reaped();
+}
+
+#[test]
 fn unsolicited_native_requests_wait_for_explicit_response_and_resolved_ids_expire() {
     let fixture = Fixture::new();
     let engine = fixture
@@ -489,6 +536,16 @@ fn fake_engine_child() {
         let Some(id) = message.get("id") else {
             continue;
         };
+        if scenario == "oversized-frame" {
+            // Announce an oversized text frame without allocating its payload. The client
+            // must reject its length before reading or allocating the body.
+            let stream = socket.get_mut();
+            stream.write_all(&[0x81, 127]).unwrap();
+            stream
+                .write_all(&(64 * 1024 * 1024 + 1u64).to_be_bytes())
+                .unwrap();
+            continue;
+        }
         if scenario == "wait-for-exit" && message["method"] == "initialize" {
             let root = PathBuf::from(std::env::var_os("PROMETEU_CODEX_ENGINE_RECORD").unwrap());
             let root = root.parent().unwrap();
@@ -525,6 +582,9 @@ fn fake_engine_child() {
                     json!({"data":[{"id":if scenario == "history" {"turn-two"} else {"turn-one"},"status":"completed","items":[]}],"nextCursor":null})
                 }
             }
+            "thread/turns/list" if scenario == "inline-image" => {
+                json!({"data":[{"id":"image-turn","items":[inline_image_item()]}],"nextCursor":null})
+            }
             "thread/turns/list" => json!({"data":[],"nextCursor":null}),
             _ => json!({}),
         };
@@ -557,6 +617,17 @@ fn fake_engine_child() {
                     ))
                     .unwrap();
             }
+        }
+        if scenario == "inline-image" && message["method"] == "thread/turns/list" {
+            socket
+                .send(tungstenite::Message::Text(
+                    json!({"method":"item/completed","params":{
+                        "threadId":NATIVE,"turnId":"image-turn","item":inline_image_item()
+                    }})
+                    .to_string()
+                    .into(),
+                ))
+                .unwrap();
         }
         if scenario == "overflow" && message["method"] == "thread/turns/list" {
             for index in 0..QUEUE_LIMIT + 5 {
