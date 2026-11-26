@@ -26,6 +26,7 @@ implementations.
 | Area | Core ports and services | Desktop adapter |
 | --- | --- | --- |
 | Board | `BoardStore`, `BoardEvents`, `BoardPublisher` | `board_store.rs`, `state.rs` |
+| Workspace supervision | `supervision::Binding`, `Event`, `Execution` and normalized `Observation` | remote host `supervision.rs`; local execution is deferred |
 | Workspace lifecycle | `workspace_lifecycle`, `WorktreeCleanup` | `session.rs`, `prometeu-git::cleanup` |
 | Conversation stream | `conversation::stream::Lines`, `Work`, `ConversationInput`, `TranscriptStore`, `ConversationEvents`, `Clock` | `transcript_store.rs`, `chat.rs` |
 | Session coordination | `SessionService`, `SessionReactions`, `SessionOutput`, `SessionHost`, `SessionPump` | `chat/host.rs` |
@@ -42,6 +43,11 @@ profiles, paths and handles are adapter-local generic parameters. No port is a
 generic method dispatcher, and none of these values crosses IPC.
 
 ## Obligations of implementations
+
+Supervision stores execution observations and their resulting outbox events
+atomically before delivery. Provider hooks and HTTP stay in the executor
+adapter; the core never calls the Cloud. Workspace, executor and supervisor
+identities remain independent. See the [wire contract](supervision.md).
 
 - Event, storage, diagnostic and publication ports must not re-enter the
   operation that called them; several run under the conversation or registry

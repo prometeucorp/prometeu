@@ -81,6 +81,8 @@ pub fn claude_hook_settings(helper: &str) -> serde_json::Value {
         "SessionEnd",
         "StopFailure",
         "Notification",
+        "SubagentStart",
+        "SubagentStop",
     ]
     .into_iter()
     .map(|name| {

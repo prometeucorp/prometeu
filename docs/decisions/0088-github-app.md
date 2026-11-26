@@ -87,7 +87,9 @@ forks and protect local branches, at the cost of not following later pushes.
 
 - `POST /webhooks/github` verifies `X-Hub-Signature-256` against the App's
   webhook secret, ignores duplicate `X-GitHub-Delivery` IDs and processes the
-  event inside the request, since the Cloud has no job process.
+  notification metadata inside the request. Optional supervisor callbacks use
+  the separate persistent delivery queue from
+  [ADR 0105](0105-workspace-supervision.md).
 - Recipients are Cloud users whose `identities.uid` appears in the payload as
   the PR or issue author, an assignee, a requested reviewer or an `@login`
   mention. The acting user is excluded. Mentions require the GitHub login,

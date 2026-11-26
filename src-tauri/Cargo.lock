@@ -2760,6 +2760,8 @@ dependencies = [
  "portable-pty",
  "prometeu-core",
  "prometeu-process",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
 ]

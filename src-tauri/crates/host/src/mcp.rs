@@ -11,6 +11,7 @@ const SERVER_PROTOCOL: &str = "2025-06-18";
 const SUPPORTED: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// Methods that change nothing, so a request lost with its connection can be sent again.
 const READ_ONLY: &[&str] = &[
+    "supervisors_list",
     "projects_list",
     "workspace_list",
     "workspace_get",
@@ -36,6 +37,12 @@ fn object(properties: Value, required: &[&str]) -> Value {
 }
 
 const TOOLS: &[Tool] = &[
+    Tool {
+        name: "list_supervisors",
+        method: "supervisors_list",
+        description: "List the supervisor configured on this host. Select its ID when creating or supervising a workspace. Contains no credentials.",
+        schema: || object(json!({}), &[]),
+    },
     Tool {
         name: "list_projects",
         method: "projects_list",
@@ -67,7 +74,26 @@ const TOOLS: &[Tool] = &[
             "title": {"type": "string", "description": "Optional short workspace title."},
             "branch": {"type": "string", "description": "Optional branch name; an existing local branch is checked out. Defaults to a fresh prometeu/<words> branch."},
             "base": {"type": "string", "description": "Optional base ref for a new branch. Defaults to origin's default branch."},
+            "supervisor_id": {"type": "string", "description": "Optional identity from list_supervisors. Persists supervision before starting Claude."},
         }), &["project", "prompt"]),
+    },
+    Tool {
+        name: "set_workspace_supervisor",
+        method: "workspace_supervisor_set",
+        description: "Attach the configured supervisor to an existing workspace. Cloud receives durable lifecycle events; the supervisor uses MCP to read and send messages.",
+        schema: || object(json!({"id":{"type":"string"}, "supervisor_id":{"type":"string"}}), &["id", "supervisor_id"]),
+    },
+    Tool {
+        name: "remove_workspace_supervisor",
+        method: "workspace_supervisor_remove",
+        description: "Remove supervision from a workspace and notify Cloud to stop its PR watch. Does not stop the conversation or close the workspace.",
+        schema: || object(json!({"id":{"type":"string"}}), &["id"]),
+    },
+    Tool {
+        name: "link_workspace_pr",
+        method: "workspace_pr_link",
+        description: "Link a GitHub pull request to a supervised workspace so Cloud can deliver CI and review changes to its supervisor.",
+        schema: || object(json!({"id":{"type":"string"}, "repository":{"type":"string", "description":"GitHub owner/repository."}, "number":{"type":"integer", "minimum":1}}), &["id", "repository", "number"]),
     },
     Tool {
         name: "list_workspaces",

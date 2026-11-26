@@ -18,6 +18,15 @@ every combination of providers, states, languages and screen sizes.
 
 ## Remote machines
 
+Optional [workspace supervision](../contracts/supervision.md) publishes metadata
+from the remote Claude host to the Cloud and generic signed webhook receivers.
+Codex, Cursor and Antigravity remain unsupported on that host; local supervisor
+selection and reverse MCP transport are deferred. Core supervision tests prove
+child-aware completion, duplicate suppression and restart reconciliation;
+`crates/host/src/supervision.rs` and `crates/host/tests/agents.rs` exercise
+persistence, publication and the MCP path without live provider calls. Cloud
+tests cover account-scoped ingestion, GitHub routing and callback delivery.
+
 Settings lists and ends host-owned processes, including idle conversations and
 Claude sign-in terminals. This adds a guarded stop to the host terminal protocol and
 does not enable remote support for other providers. `src/machine-processes.test.ts`

@@ -16,17 +16,20 @@ mod client;
 mod mcp;
 mod registry;
 mod server;
+mod supervision;
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let command = args.next().unwrap_or_default();
     let mut root = None;
     let mut socket = None;
+    let mut url = None;
     let mut options = AgentOptions::default();
     let mut rest = Vec::new();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--root" => root = args.next().map(std::path::PathBuf::from),
+            "--url" => url = args.next(),
             "--socket" => {
                 socket = args.next().map(std::path::PathBuf::from);
                 options.socket = socket.clone();
@@ -70,6 +73,23 @@ fn main() {
             0
         }
         "agents" => agents_command(&root, rest.first().map(String::as_str), &options),
+        "supervision" => {
+            match supervision::command(
+                &root,
+                rest.first().map(String::as_str),
+                url.as_deref(),
+                rest.iter().any(|argument| argument == "--discard-pending"),
+            ) {
+                Ok(value) => {
+                    println!("{value}");
+                    0
+                }
+                Err(error) => {
+                    eprintln!("prometeu-host: {error}");
+                    1
+                }
+            }
+        }
         "mcp" => {
             let socket = socket.unwrap_or_else(|| agents::socket_path(&root));
             match mcp::run(socket) {

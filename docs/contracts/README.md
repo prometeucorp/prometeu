@@ -28,6 +28,7 @@ Formats and guarantees that cross process or layer boundaries.
 - [Product analytics](product-analytics.md) — PostHog event vocabulary, payload, installation identity and rules for new events.
 - [Relay protocol v4](relay-v4.md) — Encrypted collaboration and TOFU.
 - [Remote host protocol](remote-host.md) — Installation, SSH attachment, NDJSON methods and events of `prometeu-host`.
+- [Workspace supervision](supervision.md) — Host events, supervisor bindings and generic signed webhooks through the Cloud.
 - [Desktop release and update contract](releases.md) — Desktop packages, updater manifest and installation ownership.
 - [Local telemetry and insights](telemetry.md) — Content-free local events, usage measurements, SQLite storage and insight queries.
 - [Native Claude decisions](native-claude-decisions.md) — Explicit, generation-scoped hook responses alongside the native permission dialog.

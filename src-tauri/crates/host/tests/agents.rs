@@ -183,6 +183,147 @@ impl Agent {
 }
 
 #[test]
+fn supervision_setup_and_mcp_deliver_real_process_events_without_a_desktop() {
+    use std::io::Read;
+    use std::process::Stdio;
+    let machine = Machine::new();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (sender, received) = std::sync::mpsc::channel();
+    let cloud = std::thread::spawn(move || {
+        for index in 0..5 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            reader.read_line(&mut first).unwrap();
+            let mut length = 0;
+            let mut authorized = false;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                authorized |= line
+                    .trim()
+                    .eq_ignore_ascii_case("authorization: Bearer ingest-secret");
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+            }
+            assert!(authorized);
+            let body = if index == 0 {
+                assert!(first.starts_with("GET /api/supervision "));
+                r#"{"supervisor":{"id":"reviewer","name":"Reviewer"}}"#
+            } else {
+                assert!(first.starts_with("POST /api/supervision/events "));
+                let mut bytes = vec![0; length];
+                reader.read_exact(&mut bytes).unwrap();
+                sender
+                    .send(serde_json::from_slice::<Value>(&bytes).unwrap())
+                    .unwrap();
+                "{}"
+            };
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        }
+    });
+    let mut setup = Command::new(BIN)
+        .args(["supervision", "setup", "--url", &url, "--root"])
+        .arg(&machine.root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    setup
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"ingest-secret\n")
+        .unwrap();
+    let output = setup.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("ingest-secret"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("ingest-secret"));
+    let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(status["supervisor"]["id"], "reviewer");
+    let (writer, reader, _) = machine.connect(machine.token().trim());
+    let mut agent = Agent {
+        writer,
+        reader,
+        next: 0,
+    };
+    let supervisors = agent.call("supervisors_list", json!({})).unwrap();
+    assert_eq!(supervisors[0]["executor_id"], status["executor_id"]);
+    agent
+        .call("project_add", json!({"path":machine.dir.join("repo")}))
+        .unwrap();
+    assert!(agent
+        .call(
+            "workspace_create",
+            json!({"project":"repo", "prompt":"do work", "supervisor_id":"unconfigured"})
+        )
+        .is_err());
+    let workspace = agent
+        .call(
+            "workspace_create",
+            json!({"project":"repo", "prompt":"private task", "supervisor_id":"reviewer"}),
+        )
+        .unwrap();
+    let created = received.recv_timeout(Duration::from_secs(10)).unwrap();
+    let completed = received.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(created["kind"], "workspace.created");
+    assert_eq!(completed["kind"], "execution.completed");
+    assert_eq!(completed["workspace_id"], workspace["id"]);
+    assert_eq!(
+        completed["conversation_id"],
+        workspace["conversations"][0]["id"]
+    );
+    assert!(!completed.to_string().contains("private task"));
+    agent
+        .call(
+            "workspace_pr_link",
+            json!({"id":workspace["id"], "repository":"owner/repo", "number":12}),
+        )
+        .unwrap();
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(10)).unwrap()["kind"],
+        "workspace.pr_linked"
+    );
+    agent
+        .call("workspace_supervisor_remove", json!({"id":workspace["id"]}))
+        .unwrap();
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(10)).unwrap()["kind"],
+        "workspace.unsupervised"
+    );
+    assert!(agent
+        .call("workspace_get", json!({"id":workspace["id"]}))
+        .unwrap()["supervision"]
+        .is_null());
+    cloud.join().unwrap();
+    let reset = Command::new(BIN)
+        .args(["supervision", "reset", "--root"])
+        .arg(&machine.root)
+        .output()
+        .unwrap();
+    assert!(!reset.status.success());
+    assert!(String::from_utf8_lossy(&reset.stderr).contains("--discard-pending"));
+}
+
+#[test]
 fn an_agent_drives_a_workspace_without_a_desktop() {
     let machine = Machine::new();
     let (_, _, refused) = machine.connect("wrong");

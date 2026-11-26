@@ -13,6 +13,7 @@ pub mod lock;
 pub mod process;
 pub mod publication;
 pub mod selection;
+pub mod supervision;
 pub mod workspace_lifecycle;
 pub mod workspace_tools;
 

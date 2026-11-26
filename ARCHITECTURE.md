@@ -50,7 +50,7 @@ the owner sends it ([ADR 0090](docs/decisions/0090-approved-remote-input.md)).
 | Cursor adapter | `crates/protocols/src/cursor.rs`, desktop `cursor.rs` composition | convert ACP to V1; preserve native session identity | DOM, board state or relay |
 | Relay | Worker + Durable Object | enrollment, presence, audience, comments and forwarding | agent execution or worktree access |
 | Web mock | `src/mock.ts` | answer the same IPC for UI development and E2E | replace the Rust backend tests |
-| Prometeu Cloud (separate project) | Rails 8.1 + SQLite + ERB | optional account, organizations, invitations and tool catalogs | agent execution, general files, secrets or transcripts |
+| Prometeu Cloud (separate project) | Rails 8.1 + SQLite + ERB | optional account, organizations, invitations, tool catalogs and supervision webhook delivery | agent execution, general files, provider credentials or transcripts |
 
 ## Current main flow
 
@@ -94,6 +94,14 @@ clients use the host's authenticated local stdio MCP; client deployment and
 infrastructure remain the integrator's responsibility. See
 [ADR 0101](docs/decisions/0101-remote-machines.md) and the
 [remote host protocol](docs/contracts/remote-host.md).
+
+Remote workspaces can opt into an external supervisor. The shared core owns
+metadata events and execution observation rules; the host persists an outbox
+and publishes to the Cloud, which also routes GitHub changes and sends generic
+signed webhooks. The supervisor reads and acts through the existing host MCP.
+Local supervisor selection and reverse MCP transport are deferred. See the
+[supervision contract](docs/contracts/supervision.md) and
+[ADR 0105](docs/decisions/0105-workspace-supervision.md).
 
 ## Shared interface
 
@@ -171,8 +179,8 @@ and [ADR 0049](docs/decisions/0049-embedded-delegation-mcp.md).
 
 `actions.rs` keeps commands, profiles and runs on top of existing sessions.
 `actions.ts` resolves chat/menu entries; `action-settings.ts` edits the
-registry. The backend queries GitHub without calling models while waiting and
-resumes the session when there is news. See the
+registry. Actions end with their observed conversation turn; they do not
+automatically monitor a PR or resume the session on GitHub changes. See the
 [contract](docs/contracts/actions.md) and
 [ADR 0009](docs/decisions/0009-reusable-actions.md).
 

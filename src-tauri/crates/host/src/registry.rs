@@ -54,6 +54,8 @@ pub struct Workspace {
     pub keep_branch: bool,
     #[serde(default)]
     pub conversations: Vec<Conversation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supervision: Option<prometeu_core::supervision::Binding>,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
@@ -64,6 +66,8 @@ pub struct Registry {
     pub projects: Vec<Project>,
     #[serde(default)]
     pub workspaces: Vec<Workspace>,
+    #[serde(default)]
+    pub supervision: crate::supervision::State,
 }
 
 impl Registry {

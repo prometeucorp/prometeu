@@ -99,6 +99,8 @@ pub(crate) struct Activity {
     pub(crate) state: &'static str,
     pub(crate) at: u64,
     pub(crate) notification: Option<String>,
+    background: HashSet<String>,
+    main_done: bool,
 }
 
 pub(crate) struct Host {
@@ -111,7 +113,8 @@ pub(crate) struct Host {
     hooks: AtomicU64,
     decisions: Mutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>,
     units: AtomicU64,
-    pub(crate) registry: crate::registry::Store,
+    pub(crate) registry: Arc<crate::registry::Store>,
+    pub(crate) supervision: Arc<crate::supervision::Supervision>,
     activity: Mutex<HashMap<String, Activity>>,
 }
 
@@ -127,6 +130,34 @@ fn send(out: &mpsc::Sender<String>, frame: &Value) -> bool {
 }
 
 impl Host {
+    pub(crate) fn set_supervisor(&self, id: &str, supervisor: Option<&str>) -> Result<(), String> {
+        // The same lock orders hook observations and their activity snapshots, so attaching
+        // midway through work cannot race a final hook into an unfinished synthetic execution.
+        let activity = lock(&self.activity);
+        let registry = self.registry.read()?;
+        let workspace = registry
+            .workspaces
+            .iter()
+            .find(|w| w.id == id)
+            .ok_or("unknown_workspace")?;
+        let active: Vec<(String, Vec<String>, bool)> = workspace
+            .conversations
+            .iter()
+            .filter_map(|c| {
+                let state = activity.get(&c.id)?;
+                (matches!(state.state, "working" | "permission") || !state.background.is_empty())
+                    .then(|| {
+                        (
+                            c.id.clone(),
+                            state.background.iter().cloned().collect(),
+                            state.main_done,
+                        )
+                    })
+            })
+            .collect();
+        self.supervision.set_binding(id, supervisor, &active)
+    }
+
     /// Tell the attached desktop, if any, that an agent changed the registry, so it adopts new
     /// workspaces and conversations without waiting for its next attachment (ADR 0103).
     pub(crate) fn announce_registry(&self) {
@@ -313,6 +344,8 @@ pub fn serve(root: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let linger = linger();
     let scopes = linger && command_ok("systemd-run", &["--version"]);
+    let registry = Arc::new(crate::registry::Store::new(root));
+    let supervision = crate::supervision::Supervision::new(root, registry.clone())?;
     let host = Arc::new(Host {
         root: root.into(),
         ready: describe(root, scopes, linger),
@@ -323,9 +356,11 @@ pub fn serve(root: &Path) -> Result<(), String> {
         hooks: AtomicU64::new(0),
         decisions: Mutex::new(HashMap::new()),
         units: AtomicU64::new(0),
-        registry: crate::registry::Store::new(root),
+        registry,
+        supervision,
         activity: Mutex::new(HashMap::new()),
     });
+    host.supervision.start();
     crate::agents::listen(host.clone());
     eprintln!(
         "prometeu-host {} serving {} (scopes: {scopes})",
@@ -366,6 +401,14 @@ fn connection(host: &Arc<Host>, stream: UnixStream) -> Result<(), String> {
         return Ok(());
     };
     let first: Value = serde_json::from_str(&first).map_err(|e| e.to_string())?;
+    if let Some(request) = first.get("supervision") {
+        let mut stream = stream;
+        let response = match host.supervision.configure(request) {
+            Ok(result) => json!({"result":result}),
+            Err(error) => json!({"error":error}),
+        };
+        return writeln!(stream, "{response}").map_err(|e| e.to_string());
+    }
     if let Some(hook) = first.get("hook") {
         return serve_hook(host, stream, hook);
     }
@@ -836,6 +879,21 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
         // A background process that inherited the PTY can keep it open; do not wait for it forever.
         let _ = output_done.recv_timeout(DRAIN_WAIT);
         let mut ring = lock(&exit_term.ring);
+        // Retire the old execution before exposing the stopped terminal. A sender that sees
+        // `running == false` may immediately resume it under a new execution ID.
+        let mut activity = lock(&exit_host.activity);
+        let state = activity.entry(exit_term.id.clone()).or_default();
+        state.state = "ended";
+        state.background.clear();
+        state.main_done = false;
+        if let Err(error) = exit_host.supervision.observe(
+            &exit_term.id,
+            prometeu_core::supervision::Observation::Exited {
+                success: code == Some(0),
+            },
+        ) {
+            eprintln!("could not persist supervision process exit: {error}");
+        }
         ring.running = false;
         ring.code = code;
         exit_host.emit_terminal(
@@ -932,8 +990,35 @@ fn observe(host: &Host, session: &str, hook: &Value) {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let mut activity = lock(&host.activity);
+    if let Some(observation) = crate::supervision::observation(&payload) {
+        if let Err(error) = host.supervision.observe(session, observation) {
+            eprintln!("could not persist supervision observation: {error}");
+        }
+    }
     let entry = activity.entry(session.to_string()).or_default();
     entry.at = now();
+    match event {
+        "SubagentStart" => {
+            if let Some(id) = payload["agent_id"].as_str() {
+                entry.background.insert(id.into());
+            }
+            return;
+        }
+        "SubagentStop" => {
+            if let Some(id) = payload["agent_id"].as_str() {
+                entry.background.remove(id);
+            }
+            return;
+        }
+        _ if payload["agent_id"].as_str().is_some() => return,
+        "Stop" => entry.main_done = true,
+        "UserPromptSubmit" => entry.main_done = false,
+        "SessionStart" | "SessionEnd" | "StopFailure" => {
+            entry.main_done = false;
+            entry.background.clear();
+        }
+        _ => {}
+    }
     entry.state = match event {
         "SessionStart" | "Stop" | "StopFailure" => "idle",
         "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostToolUseFailure" => "working",
@@ -1268,8 +1353,95 @@ fn stats(host: &Host, params: &Value) -> Value {
 }
 
 #[cfg(test)]
+pub(crate) fn test_host(root: &Path) -> Arc<Host> {
+    let registry = Arc::new(crate::registry::Store::new(root));
+    let supervision = crate::supervision::Supervision::new(root, registry.clone()).unwrap();
+    Arc::new(Host {
+        root: root.into(),
+        ready: Value::Null,
+        scopes: false,
+        terminals: Mutex::default(),
+        client: Mutex::default(),
+        generations: AtomicU64::new(0),
+        hooks: AtomicU64::new(0),
+        decisions: Mutex::default(),
+        units: AtomicU64::new(0),
+        registry,
+        supervision,
+        activity: Mutex::default(),
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_retirement_finishes_before_a_stopped_conversation_can_resume() {
+        use prometeu_core::supervision::Observation;
+        let root = std::env::temp_dir().join(format!(
+            "host-retirement-{}",
+            crate::agents::uuid().unwrap()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = test_host(&root);
+        host.supervision
+            .configure(
+                &json!({"action":"setup", "url":"https://cloud.example", "token":"test-token",
+            "supervisor":{"id":"supervisor", "name":"Supervisor"}}),
+            )
+            .unwrap();
+        host.supervision.record_workspace(serde_json::from_value(json!({
+            "id":"workspace", "project":"/repo", "title":"Task", "branch":"feature", "base":"HEAD", "worktree":"/repo",
+            "created_at":1, "created_by":{"kind":"agent"}, "supervision":{"supervisor_id":"supervisor"},
+            "conversations":[{"id":"conversation", "title":"Task", "created_at":1, "permission":"auto"}]
+        })).unwrap()).unwrap();
+        let activity = lock(&host.activity);
+        let client = lock(&host.client);
+        open(&host, &json!({"id":"conversation", "argv":["/bin/sh", "-c", "exit 0"], "cwd":root, "cols":80, "rows":24})).unwrap();
+        let terminal = find(&host, "conversation").unwrap();
+        // The process emits no output, so only its exit waiter can hold this ring. Hold both
+        // possible next locks until the waiter reaches retirement, then release only `client`.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if terminal.ring.try_lock().is_err() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "exit waiter did not reach retirement"
+            );
+            std::thread::yield_now();
+        }
+        drop(client);
+        let resumed_host = host.clone();
+        let (resumed, received) = mpsc::channel();
+        let resume = std::thread::spawn(move || {
+            assert!(!resumed_host.is_running("conversation"));
+            resumed_host
+                .supervision
+                .observe("conversation", Observation::Started)
+                .unwrap();
+            resumed.send(()).unwrap();
+        });
+        assert!(
+            received.recv_timeout(Duration::from_millis(200)).is_err(),
+            "resume became available before the previous execution retired"
+        );
+        drop(activity);
+        received.recv_timeout(Duration::from_secs(5)).unwrap();
+        resume.join().unwrap();
+        host.supervision
+            .observe("conversation", Observation::Completed)
+            .unwrap();
+        let saved = serde_json::to_value(host.registry.read().unwrap()).unwrap();
+        let events = saved["supervision"]["outbox"].as_array().unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[1]["kind"], "execution.failed");
+        assert_eq!(events[2]["kind"], "execution.completed");
+        assert_ne!(events[1]["execution_id"], events[2]["execution_id"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn ring_replays_only_the_gap() {

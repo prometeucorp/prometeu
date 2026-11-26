@@ -10,6 +10,13 @@ status: stable
 Current contract, implemented in `prometeu-cloud` and the desktop.
 Decision: [ADR 0088](../decisions/0088-github-app.md).
 
+The same authenticated webhook endpoint also feeds optional
+[workspace supervision](supervision.md). That consumer uses explicit workspace
+bindings and durable callback delivery, independently of this human feed's
+recipient filters, read state and polling. It can report successful CI changes.
+Supervision requires enabling the additional GitHub App subscriptions documented
+in its contract; this does not change the notification kinds below.
+
 ## Source
 
 The GitHub App `prometeu-app`, owned by `prometeucorp`, sends webhooks to

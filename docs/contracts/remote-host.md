@@ -453,6 +453,15 @@ the result names it in `branch_kept` with Git's `detail`.
 
 ### MCP server
 
+Remote workspaces can opt into [workspace supervision](supervision.md).
+The host accepts a configured `supervisor_id` when creating a workspace and
+exposes tools to list the configured destination, assign/remove supervision and
+link a GitHub PR. Publication is independent of desktop attachment. The registry
+adds optional workspace `supervision` and defaulted root supervision state for
+execution observations, PR associations and the durable outbox. Desktop merges
+preserve the host's binding. Credentials stay in private `supervision.json`,
+never the registry or MCP responses. Existing callers remain unsupervised.
+
 `prometeu-host mcp [--socket PATH]` speaks MCP over stdio, newline-delimited
 JSON-RPC, and answers `initialize`, `ping`, `tools/list` and `tools/call`.
 Notifications get no reply. It reads `PROMETEU_AGENT_TOKEN` and, as the client
