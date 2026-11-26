@@ -601,3 +601,14 @@ desktop never asks for hooks by device, so it receives what its device missed. T
 has its own `AGENT_PROTOCOL`, carried in its hello frame. The registry carries its
 own `version`. Tests:
 `src-tauri/crates/host/tests/host.rs` and the `remote` unit tests.
+
+## Event delivery during MCP setup
+
+The desktop's MCP connection form optionally provisions the remote host's
+supervisor using its existing Cloud account and SSH access. The host's additive
+`supervision identity` command exposes its stable public executor ID before
+setup; `supervision test` checks publication through to the receiver's delivery
+receipt. Ingestion credentials arrive only on setup's standard input, never in
+the copied MCP configuration. Existing connections can enable events without
+rotating their MCP token. See the [supervision contract](supervision.md) for
+endpoints, IPC, failure recovery, compatibility and tests.

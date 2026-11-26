@@ -126,7 +126,10 @@ export type Commands = {
   machine_clients: { args: { id: string }; result: import("./machine-clients").MachineClient[] };
   machine_client_detach: { args: { id: string; device: string }; result: void };
   machine_claude_status: { args: { id: string }; result: import("./machines").ClaudeStatus };
-  machine_agents_enable: { args: { id: string; rotate: boolean }; result: import("./machines").AgentsSetup };
+  machine_agents_enable: { args: { id: string; rotate: boolean; supervision?: import("./machine-supervision").SupervisionSetup }; result: import("./machines").AgentsSetup };
+  machine_supervision_options: { args: undefined; result: import("./machine-supervision").SupervisionOptions };
+  machine_supervision_enable: { args: { id: string; setup: import("./machine-supervision").SupervisionSetup }; result: void };
+  machine_supervision_test: { args: { id: string }; result: import("./machine-supervision").SupervisionTest };
   machine_agents_disable: { args: { id: string }; result: void };
   machine_claude_login: { args: { id: string }; result: string };
   machine_claude_code: { args: { id: string; code: string }; result: import("./machines").ClaudeStatus };

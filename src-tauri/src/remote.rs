@@ -12,6 +12,7 @@ pub mod connection;
 pub mod install;
 pub mod login;
 pub mod registry;
+pub mod supervision;
 pub mod terminal;
 pub mod workspace;
 

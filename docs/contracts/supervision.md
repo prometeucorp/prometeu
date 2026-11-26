@@ -51,6 +51,94 @@ binding and emits `workspace.unsupervised`; it does not close the workspace.
 GitHub PR. These methods use the existing authenticated remote MCP authority,
 not the callback URL as an authorization credential.
 
+## Provisioning with the remote MCP
+
+Settings / Machines / Enable agents offers an optional **Receive workspace events**
+choice. The account's existing destination is reused; if none exists, the person
+supplies a webhook URL, format and the receiver's signing secret in the same form.
+The default format is OpenBot. Existing MCP connections offer **Enable events**
+without replacing their MCP token. Ordinary MCP setup requires no Cloud account.
+Supervision remains an explicit workspace binding selected through the host MCP;
+provisioning does not attach all existing or future workspaces automatically.
+
+The desktop authenticates provisioning with its stored Cloud session. The form
+retains the account identity and destination ID; a changed account or destination
+requires reopening it. A disabled destination must be enabled in Cloud settings.
+Creation does not overwrite a destination another client created in the meantime.
+The desktop obtains the executor's stable public ID over the existing SSH access,
+requests a credential, then pipes that credential to `supervision setup` on that
+machine. Neither the account Bearer nor the receiver's signing secret reaches the
+host. Ingestion credentials stay out of the webview, clipboard and MCP responses.
+The one copyable result remains the existing MCP configuration.
+
+Desktop Bearer endpoints (JSON writes, same Origin and size guards as the other
+desktop endpoints):
+
+- `GET /api/supervisor` returns `{ supervisor: null }` or public destination
+  fields `id`, `name`, `url`, `enabled`, `webhook_protocol`; never secrets.
+- `POST /api/supervisor/connections` accepts `executor_id`, optional
+  `supervisor_id` for an existing destination, or `destination` with `name`, `url`,
+  `webhook_protocol` and `signing_secret` for a new one. It returns
+  `{ supervisor: { id, name }, ingest_token }` with `Cache-Control: no-store`.
+  A stale destination returns 409; invalid input or a disabled destination returns
+  422. Browser cookies and ingestion credentials do not authorize provisioning.
+
+Cloud stores one ingestion digest per supervisor/executor in
+`supervision_credentials`. Reprovisioning replaces only that executor's token;
+it preserves the receiver secret, other executors and the legacy ingestion token.
+Each new token authorizes ingestion and test receipts only for its executor.
+Legacy destination tokens retain their existing authority. Disabling a destination
+rejects all its tokens; deleting it removes its credentials. Explicit credential
+rotation in Cloud settings revokes all executor credentials too.
+
+Provisioning spans Cloud and SSH, without a distributed transaction. If the SSH
+step fails after credential issuance, repeat **Enable events** to repair that
+executor. Its outbox and workspaces remain intact. Initial setup configures events
+before creating the MCP credential, so a failed event setup cannot hide a newly
+rotated MCP token. MCP token rotation remains a separate explicit action.
+
+`supervision identity --root DIR` returns `{ executor_id }` without credentials or
+enabling publication. The daemon persists this ID in the private
+`supervision-executor` file; existing `supervision.json` identities take precedence.
+Setup, disabling and restarting preserve it. These additive files and commands do
+not change the registry version or existing MCP arguments.
+
+### Test from the machine
+
+After provisioning, the desktop runs `supervision test --root DIR` on the host.
+The host uses its own saved credential to POST `{ id, executor_id }` to
+`/api/supervision/tests`. Cloud persists a separate `webhook.test` delivery with
+that executor and a null workspace; no workspace or execution is created. Test
+IDs are idempotent within retained delivery history. Tests never batch across
+executors or with browser tests. `GET /api/supervision/tests/:id` returns
+`{ id, status, last_error }`, scoped to the authenticated destination and, for new
+credentials, executor. The receiver uses the existing signature and envelope.
+
+The host polls this receipt for a bounded diagnostic window, stopping on delivery
+or a reported failure, and returns only `{ status, failed }`. The UI says connected
+only after `delivered`; pending, rejected and unreachable paths never become success.
+The copyable MCP configuration stays available if the diagnostic fails. **Test
+events from this machine** retries the diagnostic independently. This proves
+receipt by the receiver, not MCP installation there or an agent's completion.
+The ordinary publisher and Cloud dispatcher still do not poll host or agent state.
+
+Desktop IPC additions:
+
+- `machine_supervision_options()` returns `{ account, supervisor }` (both nullable).
+- `machine_agents_enable` accepts optional `supervision: { account,
+  supervisor_id?, destination? }`; omission preserves existing behavior and output.
+- `machine_supervision_enable({ id, setup })` configures events for an existing MCP.
+- `machine_supervision_test({ id })` returns `{ status, failed }`.
+
+`src/mock.ts` implements the same calls with synthetic state. Native provisioning
+and receipt parsing are covered in `remote/supervision.rs` and host supervision
+tests; `machine-supervision.test.ts` covers consent, existing MCP preservation and
+receipt presentation. Cloud's `supervision_connections_test.rb` covers account and
+executor isolation, credential compatibility and a signed callback acknowledgement.
+Deploy the additive Cloud migration and endpoints before the desktop/host update.
+A Cloud rollback must retain the schema; old code cannot authenticate newly issued
+executor tokens, so keep compatible Cloud code while those hosts publish.
+
 ## Host publication
 
 `GET /api/supervision` accepts the ingestion token as Bearer and returns:

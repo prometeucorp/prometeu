@@ -1674,6 +1674,54 @@
       ]
     },
     {
+      "target": "machines.events.enable",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.events.optIn",
+      "sources": [
+        "src/machine-supervision.ts"
+      ]
+    },
+    {
+      "target": "machines.events.receiver",
+      "sources": [
+        "src/machine-supervision.ts"
+      ]
+    },
+    {
+      "target": "machines.events.secret",
+      "sources": [
+        "src/machine-supervision.ts"
+      ]
+    },
+    {
+      "target": "machines.events.setup",
+      "sources": [
+        "src/machine-supervision.ts"
+      ]
+    },
+    {
+      "target": "machines.events.signIn",
+      "sources": [
+        "src/machine-supervision.ts"
+      ]
+    },
+    {
+      "target": "machines.events.test",
+      "sources": [
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.events.url",
+      "sources": [
+        "src/machine-supervision.ts"
+      ]
+    },
+    {
       "target": "machines.install",
       "sources": [
         "src/machines.ts"

@@ -8,6 +8,7 @@ import { button, confirmDialog, field, input, notice } from "./ui";
 import type { Project, ProviderId } from "./types";
 import { h, template } from "./util";
 import { showMachineClients } from "./machine-clients";
+import { showAgentConnection, connectionTestMessage } from "./machine-supervision";
 import { showMachineProcesses } from "./machine-processes";
 
 /// Remote machines (ADR 0101): computers reached over SSH whose `prometeu-host` daemon runs workspaces for this app.
@@ -123,6 +124,7 @@ const signing = new Map<string, string>();
 /// The agent configuration just generated, per machine. Kept only in memory until the person closes it: the token is
 /// never stored, logged or sent anywhere else (ADR 0103).
 const agentSetups = new Map<string, { setup: AgentsSetup; ssh: string }>();
+const eventTests = new Map<string, { ssh: string; message: string }>();
 const busy = new Set<string>();
 let feedback: { id: string; text: string; error: boolean } | null = null;
 
@@ -186,7 +188,10 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     if (machine.codex) line(codexLine(machine.codex), machine.codex.installed && !(machine.codex.supported && machine.codex.loggedIn) ? "warn" : "");
   }
 
-  const working = busy.has(machine.id) || busy.has(`claude:${machine.id}`) || busy.has(`agents:${machine.id}`);
+  const eventTest = eventTests.get(machine.id);
+  if (eventTest?.ssh === machine.ssh) line(eventTest.message);
+
+  const working = busy.has(`events:${machine.id}`) || busy.has(machine.id) || busy.has(`claude:${machine.id}`) || busy.has(`agents:${machine.id}`);
   const install = () => run(machine.id, redraw, say, async () => { await invoke("machine_install", { id: machine.id }); return t("machines.installed"); });
   const reconnect = () => run(machine.id, redraw, say, async () => { await invoke("machine_connect", { id: machine.id }); return null; });
   const signIn = () => run(`claude:${machine.id}`, redraw, say, async () => {
@@ -196,6 +201,23 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     return null;
   });
   const checkClaude = () => run(`claude:${machine.id}`, redraw, say, async () => { await invoke("machine_claude_status", { id: machine.id }); return null; });
+  const testEvents = () => run(`events:${machine.id}`, redraw, say, async () => {
+    eventTests.set(machine.id, { ssh: machine.ssh, message: t("machines.events.testing") }); redraw();
+    try {
+      const result = await invoke("machine_supervision_test", { id: machine.id });
+      eventTests.set(machine.id, { ssh: machine.ssh, message: connectionTestMessage(result) });
+    } catch (error) {
+      eventTests.set(machine.id, { ssh: machine.ssh, message: t("machines.events.failed") });
+      throw error;
+    }
+    return null;
+  });
+  const connectAgents = (existing = false) => showAgentConnection(machine.id, machine.name, existing, (setup, events) => {
+    if (machineOf(machine.id)?.ssh !== machine.ssh) return;
+    if (setup) agentSetups.set(machine.id, { setup, ssh: machine.ssh });
+    redraw();
+    if (events) testEvents();
+  });
   const enableAgents = (rotate: boolean) => run(`agents:${machine.id}`, redraw, say, async () => {
     if (rotate && !await confirmDialog({ track: "machines.agents.rotate", area: "settings", title: t("machines.agents.rotate"),
       message: t("machines.agents.rotateConfirm"), accept: t("machines.agents.rotate"), cancel: t("machines.cancel") })) return null;
@@ -217,7 +239,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
   const primary = machine.phase === "not_installed" ? button(t("machines.install"), install, "pri", "machines.install")
     : offline ? button(t("machines.reconnect"), reconnect, "outline", "machines.reconnect")
     : claude?.installed && !claude.loggedIn && !signing.has(machine.id) ? button(t("machines.claude.signIn"), signIn, "pri", "machines.claude.signIn")
-    : agents && !agents.enabled ? button(t("machines.agents.enable"), () => enableAgents(false), "outline", "machines.agents.enable")
+    : agents && !agents.enabled ? button(t("machines.agents.enable"), () => connectAgents(), "outline", "machines.agents.enable")
     : null;
   if (primary) { primary.disabled = working; act.append(primary); }
   const more = iconButton({ label: t("machines.more"), glyph: "ellipsis", track: "machines.more", disabled: working, run: () => {
@@ -226,8 +248,10 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
       { track: "machines.edit", label: t("machines.edit"), glyph: icon("pencil"), run: () => { editing = machine.id; redraw(); } },
       ...(machine.phase === "connected" ? [{ track: "machines.claude.check", label: t("machines.claude.check"), glyph: icon("check"), run: checkClaude }] : []),
       ...(machine.phase === "connected" && machine.host?.clients ? [{ track: "machines.clients", label: t("machines.clients"), glyph: icon("signal"), run: () => showMachineClients(machine.id, machine.name) }] : []),
-      ...(agents && !agents.enabled ? [{ track: "machines.agents.enable", label: t("machines.agents.enable"), glyph: icon("plug"), run: () => enableAgents(false) }] : []),
+      ...(agents && !agents.enabled ? [{ track: "machines.agents.enable", label: t("machines.agents.enable"), glyph: icon("plug"), run: () => connectAgents() }] : []),
       ...(agents?.enabled ? [
+        { track: "machines.events.enable", label: t("machines.events.enable"), glyph: icon("plug"), run: () => connectAgents(true) },
+        { track: "machines.events.test", label: t("machines.events.test"), glyph: icon("check"), run: testEvents },
         { track: "machines.agents.rotate", label: t("machines.agents.rotate"), glyph: icon("rotate"), run: () => enableAgents(true) },
         { track: "machines.agents.disable", label: t("machines.agents.disable"), glyph: icon("x"), run: disableAgents },
       ] : []),
@@ -254,7 +278,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
   if (machine.host && !machine.host.linger) note(t("machines.lingerOff"), "warning");
   if (machine.update_pending) note(t("machines.updatePending"), "warning");
   // Success shows in the row itself; only failures need a note.
-  if (feedback?.error && [machine.id, `claude:${machine.id}`, `agents:${machine.id}`].includes(feedback.id)) note(feedback.text, "error");
+  if (feedback?.error && [machine.id, `claude:${machine.id}`, `agents:${machine.id}`, `events:${machine.id}`].includes(feedback.id)) note(feedback.text, "error");
   return rows;
 }
 
