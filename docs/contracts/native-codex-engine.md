@@ -61,6 +61,18 @@ both with `dangerFullAccess`, matching the existing structured adapter. Plan
 uses the native collaboration mode and native built-in plan instructions.
 There is no synthetic user `/plan` prompt or dummy inference turn.
 
+## Remote machines
+
+On a remote machine ([ADR 0105](../decisions/0105-codex-on-remote-machines.md))
+the plan carries an engine host instead of spawning a child. The host opens the
+engine and a relay as host terminals; the relay performs the socket, alias and
+peer checks above on the machine (accepting a descendant of the engine process)
+and carries the same messages as JSON lines. The bootstrap, its deadline and its
+limits are unchanged, the TUI receives the relay's `unix://` address on the
+machine, and losing the relay releases the conversation without ending the
+machine's engine or TUI. The machine's own `~/.codex` applies: no account,
+plugin or MCP configuration is passed.
+
 ## Lifetime and explicit control
 
 `NativeEngine` retains one owner for the child, socket, reader and cleanup. The

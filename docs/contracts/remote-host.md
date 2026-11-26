@@ -10,7 +10,8 @@ status: stable
 Decisions: [ADR 0101](../decisions/0101-remote-machines.md); for the registry
 and agent clients, [ADR 0103](../decisions/0103-agents-on-remote-machines.md); for
 several computers attached at once,
-[ADR 0104](../decisions/0104-several-computers-on-one-machine.md).
+[ADR 0104](../decisions/0104-several-computers-on-one-machine.md); for Codex,
+[ADR 0105](../decisions/0105-codex-on-remote-machines.md).
 Implementation: `src-tauri/crates/host/` (host) and `src-tauri/src/remote/` (desktop).
 
 ## Installation
@@ -29,6 +30,7 @@ Its install directory is the first 16 hex digits of its SHA-256.
   host-v1.lock                 flock held by the serving host
   host.log                     host stderr
   sessions/<tab>/settings.json Claude hook settings, 0600
+  sessions/<tab>/rpc           a Codex engine's listening alias (ADR 0105)
   worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
   registry.json                the machine's projects and workspaces, 0600
   agents.json                  `{ socket, client, opened }` written by setup, 0600
@@ -186,6 +188,34 @@ delivered, or queued when the terminal has no attached desktop. The desktop
 rewrites transcript paths to its mirror, replaces the bridge socket, token and
 nonce with its own, and returns any decision the local bridge produced. A failing
 hook command prints nothing and exits 0.
+
+## Codex engines
+
+A remote Codex conversation uses three terminals, opened with the ordinary
+methods: the engine `<tab>-codex` (`codex app-server --listen
+unix://<root>/sessions/<tab>/rpc`, with the workspace and its limits), the TUI
+`<tab>` (`codex --remote unix://… resume <thread>`), and one relay per desktop
+incarnation, `<tab>-rpc-<12 alphanumerics>`, which runs
+
+```text
+<root>/host/<hash>/prometeu-host codex-relay --socket <root>/sessions/<tab>/rpc --pid <engine pid>
+```
+
+The relay switches its PTY to raw mode, waits up to 20 seconds for the socket,
+and checks it as the desktop's local engine client does: the alias names Codex's
+SHA-256 endpoint, whose directory is 0700 and whose socket has no group or other
+bits, both owned by the user. The socket's peer must be the engine's process or a
+descendant. It exits with status 1 and writes nothing to stdout when a check
+fails. Otherwise it prints `{"prometeu":"codex-relay","ready":1}` and then relays
+one JSON object per line in each direction, at most 64 MiB from the engine and
+1 MiB to it. An input line that is not a JSON object is dropped. The relay exits
+when the WebSocket closes or its input ends.
+
+The desktop reads relay lines only after the announcement, and ends the link when
+a line is malformed or the host replies to `terminal_attach` with `reset` after
+the first attachment. It never kills another incarnation's relay. When the TUI
+exits it terminates the engine; at each attachment it terminates an engine whose
+TUI is not running and that started at least 60 seconds earlier.
 
 ## Transcript mirror
 

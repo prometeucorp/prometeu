@@ -93,7 +93,10 @@ desktop (`src-tauri/src/remote/`) keeps the board, conversations, journal and
 interface. The desktop reaches the host through the system `ssh`, reconnects
 after sleep or restarts, and reattaches from the last output sequence. External
 clients use the host's authenticated local stdio MCP; client deployment and
-infrastructure remain the integrator's responsibility. See
+infrastructure remain the integrator's responsibility. Claude and Codex run
+remotely; a Codex conversation's engine also runs on the machine, and the desktop
+reads its RPC through a relay terminal
+([ADR 0105](docs/decisions/0105-codex-on-remote-machines.md)). See
 [ADR 0101](docs/decisions/0101-remote-machines.md) and the
 [remote host protocol](docs/contracts/remote-host.md).
 
