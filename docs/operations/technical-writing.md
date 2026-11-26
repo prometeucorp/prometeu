@@ -165,6 +165,8 @@ or the contract. Add the term to this list in the same change.
 | `session` | The transcript of a conversation. The agent process can stop and start again on the same session. |
 | `transcript` | The stored record of the messages and events of a session. |
 | `turn` | One prompt and the agent work that it causes. |
+| `child task` | Work that an agent starts in the background, with a state that is independent of the primary turn. |
+| `usage limit` | A maximum for account use that the provider sets. |
 | `prompt` | The text that a person or an action sends to an agent. |
 | `attachment` | A file or an image that goes with a prompt. |
 | `event` | A message that tells about a change. It is not the general meaning "occurrence". |

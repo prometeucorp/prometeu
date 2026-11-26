@@ -162,6 +162,17 @@ block can open the backend tab again while the frontend shows idle. Thus availab
 correct completion stay separate facts. Late content stays readable, and a
 success continues to have the source evidence as a condition of the provider.
 
+**Errors from the agent.** An `Error` report for the `root` record stops the
+indication that the primary agent is active. Transcript data that comes after
+the error does not start this indication again. If Prometeu waits for
+`NativeCompletionFence`, the indication stays active when Claude stops at its
+usage limit. This check does not accept an error as a completed turn.
+
+The app sends `idle` without a `turn.completed` event or removal of the pending
+`CompletionTicket`. Active child tasks keep their own state. The cycle stays
+open so the agent can try again without a new prompt. A new `Working` report
+cancels the pending `CompletionTicket`.
+
 **Completion tickets.** The pure execution projector returns a completion
 ticket for an explicit change of the root from active to done or error. The
 host can commit the ticket only after it drains the native transcript. A

@@ -509,6 +509,30 @@ empty composer does not stop queued input. The host regression test keeps the
 local-input fence until a newer examined paint and a native idle signal. Then it
 admits the next message and does not send it again.
 
+Claude 2.1.332 sends `Error` for turn failures, except failures related to
+account access. `ExecutionProjector` sends `idle` for the `root` record and keeps
+the state of active child tasks. Transcript data that comes after the error does not start
+the work indication again. The agent can send `Working` in the same cycle
+after a usage limit.
+
+These tests examine `ExecutionProjector` and `SessionPump` with reports that
+the tests make:
+
+- `terminal_execution_error_stops_root_activity_without_completing_or_blocking_retry`
+- `claude_native_error_stops_spinner_keeps_late_content_quiet_and_allows_retry`
+
+The tests examine these conditions:
+
+- A child task stops with an error.
+- Input from the transcript comes after the error.
+- The agent tries again without a new prompt.
+
+Source inspection and these tests show the behavior. They do not include a run
+of Claude that reaches the usage limit. `ExecutionProjector` uses this rule for
+all providers in `ConversationMode::Terminal` that send `Error`. The rule does
+not add information from the Cursor screen. The Codex engine continues to
+control when its turn completes.
+
 The OSC parser and reducer tests are the same for all providers. They examine
 chunked status records, retention with a limit and explicit completion for each
 record. Native PTY tests examine input, resize, shared process control and the

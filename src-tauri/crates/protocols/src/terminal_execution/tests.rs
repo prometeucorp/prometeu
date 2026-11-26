@@ -211,6 +211,47 @@ fn terminal_execution_active_root_idle_stops_quietly_until_new_input() {
 }
 
 #[test]
+fn terminal_execution_error_stops_root_activity_without_completing_or_blocking_retry() {
+    for child in [false, true] {
+        let mut p = projector();
+        observe(&mut p, None, ProgramStatusState::Working);
+        if child {
+            observe(&mut p, Some("worker"), ProgramStatusState::Working);
+        }
+        let mut error = report(None, ProgramStatusState::Error);
+        error.message = Some("Usage limit reached".into());
+        let failed = p.observe(error, 11);
+        assert_eq!(failed.events[0]["state"], "idle");
+        assert_eq!(failed.events[0]["scope"], "root");
+        assert_eq!(failed.events[0]["detail"], "Usage limit reached");
+        assert!(p.root_content_idle());
+        let ticket = failed.completion.unwrap();
+        assert!(failed
+            .events
+            .iter()
+            .all(|event| event["type"] != "turn.completed"));
+        if child {
+            assert_eq!(failed.events[1]["state"], "working");
+            assert_eq!(failed.events[1]["scope"], "background");
+            let drained = observe(&mut p, Some("worker"), ProgramStatusState::Error);
+            assert_eq!(drained.events[0]["type"], "background.changed");
+            assert_eq!(drained.events[1]["state"], "idle");
+            assert_eq!(drained.events[1]["scope"], "root");
+        }
+        p.captured_input(12);
+        assert!(p.root_content_idle(), "delayed source input stays quiet");
+        assert_eq!(p.pending_completion(), Some(ticket.clone()));
+        let retry = observe(&mut p, None, ProgramStatusState::Working);
+        assert_eq!(retry.events[0]["state"], "working");
+        assert!(!p.root_content_idle());
+        assert!(p.pending_completion().is_none());
+        assert!(p
+            .commit_completion(&ticket, TranscriptBarrier::CaughtUp, 13)
+            .is_empty());
+    }
+}
+
+#[test]
 fn terminal_execution_done_then_idle_preserves_completion_awaiting_source_flush() {
     let mut p = projector();
     p.accepted_input();

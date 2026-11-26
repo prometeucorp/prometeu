@@ -380,6 +380,57 @@ fn assert_captured_antigravity_escape(body: &str) {
 }
 
 #[test]
+fn claude_native_error_stops_spinner_keeps_late_content_quiet_and_allows_retry() {
+    use prometeu_core::board::Status;
+    use prometeu_protocols::terminal_status::{ProgramStatusEvent, ProgramStatusParser};
+    let fixture = Fixture::new();
+    let store = fixture.open_as("claude", Some("native"), false);
+    let (live, effects) = pump(&store);
+    let (mut transport, _) = super::super::tests::fixture();
+    let inner = Arc::get_mut(&mut transport).unwrap();
+    inner.provider = crate::state::ProviderId::Claude;
+    inner.activity = Some(live.output.clone());
+    let first = user("first", "Rewrite the documentation");
+    live.accept_committed(first.frame.as_ref().unwrap(), |line, offset| {
+        store.commit_record(&first, Some(line), offset)
+    })
+    .unwrap();
+    transport.captured_input(&live);
+    let observe = |body| {
+        let ProgramStatusEvent::Report(report) = ProgramStatusParser::default()
+            .feed(format!("\x1b]7501;{body}\x07").as_bytes())
+            .remove(0)
+        else {
+            panic!("native status report");
+        };
+        transport.observe_report(report, &live);
+    };
+    observe("state=working");
+    observe("state=working:id=worker");
+    assert!(transport.busy());
+    observe("state=error");
+    assert!(!live.output.turn.load(Ordering::Acquire));
+    assert!(transport.busy(), "the child still runs");
+    observe("state=error:id=worker");
+    assert!(!transport.busy());
+    assert!(matches!(*lock(&effects.status), Some(Status::Pronta)));
+    lock(&effects.other).clear();
+    let mut late = answer("late", "Usage limit reached");
+    late.checkpoint["sourceScope"] = json!("record");
+    late.checkpoint["sourceUser"] = json!(first.occurrence);
+    transport.feed_native_output(&live, &store, &late).unwrap();
+    assert!(!transport.busy());
+    assert!(lock(&effects.other).is_empty());
+    assert!(store.load().unwrap().contains("Usage limit reached"));
+    assert!(lock(&effects.events)
+        .iter()
+        .all(|line| { serde_json::from_str::<Value>(line).unwrap()["type"] != "turn.completed" }));
+    observe("state=working");
+    assert!(transport.busy(), "native retry needs no new user prompt");
+    assert!(matches!(*lock(&effects.status), Some(Status::Rodando)));
+}
+
+#[test]
 fn stopped_root_keeps_requests_and_child_loss_does_not_revive_late_content() {
     use prometeu_core::board::Status;
     use prometeu_protocols::terminal_status::{ProgramStatusReport, ProgramStatusState};

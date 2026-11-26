@@ -303,6 +303,19 @@ do not tell that a completion was correct:
 - A process exit.
 - A stop hook that does not prove the end.
 
+When an agent sends `Error` for its `root` record, `ExecutionProjector` sends
+`execution.observed` with `root` scope and `idle` state. This event stops the
+indication that the primary agent is active, without a `turn.completed` event. The app keeps
+transcript data that comes after the error. This data does not start the
+indication again. Each active child task keeps its state until it stops.
+
+The `idle` state of the `root` record does not remove or use the pending
+`CompletionTicket` for the error.
+The agent can try again after its usage limit without a new prompt. A `Working`
+report cancels that `CompletionTicket` and starts the indication again. The app
+uses the current V1 fields. It does not record a new event in the transcript or
+tell the person that the turn completed.
+
 The event adds to V1. Older readers ignore it. It uses a live transport
 sequence but no stored transcript position. These tests examine the compatibility, the
 scope, the reads with an unsure result and the delivery of one completion only:
