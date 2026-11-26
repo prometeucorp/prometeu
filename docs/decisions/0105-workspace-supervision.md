@@ -99,7 +99,9 @@ back to its local MCP before it can offer equivalent supervision.
 ## Compatibility and evidence
 
 Unsupervised workspaces retain existing behavior. Host registry additions use
-defaults; existing MCP calls need no new arguments. Removing supervision stops
+defaults and version 1 records migrate on write to version 2, which older hosts
+refuse to rewrite; downgrade must preserve that file and a compatible host.
+Existing MCP calls need no new arguments. Removing supervision stops
 routing without closing the workspace. Retries provide at-least-once delivery;
 they do not promise exactly-once model execution.
 

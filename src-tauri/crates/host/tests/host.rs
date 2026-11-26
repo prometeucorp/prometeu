@@ -27,10 +27,24 @@ struct Attached {
 }
 
 impl Attached {
+    /// An attachment from a desktop that predates device identities.
     fn new(root: &Path) -> Self {
+        Self::spawn(root, &[])
+    }
+
+    /// An attachment from the desktop with this device ID.
+    fn device(root: &Path, device: &str) -> Self {
+        Self::spawn(
+            root,
+            &["--device", device, "--label", &format!("Mac {device}")],
+        )
+    }
+
+    fn spawn(root: &Path, identity: &[&str]) -> Self {
         let mut child = Command::new(BIN)
             .args(["attach", "--root"])
             .arg(root)
+            .args(identity)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -70,6 +84,22 @@ impl Attached {
                 return frame;
             }
         }
+    }
+
+    /// Assert that no frame `accept` would take arrives for a while.
+    fn quiet(&self, mut accept: impl FnMut(&Value) -> bool, wait: Duration) {
+        let deadline = Instant::now() + wait;
+        while let Ok(frame) = self
+            .frames
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            assert!(!accept(&frame), "unexpected frame {frame}");
+        }
+    }
+
+    /// Confirm a hook the way the desktop does once it handled it.
+    fn confirm(&mut self, hook: &Value) {
+        self.call("hook_reply", json!({"hook": hook["hook"], "stdout": ""}));
     }
 
     /// Send without waiting for the reply; returns the request id.
@@ -415,4 +445,465 @@ fn an_update_waits_for_a_running_command() {
     let accepted = client.send("shutdown", json!({}));
     let reply = client.until(|f| f["id"] == accepted);
     assert!(reply.get("error").is_none(), "{reply}");
+}
+
+/// Run the hook helper the way Claude does for the conversation `session`.
+fn run_hook(root: &Path, session: &str, payload: &str) -> Child {
+    let mut child = Command::new(BIN)
+        .args(["hook", "--root"])
+        .arg(root)
+        .env("PROMETEU_TERMINAL_HOOK_SESSION", session)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    child
+}
+
+fn open_shell(client: &mut Attached, id: &str, script: &str) {
+    client.call(
+        "terminal_open",
+        json!({"id": id, "argv": ["/bin/sh", "-c", script], "cwd": std::env::temp_dir(),
+               "cols": 80, "rows": 24}),
+    );
+}
+
+#[test]
+fn desktops_on_different_devices_stay_attached_and_see_the_same_output() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(&mut first, "m1", "while read line; do echo got-$line; done");
+    first.call("terminal_attach", json!({"id": "m1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "m1", "seq": 0}));
+    first.call(
+        "terminal_write",
+        json!({"id": "m1", "data": STANDARD.encode("one\n")}),
+    );
+    first.output_until("m1", "got-one", String::new());
+    second.output_until("m1", "got-one", String::new());
+    second.call(
+        "terminal_write",
+        json!({"id": "m1", "data": STANDARD.encode("two\n")}),
+    );
+    first.output_until("m1", "got-two", String::new());
+    second.output_until("m1", "got-two", String::new());
+
+    let listed = first.call("clients_list", json!({}));
+    let devices: Vec<&str> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["device"].as_str().unwrap())
+        .collect();
+    assert_eq!(devices, ["mac-a", "mac-b"]);
+    assert_eq!(listed[0]["current"], true);
+    assert_eq!(listed[1]["label"], "Mac mac-b");
+    first.quiet(|f| f["event"] == "replaced", Duration::from_millis(200));
+    second.quiet(|f| f["event"] == "replaced", Duration::from_millis(200));
+
+    // The same desktop coming back after sleep replaces only its own stale attachment.
+    let mut again = Attached::device(&root, "mac-b");
+    second.until(|f| f["event"] == "replaced");
+    first.quiet(|f| f["event"] == "replaced", Duration::from_millis(200));
+    assert_eq!(
+        again
+            .call("clients_list", json!({}))
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    // A desktop can disconnect another one; it is told it was replaced.
+    let detached = first.send("client_detach", json!({"device": "mac-a"}));
+    assert_eq!(
+        first.until(|f| f["id"] == detached)["error"],
+        "unknown_client"
+    );
+    first.call("client_detach", json!({"device": "mac-b"}));
+    again.until(|f| f["event"] == "replaced");
+
+    first.call("terminal_signal", json!({"id": "m1", "signal": "kill"}));
+    first.detach();
+    second.detach();
+    again.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn every_device_receives_each_hook_once_including_those_it_missed() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(&mut first, "h1", "sleep 30");
+    first.call("terminal_attach", json!({"id": "h1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "h1", "seq": 0}));
+    let payload = |name: &str| format!(r#"{{"hook_event_name":"{name}"}}"#);
+    let hook_named = |name: &'static str| {
+        move |f: &Value| f["event"] == "hook" && decode(&f["payload"]).contains(name)
+    };
+
+    run_hook(&root, "h1", &payload("UserPromptSubmit"))
+        .wait()
+        .unwrap();
+    let hook = first.until(hook_named("UserPromptSubmit"));
+    first.confirm(&hook);
+    let hook = second.until(hook_named("UserPromptSubmit"));
+    second.confirm(&hook);
+
+    // The second desktop goes away, perhaps after the host queued the next hook to it; the first
+    // keeps receiving hooks live.
+    second.detach();
+    run_hook(&root, "h1", &payload("Stop")).wait().unwrap();
+    let hook = first.until(hook_named("Stop"));
+    first.confirm(&hook);
+
+    // It comes back and receives only what it did not confirm.
+    let mut second = Attached::device(&root, "mac-b");
+    second.call("terminal_attach", json!({"id": "h1", "seq": 0}));
+    second.until(hook_named("Stop"));
+    second.quiet(hook_named("UserPromptSubmit"), Duration::from_millis(300));
+
+    // A device this terminal never served receives only hooks no desktop confirmed.
+    let mut third = Attached::device(&root, "mac-c");
+    third.call("terminal_attach", json!({"id": "h1", "seq": 0}));
+    third.quiet(|f| f["event"] == "hook", Duration::from_millis(300));
+
+    first.call("terminal_signal", json!({"id": "h1", "signal": "kill"}));
+    for client in [first, second, third] {
+        client.detach();
+    }
+    shutdown(&root);
+}
+
+#[test]
+fn the_first_decision_wins_and_the_other_desktops_withdraw_theirs() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(&mut first, "p1", "sleep 30");
+    first.call("terminal_attach", json!({"id": "p1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "p1", "seq": 0}));
+    let request = r#"{"hook_event_name":"PermissionRequest"}"#;
+
+    let waiting = run_hook(&root, "p1", request);
+    let asked = first.until(|f| f["event"] == "hook" && f["permission"] == true);
+    second.until(|f| f["event"] == "hook" && f["hook"] == asked["hook"]);
+    second.call(
+        "hook_reply",
+        json!({"hook": asked["hook"], "stdout": STANDARD.encode("{\"decision\":2}\n")}),
+    );
+    let resolved = first.until(|f| f["event"] == "hook_resolved");
+    assert_eq!(resolved["hook"], asked["hook"]);
+    // A late answer changes nothing.
+    first.call(
+        "hook_reply",
+        json!({"hook": asked["hook"], "stdout": STANDARD.encode("{\"decision\":1}\n")}),
+    );
+    let output = waiting.wait_with_output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "{\"decision\":2}\n"
+    );
+
+    // A desktop answering with nothing abstains; once all have, Claude's own dialog answers.
+    let waiting = run_hook(&root, "p1", request);
+    let asked = first.until(|f| f["event"] == "hook" && f["permission"] == true);
+    first.call("hook_reply", json!({"hook": asked["hook"], "stdout": ""}));
+    let started = Instant::now();
+    second.until(|f| f["event"] == "hook" && f["hook"] == asked["hook"]);
+    second.detach();
+    let output = waiting.wait_with_output().unwrap();
+    assert!(output.stdout.is_empty());
+    assert!(started.elapsed() < Duration::from_secs(5));
+
+    first.call("terminal_signal", json!({"id": "p1", "signal": "kill"}));
+    first.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn an_exited_terminal_stays_until_every_follower_collected_it() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(&mut first, "f1", "read line");
+    first.call("terminal_attach", json!({"id": "f1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "f1", "seq": 0}));
+    first.call(
+        "terminal_write",
+        json!({"id": "f1", "data": STANDARD.encode("done\n")}),
+    );
+    first.until(|f| f["event"] == "exit" && f["id"] == "f1");
+    second.until(|f| f["event"] == "exit" && f["id"] == "f1");
+    first.call("terminal_forget", json!({"id": "f1"}));
+    assert_eq!(second.call("terminal_list", json!({}))[0]["id"], "f1");
+    second.call("terminal_forget", json!({"id": "f1"}));
+    assert_eq!(first.call("terminal_list", json!({})), json!([]));
+
+    // A follower that leaves without collecting it no longer holds it.
+    open_shell(&mut first, "f2", "read line");
+    first.call("terminal_attach", json!({"id": "f2", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "f2", "seq": 0}));
+    first.call(
+        "terminal_write",
+        json!({"id": "f2", "data": STANDARD.encode("done\n")}),
+    );
+    first.until(|f| f["event"] == "exit" && f["id"] == "f2");
+    first.call("terminal_forget", json!({"id": "f2"}));
+    second.detach();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while first.call("terminal_list", json!({})) != json!([]) {
+        assert!(Instant::now() < deadline, "the terminal should be dropped");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    first.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn the_desktop_that_types_drives_the_terminal_size() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(
+        &mut first,
+        "z1",
+        "while read line; do echo size-$(stty size | tr ' ' x); done",
+    );
+    first.call("terminal_attach", json!({"id": "z1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "z1", "seq": 0}));
+    let write = |client: &mut Attached| {
+        client.call(
+            "terminal_write",
+            json!({"id": "z1", "data": STANDARD.encode("\n")}),
+        );
+    };
+    // The opener drives: another window's size waits until that desktop types.
+    second.call(
+        "terminal_resize",
+        json!({"id": "z1", "cols": 100, "rows": 30}),
+    );
+    write(&mut first);
+    first.output_until("z1", "size-24x80", String::new());
+    write(&mut second);
+    second.output_until("z1", "size-30x100", String::new());
+    // Now the first desktop's resizes wait, until it types again.
+    first.call(
+        "terminal_resize",
+        json!({"id": "z1", "cols": 90, "rows": 20}),
+    );
+    write(&mut second);
+    second.output_until("z1", "size-30x100", String::new());
+    write(&mut first);
+    first.output_until("z1", "size-20x90", String::new());
+
+    first.call("terminal_signal", json!({"id": "z1", "signal": "kill"}));
+    first.detach();
+    second.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn a_desktop_that_stops_reading_is_dropped_instead_of_buffered() {
+    let root = root();
+    // A small limit keeps the test independent of PTY throughput, which is low on macOS.
+    let mut host = Command::new(BIN)
+        .args(["serve", "--root"])
+        .arg(&root)
+        .env("PROMETEU_HOST_OUTBOX_LIMIT", "1048576")
+        .spawn()
+        .unwrap();
+    // Attaching earlier would start a second host without the limit.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::os::unix::net::UnixStream::connect(root.join("host-v1.sock")).is_err() {
+        assert!(Instant::now() < deadline, "the host should start");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut reader = Attached::device(&root, "mac-a");
+    // An attachment whose stdout nobody reads, like a desktop asleep behind a half-open connection.
+    let mut stalled = Command::new(BIN)
+        .args(["attach", "--root"])
+        .arg(&root)
+        .args(["--device", "mac-b"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stalled_in = stalled.stdin.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while reader
+        .call("clients_list", json!({}))
+        .as_array()
+        .unwrap()
+        .len()
+        < 2
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the second desktop should attach"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    open_shell(
+        &mut reader,
+        "b1",
+        "sleep 0.3; head -c 8000000 /dev/zero | tr '\\0' x; sleep 30",
+    );
+    writeln!(
+        stalled_in,
+        "{}",
+        json!({"id": 1, "method": "terminal_attach", "params": {"id": "b1", "seq": 0}})
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while reader
+        .call("clients_list", json!({}))
+        .as_array()
+        .unwrap()
+        .len()
+        > 1
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the stalled desktop should be dropped"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    reader.call("terminal_signal", json!({"id": "b1", "signal": "kill"}));
+    let _ = stalled.kill();
+    let _ = stalled.wait();
+    reader.detach();
+    shutdown(&root);
+    let _ = host.wait();
+}
+
+#[test]
+fn the_host_reports_the_release_of_the_app_that_started_it() {
+    let root = root();
+    let mut child = Command::new(BIN)
+        .args(["attach", "--root"])
+        .arg(&root)
+        .args(["--device", "mac-a", "--release", "9.9.9"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let ready: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(ready["release"], "9.9.9");
+    assert_eq!(ready["clients"], true);
+    let _ = child.kill();
+    let _ = child.wait();
+    shutdown(&root);
+}
+
+#[test]
+fn a_device_attached_before_any_hook_still_receives_the_first_one_it_missed() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(&mut first, "e1", "sleep 30");
+    // Both follow the conversation while its hook log is still empty.
+    first.call("terminal_attach", json!({"id": "e1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "e1", "seq": 0}));
+    // The second one sleeps before the first hook; the first confirms it.
+    second.detach();
+    run_hook(&root, "e1", r#"{"hook_event_name":"SessionStart"}"#)
+        .wait()
+        .unwrap();
+    let hook = first.until(|f| f["event"] == "hook");
+    first.confirm(&hook);
+
+    let mut second = Attached::device(&root, "mac-b");
+    second.call("terminal_attach", json!({"id": "e1", "seq": 0}));
+    let missed = second.until(|f| f["event"] == "hook");
+    assert_eq!(missed["hook"], hook["hook"]);
+
+    first.call("terminal_signal", json!({"id": "e1", "signal": "kill"}));
+    first.detach();
+    second.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn a_later_confirmation_does_not_count_for_an_earlier_hook() {
+    let root = root();
+    let mut client = Attached::device(&root, "mac-a");
+    open_shell(&mut client, "o2", "sleep 30");
+    client.call("terminal_attach", json!({"id": "o2", "seq": 0}));
+    run_hook(&root, "o2", r#"{"hook_event_name":"UserPromptSubmit"}"#)
+        .wait()
+        .unwrap();
+    run_hook(&root, "o2", r#"{"hook_event_name":"Stop"}"#)
+        .wait()
+        .unwrap();
+    let earlier = client.until(|f| f["event"] == "hook");
+    let later = client.until(|f| f["event"] == "hook");
+    // The desktop handles hooks on separate threads: the later one finishes first, and the app
+    // goes away before the earlier one does.
+    client.confirm(&later);
+    client.detach();
+
+    let mut client = Attached::device(&root, "mac-a");
+    client.call("terminal_attach", json!({"id": "o2", "seq": 0}));
+    let again = client.until(|f| f["event"] == "hook");
+    assert_eq!(again["hook"], earlier["hook"]);
+    client.quiet(
+        |f| f["event"] == "hook" && f["hook"] == later["hook"],
+        Duration::from_millis(300),
+    );
+
+    client.call("terminal_signal", json!({"id": "o2", "signal": "kill"}));
+    client.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn opening_the_same_conversation_from_two_desktops_starts_one_process() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    let marks = root.join("marks");
+    std::fs::create_dir_all(&marks).unwrap();
+    let ids: Vec<String> = (0..20).map(|n| format!("race-{n}")).collect();
+    let open = |client: &mut Attached, id: &str| {
+        let script = format!("echo started >> '{}/{id}'; sleep 30", marks.display());
+        client.send(
+            "terminal_open",
+            json!({"id": id, "argv": ["/bin/sh", "-c", script], "cwd": std::env::temp_dir(),
+                   "cols": 80, "rows": 24}),
+        )
+    };
+    let mut requests = Vec::new();
+    for id in &ids {
+        requests.push((open(&mut first, id), open(&mut second, id)));
+    }
+    for (id, (a, b)) in ids.iter().zip(requests) {
+        let a = first.until(|f| f["id"] == a);
+        let b = second.until(|f| f["id"] == b);
+        let opened = [&a, &b].iter().filter(|r| r.get("error").is_none()).count();
+        assert_eq!(opened, 1, "{id}: {a} {b}");
+        let refused = if a.get("error").is_some() { &a } else { &b };
+        assert_eq!(refused["error"], "terminal_exists", "{id}");
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    for id in &ids {
+        let started = std::fs::read_to_string(marks.join(id)).unwrap_or_default();
+        assert_eq!(started.lines().count(), 1, "{id} started {started:?}");
+        first.call("terminal_signal", json!({"id": id, "signal": "kill"}));
+    }
+    first.detach();
+    second.detach();
+    shutdown(&root);
 }

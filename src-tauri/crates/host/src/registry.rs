@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "registry.json";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Creator {
@@ -247,16 +247,53 @@ mod tests {
     fn a_newer_registry_is_never_rewritten() {
         let dir = std::env::temp_dir().join(format!("registry-new-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
+        let original =
+            serde_json::json!({"version": VERSION + 1, "projects": [], "future": [1]}).to_string();
+        std::fs::write(dir.join(FILE), &original).unwrap();
+        let store = Store::new(&dir);
+        assert!(store.read().is_err());
+        assert!(store.update(|_| Ok(())).is_err());
+        assert_eq!(std::fs::read_to_string(dir.join(FILE)).unwrap(), original);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_version_one_workspace_upgrades_before_persisting_supervision() {
+        let dir = std::env::temp_dir().join(format!("registry-upgrade-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join(FILE),
-            r#"{"version":2,"projects":[],"future":[1]}"#,
+            r#"{"version":1,"workspaces":[{
+            "id":"workspace","project":"/repo","title":"Existing task","branch":"feature/work",
+            "base":"HEAD","worktree":"/worktree","created_at":1,"created_by":{"kind":"desktop"}
+        }]}"#,
         )
         .unwrap();
         let store = Store::new(&dir);
-        assert!(store.update(|_| Ok(())).is_err());
-        assert!(std::fs::read_to_string(dir.join(FILE))
-            .unwrap()
-            .contains("future"));
+        let legacy = store.read().unwrap();
+        assert_eq!(legacy.version, 1);
+        assert!(legacy.workspaces[0].supervision.is_none());
+        store
+            .update(|registry| {
+                registry.workspace_mut("workspace").unwrap().supervision =
+                    Some(prometeu_core::supervision::Binding {
+                        supervisor_id: "supervisor".into(),
+                    });
+                Ok(())
+            })
+            .unwrap();
+        let saved = store.read().unwrap();
+        assert_eq!(saved.version, 2);
+        assert_eq!(saved.workspaces[0].worktree, "/worktree");
+        assert_eq!(saved.workspaces[0].title, "Existing task");
+        assert_eq!(
+            saved.workspaces[0]
+                .supervision
+                .as_ref()
+                .unwrap()
+                .supervisor_id,
+            "supervisor"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 

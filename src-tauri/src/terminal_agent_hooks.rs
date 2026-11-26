@@ -669,6 +669,7 @@ fn run_observer(antigravity_event: Option<&str>) -> Result<(), String> {
         &|key: &str| std::env::var(key).ok(),
         antigravity_event,
         &bytes,
+        None,
         &mut |decision: &[u8]| {
             io::stdout().write_all(decision).map_err(|_| failure())?;
             io::stdout().flush().map_err(|_| failure())
@@ -680,11 +681,13 @@ fn run_observer(antigravity_event: Option<&str>) -> Result<(), String> {
 /// that owns it, as if its helper had run here. `variables` are the hook process's
 /// `PROMETEU_TERMINAL_HOOK_*` values; the bridge's own socket, credential and process nonce
 /// replace the remote ones, since this app's bridge outlives no app restart while the remote
-/// process does. Returns what the remote helper must print: a decision, or nothing.
+/// process does. Returns what the remote helper must print: a decision, or nothing. Setting
+/// `resolved` while a permission request waits withdraws it: another computer answered it.
 pub(crate) fn relay(
     target: &RelayTarget,
     variables: &std::collections::HashMap<String, String>,
     payload: &[u8],
+    resolved: Option<&AtomicBool>,
 ) -> Result<Vec<u8>, String> {
     let environment = |key: &str| match key {
         SOCKET_ENV => Some(target.socket.clone()),
@@ -693,10 +696,16 @@ pub(crate) fn relay(
         _ => variables.get(key).cloned(),
     };
     let mut decision = Vec::new();
-    observe(&environment, None, payload, &mut |bytes: &[u8]| {
-        decision.extend_from_slice(bytes);
-        Ok(())
-    })?;
+    observe(
+        &environment,
+        None,
+        payload,
+        resolved,
+        &mut |bytes: &[u8]| {
+            decision.extend_from_slice(bytes);
+            Ok(())
+        },
+    )?;
     Ok(decision)
 }
 
@@ -706,6 +715,7 @@ fn observe(
     environment: Environment<'_>,
     antigravity_event: Option<&str>,
     bytes: &[u8],
+    withdrawn: Option<&AtomicBool>,
     emit: &mut dyn FnMut(&[u8]) -> Result<(), String>,
 ) -> Result<(), String> {
     let deadline = Instant::now() + DEADLINE;
@@ -757,11 +767,12 @@ fn observe(
     } else {
         deadline
     };
+    // Withdrawing closes this connection, so the bridge drops the decision card it opened.
     let response = read_fd(
         stream.as_raw_fd(),
         if permission { WIRE_LIMIT } else { 16 },
         deadline,
-        None,
+        withdrawn,
         true,
     )?;
     if permission && response != b"ok\n" {

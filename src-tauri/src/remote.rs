@@ -497,6 +497,32 @@ pub fn machine_terminal_stop(
     Ok(())
 }
 
+/// The computers attached to the machine's host now, this one included (ADR 0104).
+#[tauri::command(async)]
+pub fn machine_clients(app: AppHandle, id: String) -> Result<Value, String> {
+    app.state::<Service>()
+        .connected(&id)?
+        .request("clients_list", json!({}))
+        .map_err(|error| match error.as_str() {
+            "unknown method clients_list" => crate::i18n::t("machines.clients.unsupported"),
+            _ => error,
+        })
+}
+
+/// Disconnect another computer from the machine. It stops reconnecting until its person asks;
+/// removing its SSH key is what revokes its access.
+#[tauri::command(async)]
+pub fn machine_client_detach(app: AppHandle, id: String, device: String) -> Result<(), String> {
+    app.state::<Service>()
+        .connected(&id)?
+        .request("client_detach", json!({"device": device}))
+        .map_err(|error| match error.as_str() {
+            "unknown_client" => crate::i18n::t("machines.clients.gone"),
+            _ => error,
+        })?;
+    Ok(())
+}
+
 /// Resource use of the machine and of each of its workspaces' slices.
 #[tauri::command(async)]
 pub fn machine_stats(app: AppHandle, state: State<AppState>, id: String) -> Result<Value, String> {

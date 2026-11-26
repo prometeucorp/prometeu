@@ -85,8 +85,10 @@ See [`docs/architecture/conversation-flow.md`](docs/architecture/conversation-fl
 
 A workspace can run on another computer reached over SSH. `prometeu-host`
 (`src-tauri/crates/host/`) is a static Linux daemon installed by the desktop. It
-owns terminal agents in PTYs, queues their hooks while no desktop is attached,
-streams their transcript files and applies per-workspace systemd limits. The
+owns terminal agents in PTYs, keeps their hooks for desktops that are away,
+streams their transcript files and applies per-workspace systemd limits. Several
+computers may stay attached at once, one attachment per device
+([ADR 0104](docs/decisions/0104-several-computers-on-one-machine.md)). The
 desktop (`src-tauri/src/remote/`) keeps the board, conversations, journal and
 interface. The desktop reaches the host through the system `ssh`, reconnects
 after sleep or restarts, and reattaches from the last output sequence. External

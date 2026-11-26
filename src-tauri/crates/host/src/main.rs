@@ -24,6 +24,9 @@ fn main() {
     let mut root = None;
     let mut socket = None;
     let mut url = None;
+    let mut device = None;
+    let mut label = None;
+    let mut release = None;
     let mut options = AgentOptions::default();
     let mut rest = Vec::new();
     while let Some(arg) = args.next() {
@@ -34,6 +37,9 @@ fn main() {
                 socket = args.next().map(std::path::PathBuf::from);
                 options.socket = socket.clone();
             }
+            "--device" => device = args.next(),
+            "--label" => label = args.next(),
+            "--release" => release = args.next(),
             "--rotate" => options.rotate = true,
             "--json" => options.json = true,
             "--open-home" => {
@@ -53,14 +59,19 @@ fn main() {
     }
     let root = root.unwrap_or_else(client::default_root);
     let code = match command.as_str() {
-        "serve" => match server::serve(&root) {
+        "serve" => match server::serve(&root, release.as_deref()) {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("prometeu-host: {error}");
                 1
             }
         },
-        "attach" => match client::attach(&root) {
+        "attach" => match client::attach(
+            &root,
+            device.as_deref(),
+            label.as_deref(),
+            release.as_deref(),
+        ) {
             Ok(()) => 0,
             Err(error) => {
                 eprintln!("prometeu-host: {error}");
@@ -108,7 +119,7 @@ fn main() {
             0
         }
         _ => {
-            eprintln!("usage: prometeu-host serve|attach|hook|version|mcp|agents setup|status|disable [--root DIR] [--socket PATH] [--rotate] [--client-uid ID] [--json]");
+            eprintln!("usage: prometeu-host serve|attach|hook|version|mcp|agents setup|status|disable [--root DIR] [--device ID] [--label NAME] [--release VERSION] [--socket PATH] [--rotate] [--client-uid ID] [--json]");
             2
         }
     };

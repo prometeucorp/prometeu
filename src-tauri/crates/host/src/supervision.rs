@@ -168,7 +168,7 @@ pub(crate) fn command(
         Some("reset") => return Err("supervision reset requires --discard-pending; it removes supervision bindings and undelivered events, never workspaces or code".into()),
         _ => return Err("usage: prometeu-host supervision setup --url ORIGIN < token-file | status | disable [--root DIR]".into()),
     };
-    let mut stream = crate::client::connect_or_start(root)?;
+    let mut stream = crate::client::connect_or_start(root, None)?;
     stream
         .set_read_timeout(Some(Duration::from_secs(20)))
         .map_err(|e| e.to_string())?;
@@ -371,8 +371,13 @@ impl Supervision {
             conversation_id: conversation.map(str::to_string),
             execution_id: execution.map(str::to_string),
             repository: pr.map(|p| p.repository.clone()),
-            branch: (!workspace.branch.is_empty() && workspace.branch.len() <= 255)
-                .then(|| workspace.branch.clone()),
+            branch: (!workspace.branch.is_empty()
+                && workspace.branch.len() <= 255
+                && !workspace
+                    .branch
+                    .chars()
+                    .any(|c| c.is_whitespace() || c.is_control()))
+            .then(|| workspace.branch.clone()),
             pull_request: pr.map(|p| p.number),
             head_sha: None,
         })
@@ -904,7 +909,7 @@ mod tests {
 
     #[test]
     fn failed_delivery_survives_restart_and_retries_same_event_before_later_events() {
-        let (url, requests) = cloud(vec![503, 200, 200]);
+        let (url, requests) = cloud(vec![503, 410, 200, 200]);
         let fixture = Fixture::new(&url);
         fixture
             .supervision
@@ -917,6 +922,15 @@ mod tests {
         assert!(fixture.supervision.deliver_one(&http().unwrap()).is_err());
         let failed = requests.recv_timeout(Duration::from_secs(2)).unwrap();
         let restarted = Supervision::new(&fixture.root, fixture.store.clone()).unwrap();
+        assert_eq!(fixture.events().len(), 2);
+        assert!(restarted
+            .deliver_one(&http().unwrap())
+            .unwrap_err()
+            .contains("HTTP 410"));
+        assert_eq!(
+            requests.recv_timeout(Duration::from_secs(2)).unwrap(),
+            failed
+        );
         assert_eq!(fixture.events().len(), 2);
         assert!(restarted.deliver_one(&http().unwrap()).unwrap());
         assert_eq!(
@@ -1114,10 +1128,26 @@ mod tests {
         ] {
             assert!(origin(input).is_err());
         }
+        for branch in [
+            "b".repeat(256),
+            "feature/\u{2009}task".into(),
+            "feature/\u{0085}task".into(),
+            "feature/\u{007f}task".into(),
+        ] {
+            let fixture = Fixture::new("https://cloud.example");
+            let mut workspace = fixture.workspace(true);
+            workspace.branch = branch.clone();
+            fixture.supervision.record_workspace(workspace).unwrap();
+            assert!(fixture.events()[0].branch.is_none());
+            assert_eq!(fixture.store.read().unwrap().workspaces[0].branch, branch);
+        }
         let fixture = Fixture::new("https://cloud.example");
         let mut workspace = fixture.workspace(true);
-        workspace.branch = "b".repeat(256);
+        workspace.branch = "feature/caf\u{00e9}".into();
         fixture.supervision.record_workspace(workspace).unwrap();
-        assert!(fixture.events()[0].branch.is_none());
+        assert_eq!(
+            fixture.events()[0].branch.as_deref(),
+            Some("feature/caf\u{00e9}")
+        );
     }
 }

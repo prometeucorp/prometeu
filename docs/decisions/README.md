@@ -139,4 +139,5 @@ Index entries must be rendered links; links inside code samples do not count.
 - [ADR 0101](0101-remote-machines.md) — Workspaces on remote machines over SSH: a resident host owns terminal agents while the desktop keeps the board and interface.
 - [ADR 0102: Remove workspace stages](0102-remove-workspace-stages.md)
 - [ADR 0103](0103-agents-on-remote-machines.md) — Agents on a remote machine drive workspaces through its host: a host-owned registry, desktop-free Claude launch and a token-authorized local MCP interface independent of deployment infrastructure.
+- [ADR 0104](0104-several-computers-on-one-machine.md) — Several computers follow the same remote machine over SSH at once: one attachment per device, shared hooks and permission requests, and the typing computer sets the terminal size.
 - [ADR 0105](0105-workspace-supervision.md) — Workspace supervision through durable Cloud events and generic signed webhooks, initially for remote hosts.

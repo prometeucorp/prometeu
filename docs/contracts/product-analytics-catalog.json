@@ -1643,6 +1643,25 @@
       ]
     },
     {
+      "target": "machines.clients",
+      "sources": [
+        "src/machine-clients.ts",
+        "src/machines.ts"
+      ]
+    },
+    {
+      "target": "machines.clients.detach",
+      "sources": [
+        "src/machine-clients.ts"
+      ]
+    },
+    {
+      "target": "machines.clients.refresh",
+      "sources": [
+        "src/machine-clients.ts"
+      ]
+    },
+    {
       "target": "machines.cpu",
       "sources": [
         "src/machines.ts"

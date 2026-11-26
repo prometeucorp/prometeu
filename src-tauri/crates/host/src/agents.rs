@@ -3,7 +3,7 @@
 //! through a second socket that offers only those operations and requires a token, never through
 //! the desktop socket, whose `exec` and file methods amount to a shell.
 use crate::registry::{self, Conversation, Creator, Project, Workspace};
-use crate::server::{now, open, read_line, Host};
+use crate::server::{now, open_reserved, read_line, Host, Reservation};
 use prometeu_core::command::{CommandError, CommandPolicy, CommandRunner, OutputPolicy};
 use prometeu_core::lock::lock;
 use prometeu_host::{
@@ -1058,16 +1058,14 @@ fn launch(
     prompt: Option<&str>,
 ) -> Result<(), String> {
     let _launching = lock(&LAUNCHES);
-    // Another sender may have resumed this conversation after our caller checked it. Reject
-    // that stale attempt before it can start or fail the running conversation's execution.
-    if host.is_running(conversation) {
-        return Err("terminal_exists".into());
-    }
+    // Desktops and other senders may have resumed it after our caller checked. Reserve before
+    // observing a new execution, so a rejected attempt cannot fail somebody else's execution.
+    let reserved = Reservation::take(host, conversation)?;
     host.supervision.observe(
         conversation,
         prometeu_core::supervision::Observation::Started,
     )?;
-    let result = launch_inner(host, workspace, conversation, prompt);
+    let result = launch_inner(host, workspace, conversation, prompt, &reserved);
     if result.is_err() {
         host.supervision.observe(
             conversation,
@@ -1082,6 +1080,7 @@ fn launch_inner(
     workspace: &Workspace,
     conversation: &str,
     prompt: Option<&str>,
+    reserved: &Reservation<'_>,
 ) -> Result<(), String> {
     let closed = host
         .registry
@@ -1140,7 +1139,7 @@ fn launch_inner(
         "cols": 120,
         "rows": 40,
     });
-    open(host, &params).map(|_| ())
+    open_reserved(host, &params, reserved).map(|_| ())
 }
 
 fn title_from(prompt: &str) -> String {
@@ -1749,6 +1748,21 @@ mod tests {
                 prometeu_core::supervision::Observation::Completed,
             )
             .unwrap();
+
+        // A desktop has reserved this conversation but has not yet installed its PTY. The
+        // losing MCP attempt must leave execution state and the durable outbox untouched.
+        let desktop = Reservation::take(&host, "conversation").unwrap();
+        let before = serde_json::to_value(host.registry.read().unwrap()).unwrap();
+        assert!(!host.is_running("conversation"));
+        assert_eq!(
+            launch(&host, &workspace, "conversation", Some("Resume the task")),
+            Err("terminal_exists".into())
+        );
+        assert_eq!(
+            serde_json::to_value(host.registry.read().unwrap()).unwrap(),
+            before
+        );
+        drop(desktop);
 
         let barrier = Arc::new(std::sync::Barrier::new(3));
         let launching = lock(&LAUNCHES);

@@ -79,6 +79,16 @@ provider output. The server rejects unknown fields, unsupported versions,
 invalid metadata, a mismatched supervisor and reused event IDs with different
 content. Repeating an accepted identical event is safe.
 
+The host omits optional branch metadata that exceeds these limits, including
+Unicode whitespace, while preserving the original workspace branch locally.
+
+An unseen host event must have occurred within the last 90 days and no more than
+five minutes in the future. An older unseen event returns HTTP 410 with
+`expired_event`; a future event outside that clock tolerance is invalid. Known
+receipts still return success for identical events or a conflict for changed
+content before checking age. Receipts are retained for 91 days after acceptance,
+so forgetting an old receipt cannot reactivate a workspace through replay.
+
 Host kinds:
 
 | Kind | Meaning |
@@ -101,6 +111,13 @@ The publisher uses a persistent outbox, acknowledges only successful ingestion
 and retries with backoff after network failure. New events wake it immediately;
 there is no periodic state query. A host restart recovers pending deliveries.
 The host cannot keep executing through its own process or machine failure.
+
+After more than 90 days without accepted publication, an unseen queued event can
+expire at the Cloud boundary. The host retains it and reports HTTP 410 in its
+log; `supervision status` still includes it in `pending_events`. An operator can
+inspect and preserve the pending metadata, then use the explicit reset below and
+reattach supervision. Expired metadata is never silently acknowledged or removed
+from the host's outbox.
 
 Before changing to a different Cloud or supervisor, detach workspaces and let
 their pending events reach the previous destination. If that credential was
@@ -189,6 +206,10 @@ external model: receivers must serialize evaluations by executor/workspace,
 retain changes arriving during an evaluation, and read current state before
 sending a new instruction. GitHub and host events can arrive out of order.
 
+Delivered and cancelled callback history is retained for 30 days; pending and
+sending deliveries are never removed by retention. The worker performs local
+database maintenance at startup and daily without querying hosts or GitHub.
+
 Destinations require HTTPS, public network addresses, bounded timeouts and no
 redirect following. DNS addresses are checked and pinned for each attempt to
 prevent private-network requests through DNS changes. Callback bodies, secrets
@@ -200,6 +221,10 @@ Old registry records omit supervision and keep their original behavior. MCP
 creation arguments are additive. Existing local MCP ownership and provider
 support do not change. Future local executors can use the same IDs, events and
 binding model, but need their own authenticated reverse transport and grants.
+
+Host registry writes use version 2 and migrate version 1 records on write.
+Older hosts refuse that version instead of rewriting away bindings and pending
+events; a downgrade must retain a compatible host and preserve the registry.
 
 `prometeu-core::supervision` tests check root/child completion, duplicate events,
 blocking episodes, interruption, restart and the shared JSON examples. Host
