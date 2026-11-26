@@ -56,11 +56,16 @@ pub(crate) fn capabilities(id: ProviderId) -> AgentCapabilities {
         ProviderId::Claude => AgentCapabilities {
             initial_plan_mode: true,
             usage_cost: true,
-            // Remote machines host terminal agents with Claude's native hooks only.
+            // Remote machines relay Claude's native hooks and mirror its transcripts.
             remote_machines: true,
             ..common
         },
-        ProviderId::Codex => common,
+        // Its native engine and TUI run on the machine; the desktop follows the engine's RPC
+        // stream through the host's relay (ADR 0105).
+        ProviderId::Codex => AgentCapabilities {
+            remote_machines: true,
+            ..common
+        },
         ProviderId::Cursor => AgentCapabilities {
             initial_plan_mode: true,
             workspace_plugin_selection: false,

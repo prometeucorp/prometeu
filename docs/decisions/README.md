@@ -140,4 +140,5 @@ Index entries must be rendered links; links inside code samples do not count.
 - [ADR 0102: Remove workspace stages](0102-remove-workspace-stages.md)
 - [ADR 0103](0103-agents-on-remote-machines.md) — Agents on a remote machine drive workspaces through its host: a host-owned registry, desktop-free Claude launch and a token-authorized local MCP interface independent of deployment infrastructure.
 - [ADR 0104](0104-several-computers-on-one-machine.md) — Several computers follow the same remote machine over SSH at once: one attachment per device, shared hooks and permission requests, and the typing computer sets the terminal size.
-- [ADR 0105](0105-workspace-supervision.md) — Workspace supervision through durable Cloud events and generic signed webhooks, initially for remote hosts.
+- [ADR 0105](0105-codex-on-remote-machines.md) — Codex on remote machines: the native engine and TUI run on the machine, and the desktop reads the engine's RPC through a relay terminal on the host.
+- [ADR 0106](0106-workspace-supervision.md) — Workspace supervision through durable Cloud events and generic signed webhooks, initially for remote hosts.

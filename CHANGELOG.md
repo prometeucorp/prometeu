@@ -4,6 +4,22 @@ What changes in Prometeu, version by version, for whoever uses the app.
 Versions come from `sh scripts/release.sh`; this file is generated from the
 commits by git-cliff, and each release's notes on GitHub are its section.
 
+## [0.49.0] - 2026-11-26
+
+### New
+
+- **remote:** Follow the same remote machine from several computers
+
+### Fixes
+
+- **chat:** Stop showing a terminal agent as running after it exits
+- **workspaces:** Show agent authorship apart from the machine it runs on
+- **remote:** Never lose or duplicate work when two computers follow a conversation
+- **terminal:** Open links in the system browser
+- **terminal:** Report browser opening failures
+- **codex:** Keep image conversations connected and resumable
+- **codex:** Bound memory retained by queued image events
+
 ## [0.48.2] - 2026-11-25
 
 ### Fixes

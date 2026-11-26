@@ -23,7 +23,7 @@ Authentication starts from Rails' native generator: `has_secure_password`,
 persisted sessions, signed cookies, CSRF protection and Action Mailer. The site
 needs no SPA, no Node on the server and no Redis. Optional workspace supervision
 adds a persistent SQLite delivery queue and one in-process worker, as specified
-in [ADR 0105](0105-workspace-supervision.md); account and catalog operations do not
+in [ADR 0106](0106-workspace-supervision.md); account and catalog operations do not
 depend on that worker.
 
 The Prometeu account is optional for local work and is separate from provider

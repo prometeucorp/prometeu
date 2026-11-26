@@ -89,7 +89,7 @@ forks and protect local branches, at the cost of not following later pushes.
   webhook secret, ignores duplicate `X-GitHub-Delivery` IDs and processes the
   notification metadata inside the request. Optional supervisor callbacks use
   the separate persistent delivery queue from
-  [ADR 0105](0105-workspace-supervision.md).
+  [ADR 0106](0106-workspace-supervision.md).
 - Recipients are Cloud users whose `identities.uid` appears in the payload as
   the PR or issue author, an assignee, a requested reviewer or an `@login`
   mention. The acting user is excluded. Mentions require the GitHub login,

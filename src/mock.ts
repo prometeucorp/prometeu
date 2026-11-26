@@ -1987,7 +1987,7 @@ const mockCommands: IpcHandlers = {
             approvals: true,
             userQuestions: true,
             attachments: true,
-            remoteMachines: false,
+            remoteMachines: true,
           },
         },
         {
@@ -2645,7 +2645,7 @@ const mockCommands: IpcHandlers = {
   machine_install({ id }) {
     const machine = mockMachines.find(m => m.id === id);
     if (!machine) throw 'i18n:{"code":"err.remote.unknown"}';
-    Object.assign(machine, { phase: "connected", agents: { enabled: false, socket: "/home/me/.prometeu-remote-agents/agents-v1.sock", serving: false, error: null }, claude: { installed: true, loggedIn: false, email: null, method: null }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null, clients: true } });
+    Object.assign(machine, { phase: "connected", agents: { enabled: false, socket: "/home/me/.prometeu-remote-agents/agents-v1.sock", serving: false, error: null }, claude: { installed: true, loggedIn: false, email: null, method: null }, codex: { installed: true, version: "codex-cli 0.169.0", supported: true, loggedIn: true, minimum: "0.169.0" }, host: { home: "/home/me", user: "me", os: "Linux", arch: "x86_64", version: "0.1.0", linger: true, scopes: true, executable: null, clients: true } });
     emit("machines", mockMachines);
     return machine;
   },

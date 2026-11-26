@@ -11,6 +11,8 @@
 //!   present, and prints a local stdio MCP configuration (ADR 0103). `agents status` and
 //!   `agents disable` report and undo it.
 //! - `mcp [--socket PATH]` is a stdio MCP server over the agent socket, for any MCP client.
+//! - `codex-relay --socket PATH --pid PID` relays a conversation's Codex engine to the desktop as
+//!   newline-delimited JSON on its terminal (ADR 0105).
 mod agents;
 mod client;
 mod mcp;
@@ -27,6 +29,7 @@ fn main() {
     let mut device = None;
     let mut label = None;
     let mut release = None;
+    let mut pid = None;
     let mut options = AgentOptions::default();
     let mut rest = Vec::new();
     while let Some(arg) = args.next() {
@@ -40,6 +43,7 @@ fn main() {
             "--device" => device = args.next(),
             "--label" => label = args.next(),
             "--release" => release = args.next(),
+            "--pid" => pid = args.next().and_then(|pid| pid.parse::<u32>().ok()),
             "--rotate" => options.rotate = true,
             "--json" => options.json = true,
             "--open-home" => {
@@ -111,6 +115,26 @@ fn main() {
                 }
             }
         }
+        // Started by the desktop as a terminal next to a conversation's Codex engine (ADR 0105).
+        "codex-relay" => match (socket, pid) {
+            (Some(socket), Some(pid)) => {
+                match prometeu_host::codex::relay(
+                    &socket,
+                    pid,
+                    prometeu_host::codex::CONNECT_TIMEOUT,
+                ) {
+                    Ok(()) => 0,
+                    Err(error) => {
+                        eprintln!("prometeu-host: {error}");
+                        1
+                    }
+                }
+            }
+            _ => {
+                eprintln!("usage: prometeu-host codex-relay --socket PATH --pid PID");
+                2
+            }
+        },
         "version" => {
             println!(
                 "{}",
@@ -119,7 +143,7 @@ fn main() {
             0
         }
         _ => {
-            eprintln!("usage: prometeu-host serve|attach|hook|version|mcp|agents setup|status|disable [--root DIR] [--device ID] [--label NAME] [--release VERSION] [--socket PATH] [--rotate] [--client-uid ID] [--json]");
+            eprintln!("usage: prometeu-host serve|attach|hook|version|mcp|codex-relay|agents setup|status|disable [--root DIR] [--device ID] [--label NAME] [--release VERSION] [--socket PATH] [--rotate] [--client-uid ID] [--json]");
             2
         }
     };

@@ -138,6 +138,7 @@ impl Fixture {
                 ask: true,
                 plan: true,
             },
+            host: None,
         }
     }
     fn records(&self) -> Vec<Value> {
@@ -324,6 +325,53 @@ fn history_pages_are_bound_ordered_and_reject_repeated_native_turns() {
 }
 
 #[test]
+fn inline_images_survive_live_delivery_and_cold_history_replay() {
+    for resume in [false, true] {
+        let fixture = Fixture::new();
+        let engine = fixture
+            .plan("inline-image", resume)
+            .start_bounded(&mut Command::new("codex"), Duration::from_secs(5))
+            .unwrap();
+        let item = inline_image_item();
+        assert_eq!(engine.history()[0]["items"][0], item);
+        let events = engine.take_events().unwrap();
+        loop {
+            let event = events
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .unwrap();
+            if event["method"] == "item/completed" {
+                assert_eq!(event["params"]["item"], item);
+                break;
+            }
+        }
+        assert!(engine.running());
+        drop(engine);
+        fixture.assert_reaped();
+    }
+}
+
+fn inline_image_item() -> Value {
+    json!({"id":"image-input","type":"userMessage","content":[{
+        "type":"image","image_url":format!("data:image/png;base64,{}", "A".repeat(2 * 1024 * 1024))
+    }]})
+}
+
+#[test]
+fn oversized_native_frame_reports_limit_and_reaps_engine() {
+    let fixture = Fixture::new();
+    let mut tui = Command::new("codex");
+    assert!(matches!(
+        fixture
+            .plan("oversized-frame", true)
+            .start_bounded(&mut tui, Duration::from_secs(3)),
+        Err(Error::Limit)
+    ));
+    assert_eq!(tui.get_args().count(), 0);
+    fixture.assert_reaped();
+}
+
+#[test]
 fn unsolicited_native_requests_wait_for_explicit_response_and_resolved_ids_expire() {
     let fixture = Fixture::new();
     let engine = fixture
@@ -489,6 +537,16 @@ fn fake_engine_child() {
         let Some(id) = message.get("id") else {
             continue;
         };
+        if scenario == "oversized-frame" {
+            // Announce an oversized text frame without allocating its payload. The client
+            // must reject its length before reading or allocating the body.
+            let stream = socket.get_mut();
+            stream.write_all(&[0x81, 127]).unwrap();
+            stream
+                .write_all(&(64 * 1024 * 1024 + 1u64).to_be_bytes())
+                .unwrap();
+            continue;
+        }
         if scenario == "wait-for-exit" && message["method"] == "initialize" {
             let root = PathBuf::from(std::env::var_os("PROMETEU_CODEX_ENGINE_RECORD").unwrap());
             let root = root.parent().unwrap();
@@ -525,6 +583,9 @@ fn fake_engine_child() {
                     json!({"data":[{"id":if scenario == "history" {"turn-two"} else {"turn-one"},"status":"completed","items":[]}],"nextCursor":null})
                 }
             }
+            "thread/turns/list" if scenario == "inline-image" => {
+                json!({"data":[{"id":"image-turn","items":[inline_image_item()]}],"nextCursor":null})
+            }
             "thread/turns/list" => json!({"data":[],"nextCursor":null}),
             _ => json!({}),
         };
@@ -558,6 +619,17 @@ fn fake_engine_child() {
                     .unwrap();
             }
         }
+        if scenario == "inline-image" && message["method"] == "thread/turns/list" {
+            socket
+                .send(tungstenite::Message::Text(
+                    json!({"method":"item/completed","params":{
+                        "threadId":NATIVE,"turnId":"image-turn","item":inline_image_item()
+                    }})
+                    .to_string()
+                    .into(),
+                ))
+                .unwrap();
+        }
         if scenario == "overflow" && message["method"] == "thread/turns/list" {
             for index in 0..QUEUE_LIMIT + 5 {
                 if socket
@@ -573,4 +645,96 @@ fn fake_engine_child() {
             }
         }
     }
+}
+
+/// A remote engine's relay input whose host stops confirming writes, then comes back.
+#[derive(Clone, Default)]
+struct FlakyRelay {
+    offline: Arc<AtomicBool>,
+    written: Arc<Mutex<Vec<u8>>>,
+}
+impl Write for FlakyRelay {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.offline.load(Ordering::Acquire) {
+            return Err(std::io::Error::from(std::io::ErrorKind::NotConnected));
+        }
+        lock(&self.written).extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+struct UnusedHost;
+impl EngineHost for UnusedHost {
+    fn connect(&mut self, _: &Command, _: Instant) -> Result<EngineLink, String> {
+        unreachable!("the engine is already connected")
+    }
+}
+
+#[test]
+fn an_answer_the_machine_did_not_receive_stays_pending_and_can_be_sent_again() {
+    let (mut output, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+    writeln!(output, "{}", prometeu_host::codex::RELAY_READY).unwrap();
+    let relay = FlakyRelay::default();
+    let mut client = wire::Client::lines(
+        Box::new(reader),
+        Box::new(relay.clone()),
+        Instant::now() + Duration::from_secs(5),
+    )
+    .unwrap();
+    let (send, commands) = mpsc::sync_channel(32);
+    let (events, received) = events::channel();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopping = stop.clone();
+    let worker = std::thread::spawn(move || {
+        let mut owner = Owner {
+            directory: None,
+            child: None,
+            host: Some(Box::new(UnusedHost)),
+        };
+        serve(
+            &mut client,
+            NATIVE,
+            &commands,
+            &events,
+            &stopping,
+            &mut owner,
+        )
+    });
+    writeln!(
+        output,
+        "{}",
+        json!({"id": 7, "method": "item/commandExecution/requestApproval",
+            "params": {"threadId": NATIVE, "itemId": "tool", "command": "true"}})
+    )
+    .unwrap();
+    let request = received
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    assert_eq!(request["id"], 7);
+    let running = Arc::new(AtomicBool::new(true));
+    let stopped = Arc::new(AtomicBool::new(false));
+    let answer = json!({"id": 7, "result": {"decision": "accept"}});
+    // SSH broke: the answer fails instead of passing for sent, and the link survives.
+    relay.offline.store(true, Ordering::Release);
+    assert!(matches!(
+        super::send(&send, &running, &stopped, answer.clone()),
+        Err(Error::Unsent)
+    ));
+    assert!(lock(&relay.written).is_empty());
+    // Reconnected: the same request is still pending and the answer goes through once.
+    relay.offline.store(false, Ordering::Release);
+    super::send(&send, &running, &stopped, answer.clone()).unwrap();
+    let written: Value = serde_json::from_slice(&lock(&relay.written)).unwrap();
+    assert_eq!(written, answer);
+    // Once sent, the request is settled and a repeated answer is refused.
+    assert!(matches!(
+        super::send(&send, &running, &stopped, answer),
+        Err(Error::Conflict)
+    ));
+    stop.store(true, Ordering::Release);
+    assert!(worker.join().unwrap().is_ok());
 }

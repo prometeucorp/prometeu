@@ -1,11 +1,11 @@
 ---
 type: Decision
-title: "ADR 0105 — Workspace supervision through Cloud webhooks"
+title: "ADR 0106 — Workspace supervision through Cloud webhooks"
 description: "Execution hosts publish durable metadata events to the Cloud, which routes signed webhooks to an external supervisor."
 status: stable
 ---
 
-# ADR 0105 — Workspace supervision through Cloud webhooks
+# ADR 0106 — Workspace supervision through Cloud webhooks
 
 Date: 2026-11-25
 

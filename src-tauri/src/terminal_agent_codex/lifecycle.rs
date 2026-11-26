@@ -18,6 +18,10 @@ fn registry() -> &'static Registry {
     REGISTRY.get_or_init(Registry::default)
 }
 
+pub(super) fn closing() -> bool {
+    registry().closing.load(Ordering::Acquire)
+}
+
 /// Hold until the child either fails and is reaped or its shutdown handle is registered.
 /// Exit waits for bounded in-flight bootstrap, so a late start cannot escape the exit snapshot.
 pub(super) fn admit() -> Result<RwLockReadGuard<'static, ()>, Error> {

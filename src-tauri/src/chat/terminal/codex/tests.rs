@@ -300,7 +300,7 @@ fn runtime(thread: &str) -> RuntimeFixture {
 }
 fn poll(
     native: &Attached,
-    events: &mpsc::Receiver<Result<Value, String>>,
+    events: &crate::terminal_agent_codex::events::Events,
     transport: &Transport,
     pump: &SessionPump<Telemetry>,
     journal: &ingestion::JournalStore,
@@ -330,12 +330,12 @@ fn runtime_consumer_waits_for_app_receipt_then_delivers_once_and_rejects_rpc_tex
     let prompt = turn["items"][0]["content"][0]["text"].as_str().unwrap();
     transport.begin_submission("app-input", prompt).unwrap();
     let submission = journal.submission("app-input", prompt, prompt).unwrap();
-    let (send, events) = mpsc::channel();
+    let (send, events) = crate::terminal_agent_codex::events::channel();
     for raw in [
         json!({"method":"turn/started","params":{"threadId":"thread","turn":turn}}),
         json!({"method":"item/completed","params":{"threadId":"thread","turnId":turn["id"],"item":turn["items"][0]}}),
     ] {
-        send.send(Ok(raw)).unwrap();
+        send.try_send(Ok(raw)).unwrap();
     }
     poll(&native, &events, &transport, &pump, &journal, &effects);
     assert!(lock(&effects.frames).is_empty());
@@ -358,7 +358,7 @@ fn runtime_consumer_waits_for_app_receipt_then_delivers_once_and_rejects_rpc_tex
         json!({"method":"item/completed","params":{"threadId":"thread","turnId":turn["id"],"item":item}}),
         json!({"method":"turn/completed","params":{"threadId":"thread","turn":turn}}),
     ] {
-        send.send(Ok(raw)).unwrap();
+        send.try_send(Ok(raw)).unwrap();
     }
     poll(&native, &events, &transport, &pump, &journal, &effects);
     let public: Vec<Value> = journal
@@ -404,11 +404,11 @@ fn runtime_consumer_waits_for_app_receipt_then_delivers_once_and_rejects_rpc_tex
 
 pub(crate) fn real_proof(thread: &str, live: &[Value], history: &[Value]) -> Value {
     let (_scratch, journal, native, transport, pump, effects) = runtime(thread);
-    let (send, events) = mpsc::channel();
+    let (send, events) = crate::terminal_agent_codex::events::channel();
     for raw in live {
-        send.send(Ok(raw.clone())).unwrap();
+        send.try_send(Ok(raw.clone())).unwrap();
+        poll(&native, &events, &transport, &pump, &journal, &effects);
     }
-    poll(&native, &events, &transport, &pump, &journal, &effects);
     let before = journal.load().unwrap();
     let fresh = Attached::new(
         Link::attached(
@@ -451,30 +451,30 @@ pub(crate) fn real_proof(thread: &str, live: &[Value], history: &[Value]) -> Val
 #[test]
 fn only_typed_native_idle_or_committed_current_completion_releases_input_authority() {
     let (_scratch, journal, native, transport, pump, effects) = runtime("thread");
-    let (send, events) = mpsc::channel();
+    let (send, events) = crate::terminal_agent_codex::events::channel();
     for status in [
         json!({"type":"active","activeFlags":["waitingOnApproval"]}),
         json!({"type":"unknown"}),
     ] {
-        send.send(Ok(json!({"method":"thread/status/changed","params":{"threadId":"thread","status":status}}))).unwrap();
+        send.try_send(Ok(json!({"method":"thread/status/changed","params":{"threadId":"thread","status":status}}))).unwrap();
         poll(&native, &events, &transport, &pump, &journal, &effects);
         assert!(!native.native_idle());
         assert!(!transport.ready());
     }
-    send.send(Ok(json!({"method":"thread/status/changed","params":{"threadId":"thread","status":{"type":"idle"}}}))).unwrap();
+    send.try_send(Ok(json!({"method":"thread/status/changed","params":{"threadId":"thread","status":{"type":"idle"}}}))).unwrap();
     poll(&native, &events, &transport, &pump, &journal, &effects);
     assert!(native.native_idle());
-    send.send(Ok(
+    send.try_send(Ok(
         json!({"method":"turn/started","params":{"threadId":"thread","turn":{"id":"current"}}}),
     ))
     .unwrap();
-    send.send(Ok(json!({"method":"thread/status/changed","params":{"threadId":"thread","status":{"type":"idle"}}}))).unwrap();
+    send.try_send(Ok(json!({"method":"thread/status/changed","params":{"threadId":"thread","status":{"type":"idle"}}}))).unwrap();
     poll(&native, &events, &transport, &pump, &journal, &effects);
     assert!(!native.native_idle());
-    send.send(Ok(json!({"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"older","status":"completed"}}}))).unwrap();
+    send.try_send(Ok(json!({"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"older","status":"completed"}}}))).unwrap();
     poll(&native, &events, &transport, &pump, &journal, &effects);
     assert!(!native.native_idle());
-    send.send(Ok(json!({"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"current","status":"completed"}}}))).unwrap();
+    send.try_send(Ok(json!({"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"current","status":"completed"}}}))).unwrap();
     poll(&native, &events, &transport, &pump, &journal, &effects);
     assert!(native.native_idle());
     assert_eq!(

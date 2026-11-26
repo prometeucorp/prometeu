@@ -208,10 +208,7 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                 .find(|w| w.id == ws.id)
                 .is_some_and(|w| {
                     w.closed
-                        || ws
-                            .tabs
-                            .iter()
-                            .all(|t| w.conversations.iter().any(|c| c.id == t.id))
+                        || recorded_tabs(ws).all(|t| w.conversations.iter().any(|c| c.id == t.id))
                 });
             if recordable && !complete {
                 puts.push(record(ws));
@@ -352,6 +349,14 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// The conversations agent clients on the machine may follow: they read Claude transcripts and
+/// resume Claude only (ADR 0103), so other providers' tabs stay out of the registry.
+fn recorded_tabs(ws: &Workspace) -> impl Iterator<Item = &Tab> {
+    ws.tabs
+        .iter()
+        .filter(move |t| t.choice.as_ref().map_or(ws.agent, |c| c.agent) == ProviderId::Claude)
+}
+
 /// The registry record of a board workspace. The host keeps what it already holds, so the
 /// timestamps and creator here only matter for a workspace new to it.
 fn record(ws: &Workspace) -> Value {
@@ -361,9 +366,7 @@ fn record(ws: &Workspace) -> Value {
         Some(Permission::Ask) => "ask",
         _ => "auto",
     };
-    let conversations: Vec<Value> = ws
-        .tabs
-        .iter()
+    let conversations: Vec<Value> = recorded_tabs(ws)
         .map(|t| json!({"id": t.id, "title": t.title, "created_at": now(), "permission": permission(t.permission)}))
         .collect();
     json!({
@@ -514,5 +517,26 @@ mod tests {
         assert_eq!(value["workspace"]["keep_branch"], true);
         assert_eq!(value["workspace"]["project"], "/home/me/code/app");
         assert_eq!(value["project"]["path"], "/home/me/code/app");
+    }
+
+    #[test]
+    fn agent_clients_never_see_conversations_they_cannot_resume() {
+        let mut ws = workspace("vps", &registered("agent"));
+        let mut codex = ws.tabs[0].clone();
+        codex.id = "c2".into();
+        codex.choice = Some(crate::state::Choice {
+            agent: ProviderId::Codex,
+            model: String::new(),
+            effort: String::new(),
+        });
+        ws.tabs.push(codex);
+        let conversations = record(&ws)["workspace"]["conversations"].clone();
+        assert_eq!(conversations.as_array().unwrap().len(), 1);
+        assert_eq!(conversations[0]["id"], "c1");
+        // A workspace whose first conversation runs Codex is still offered to agents.
+        ws.agent = ProviderId::Codex;
+        ws.tabs[1].choice = None;
+        let conversations = record(&ws)["workspace"]["conversations"].clone();
+        assert_eq!(conversations, json!([]));
     }
 }

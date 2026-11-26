@@ -61,6 +61,18 @@ both with `dangerFullAccess`, matching the existing structured adapter. Plan
 uses the native collaboration mode and native built-in plan instructions.
 There is no synthetic user `/plan` prompt or dummy inference turn.
 
+## Remote machines
+
+On a remote machine ([ADR 0105](../decisions/0105-codex-on-remote-machines.md))
+the plan carries an engine host instead of spawning a child. The host opens the
+engine and a relay as host terminals; the relay performs the socket, alias and
+peer checks above on the machine (accepting a descendant of the engine process)
+and carries the same messages as JSON lines. The bootstrap, its deadline and its
+limits are unchanged, the TUI receives the relay's `unix://` address on the
+machine, and losing the relay releases the conversation without ending the
+machine's engine or TUI. The machine's own `~/.codex` applies: no account,
+plugin or MCP configuration is passed.
+
 ## Lifetime and explicit control
 
 `NativeEngine` retains one owner for the child, socket, reader and cleanup. The
@@ -87,9 +99,16 @@ existing physical control directories and original-home endpoints are preserved.
 Authentication and durable history retain their existing sharing rules. The tools
 compatibility regression checks both old-link migration and repeated preparation.
 
-The wire accepts messages up to 1 MiB, retains at most 64 startup messages and
-8 MiB during bootstrap, and exposes a 64-message live channel. Outbound control
-has a 32-entry queue and a five-second deadline. Overflow fails explicitly.
+The wire accepts incoming frames and messages up to 64 MiB, matching the history
+byte ceiling: native user items contain inline image data in live events and
+cold replay. Outbound control messages remain limited to 1 MiB. The client retains
+at most 64 startup messages and 8 MiB during bootstrap, and exposes a 64-message
+live channel with a combined 64 MiB serialized-JSON budget. Receiving or dropping
+queued events releases their reserved bytes; a stalled consumer cannot retain
+64 maximum-sized images. A full byte or message budget invalidates the engine
+and its PTY, using the existing explicit overflow path. Outbound control has a
+32-entry queue and a five-second deadline.
+Overflow fails explicitly; an oversized incoming frame reports a limit failure.
 History additionally has a 64 MiB/10,000-turn ceiling, 16 turns per page, and
 shares the startup deadline. Repeated native IDs or malformed pagination fail
 before starting the TUI. These limits protect process memory; they are not claims
@@ -153,7 +172,10 @@ composer is still required.
 
 `terminal_agent_codex/tests.rs` uses an owned fake WebSocket server process to
 check startup ordering, identity/configuration rejection, queue failure,
+inline images larger than 1 MiB in live delivery and cold history replay,
 explicit-only replies, stale IDs, forbidden turn creation and child reaping.
+`terminal_agent_codex/events.rs` checks byte overflow with a stalled consumer
+and budget release on receive, receiver drop and failed delivery.
 `crates/protocols/src/codex/attached_tests.rs` checks the existing decoder's
 attached behavior while retaining the structured adapter's compatibility suite.
 

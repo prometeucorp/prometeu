@@ -7,7 +7,7 @@ status: stable
 
 # Workspace supervision
 
-Decision: [ADR 0105](../decisions/0105-workspace-supervision.md).
+Decision: [ADR 0106](../decisions/0106-workspace-supervision.md).
 The first executor is `prometeu-host`. Desktop-created local workspaces and a
 reverse network transport to the local MCP are deferred. The external
 supervisor uses the existing remote MCP for reads and instructions; the Cloud

@@ -144,6 +144,7 @@ fn run(case: Case) {
             ask: true,
             plan: case.plan(),
         },
+        host: None,
     }
     .start_inner(&mut tui)
     .unwrap();

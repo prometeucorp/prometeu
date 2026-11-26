@@ -159,8 +159,10 @@ without root.
 
 ### Scope
 
-Only Claude declares the `remoteMachines` capability. Its hooks and transcript
-layout are the ones relayed and mirrored. The host ships for Linux x86_64 only.
+Claude and Codex declare the `remoteMachines` capability. Claude's hooks and
+transcript layout are the ones relayed and mirrored here; Codex runs its native
+engine on the machine and is read through a relay terminal
+([ADR 0105](0105-codex-on-remote-machines.md)). The host ships for Linux x86_64 only.
 Remote workspaces show conversations only: the file tree, Git panel, diff
 review, Setup/Run, docks, MCP and plugin selection, kickoff skills, delegation
 and multi-repository workspaces stay local until each gets a host

@@ -916,6 +916,15 @@ impl Transport {
         self.end_submission(id);
     }
 
+    /// Stop following this incarnation without ending its process, which another incarnation
+    /// adopts.
+    fn detach(&self, reason: &str) {
+        diagnose(&self.generation, &format!("detach.{reason}"));
+        self.retire();
+        self.control.disconnect();
+        self.end_submission("");
+    }
+
     pub(super) fn retire(&self) {
         if let Some(decisions) = &self.decisions {
             decisions.close();
@@ -1679,6 +1688,12 @@ pub(crate) trait Execution {
     fn adopts_process(&self) -> bool {
         false
     }
+    /// Losing this app's link to the conversation's engine releases the conversation instead of
+    /// ending its process: a remote machine keeps working, and its host follows it again
+    /// (ADR 0105).
+    fn keeps_process_on_engine_loss(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) struct Local;
@@ -2008,6 +2023,7 @@ pub(crate) fn launch_on(
         }))
         .map_err(i18n::io)?;
     let identity = chat.process.identity.clone();
+    let keeps_process = execution.keeps_process_on_engine_loss();
     let mut exit = prometeu_core::terminal::TerminalExit::watch(
         started.waiter,
         state.tasks.as_ref(),
@@ -2057,7 +2073,11 @@ pub(crate) fn launch_on(
                     if published && codex.poll(events, &transport, &pump, &context).is_err()
                         || engine.as_ref().is_some_and(|engine| !engine.running())
                     {
-                        transport.abort_submission("", "codex_poll");
+                        if keeps_process {
+                            transport.detach("codex_link");
+                        } else {
+                            transport.abort_submission("", "codex_poll");
+                        }
                         break;
                     }
                 }
