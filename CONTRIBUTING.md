@@ -24,7 +24,9 @@ not contain credentials or private conversations.
 6. Open a PR against `main`. Explain the problem, resulting behavior, validation
    and remaining limitations. Link a related issue when one exists.
 
-Write comments and documentation in English. Add interface text to both i18n
+Write comments and documentation in English. Write technical documentation in
+ASD-STE100 Simplified Technical English, Issue 9, as the
+[technical writing guide](docs/operations/technical-writing.md) tells you. Add interface text to both i18n
 catalogs and reuse the [design system](docs/architecture/design-system.md).
 Commits follow [Conventional Commits](docs/operations/release.md); the repository
 hook and CI validate them. The short [agent guide](AGENTS.md) applies the same

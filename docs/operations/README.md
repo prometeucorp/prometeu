@@ -7,4 +7,5 @@ Development, contribution, CI and release procedures.
 - [Linux](linux.md) — Building, installing and platform differences on Linux.
 - [Project scripts](project-scripts.md) — Repository-declared setup, run and archive scripts and their execution rules.
 - [CI and release](release.md) — CI, versioning and release.
+- [Technical writing](technical-writing.md) — How to write and review technical documentation in ASD-STE100 Simplified Technical English, Issue 9.
 - [Repository presentation](repository-presentation.md) — Demo provenance, social preview and GitHub verification.

@@ -148,6 +148,10 @@ an artifact without an explicit request. See `docs/operations/release.md`.
 
 ## Documentation maintenance
 
+- Write all new or changed technical documentation in ASD-STE100 Simplified
+  Technical English, Issue 9. Use the project terms and the review in the
+  [technical writing guide](docs/operations/technical-writing.md). Do not copy
+  the text of the specification into the repository.
 - New or substantially changed concepts in `docs/` have YAML `type`, `title`,
   `description` and `status`, plus a line in their folder's `README.md`.
   Folder indexes and files outside `docs/` do not need this envelope.
