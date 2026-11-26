@@ -269,7 +269,7 @@ replacements occur frequently in this repository:
 
 | Do not write | Write |
 | --- | --- |
-| should, shall | must |
+| should, shall | must, for a requirement. Write "we recommend" for a recommendation. |
 | may, might | can, or "it is possible that" |
 | ensure | make sure |
 | allow | let |
@@ -310,8 +310,10 @@ again.
 6. Make sure that the text has no semicolons, contractions or Latin
    abbreviations.
 7. Make sure that the technical meaning did not change.
-8. Make sure that commands, examples, identifiers and links did not change.
-9. Run `npm run docs:check`.
+8. Make sure that a requirement uses "must" and a recommendation uses "we
+   recommend", as in the initial text.
+9. Make sure that commands, examples, identifiers and links did not change.
+10. Run `npm run docs:check`.
 
 A word that is not in the dictionary or in this page is an error. Replace the
 word, or add a project technical noun or verb to this page with a definition.

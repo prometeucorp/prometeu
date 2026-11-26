@@ -57,8 +57,9 @@ the approved devices.
   after that time waits for the answer of the owner on the Mac
   ([ADR 0090](0090-approved-remote-input.md)).
 - Remote control gives the devices of the owner the three rights of ADR 0090:
-  view and comment, send messages and control. Teammates get the last two rights
-  only one person at a time.
+  view and comment, send messages and control. The owner gives the last two
+  rights to each teammate separately. Many teammates can have the same right at
+  the same time.
 - When the owner disables remote control, the application removes the personal
   devices. The audience of the team does not change.
 - Boards from a previous version get `remote_control: false` as the default value.

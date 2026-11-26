@@ -89,11 +89,12 @@ content is different. It removes the entry when AppImageLauncher or Gear Lever
 lists the same file. Refer to [ADR 0055](../decisions/0055-linux-desktop.md).
 
 To find a transcript, the app first uses the saved conversation mode of the tab.
-Terminal mode always reads the V1 log of the app. Chat mode uses the resolved
-provider of the tab, and also a frozen task profile. If that provider is not
-available, it uses the workspace provider. The same resolver operates for
-stopped snapshots and MCP history. Current chat tabs keep their transcript paths
-without a format migration.
+Terminal mode always reads the V1 log of the app. Chat mode uses the provider of
+the saved choice of the tab, or the provider of its frozen task profile. A
+retired provider keeps the history path of that provider. Chat mode uses the
+workspace provider only when the tab has no saved choice and no task profile.
+The same resolver operates for stopped snapshots and MCP history. Current chat
+tabs keep their transcript paths without a format migration.
 
 The native terminal transport keeps a native binding only after the
 authenticated root hook of its process passes observation validation. Version 1
