@@ -203,7 +203,12 @@ selection listeners, composition listeners, resize observer and recovery callbac
 on disposal. OSC 8 HTTP(S) hyperlinks show their destination on hover and use
 the existing `open_external` command to open the system browser. This shared
 handler also applies to supporting terminals; xterm's default popup does not
-launch the native browser. Plain text URLs without OSC 8 markup are not detected.
+launch the native browser. With mouse reporting enabled, primary presses over
+hyperlinks stop at xterm's screen unless Shift forces terminal selection,
+after its linkifier observes them and before mouse reporting forwards them to the
+PTY. This keeps mouse-aware CLIs from opening the same link a second time. Mouse
+input outside links still reaches the CLI. Plain text URLs without OSC 8 markup
+are not detected.
 Attaching awaits listeners before fetching a snapshot, buffers live
 events, and filters them by process generation and sequence. Replayed terminal
 queries cannot answer into the child: input stays disabled until xterm's parser

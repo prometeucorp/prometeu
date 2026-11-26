@@ -8,8 +8,8 @@ type ComposerWindow = Window & {
   __TAURI_INTERNALS__: { invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown> };
 };
 
-// Real xterm paste modes, flex sizing and keyboard focus cannot be established by mocked view tests.
-test("native conversation keeps a full terminal and opens product tools on demand", async ({ page }) => {
+// Real xterm mouse propagation, paste modes, flex sizing and focus need browser coverage.
+test("native conversation keeps a full terminal and opens product tools on demand @webkit", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator('#tiles .tile[data-tab="t1"]')).toBeVisible();
@@ -21,6 +21,16 @@ test("native conversation keeps a full terminal and opens product tools on deman
     board.workspaces[0].tabs[0].choice = { agent: "codex", model: "gpt-5.6-sol", effort: "xhigh" };
     w.controls = [];
     w.__TAURI_INTERNALS__.invoke = (command, args) => {
+      if (command === "agent_terminal_snapshot" && args?.session === "t1") {
+        return invoke(command, args).then(snapshot => ({
+          ...snapshot as object,
+          data: [...new TextEncoder().encode("\x1b[?2004h\x1b[?1003h\x1b[?1006h\x1b]8;;https://example.com/review\x07Review\x1b]8;;\x07\r\nMock agent terminal")],
+        }));
+      }
+      if (command === "open_external") {
+        w.controls.push({ command, ...args });
+        return Promise.resolve();
+      }
       if (command === "pty_write" && args?.session === "t1" && typeof args.data === "string"
         && args.data.startsWith("\x1b[200~") && w.nativePastesUntilFailure && --w.nativePastesUntilFailure === 0) {
         return Promise.reject('i18n:{"code":"err.terminalAgent.notReady"}');
@@ -37,6 +47,32 @@ test("native conversation keeps a full terminal and opens product tools on deman
   await expect(input).toBeFocused();
   const bounds = await terminal.boundingBox();
   expect(bounds!.height).toBeGreaterThan(200);
+
+  // One link gesture must not also reach the CLI, which can open the same URL itself.
+  // Mocked xterm unit tests cannot prove screen/terminal/document listener ordering.
+  const screen = terminal.locator(".xterm-screen");
+  const screenBounds = (await screen.boundingBox())!;
+  await page.mouse.move(screenBounds.x + 10, screenBounds.y + 8);
+  await expect(terminal).toHaveAttribute("title", "https://example.com/review");
+  await page.evaluate(() => { (window as ComposerWindow).controls = []; });
+  await page.mouse.down();
+  await page.mouse.up();
+  const linkControls = await page.evaluate(() => (window as ComposerWindow).controls) as { command: string; data?: string; url?: string }[];
+  expect(linkControls.filter(value => value.command === "open_external")).toEqual([
+    { command: "open_external", url: "https://example.com/review" },
+  ]);
+  expect(linkControls.filter(value => value.command === "pty_write" && /^\x1b\[<0;/.test(value.data ?? ""))).toEqual([]);
+
+  await page.mouse.click(screenBounds.x + 10, screenBounds.y + 30);
+  await expect.poll(() => page.evaluate(() => (window as ComposerWindow).controls.some(value =>
+    (value as { command: string }).command === "pty_write" && /^\x1b\[<0;/.test((value as { data?: string }).data ?? "")))).toBe(true);
+  // Restore ordinary terminal input for the remaining composer checks.
+  await page.evaluate(async () => {
+    const w = window as ComposerWindow;
+    const control = w.controls.find(value => (value as { generation?: string }).generation) as { generation: string };
+    await w.__TAURI_INTERNALS__.invoke("pty_write", { session: "t1", generation: control.generation, data: "\x1b[?1003l\x1b[?1006l" });
+    w.controls = [];
+  });
   await page.keyboard.type("native input");
   await expect.poll(() => page.evaluate(() => (window as ComposerWindow).controls.filter(value => (value as { command: string }).command === "pty_write").length)).toBeGreaterThan(0);
   expect(await page.evaluate(() => (window as ComposerWindow).controls.every(value => typeof (value as { generation?: string }).generation === "string"))).toBe(true);

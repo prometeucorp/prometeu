@@ -59,6 +59,7 @@ export class Term {
   private gpu = false;
   private decoder = new TextDecoder("utf-8");
   private host!: HTMLElement;
+  private linkHovered = false;
   private pending = 0;
   private attachVersion = 0;
   /// Ignore output from PTYs that are not attached to this view.
@@ -101,8 +102,8 @@ export class Term {
           const url = external(href);
           if (url) void invoke("open_external", { url }).catch(error => this.options.error?.(error));
         },
-        hover: (_event, href) => { this.host.title = href; },
-        leave: () => { this.host.title = ""; },
+        hover: (_event, href) => { this.linkHovered = true; this.host.title = href; },
+        leave: () => { this.linkHovered = false; this.host.title = ""; },
       },
     });
   }
@@ -116,6 +117,17 @@ export class Term {
     this.sink = sink;
     this.term.loadAddon(this.fit);
     this.term.open(host);
+    // Linkifier sees the press on the screen first; stop it before xterm forwards it to the PTY.
+    // Otherwise mouse-aware CLIs can open the same link that our activation opens on release.
+    const screen = this.term.element?.querySelector<HTMLElement>(".xterm-screen");
+    const linkPress = (event: MouseEvent) => {
+      if (!this.linkHovered || event.button !== 0 || event.shiftKey || this.term.modes.mouseTrackingMode === "none") return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.term.focus();
+    };
+    screen?.addEventListener("mousedown", linkPress);
+    this.cleanup.push(() => screen?.removeEventListener("mousedown", linkPress));
     this.accelerate();
     const mac = navigator.platform.startsWith("Mac");
     this.term.attachCustomKeyEventHandler(event => {
@@ -220,6 +232,7 @@ export class Term {
 
   detach() {
     this.attachVersion++;
+    this.linkHovered = false;
     if (this.host) this.host.title = "";
     for (const cancel of [...this.parsing]) cancel();
     this.key = null;
