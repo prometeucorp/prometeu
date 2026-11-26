@@ -1088,11 +1088,11 @@ function mockEnableEvents(id: string, setup: import("./machine-supervision").Sup
   if (!mockCloud().user) throw 'i18n:{"code":"err.catalog.disconnected"}';
   if (setup.account !== `${mockCloud().origin}#${mockCloud().user!.id}`) throw 'i18n:{"code":"err.supervision.changed"}';
   let mockSupervisor = mockSupervisors.get(setup.account);
-  if (mockSupervisor && setup.supervisor_id !== mockSupervisor.id) throw 'i18n:{"code":"err.supervision.changed"}';
+  if (mockSupervisor && (setup.supervisor_id !== mockSupervisor.id || setup.supervisor_revision !== mockSupervisor.revision)) throw 'i18n:{"code":"err.supervision.changed"}';
   if (!mockSupervisor) {
     if (!setup.destination?.url.startsWith("https://") || setup.destination.signing_secret.length < 16) throw 'i18n:{"code":"err.supervision.invalid"}';
     const { name, url, webhook_protocol } = setup.destination;
-    mockSupervisor = { id: crypto.randomUUID(), name, url, webhook_protocol, enabled: true };
+    mockSupervisor = { id: crypto.randomUUID(), revision: "a".repeat(64), name, url, webhook_protocol, enabled: true };
     mockSupervisors.set(setup.account, mockSupervisor);
   }
   mockSupervisedMachines.add(id);

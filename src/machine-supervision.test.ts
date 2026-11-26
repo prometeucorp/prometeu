@@ -12,13 +12,13 @@ it("passes event consent with first MCP setup and leaves ordinary setup account-
   vi.mocked(invoke).mockResolvedValue(setup);
   expect(await setupAgentConnection("vps", false)).toBe(setup);
   expect(invoke).toHaveBeenLastCalledWith("machine_agents_enable", { id: "vps", rotate: false, supervision: undefined });
-  const supervision = { account: "https://cloud.example#owner", supervisor_id: "receiver" };
+  const supervision = { account: "https://cloud.example#owner", supervisor_id: "receiver", supervisor_revision: "selected-revision" };
   await setupAgentConnection("vps", false, supervision);
   expect(invoke).toHaveBeenLastCalledWith("machine_agents_enable", { id: "vps", rotate: false, supervision });
 });
 
 it("adds events to an existing connection without rotating its MCP token", async () => {
-  const setup = { account: "https://cloud.example#owner", supervisor_id: "receiver" };
+  const setup = { account: "https://cloud.example#owner", supervisor_id: "receiver", supervisor_revision: "selected-revision" };
   expect(await setupAgentConnection("vps", true, setup)).toBeNull();
   expect(invoke).toHaveBeenCalledExactlyOnceWith("machine_supervision_enable", { id: "vps", setup });
   vi.mocked(invoke).mockRejectedValue(new Error("offline"));

@@ -62,7 +62,7 @@ Supervision remains an explicit workspace binding selected through the host MCP;
 provisioning does not attach all existing or future workspaces automatically.
 
 The desktop authenticates provisioning with its stored Cloud session. The form
-retains the account identity and destination ID; a changed account or destination
+retains the account identity, destination ID and configuration revision; a changed account or destination
 requires reopening it. A disabled destination must be enabled in Cloud settings.
 Creation does not overwrite a destination another client created in the meantime.
 The desktop obtains the executor's stable public ID over the existing SSH access,
@@ -75,13 +75,23 @@ Desktop Bearer endpoints (JSON writes, same Origin and size guards as the other
 desktop endpoints):
 
 - `GET /api/supervisor` returns `{ supervisor: null }` or public destination
-  fields `id`, `name`, `url`, `enabled`, `webhook_protocol`; never secrets.
+  fields `id`, `revision`, `name`, `url`, `enabled`, `webhook_protocol`; never secrets.
 - `POST /api/supervisor/connections` accepts `executor_id`, optional
-  `supervisor_id` for an existing destination, or `destination` with `name`, `url`,
+  `supervisor_id` and `supervisor_revision` for an existing destination, or `destination` with `name`, `url`,
   `webhook_protocol` and `signing_secret` for a new one. It returns
   `{ supervisor: { id, name }, ingest_token }` with `Cache-Control: no-store`.
   A stale destination returns 409; invalid input or a disabled destination returns
   422. Browser cookies and ingestion credentials do not authorize provisioning.
+
+The destination `revision` is an opaque SHA-256 fingerprint of its ID, name, URL,
+enabled state, filters, format, encrypted signing material and legacy ingestion
+digest. It does not reveal plaintext secrets and does not depend on timestamp
+resolution. The server compares the submitted revision under the supervisor lock
+before changing credentials. Missing or stale revisions return 409 `changed` for
+existing destinations, leaving all executor digests unchanged. Provisioning another
+executor does not invalidate the revision. The companion desktop must echo the
+revision read when the form opened; it must not silently refresh that consent on
+submission. Legacy manual setup and host ingestion endpoints are unchanged.
 
 Cloud stores one ingestion digest per supervisor/executor in
 `supervision_credentials`. Reprovisioning replaces only that executor's token;
@@ -126,7 +136,7 @@ Desktop IPC additions:
 
 - `machine_supervision_options()` returns `{ account, supervisor }` (both nullable).
 - `machine_agents_enable` accepts optional `supervision: { account,
-  supervisor_id?, destination? }`; omission preserves existing behavior and output.
+  supervisor_id?, supervisor_revision?, destination? }`; omission preserves existing behavior and output.
 - `machine_supervision_enable({ id, setup })` configures events for an existing MCP.
 - `machine_supervision_test({ id })` returns `{ status, failed }`.
 

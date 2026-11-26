@@ -21,12 +21,14 @@ pub struct Destination {
 pub struct Setup {
     account: String,
     supervisor_id: Option<String>,
+    supervisor_revision: Option<String>,
     destination: Option<Destination>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Supervisor {
     id: String,
+    revision: String,
     name: String,
     url: String,
     enabled: bool,
@@ -112,7 +114,8 @@ pub fn enable(connection: &Connection, setup: Setup) -> Result<(), String> {
     let (origin, status, value) = cloud::connect_supervisor(
         &setup.account,
         json!({
-            "executor_id": executor, "supervisor_id": setup.supervisor_id, "destination": setup.destination,
+            "executor_id": executor, "supervisor_id": setup.supervisor_id,
+            "supervisor_revision": setup.supervisor_revision, "destination": setup.destination,
         }),
     )?;
     if status != 200 {

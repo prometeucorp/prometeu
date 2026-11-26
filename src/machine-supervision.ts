@@ -6,8 +6,8 @@ import { button, checkbox, field, formDialog, input, select } from "./ui";
 import { h } from "./util";
 
 export type SupervisorDestination = { name: string; url: string; webhook_protocol: "openbot" | "prometeu"; signing_secret: string };
-export type SupervisionSetup = { account: string; supervisor_id?: string; destination?: SupervisorDestination };
-export type SupervisionOptions = { account: string | null; supervisor: { id: string; name: string; url: string; enabled: boolean; webhook_protocol: "openbot" | "prometeu" } | null };
+export type SupervisionSetup = { account: string; supervisor_id?: string; supervisor_revision?: string; destination?: SupervisorDestination };
+export type SupervisionOptions = { account: string | null; supervisor: { id: string; revision: string; name: string; url: string; enabled: boolean; webhook_protocol: "openbot" | "prometeu" } | null };
 export type SupervisionTest = { status: "pending" | "sending" | "delivered" | "cancelled"; failed: boolean };
 
 /** A delivery receipt proves receipt by the receiver, never completion of an agent task. */
@@ -44,7 +44,7 @@ export function showAgentConnection(id: string, name: string, existing: boolean,
       if (events.control.checked) {
         if (!options?.account) throw new Error(t("machines.events.signInHint"));
         if (options.supervisor && !options.supervisor.enabled) throw new Error(t("err.supervision.disabled"));
-        supervision = { account: options.account, ...(options.supervisor ? { supervisor_id: options.supervisor.id } : {
+        supervision = { account: options.account, ...(options.supervisor ? { supervisor_id: options.supervisor.id, supervisor_revision: options.supervisor.revision } : {
           destination: { name: receiver.value === "openbot" ? "OpenBot" : "Prometeu", url: url.value.trim(),
             webhook_protocol: receiver.value as SupervisorDestination["webhook_protocol"], signing_secret: secret.value },
         }) };
