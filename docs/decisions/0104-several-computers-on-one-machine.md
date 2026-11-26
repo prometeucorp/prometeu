@@ -72,10 +72,12 @@ already has a shell there, so it was not added.
 - Terminal output and exit go to every attachment that follows the terminal.
   Each one replays its own gap from its last sequence.
 - Registry events go to every attachment.
-- Non-permission hooks are kept per terminal (the last 512) with the last one
-  each device confirmed through the `hook_reply` desktops already send for every
-  hook. A device receives the hooks it did not confirm, whether or not another
-  device received them meanwhile. A hook queued to an attachment that was
+- Non-permission hooks are kept per terminal (the last 512) with the ones each
+  device confirmed through the `hook_reply` desktops already send for every
+  hook. Desktops handle hooks on separate threads, so each reply confirms only
+  its own hook. A device receives the hooks it did not confirm, whether or not
+  another device received them meanwhile, including the first hook after it
+  started following a conversation whose log was still empty. A hook queued to an attachment that was
   already dead, such as a Mac asleep behind a half-open connection, is not lost:
   it is sent again when that Mac comes back. The cost is that a hook handled just
   before a connection dropped, with its confirmation lost, can arrive twice. A
@@ -99,6 +101,9 @@ retried, as in ADR 0101. A message sent from one computer reaches the others as
 input typed in the TUI. A conversation started on the machine between one
 computer's terminal list and its open fails with `err.remote.startedElsewhere`;
 trying again adopts the running process instead of risking the launch's input.
+The host reserves a terminal ID before starting its process, so two computers
+opening the same conversation at the same moment start one Claude, and the
+other gets that error.
 Stop, closing a tab and cleaning a workspace still end the remote process for
 every computer, which then see it as ended, as they would after an agent ended
 it.
@@ -139,7 +144,10 @@ computers are listed only for hosts that report `clients`.
   `an_exited_terminal_stays_until_every_follower_collected_it`,
   `the_desktop_that_types_drives_the_terminal_size`,
   `a_desktop_that_stops_reading_is_dropped_instead_of_buffered`,
-  `the_host_reports_the_release_of_the_app_that_started_it` and the earlier
+  `the_host_reports_the_release_of_the_app_that_started_it`,
+  `a_device_attached_before_any_hook_still_receives_the_first_one_it_missed`,
+  `a_later_confirmation_does_not_count_for_an_earlier_hook`,
+  `opening_the_same_conversation_from_two_desktops_starts_one_process` and the earlier
   `a_new_attachment_replaces_the_previous_one` for desktops without a device.
 - `src-tauri/src/remote/connection.rs`: `the_attach_command_names_this_computer_quoted`,
   `only_a_newer_host_is_kept_over_this_apps_build`.

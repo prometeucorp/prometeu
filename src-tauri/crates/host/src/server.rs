@@ -112,24 +112,31 @@ pub(crate) struct Term {
 struct HookEntry {
     number: u64,
     frame: Value,
-    /// A desktop confirmed it, so a device without a cursor does not receive it again.
+    /// A desktop confirmed it, so a device this terminal never served does not receive it.
     delivered: bool,
 }
 
-/// Non-permission hooks of one terminal, with the last one each device confirmed through its
-/// `hook_reply`. A frame queued to an attachment that is already dead (a desktop asleep behind a
-/// half-open connection) is never confirmed, so that desktop receives it when it comes back,
-/// whether another desktop received it meanwhile or not.
+/// Non-permission hooks of one terminal and, per device, which of them it confirmed through its
+/// `hook_reply`. A device is owed every retained hook it has not confirmed: a frame queued to an
+/// attachment that was already dead (a desktop asleep behind a half-open connection) is sent again
+/// when that desktop comes back, whether another desktop received it meanwhile or not. Desktops
+/// handle hooks on separate threads, so confirmations arrive in any order and each counts only for
+/// its own hook.
 #[derive(Default)]
 struct HookLog {
     entries: VecDeque<HookEntry>,
-    cursors: HashMap<String, u64>,
+    /// Confirmed hook numbers per device, among the retained entries.
+    confirmed: HashMap<String, HashSet<u64>>,
 }
 
 impl HookLog {
     fn push(&mut self, number: u64, frame: Value) {
         if self.entries.len() >= QUEUED_HOOKS {
-            self.entries.pop_front();
+            if let Some(dropped) = self.entries.pop_front() {
+                for numbers in self.confirmed.values_mut() {
+                    numbers.remove(&dropped.number);
+                }
+            }
         }
         self.entries.push_back(HookEntry {
             number,
@@ -138,25 +145,23 @@ impl HookLog {
         });
     }
 
-    /// The entries a device has not confirmed: after its cursor, or, for a device this terminal
-    /// never served, those no desktop confirmed (the single-desktop queue's behavior). From then on
-    /// the device's confirmations count from there.
+    /// The hooks a device is owed. The first time this terminal serves a device, the hooks another
+    /// desktop already confirmed count as its own (the single-desktop queue's behavior); every
+    /// later hook is owed to it until it confirms that hook, even when the log is empty now.
     fn missed(&mut self, device: &str) -> Vec<Value> {
-        let cursor = self.cursors.get(device).copied();
-        let missed: Vec<&HookEntry> = self
-            .entries
+        let entries = &self.entries;
+        let confirmed = self.confirmed.entry(device.into()).or_insert_with(|| {
+            entries
+                .iter()
+                .filter(|e| e.delivered)
+                .map(|e| e.number)
+                .collect()
+        });
+        entries
             .iter()
-            .filter(|e| cursor.map_or(!e.delivered, |c| e.number > c))
-            .collect();
-        let baseline = missed
-            .first()
-            .map(|e| e.number - 1)
-            .or(self.entries.back().map(|e| e.number));
-        let frames = missed.iter().map(|e| e.frame.clone()).collect();
-        if let (None, Some(baseline)) = (cursor, baseline) {
-            self.cursors.insert(device.into(), baseline);
-        }
-        frames
+            .filter(|e| !confirmed.contains(&e.number))
+            .map(|e| e.frame.clone())
+            .collect()
     }
 
     /// A device's desktop handled this hook. Returns false when the terminal holds no such hook.
@@ -165,8 +170,10 @@ impl HookLog {
             return false;
         };
         entry.delivered = true;
-        let cursor = self.cursors.entry(device.into()).or_default();
-        *cursor = (*cursor).max(number);
+        self.confirmed
+            .entry(device.into())
+            .or_default()
+            .insert(number);
         true
     }
 }
@@ -280,6 +287,8 @@ pub(crate) struct Host {
     ready: Value,
     scopes: bool,
     terminals: Mutex<HashMap<String, Arc<Term>>>,
+    /// Terminal IDs whose process is being started; another open of the same ID is refused.
+    opening: Mutex<HashSet<String>>,
     clients: Mutex<Vec<Client>>,
     generations: AtomicU64,
     hooks: AtomicU64,
@@ -586,6 +595,7 @@ pub fn serve(root: &Path, release: Option<&str>) -> Result<(), String> {
         ready: describe(root, scopes, linger, release),
         scopes,
         terminals: Mutex::new(HashMap::new()),
+        opening: Mutex::new(HashSet::new()),
         clients: Mutex::new(Vec::new()),
         generations: AtomicU64::new(0),
         hooks: AtomicU64::new(0),
@@ -1092,6 +1102,33 @@ fn limit_slice(slice: String, limits: Map<String, Value>) {
     });
 }
 
+/// A terminal ID held while its process starts, released however the open ends.
+struct Reservation<'a> {
+    host: &'a Host,
+    id: String,
+}
+
+impl<'a> Reservation<'a> {
+    fn take(host: &'a Host, id: &str) -> Result<Self, String> {
+        let terminals = lock(&host.terminals);
+        let mut opening = lock(&host.opening);
+        if opening.contains(id) || terminals.get(id).is_some_and(|t| lock(&t.ring).running) {
+            return Err("terminal_exists".into());
+        }
+        opening.insert(id.into());
+        Ok(Self {
+            host,
+            id: id.into(),
+        })
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        lock(&self.host.opening).remove(&self.id);
+    }
+}
+
 pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let id = terminal_id(params)?;
     let argv = string_list(params, "argv");
@@ -1107,12 +1144,9 @@ pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
         .and_then(Value::as_str)
         .filter(|w| valid_id(w))
         .map(str::to_owned);
-    {
-        let terminals = lock(&host.terminals);
-        if terminals.get(&id).is_some_and(|t| lock(&t.ring).running) {
-            return Err("terminal_exists".into());
-        }
-    }
+    // Reserve the ID before starting anything: two desktops (or a desktop and an agent) opening
+    // the same conversation at once must start one process, and the other gets `terminal_exists`.
+    let _reserved = Reservation::take(host, &id)?;
     let slice = workspace.as_deref().and_then(workspace_slice);
     let (program, unit) = match (&slice, host.scopes) {
         (Some(slice), true) => {

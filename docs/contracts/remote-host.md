@@ -75,14 +75,16 @@ streaming waits below half of that instead.
 
 Every attachment that called `terminal_attach` for a terminal receives its
 `output` and `exit`, and every attachment receives `registry`. Hooks other than
-permission requests are kept per terminal (the last 512) with the highest hook
-number each device confirmed. Desktops send `hook_reply` for every hook, and for
-these hooks it is that confirmation. `terminal_attach` sends a device the kept
-hooks after that number, or, for a device the terminal never served, those no
-device confirmed; that device's confirmations count from there. A hook queued to
-an attachment that was already dead is therefore sent again when its desktop
-comes back. A desktop that handled a hook but lost the connection before its
-confirmation arrived can receive it twice. A permission request is sent to every attachment following the
+permission requests are kept per terminal (the last 512) with the set of them
+each device confirmed. Desktops send `hook_reply` for every hook, and for these
+hooks it is that confirmation; each reply confirms only its own hook, whatever
+order replies arrive in. `terminal_attach` sends a device every kept hook it has
+not confirmed. The first time a terminal serves a device, even with no hooks
+kept yet, the hooks another device already confirmed count as confirmed for it,
+and every later hook is owed to it. A hook queued to an attachment that was
+already dead is therefore sent again when its desktop comes back. A desktop that
+handled a hook but lost the connection before its confirmation arrived can
+receive it twice. A permission request is sent to every attachment following the
 terminal and is not kept. The first `hook_reply` with output is printed; the
 others that received it get `hook_resolved`. An empty reply, or an attachment
 ending, abstains, and when every recipient abstained the hook prints nothing.
@@ -134,7 +136,7 @@ unknown outcome.
 | `exec` | `argv`, `cwd?`, `env?`, `stdin?` (base64), `timeout_ms?` (default 30 s, at most 600 s) | `{ code, timeout, stdout, stderr }` (base64, 4 MiB each) |
 | `file_write` | `path` (absolute), `data` (base64), `mode?` (default 0600) | `{}`; parents created 0700, atomic rename |
 | `file_read` | `path`, `limit?` | `{ data }` |
-| `terminal_open` | `id`, `workspace?`, `argv`, `cwd`, `env?`, `unset?`, `cols`, `rows`, `limits?` | `{ pid, unit }`; rejects a running `id` with `terminal_exists` |
+| `terminal_open` | `id`, `workspace?`, `argv`, `cwd`, `env?`, `unset?`, `cols`, `rows`, `limits?` | `{ pid, unit }`; rejects with `terminal_exists` an `id` that is running or whose process another open is starting, so concurrent opens start one process |
 | `terminal_attach` | `id`, `seq` | `{ data, reset, seq, running, code, pid }`, then live `output`/`exit` and queued `hook` frames |
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |

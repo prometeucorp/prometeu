@@ -807,3 +807,103 @@ fn the_host_reports_the_release_of_the_app_that_started_it() {
     let _ = child.wait();
     shutdown(&root);
 }
+
+#[test]
+fn a_device_attached_before_any_hook_still_receives_the_first_one_it_missed() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    open_shell(&mut first, "e1", "sleep 30");
+    // Both follow the conversation while its hook log is still empty.
+    first.call("terminal_attach", json!({"id": "e1", "seq": 0}));
+    second.call("terminal_attach", json!({"id": "e1", "seq": 0}));
+    // The second one sleeps before the first hook; the first confirms it.
+    second.detach();
+    run_hook(&root, "e1", r#"{"hook_event_name":"SessionStart"}"#)
+        .wait()
+        .unwrap();
+    let hook = first.until(|f| f["event"] == "hook");
+    first.confirm(&hook);
+
+    let mut second = Attached::device(&root, "mac-b");
+    second.call("terminal_attach", json!({"id": "e1", "seq": 0}));
+    let missed = second.until(|f| f["event"] == "hook");
+    assert_eq!(missed["hook"], hook["hook"]);
+
+    first.call("terminal_signal", json!({"id": "e1", "signal": "kill"}));
+    first.detach();
+    second.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn a_later_confirmation_does_not_count_for_an_earlier_hook() {
+    let root = root();
+    let mut client = Attached::device(&root, "mac-a");
+    open_shell(&mut client, "o2", "sleep 30");
+    client.call("terminal_attach", json!({"id": "o2", "seq": 0}));
+    run_hook(&root, "o2", r#"{"hook_event_name":"UserPromptSubmit"}"#)
+        .wait()
+        .unwrap();
+    run_hook(&root, "o2", r#"{"hook_event_name":"Stop"}"#)
+        .wait()
+        .unwrap();
+    let earlier = client.until(|f| f["event"] == "hook");
+    let later = client.until(|f| f["event"] == "hook");
+    // The desktop handles hooks on separate threads: the later one finishes first, and the app
+    // goes away before the earlier one does.
+    client.confirm(&later);
+    client.detach();
+
+    let mut client = Attached::device(&root, "mac-a");
+    client.call("terminal_attach", json!({"id": "o2", "seq": 0}));
+    let again = client.until(|f| f["event"] == "hook");
+    assert_eq!(again["hook"], earlier["hook"]);
+    client.quiet(
+        |f| f["event"] == "hook" && f["hook"] == later["hook"],
+        Duration::from_millis(300),
+    );
+
+    client.call("terminal_signal", json!({"id": "o2", "signal": "kill"}));
+    client.detach();
+    shutdown(&root);
+}
+
+#[test]
+fn opening_the_same_conversation_from_two_desktops_starts_one_process() {
+    let root = root();
+    let mut first = Attached::device(&root, "mac-a");
+    let mut second = Attached::device(&root, "mac-b");
+    let marks = root.join("marks");
+    std::fs::create_dir_all(&marks).unwrap();
+    let ids: Vec<String> = (0..20).map(|n| format!("race-{n}")).collect();
+    let open = |client: &mut Attached, id: &str| {
+        let script = format!("echo started >> '{}/{id}'; sleep 30", marks.display());
+        client.send(
+            "terminal_open",
+            json!({"id": id, "argv": ["/bin/sh", "-c", script], "cwd": std::env::temp_dir(),
+                   "cols": 80, "rows": 24}),
+        )
+    };
+    let mut requests = Vec::new();
+    for id in &ids {
+        requests.push((open(&mut first, id), open(&mut second, id)));
+    }
+    for (id, (a, b)) in ids.iter().zip(requests) {
+        let a = first.until(|f| f["id"] == a);
+        let b = second.until(|f| f["id"] == b);
+        let opened = [&a, &b].iter().filter(|r| r.get("error").is_none()).count();
+        assert_eq!(opened, 1, "{id}: {a} {b}");
+        let refused = if a.get("error").is_some() { &a } else { &b };
+        assert_eq!(refused["error"], "terminal_exists", "{id}");
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    for id in &ids {
+        let started = std::fs::read_to_string(marks.join(id)).unwrap_or_default();
+        assert_eq!(started.lines().count(), 1, "{id} started {started:?}");
+        first.call("terminal_signal", json!({"id": id, "signal": "kill"}));
+    }
+    first.detach();
+    second.detach();
+    shutdown(&root);
+}
