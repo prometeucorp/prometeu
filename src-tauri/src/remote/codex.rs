@@ -115,6 +115,9 @@ pub struct RemoteEngine {
     pub tui: Arc<Remote>,
     relay: Option<(String, Arc<RelayStream>)>,
     linked: Option<Instant>,
+    /// This instance opened the engine. Another computer resuming the same conversation at the
+    /// same moment gets `terminal_exists` and must never end the engine it did not start.
+    owns_engine: bool,
 }
 
 impl RemoteEngine {
@@ -144,6 +147,7 @@ impl RemoteEngine {
             tui,
             relay: None,
             linked: None,
+            owns_engine: false,
         }
     }
 
@@ -287,7 +291,9 @@ impl crate::terminal_agent_codex::EngineHost for RemoteEngine {
         let pid = if self.adopt {
             self.running_engine()?
         } else {
-            self.open_engine(command, &socket)?
+            let pid = self.open_engine(command, &socket)?;
+            self.owns_engine = true;
+            pid
         };
         let (id, stream) = self.open_relay(&socket, pid)?;
         self.relay = Some((id.clone(), stream.clone()));
@@ -296,7 +302,7 @@ impl crate::terminal_agent_codex::EngineHost for RemoteEngine {
             address: format!("unix://{socket}"),
             reader: Box::new(RelayReader(stream)),
             writer: Box::new(RelayWriter {
-                connection: self.connection.clone(),
+                input: self.connection.clone(),
                 id,
             }),
         })
@@ -316,8 +322,7 @@ impl Drop for RemoteEngine {
         }
         // A fresh launch that never reached its TUI, or a TUI that exited, leaves the engine
         // nothing to serve. An adopted TUI that is still running keeps it.
-        let ended = (!self.adopt && !self.tui.followed()) || !self.tui.running();
-        if ended {
+        if ends_engine(self.owns_engine, self.tui.followed(), self.tui.running()) {
             self.connection.notify(
                 "terminal_signal",
                 json!({"id": self.engine_id(), "signal": "terminate"}),
@@ -337,6 +342,14 @@ impl Drop for RemoteEngine {
             self.session.clone(),
         );
     }
+}
+
+/// Whether dropping this app's side ends the machine's engine. The engine has nothing to serve
+/// once the TUI this side followed exited, or when this side started it and never reached its
+/// TUI. An engine another launch started (a resume racing on another computer, or an adoption)
+/// is never ended for a launch that did not get as far as following its TUI.
+pub(super) fn ends_engine(owns: bool, followed: bool, tui_running: bool) -> bool {
+    (owns && !followed) || (followed && !tui_running)
 }
 
 /// Resume a conversation whose TUI still runs on the machine once its previous incarnation left
@@ -466,24 +479,39 @@ impl Read for RelayReader {
     }
 }
 
-/// Requests to the engine. Offline writes fail instead of waiting: the engine link reports the
-/// failure, as a local engine's closed socket would.
+/// The longest a relay write waits for the host's confirmation, below the engine's own
+/// five-second control deadline.
+const WRITE_WAIT: Duration = Duration::from_secs(4);
+
+/// Where relay input goes: the machine's host, which confirms each write.
+pub(super) trait RelayInput: Send + Sync {
+    fn write_relay(&self, id: &str, bytes: &[u8]) -> Result<(), String>;
+}
+
+impl RelayInput for Connection {
+    /// A request rather than a notification: a frame written into an SSH connection that is
+    /// already dead fails here instead of passing for sent.
+    fn write_relay(&self, id: &str, bytes: &[u8]) -> Result<(), String> {
+        self.request_timeout(
+            "terminal_write",
+            json!({"id": id, "data": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)}),
+            WRITE_WAIT,
+        )
+        .map(|_| ())
+    }
+}
+
+/// Requests and replies to the engine. A write the host did not confirm fails, so an approval
+/// answer stays open and can be sent again after reconnecting; the relay keeps the link.
 struct RelayWriter {
-    connection: Arc<Connection>,
+    input: Arc<dyn RelayInput>,
     id: String,
 }
 impl Write for RelayWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if !self.connection.connected() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "machine offline",
-            ));
-        }
-        self.connection.notify(
-            "terminal_write",
-            json!({"id": self.id, "data": base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes)}),
-        );
+        self.input
+            .write_relay(&self.id, bytes)
+            .map_err(|error| io::Error::new(io::ErrorKind::NotConnected, error))?;
         Ok(bytes.len())
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -499,6 +527,62 @@ mod tests {
         let mut out = Vec::new();
         RelayReader(stream.clone()).read_to_end(&mut out).unwrap();
         out
+    }
+
+    #[test]
+    fn a_resume_that_lost_the_race_never_ends_the_winners_engine() {
+        // Two computers resume the same conversation: the loser got `terminal_exists`.
+        assert!(!ends_engine(false, false, true));
+        // The winner failed before its TUI: its own engine has nothing to serve.
+        assert!(ends_engine(true, false, true));
+        // An adoption that failed before following the TUI leaves the running engine alone.
+        assert!(!ends_engine(false, false, true));
+        // Following a TUI that is still running (app exit, lost link) keeps the engine.
+        assert!(!ends_engine(true, true, true));
+        assert!(!ends_engine(false, true, true));
+        // A followed TUI that exited ends the engine, whoever started it.
+        assert!(ends_engine(true, true, false));
+        assert!(ends_engine(false, true, false));
+    }
+
+    use std::sync::atomic::AtomicBool;
+
+    /// A host connection whose writes fail until it reconnects.
+    #[derive(Default)]
+    struct Flaky {
+        offline: AtomicBool,
+        written: Mutex<Vec<(String, Vec<u8>)>>,
+    }
+    impl RelayInput for Flaky {
+        fn write_relay(&self, id: &str, bytes: &[u8]) -> Result<(), String> {
+            if self.offline.load(Ordering::Acquire) {
+                return Err("offline".into());
+            }
+            lock(&self.written).push((id.into(), bytes.to_vec()));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_relay_write_the_host_did_not_confirm_fails_and_can_be_sent_again() {
+        let input = Arc::new(Flaky::default());
+        let mut writer = RelayWriter {
+            input: input.clone(),
+            id: "s-rpc-1".into(),
+        };
+        input.offline.store(true, Ordering::Release);
+        let error = writer.write_all(b"{\"id\":7,\"result\":{}}\n").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotConnected);
+        assert!(lock(&input.written).is_empty());
+        input.offline.store(false, Ordering::Release);
+        writer.write_all(b"{\"id\":7,\"result\":{}}\n").unwrap();
+        assert_eq!(
+            *lock(&input.written),
+            vec![(
+                "s-rpc-1".to_string(),
+                b"{\"id\":7,\"result\":{}}\n".to_vec()
+            )]
+        );
     }
 
     #[test]

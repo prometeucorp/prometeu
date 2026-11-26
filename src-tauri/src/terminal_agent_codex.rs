@@ -504,7 +504,8 @@ fn serve(
             done,
         }) = commands.try_recv()
         {
-            let id = &frame["id"];
+            let id = frame["id"].clone();
+            let id = &id;
             let method = frame["method"].as_str();
             let permitted_request = matches!(method, Some("account/rateLimits/read"))
                 || (method == Some("turn/interrupt")
@@ -523,14 +524,21 @@ fn serve(
             {
                 Err(Error::Conflict)
             } else {
-                if permitted_response {
-                    pending.retain(|request| request != id);
-                } else {
-                    requests.insert(id.to_string());
+                // Only a frame that left this computer settles its request. A remote engine's
+                // relay write that failed keeps the request answerable, so the person can answer
+                // again once the machine is reachable.
+                let sent = client.send(frame);
+                if sent.is_ok() {
+                    if permitted_response {
+                        pending.retain(|request| request != id);
+                    } else {
+                        requests.insert(id.to_string());
+                    }
                 }
-                client.send(frame)
+                sent
             };
-            let failed = response.is_err() && !matches!(response, Err(Error::Conflict));
+            let failed =
+                response.is_err() && !matches!(response, Err(Error::Conflict) | Err(Error::Unsent));
             let _ = done.send(response);
             if failed {
                 return Err(Error::Closed);

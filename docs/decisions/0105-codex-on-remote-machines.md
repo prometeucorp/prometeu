@@ -76,7 +76,10 @@ Option 4.
   engine; it never starts a second engine for the same thread. Two computers
   following the same conversation each have their own relay
   ([ADR 0104](0104-several-computers-on-one-machine.md)).
-- When the TUI exits while this app follows it, the engine is terminated. An
+- When the TUI exits while this app follows it, the engine is terminated. A
+  launch ends an engine before its TUI only when it opened that engine itself:
+  a resume that lost a race on another computer (`terminal_exists`) or a failed
+  adoption leaves it running. An
   engine whose TUI is gone and that is older than a launch's bootstrap is
   terminated at the next attachment. A Codex TUI that exited while no desktop
   was attached is forgotten instead of recovered: its content is in the engine's
@@ -95,9 +98,11 @@ Option 4.
 - A long disconnection during a busy turn costs a relay replacement and a history
   read instead of a seamless replay. Deltas produced while away are not shown;
   final items are.
-- Requests the desktop sends while offline (interrupts, request answers, quota
-  reads) fail; a failure ends the link and the conversation is adopted again
-  after reconnection.
+- Requests the desktop sends to the engine (interrupts, request answers, quota
+  reads) are relay writes the host confirms. A write that is not confirmed fails
+  without ending the link: a request answer stays open and can be sent again once
+  the machine is reachable. A confirmation lost after the host wrote it still has
+  an unknown outcome; the engine then rejects the repeated answer.
 - Codex plugins, MCP selection, hooks and account selection stay unavailable in
   remote workspaces, as for Claude. Signing Codex in from Settings is not
   offered; the person runs the native device login on the machine.
@@ -114,7 +119,10 @@ Option 4.
   the announcement, keeps notifications ordered around replies and ends the
   stream at a broken line.
 - `src-tauri/src/remote/codex.rs` tests: relay sequence handling, unrecoverable
-  gaps, orphan engines and actionable status problems.
+  gaps, orphan engines, actionable status problems, unconfirmed relay writes and
+  `a_resume_that_lost_the_race_never_ends_the_winners_engine`.
+- `src-tauri/src/terminal_agent_codex/tests.rs`
+  `an_answer_the_machine_did_not_receive_stays_pending_and_can_be_sent_again`.
 - `src-tauri/src/terminal_agent_launch.rs`
   `remote_codex_uses_the_machines_own_account_and_configuration` and
   `src-tauri/src/remote/registry.rs`

@@ -22,6 +22,9 @@ const MAX_INCOMING_MESSAGE: usize = 64 * 1024 * 1024;
 pub(crate) enum Error {
     /// A remote engine could not start, with the localized reason to show.
     Remote(String),
+    /// A frame for a remote engine never reached its machine. The relay keeps the link, so
+    /// nothing was lost and the same frame may be sent again.
+    Unsent,
     Io,
     Protocol,
     Identity,
@@ -153,7 +156,7 @@ impl Client {
                 writer
                     .write_all(&line)
                     .and_then(|_| writer.flush())
-                    .map_err(|_| Error::Closed)
+                    .map_err(|_| Error::Unsent)
             }
         }
     }
@@ -481,6 +484,33 @@ mod tests {
         writeln!(output, "{{\"method\":").unwrap();
         writeln!(output, "{}", serde_json::json!({"method": "after"})).unwrap();
         assert!(matches!(next(&mut client), Err(Error::Closed)));
+    }
+
+    #[test]
+    fn a_write_the_machine_did_not_confirm_is_unsent_and_keeps_the_link() {
+        struct Offline;
+        impl Write for Offline {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::from(io::ErrorKind::NotConnected))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let (mut output, _requests, reader, _) = relay();
+        writeln!(output, "{}", prometeu_host::codex::RELAY_READY).unwrap();
+        let mut client = Client::lines(
+            reader,
+            Box::new(Offline),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+        assert!(matches!(
+            client.send(serde_json::json!({"id": 7, "result": {}})),
+            Err(Error::Unsent)
+        ));
+        writeln!(output, "{}", serde_json::json!({"method": "still"})).unwrap();
+        assert_eq!(next(&mut client).unwrap()["method"], "still");
     }
 
     #[test]

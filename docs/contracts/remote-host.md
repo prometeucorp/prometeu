@@ -213,8 +213,10 @@ when the WebSocket closes or its input ends.
 
 The desktop reads relay lines only after the announcement, and ends the link when
 a line is malformed or the host replies to `terminal_attach` with `reset` after
-the first attachment. It never kills another incarnation's relay. When the TUI
-exits it terminates the engine; at each attachment it terminates an engine whose
+the first attachment. It writes to the relay with `terminal_write` requests and
+treats a missing reply as unsent. It never kills another incarnation's relay, and
+before its TUI it ends only an engine it opened itself. When the TUI exits it
+terminates the engine; at each attachment it terminates an engine whose
 TUI is not running and that started at least 60 seconds earlier.
 
 ## Transcript mirror
