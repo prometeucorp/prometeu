@@ -156,7 +156,8 @@ test("a new project preserves its name on failure and starts its first workspace
 test("a GitHub import keeps its input on failure and adds the clone", async ({ page }) => {
   const projects = page.getByRole("dialog", { name: "Projects", exact: true });
   const dialog = page.getByRole("dialog", { name: "Import from GitHub", exact: true });
-  const source = dialog.getByRole("textbox", { name: "Repository", exact: true });
+  // The suggestion list makes the source input a combobox.
+  const source = dialog.getByRole("combobox", { name: "Repository", exact: true });
   const suggestions = () => dialog.locator("datalist option").evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
   await page.evaluate(() => localStorage.setItem("mock:githubOff", "1"));
   await projects.getByRole("button", { name: "Import from GitHub", exact: true }).click();
