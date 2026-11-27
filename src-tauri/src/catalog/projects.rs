@@ -438,11 +438,7 @@ fn clone_name(source: &str) -> Option<&str> {
 /// Clone a repository that is not in a catalog into a subfolder of `directory` and register it.
 /// The source rules, the staging and the retry are the same as for catalog projects.
 #[tauri::command(async)]
-pub fn clone_project(
-    app: AppHandle,
-    source: String,
-    directory: String,
-) -> Result<Project, String> {
+pub fn clone_project(app: AppHandle, source: String, directory: String) -> Result<Project, String> {
     let source = source.trim();
     let item = Portable {
         id: clone_name(source)
