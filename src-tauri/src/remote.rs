@@ -147,6 +147,8 @@ impl Service {
                 if let Some(app) = &app {
                     if wake == Wake::Attached {
                         attached(app, connection);
+                        // Host agents can change the list while this desktop is away.
+                        crate::todos::remote_changed(&connection.id);
                     }
                     reattach_running(app, connection);
                 }

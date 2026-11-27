@@ -1060,6 +1060,7 @@ mod tests {
             id: "client:external".into(),
             conversation: None,
             projects: vec!["/repo".into()],
+            todos: false,
         };
         let internal = Client::conversation("coordinator");
         let (repos, _) = source(&board, &internal, &json!({})).unwrap();

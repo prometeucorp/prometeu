@@ -877,6 +877,11 @@ body.noside .side { display: none; }
 .irow .iact { display: flex; gap: 6px; justify-content: flex-end; }
 .irow.available button[aria-disabled="true"] { opacity: .45; cursor: default; }
 .irow .iago { font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+/* To-dos: a title and its status selector only. */
+.irow.todo-row { grid-template-columns: minmax(0, 1fr) 140px; min-height: 48px; padding: 8px 16px; }
+.irow.todo-row.completed .ititle b { color: var(--fg-3); text-decoration: line-through; }
+.todo-bar .ifind.todo-new { width: min(420px, 100%); flex-shrink: 1; min-width: 160px; }
+.todo-bar .imeta:empty { display: none; }
 /* Priority bars use a full mark for urgent issues. */
 .prio { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
 .prio i { width: 3px; border-radius: 1px; background: var(--line-ghost); }

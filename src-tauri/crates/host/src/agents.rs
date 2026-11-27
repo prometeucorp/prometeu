@@ -798,6 +798,9 @@ fn call(
     match method {
         "ping" => Ok(json!({})),
         "projects_list" => Ok(json!(host.registry.read()?.projects)),
+        "todos_list" | "todos_create" | "todos_set_status" => {
+            crate::todos::call(host, method, params, false)
+        }
         "supervisors_list" => Ok(host.supervision.list()),
         "workspace_supervisor_set" => {
             host.set_supervisor(text(params, "id")?, Some(text(params, "supervisor_id")?))?;

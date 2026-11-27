@@ -637,6 +637,20 @@ Refer to the [contract](../contracts/github-issues.md). GitHub notifications als
 operate independently of the agent. The tests are in `src-tauri/src/github_notifications.rs` and
 `src/notification-feed.test.ts` ([contract](../contracts/github-notifications.md)).
 
+## Standalone to-do list
+
+The to-do list operates independently of the agent. Claude, Codex and Cursor
+conversations get the `list_todos`, `create_todo` and `set_todo_status` tools
+when the person selects the built-in `prometeu` MCP for them. Antigravity does
+not get hub MCP selections at this time, so its conversations do not get these
+tools. On a remote machine, all clients of the host MCP use the same tools with
+the agent token. The tools and the list do not change between the providers.
+
+Tests: `src-tauri/crates/core/src/todos.rs`, `src-tauri/crates/host/src/todos.rs`,
+`src-tauri/crates/host/tests/agents.rs`, `src-tauri/src/todos.rs`,
+`src-tauri/src/mcp_access.rs`, `src-tauri/src/embedded_mcp.rs` and
+`src/todos-model.test.ts`. Refer to the [contract](../contracts/todos.md).
+
 ## Local telemetry foundation
 
 Settings / Analytics uses the reviewed Usage screen.

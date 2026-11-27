@@ -41,6 +41,7 @@ SHA-256.
   sessions/<tab>/rpc           a Codex engine's listening alias (ADR 0105)
   worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
   registry.json                the machine's projects and workspaces, 0600
+  todos.json                   the machine's to-do list, 0600 (todos.md)
   agents.json                  `{ socket, client, opened }` written by setup, 0600
   agents/bind-error            why the host cannot serve the agent socket, while it cannot
   agents/token                 agent token, 0600; agents are enabled while it exists
@@ -141,9 +142,9 @@ again in these conditions:
 
 The desktop does not do this check while one of its requests waits for a reply.
 The `shutdown` check of the host continues to make the decision. `exec`,
-`file_write` and `terminal_open` delay a `shutdown` that is not forced, as the
-agent requests that change the machine do. After a shutdown starts, these
-requests return the error `host_stopping`.
+`file_write`, `terminal_open` and the writes of the to-do list delay a
+`shutdown` that is not forced, as the agent requests that change the machine
+do. After a shutdown starts, these requests return the error `host_stopping`.
 
 ## Framing
 
@@ -169,6 +170,7 @@ outcome is unknown.
 | `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | A native hook call for the terminal `session`. |
 | `file` | `watch`, `path`, `offset`, `reset`, `data` (base64) | Bytes of a watched file from `offset`. `reset` starts the file again from zero. |
 | `registry` | none | An agent request that can add or close registry entries is complete. The desktop synchronizes again. |
+| `todos` | none | The to-do list of the machine changed. Refer to the [to-do contract](todos.md#host-methods). |
 
 ## Methods
 
@@ -194,6 +196,7 @@ outcome is unknown.
 | `registry_list` | none | The registry, with the `state`, `state_at` and `notification` of each conversation. |
 | `registry_put` | `project?`, `workspace?` (registry records) | `{}`. Adds a project by path. Adds a workspace by ID, or merges into the workspace that is there: its title and new conversations. It keeps all other fields and conversations. |
 | `registry_close` | `id` | `{}`. Marks a workspace as closed after the desktop cleaned it. |
+| `todos_list`, `todos_create`, `todos_set_status`, `todos_enable` | refer to the [to-do contract](todos.md#host-methods) | The to-do list of the machine. Only the attachment can call `todos_enable`. |
 | `stats` | `workspaces` | For each workspace slice, `{ memory, memory_max, cpu_usec, cpu_max }`, and also `memory_total`, `memory_available`, `load`, `cpus`, `terminals`. |
 | `shutdown` | `force?` | `{}`, then the host stops. Without `force`, it refuses with `host_busy` while a terminal operates or while an `exec`, a `file_write`, a `terminal_open` or an agent request that changes the machine operates. After it starts, those requests return the error `host_stopping`. |
 
@@ -581,9 +584,9 @@ creator.
 
 Requests that change the machine delay a `shutdown` that is not forced. These
 requests are `project_add`, `project_clone`, `workspace_create`,
-`conversation_open`, `conversation_send`, `conversation_interrupt` and
-`workspace_close`. After a shutdown starts, they return the error
-`host_stopping`.
+`conversation_open`, `conversation_send`, `conversation_interrupt`,
+`workspace_close`, `todos_create` and `todos_set_status`. After a shutdown
+starts, they return the error `host_stopping`.
 
 The token lets a client run commands as the user of the host. Thus, only that
 user must have write permission for the folder of the socket. A person who can
@@ -602,6 +605,7 @@ replace the socket can get the token from the next client.
 | `conversation_send` | `id`, `text` | `{ resumed }` |
 | `conversation_interrupt` | `id` | `{}`. Sends Escape. |
 | `workspace_close` | `id`, `force?` | `{}`, or `{ branch_kept, detail }` when the worktree is removed but the host cannot delete the branch. |
+| `todos_list`, `todos_create`, `todos_set_status` | refer to the [to-do contract](todos.md#host-methods) | The to-do list of the machine, while a desktop selected this machine for the list. |
 
 Workspaces and conversations contain the observed state fields above.
 
@@ -721,14 +725,14 @@ is 2025-06-18, 2025-03-26 or 2024-11-05. For other versions, it answers with
 the server connects again and sends the request one more time. If the connection
 is lost after the server sent the request, the server sends again only the
 read-only methods (`projects_list`, `workspace_list`, `workspace_get`,
-`conversation_read`). For all other methods, it tells that the outcome is
+`conversation_read`, `todos_list`). For all other methods, it tells that the outcome is
 unknown.
 
 Each tool agrees with one agent method: `list_projects`,
 `add_project`, `clone_project`, `create_workspace`, `list_workspaces`,
 `get_workspace`, `open_conversation`, `read_conversation`, `send_message`,
-`interrupt_conversation` and `close_workspace`. The results are formatted JSON
-text. Host errors set `isError`.
+`interrupt_conversation`, `close_workspace`, `list_todos`, `create_todo` and
+`set_todo_status`. The results are formatted JSON text. Host errors set `isError`.
 
 Tests: `src-tauri/crates/host/tests/agents.rs` operates the agent socket and the
 MCP server against the actual binary with a substitute Claude. The unit tests in

@@ -19,6 +19,7 @@ mod mcp;
 mod registry;
 mod server;
 mod supervision;
+mod todos;
 
 fn main() {
     let mut args = std::env::args().skip(1);

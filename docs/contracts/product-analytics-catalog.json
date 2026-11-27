@@ -3258,6 +3258,42 @@
       ]
     },
     {
+      "target": "todos.add",
+      "sources": [
+        "src/todos.ts"
+      ]
+    },
+    {
+      "target": "todos.location",
+      "sources": [
+        "src/todos.ts"
+      ]
+    },
+    {
+      "target": "todos.refresh",
+      "sources": [
+        "src/todos.ts"
+      ]
+    },
+    {
+      "target": "todos.retry",
+      "sources": [
+        "src/todos.ts"
+      ]
+    },
+    {
+      "target": "todos.status",
+      "sources": [
+        "src/todos.ts"
+      ]
+    },
+    {
+      "target": "todos.title",
+      "sources": [
+        "src/todos.ts"
+      ]
+    },
+    {
       "target": "tools.none",
       "sources": [
         "src/tool-picker.ts"

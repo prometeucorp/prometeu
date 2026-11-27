@@ -10,6 +10,7 @@ import { issueTab, issueSearch, issueRefresh, issueFilter, issueColumns } from "
 import { sectionHeader, toolbar } from "./components/compositions";
 import { filterLinearIssues } from "./issues-filter";
 import { githubIssues } from "./github-issues";
+import { todoList } from "./todos";
 import type { GitHubItem, GitHubPrepared } from "./types";
 
 /// Show assigned and available Linear issues. Existing workspaces replace the create action with navigation. Reuse the backend's two-minute cache, allow forced refresh, and preserve the last successful list after failure.
@@ -65,16 +66,21 @@ let accountId = "";
 let find: HTMLInputElement;
 let meta: HTMLElement;
 let columns: HTMLElement;
-let provider: "linear" | "github" = localStorage.getItem("prometeu:issues:provider") === "github" ? "github" : "linear";
+type Provider = "linear" | "github" | "todos";
+const PROVIDERS: readonly Provider[] = ["linear", "github", "todos"];
+const saved = localStorage.getItem("prometeu:issues:provider");
+let provider: Provider = PROVIDERS.find(id => id === saved) ?? "linear";
 let github: ReturnType<typeof githubIssues>;
+let todos: ReturnType<typeof todoList>;
 
 export function init(context: Ctx) {
   ctx = context;
   $("tasks-heading").append(sectionHeader({ title: t("rail.issues"), description: t("issues.intro") }));
   github = githubIssues($("github-issues-pane"), { ...ctx, create: ctx.createGitHub });
+  todos = todoList($("todos-issues-pane"), { say: ctx.say });
   const providers = $("iproviders");
   providers.setAttribute("aria-label", t("issues.providers"));
-  for (const [id, label] of [["linear", "Linear"], ["github", "GitHub"]] as const) {
+  for (const [id, label] of [["linear", "Linear"], ["github", "GitHub"], ["todos", t("todos.tab")]] as const) {
     const control = issueTab(label, () => {
       provider = id; localStorage.setItem("prometeu:issues:provider", id); showProvider();
     });
@@ -87,7 +93,9 @@ export function init(context: Ctx) {
   providers.addEventListener("keydown", event => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const next = event.key === "Home" ? "linear" : event.key === "End" ? "github" : provider === "linear" ? "github" : "linear";
+    const index = PROVIDERS.indexOf(provider);
+    const next = event.key === "Home" ? PROVIDERS[0] : event.key === "End" ? PROVIDERS[PROVIDERS.length - 1]
+      : PROVIDERS[(index + (event.key === "ArrowRight" ? 1 : PROVIDERS.length - 1)) % PROVIDERS.length];
     $("issues-provider-" + next).click(); $("issues-provider-" + next).focus();
   });
   accountId = ctx.accountId();
@@ -136,14 +144,15 @@ export function show() {
 }
 
 function showProvider() {
-  for (const id of ["linear", "github"] as const) {
+  for (const id of PROVIDERS) {
     const control = $("issues-provider-" + id);
     control.setAttribute("aria-selected", String(provider === id)); control.tabIndex = provider === id ? 0 : -1;
     control.classList.toggle("on", provider === id);
   }
   $("linear-issues-pane").hidden = provider !== "linear";
-  if (provider === "github") { github.show(); return; }
-  github.hide();
+  if (provider === "todos") todos.show(); else todos.hide();
+  if (provider === "github") github.show(); else github.hide();
+  if (provider !== "linear") return;
   void load();
   draw();
 }
@@ -151,6 +160,7 @@ function showProvider() {
 export function hide() {
   visible = false;
   github.hide();
+  todos.hide();
 }
 
 async function refresh(force: boolean) {
@@ -223,6 +233,7 @@ function drawMeta() {
 export function draw() {
   if (!visible) return;
   if (provider === "github") { github.draw(); return; }
+  if (provider === "todos") { todos.draw(); return; }
   drawTabs();
   drawMeta();
   drawList();

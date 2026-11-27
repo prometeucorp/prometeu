@@ -21,6 +21,8 @@ use tauri::{AppHandle, Manager};
 pub const ID: &str = "prometeu";
 const MAX_FRAME: usize = 1024 * 1024;
 const VERSION: &str = "2025-06-18";
+/// Results larger than this fail; `prometeu_core::todos` sizes the list below it.
+pub const RESPONSE_LIMIT: usize = 768 * 1024;
 
 struct Runtime {
     directory: PathBuf,
@@ -129,13 +131,12 @@ fn handle_connection(
         return Err("invalid_arguments".into());
     }
     let _call = lock(&runtime.calls);
-    let result = delegation::call(
-        app,
-        &owner,
-        request["name"].as_str().ok_or("invalid_tool")?,
-        &request["arguments"],
-    )?;
-    if result.to_string().len() > 768 * 1024 {
+    let result = if crate::todos::TOOLS.contains(&name) {
+        crate::todos::mcp(app, &owner, name, &request["arguments"])?
+    } else {
+        delegation::call(app, &owner, name, &request["arguments"])?
+    };
+    if result.to_string().len() > RESPONSE_LIMIT {
         return Err("response_too_large: request fewer items".into());
     }
     Ok(result)
@@ -240,7 +241,7 @@ fn tool(
 
 /// Server-level routing guidance. Coordinators also own native subagents; this text states when a
 /// Prometeu worker is the right choice and that a model never selects its provider.
-const INSTRUCTIONS: &str = "Prometeu runs coding agents from several providers as delegated workers, each in its own isolated git worktree, visible to the person in the open Prometeu app. Use delegate when work must run on a different provider or model family than yours (for example a cross-model review, a second opinion or a parallel implementation): your native subagent tool cannot switch provider. Providers: claude (Anthropic Claude models), codex (OpenAI GPT models), antigravity (Google Gemini models, plus the other models it lists). Call list_agents first for the exact model IDs of each provider, then call delegate with the required provider and, optionally, a model from that provider's list (omit it for the provider's default). Poll get_delegation for progress and read the worker's answer with read_conversation. You control only agents created by this client.";
+const INSTRUCTIONS: &str = "Prometeu runs coding agents from several providers as delegated workers, each in its own isolated git worktree, visible to the person in the open Prometeu app. Use delegate when work must run on a different provider or model family than yours (for example a cross-model review, a second opinion or a parallel implementation): your native subagent tool cannot switch provider. Providers: claude (Anthropic Claude models), codex (OpenAI GPT models), antigravity (Google Gemini models, plus the other models it lists). Call list_agents first for the exact model IDs of each provider, then call delegate with the required provider and, optionally, a model from that provider's list (omit it for the provider's default). Poll get_delegation for progress and read the worker's answer with read_conversation. You control only agents created by this client. list_todos, create_todo and set_todo_status manage the person's standalone to-do list in Prometeu Tasks.";
 
 pub fn tools() -> Vec<Value> {
     let text = json!({"type":"string", "minLength":1});
@@ -284,6 +285,13 @@ pub fn tools() -> Vec<Value> {
             json!({"agent_id":text,"kind":{"type":"string","enum":["setup","run"]},"limit_bytes":{"type":"integer","minimum":1,"maximum":65536}}), &["agent_id","kind"], true),
         tool("open_workspace_preview", "Request opening the owned workspace and conversation with its preview in the desktop app. Changes the person's visible workspace. Does not start a server or verify readiness; run the configured script first when needed.",
             json!({"agent_id":text}), &["agent_id"], false),
+        // The same words as the host MCP of a remote machine, which can keep the same list.
+        tool("list_todos", "List the person's standalone to-dos, the same list they see in Prometeu Tasks > To-dos. Each item has an id, a title and a status: todo, doing or completed. The list can live on a remote machine; it then fails while that machine is offline.",
+            json!({}), &[], true),
+        tool("create_todo", "Add a standalone to-do with status todo to the person's list in Prometeu Tasks > To-dos. It has no project, workspace, issue or assignee. Returns the item with its stable id.",
+            json!({"title":{"type":"string","minLength":1,"maxLength":200,"description":"One line, 1 to 200 characters."}}), &["title"], false),
+        tool("set_todo_status", "Change the status of a to-do in the person's list: todo, doing or completed. Setting the current status again changes nothing.",
+            json!({"id":described("To-do ID from list_todos or create_todo."),"status":{"type":"string","enum":["todo","doing","completed"]}}), &["id","status"], false),
     ]
 }
 
@@ -440,7 +448,7 @@ mod tests {
         let reply = protocol
             .reply(request("tools/list", json!({})), |_, _| panic!())
             .unwrap();
-        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 14);
+        assert_eq!(reply["result"]["tools"].as_array().unwrap().len(), 17);
         let reply = protocol
             .reply(
                 request(
@@ -633,6 +641,48 @@ mod tests {
             &json!({"request_key":"k","title":"t","task":"x","provider":"cursor"})
         ));
         assert!(INSTRUCTIONS.contains("list_agents"));
+    }
+
+    #[test]
+    fn todo_tools_accept_only_a_title_or_an_id_and_a_known_status() {
+        let mut protocol = ready();
+        for (name, args) in [
+            ("list_todos", json!({})),
+            ("create_todo", json!({"title":"Write the release notes"})),
+            ("set_todo_status", json!({"id":"a","status":"doing"})),
+        ] {
+            let reply = protocol
+                .reply(
+                    request("tools/call", json!({"name":name,"arguments":args})),
+                    |_, _| Ok(json!({})),
+                )
+                .unwrap();
+            assert_eq!(reply["result"]["isError"], false, "{name}");
+        }
+        for (name, args) in [
+            ("create_todo", json!({})),
+            ("create_todo", json!({"title":""})),
+            ("create_todo", json!({"title":"x","project_id":"p"})),
+            ("set_todo_status", json!({"id":"a","status":"done"})),
+            ("set_todo_status", json!({"id":"a"})),
+            ("list_todos", json!({"owner":"someone"})),
+        ] {
+            let reply = protocol
+                .reply(
+                    request("tools/call", json!({"name":name,"arguments":args})),
+                    |_, _| panic!("invalid to-do call reached dispatch"),
+                )
+                .unwrap();
+            assert_eq!(reply["error"]["code"], -32602, "{name} {args}");
+        }
+        let list = tools()
+            .into_iter()
+            .find(|t| t["name"] == "list_todos")
+            .unwrap();
+        assert_eq!(list["annotations"]["readOnlyHint"], true);
+        for name in crate::todos::TOOLS {
+            assert!(tools().iter().any(|t| t["name"] == *name));
+        }
     }
 
     #[test]

@@ -298,6 +298,7 @@ pub(crate) struct Host {
     units: AtomicU64,
     pub(crate) registry: Arc<crate::registry::Store>,
     pub(crate) supervision: Arc<crate::supervision::Supervision>,
+    pub(crate) todos: crate::todos::Store,
     activity: Mutex<HashMap<String, Activity>>,
 }
 
@@ -342,6 +343,13 @@ impl Host {
     pub(crate) fn announce_registry(&self) {
         for client in lock(&self.clients).iter() {
             client.out.send(&json!({"event": "registry"}));
+        }
+    }
+
+    /// Tell the attached desktops that the machine's to-do list changed.
+    pub(crate) fn announce_todos(&self) {
+        for client in lock(&self.clients).iter() {
+            client.out.send(&json!({"event": "todos"}));
         }
     }
 
@@ -636,6 +644,7 @@ pub fn serve(root: &Path, release: Option<&str>) -> Result<(), String> {
         units: AtomicU64::new(0),
         registry,
         supervision,
+        todos: crate::todos::store(root),
         activity: Mutex::new(HashMap::new()),
     });
     host.supervision.start();
@@ -1059,6 +1068,9 @@ fn dispatch(
         "registry_list" => crate::agents::registry_view(host)?,
         "registry_put" => crate::agents::registry_put(host, params)?,
         "registry_close" => crate::agents::registry_close(host, params)?,
+        "todos_list" | "todos_create" | "todos_set_status" | "todos_enable" => {
+            crate::todos::call(host, method, params, true)?
+        }
         "shutdown" => {
             let force = params.get("force").and_then(Value::as_bool) == Some(true);
             if !force && host.running() > 0 {
@@ -1812,6 +1824,7 @@ pub(crate) fn test_host(root: &Path) -> Arc<Host> {
         units: AtomicU64::new(0),
         registry,
         supervision,
+        todos: crate::todos::store(root),
         activity: Mutex::default(),
     })
 }
