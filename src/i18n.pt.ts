@@ -1154,6 +1154,7 @@ export const PT = {
   "quickOpen.label": "Abrir arquivo",
   "quickOpen.search": "Buscar arquivos pelo nome",
   "quickOpen.empty": "Nenhum arquivo encontrado",
+  "quickOpen.project": "Buscar arquivo neste projeto ({keys})",
   "web.back": "Voltar",
   "web.inspect": "Selecionar elemento",
   "web.inspecting": "Clique na página · Esc cancela",

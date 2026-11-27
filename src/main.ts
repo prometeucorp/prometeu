@@ -741,6 +741,12 @@ function shortcut(e: KeyboardEvent): appmenu.Action | null {
   return null;
 }
 
+// Command-F in a local project view searches its files. The capture phase runs before the file
+// viewer, which keeps the key while the viewer or another text control has focus.
+document.addEventListener("keydown", (e) => {
+  if (ws.projectFindKey(e)) e.preventDefault();
+}, true);
+
 document.addEventListener("keydown", (e) => {
   // preventDefault avoids triggering the same action again through the native menu accelerator.
   const a = e.metaKey || e.ctrlKey ? shortcut(e) : null;

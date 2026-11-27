@@ -302,7 +302,11 @@ It does not own domain catalogs or persistence. Its update method keeps the
 query, the scroll and the focused action. The model picker subscribes to catalog
 changes and supplies the updated entries. With a `search` callback, the caller
 puts the results of each query in order. The Command-P file search sends the
-fuzzy `find_paths` results of the backend without changes.
+fuzzy `find_paths` results of the backend without changes. Command-F in the
+project view and its search button open the same file search. When the view
+changes, the search closes and ignores the answers to its previous queries.
+A focused text field, the file viewer and a terminal keep Command-F. While
+the workspace launcher or a different overlay is open, Command-F stays with it.
 
 The model favorites are secondary buttons. They are not nested interactive
 content in a button that you can select. The rows become taller when long model

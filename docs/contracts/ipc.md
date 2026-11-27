@@ -487,6 +487,14 @@ of the composer keeps its behavior. An older frontend that does not send it
 continues to operate. `crates/files/src/search.rs` examines that folders cannot
 push out files.
 
+In the view of a local project, Command-F (Control-F on other systems) opens
+the same search. It sends the ID of the selected project. Thus all results come
+from the registered clone of that project. A project on a remote machine has no
+project view. Its heading in the sidebar opens the workspace launcher. Thus
+Command-F does not search the files of a remote project. Prometeu does not make
+a workspace, a checkout or a file for the search. The command and its arguments
+did not change.
+
 `read_bytes` returns an `ArrayBuffer` with the full regular file, with a maximum
 of 100 MiB. It does not return a buffer that is not complete.
 
