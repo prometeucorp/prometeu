@@ -933,6 +933,7 @@ mod tests {
                     title: "Private prompt".into(),
                     created_at: 1,
                     permission: "auto".into(),
+                    ..Default::default()
                 }],
                 supervision: supervised.then(|| Binding {
                     supervisor_id: "supervisor-one".into(),

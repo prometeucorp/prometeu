@@ -130,7 +130,7 @@ fn react(
     profile: &accounts::Profile,
 ) -> bool {
     let host = Host::new(app);
-    host.with_sessions(|sessions| {
+    let reacted = host.with_sessions(|sessions| {
         SessionReactions {
             sessions,
             work: &host.state.sessions.work,
@@ -139,7 +139,19 @@ fn react(
             usage: &Usage { app, profile },
         }
         .react(id, frame, ready)
-    })
+    });
+    if frame["type"] == "session.identity" {
+        // The first remote Codex record waits for this native identity. Publication of a new
+        // tab precedes the engine's identity event, so recording only at tab creation misses it.
+        let workspace = lock(&host.state.board)
+            .workspace_of(id)
+            .filter(|workspace| workspace.host.is_some())
+            .map(|workspace| workspace.id.clone());
+        if let Some(workspace) = workspace {
+            crate::remote::registry::record_later(app, &workspace);
+        }
+    }
+    reacted
 }
 
 pub(super) struct DelegationObservation {

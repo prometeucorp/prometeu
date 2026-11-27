@@ -58,7 +58,7 @@ pub fn socket_path(root: &str, session: &str) -> String {
 /// side closes.
 #[cfg(target_os = "linux")]
 pub fn relay(socket: &Path, pid: u32, timeout: Duration) -> Result<(), String> {
-    linux::relay(socket, pid, timeout)
+    native::relay(socket, pid, timeout)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -66,24 +66,55 @@ pub fn relay(_socket: &Path, _pid: u32, _timeout: Duration) -> Result<(), String
     Err("the Codex relay runs only on Linux".into())
 }
 
-#[cfg(target_os = "linux")]
-mod linux {
-    use super::{MESSAGE_LIMIT, RELAY_READY};
-    use std::io::{self, BufRead, BufReader, Read, Write};
+/// Open the same authenticated connection used by the relay. The daemon uses this to observe
+/// conversations while no desktop is attached.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn client(
+    socket: &Path,
+    pid: u32,
+    deadline: std::time::Instant,
+) -> Result<tungstenite::WebSocket<std::os::unix::net::UnixStream>, String> {
+    native::client(socket, pid, deadline)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod native {
+    use super::MESSAGE_LIMIT;
+    #[cfg(target_os = "linux")]
+    use super::RELAY_READY;
+    use std::io;
+    #[cfg(target_os = "linux")]
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     use std::os::unix::net::UnixStream;
     use std::path::{Path, PathBuf};
+    #[cfg(target_os = "linux")]
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
-    use tungstenite::{protocol::WebSocketConfig, Message, WebSocket};
+    #[cfg(target_os = "linux")]
+    use tungstenite::Message;
+    use tungstenite::{protocol::WebSocketConfig, WebSocket};
 
     /// Outgoing frames are requests and replies from the desktop, never content.
     const OUTGOING_LIMIT: usize = 1_048_576;
 
+    #[cfg(target_os = "linux")]
     pub fn relay(socket: &Path, pid: u32, timeout: Duration) -> Result<(), String> {
         raw_stdin();
-        let deadline = Instant::now() + timeout;
-        let stream = connect(socket, pid, deadline)?;
+        let mut socket = client(socket, pid, Instant::now() + timeout)?;
+        let mut out = io::stdout().lock();
+        writeln!(out, "{RELAY_READY}").map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+        let lines = stdin_lines();
+        serve(&mut socket, &lines, &mut out)
+    }
+
+    pub(super) fn client(
+        path: &Path,
+        pid: u32,
+        deadline: Instant,
+    ) -> Result<WebSocket<UnixStream>, String> {
+        let stream = connect(path, pid, deadline)?;
         stream
             .set_write_timeout(Some(Duration::from_secs(5)))
             .map_err(|e| e.to_string())?;
@@ -95,20 +126,17 @@ mod linux {
             .max_frame_size(Some(MESSAGE_LIMIT))
             .write_buffer_size(0)
             .max_write_buffer_size(OUTGOING_LIMIT + 1024);
-        let (mut socket, _) =
+        let (socket, _) =
             tungstenite::client::client_with_config("ws://localhost/", stream, Some(config))
                 .map_err(|e| format!("websocket handshake: {e}"))?;
         socket
             .get_ref()
             .set_read_timeout(Some(Duration::from_millis(20)))
             .map_err(|e| e.to_string())?;
-        let mut out = io::stdout().lock();
-        writeln!(out, "{RELAY_READY}").map_err(|e| e.to_string())?;
-        out.flush().map_err(|e| e.to_string())?;
-        let lines = stdin_lines();
-        serve(&mut socket, &lines, &mut out)
+        Ok(socket)
     }
 
+    #[cfg(target_os = "linux")]
     fn serve(
         socket: &mut WebSocket<UnixStream>,
         lines: &mpsc::Receiver<Vec<u8>>,
@@ -170,6 +198,7 @@ mod linux {
     }
 
     /// Lines from stdin, without their terminator. Overlong lines are dropped whole.
+    #[cfg(target_os = "linux")]
     fn stdin_lines() -> mpsc::Receiver<Vec<u8>> {
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
@@ -207,6 +236,7 @@ mod linux {
 
     /// The desktop writes JSON through a PTY. Raw mode keeps the line discipline from echoing,
     /// translating or interpreting any byte.
+    #[cfg(target_os = "linux")]
     fn raw_stdin() {
         unsafe {
             if libc::isatty(0) != 1 {
@@ -298,27 +328,48 @@ mod linux {
 
     fn verify_peer(stream: &UnixStream, expected: u32) -> Result<(), String> {
         use std::os::fd::AsRawFd;
-        let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
-        let mut length = std::mem::size_of_val(&peer) as libc::socklen_t;
-        let status = unsafe {
-            libc::getsockopt(
-                stream.as_raw_fd(),
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                (&mut peer as *mut libc::ucred).cast(),
-                &mut length,
-            )
-        };
-        if status != 0 || peer.uid != unsafe { libc::geteuid() } {
-            return Err("the engine socket is served by another user".into());
+        #[cfg(target_os = "linux")]
+        {
+            let mut peer: libc::ucred = unsafe { std::mem::zeroed() };
+            let mut length = std::mem::size_of_val(&peer) as libc::socklen_t;
+            let status = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_PEERCRED,
+                    (&mut peer as *mut libc::ucred).cast(),
+                    &mut length,
+                )
+            };
+            if status != 0 || peer.uid != unsafe { libc::geteuid() } {
+                return Err("the engine socket is served by another user".into());
+            }
+            if !descends_from(peer.pid as u32, expected) {
+                return Err("the engine socket is served by another process".into());
+            }
         }
-        if !descends_from(peer.pid as u32, expected) {
-            return Err("the engine socket is served by another process".into());
+        #[cfg(target_os = "macos")]
+        {
+            let mut pid: libc::pid_t = 0;
+            let mut length = std::mem::size_of_val(&pid) as libc::socklen_t;
+            let status = unsafe {
+                libc::getsockopt(
+                    stream.as_raw_fd(),
+                    0,
+                    libc::LOCAL_PEERPID,
+                    (&mut pid as *mut libc::pid_t).cast(),
+                    &mut length,
+                )
+            };
+            if status != 0 || pid as u32 != expected {
+                return Err("the engine socket is served by another process".into());
+            }
         }
         Ok(())
     }
 
     /// Whether `pid` is `ancestor` or runs below it.
+    #[cfg(target_os = "linux")]
     pub(super) fn descends_from(mut pid: u32, ancestor: u32) -> bool {
         for _ in 0..16 {
             if pid == ancestor {
@@ -332,6 +383,7 @@ mod linux {
         false
     }
 
+    #[cfg(target_os = "linux")]
     fn parent(pid: u32) -> Option<u32> {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         // The command name is parenthesized and may hold spaces and parentheses itself.
@@ -371,8 +423,8 @@ mod tests {
     fn a_process_descends_from_its_parents_only() {
         let me = std::process::id();
         let parent = std::os::unix::process::parent_id();
-        assert!(linux::descends_from(me, me));
-        assert!(linux::descends_from(me, parent));
-        assert!(!linux::descends_from(parent, me));
+        assert!(native::descends_from(me, me));
+        assert!(native::descends_from(me, parent));
+        assert!(!native::descends_from(parent, me));
     }
 }

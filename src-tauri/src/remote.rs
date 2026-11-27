@@ -303,8 +303,10 @@ fn reattach_running(app: &AppHandle, connection: &Arc<Connection>) {
     // An adopted conversation whose process is gone (the machine restarted) resumes from its
     // transcript when opened, like one this app started.
     if let Some(home) = connection.home() {
-        for (session, cwd) in &synced.adopted {
-            if !terminals.iter().any(|(id, _)| id == session) {
+        for (session, cwd, provider) in &synced.adopted {
+            if *provider == crate::state::ProviderId::Claude
+                && !terminals.iter().any(|(id, _)| id == session)
+            {
                 agent::bind_transcript(&connection.id, &home, cwd, session);
             }
         }

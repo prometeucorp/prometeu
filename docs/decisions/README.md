@@ -151,7 +151,7 @@ code samples do not count.
 - [ADR 0100](0100-conversation-transport-identity.md) — Keep the conversation transport separately from the provider and the model. macOS defaults apply only to new conversations.
 - [ADR 0101](0101-remote-machines.md) — Workspaces on remote machines through SSH: a resident host owns terminal agents, and the desktop keeps the board and the interface.
 - [ADR 0102: Remove workspace stages](0102-remove-workspace-stages.md)
-- [ADR 0103](0103-agents-on-remote-machines.md) — Agents on a remote machine control workspaces through its host. The host owns a registry, launches Claude without a desktop and has a local MCP interface that a token authorizes. This interface does not depend on the deployment infrastructure.
+- [ADR 0103](0103-agents-on-remote-machines.md) — Agents on a remote machine control workspaces through its host. The host owns a registry, launches Claude or Codex without a desktop and has a local MCP interface that a token authorizes. This interface does not depend on the deployment infrastructure.
 - [ADR 0104](0104-several-computers-on-one-machine.md) — Several computers follow the same remote machine through SSH at the same time. Each device has one attachment, hooks and permission requests are shared, and the computer that types sets the terminal dimensions.
 - [ADR 0105](0105-codex-on-remote-machines.md) — Codex on remote machines: the native engine and the TUI run on the machine. The desktop reads the RPC of the engine through a relay terminal on the host.
 - [ADR 0106](0106-workspace-supervision.md) — Workspace supervision through durable Cloud events and generic signed webhooks. The first executors are remote hosts.

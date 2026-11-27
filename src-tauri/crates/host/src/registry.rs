@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "registry.json";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Creator {
@@ -26,14 +26,30 @@ pub struct Project {
     pub added_by: Creator,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Claude,
+    Codex,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Conversation {
-    /// Tab ID, Claude session ID and host terminal ID at once.
+    /// Tab and host terminal ID. Claude also uses it as its native session ID.
     pub id: String,
     pub title: String,
     pub created_at: u64,
     /// `auto` runs without permission prompts; `ask` keeps Claude's dialogs.
     pub permission: String,
+    #[serde(default)]
+    pub provider: Provider,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -113,7 +129,16 @@ impl Registry {
                 .iter_mut()
                 .find(|c| c.id == conversation.id)
             {
-                Some(known) => known.title = conversation.title,
+                Some(known) => {
+                    known.title = conversation.title;
+                    if known.provider == conversation.provider {
+                        if known.thread_id.is_none() {
+                            known.thread_id = conversation.thread_id;
+                        }
+                        known.model = conversation.model;
+                        known.effort = conversation.effort;
+                    }
+                }
                 None => existing.conversations.push(conversation),
             }
         }
@@ -283,7 +308,7 @@ mod tests {
             })
             .unwrap();
         let saved = store.read().unwrap();
-        assert_eq!(saved.version, 2);
+        assert_eq!(saved.version, VERSION);
         assert_eq!(saved.workspaces[0].worktree, "/worktree");
         assert_eq!(saved.workspaces[0].title, "Existing task");
         assert_eq!(
@@ -306,5 +331,24 @@ mod tests {
         .unwrap();
         assert!(!registry.workspaces[0].closed);
         assert!(registry.workspaces[0].conversations.is_empty());
+    }
+
+    #[test]
+    fn legacy_conversations_keep_claude_and_codex_keeps_its_native_identity() {
+        let legacy =
+            serde_json::json!({"id":"c","title":"Task","created_at":1,"permission":"auto"});
+        let claude: Conversation = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(claude.provider, Provider::Claude);
+        assert!(claude.thread_id.is_none());
+        let mut codex = legacy;
+        codex["provider"] = "codex".into();
+        codex["thread_id"] = "native-thread".into();
+        codex["model"] = "model-from-machine".into();
+        codex["effort"] = "high".into();
+        let parsed: Conversation = serde_json::from_value(codex.clone()).unwrap();
+        assert_eq!(parsed.provider, Provider::Codex);
+        assert_eq!(serde_json::to_value(parsed).unwrap(), codex);
+        codex["provider"] = "unsupported".into();
+        assert!(serde_json::from_value::<Conversation>(codex).is_err());
     }
 }
