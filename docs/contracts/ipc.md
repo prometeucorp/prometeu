@@ -203,6 +203,12 @@ It writes no catalog link. Test:
 `clone_register_retry_and_link_preserve_files_without_running_setup` in
 `src-tauri/src/catalog/projects.rs`. The stored formats do not change.
 
+The browser mock uses `src/project-source.ts` for the same source and name
+rules. `src/project-source.test.ts` reads the same `project_sources` fixture
+as the Rust test. `e2e/projects.spec.ts` examines the dialog: the suggestions
+with and without a connection, a failed clone that keeps the typed values, and
+the close of the two dialogs after a clone.
+
 `reorder_projects` receives `{ ids: string[] }`, returns empty and changes the
 sequence of the board `projects` to agree with the list. Projects that are not
 in `ids` keep their relative sequence after the listed projects. The command
