@@ -163,10 +163,20 @@ Use option 3.
   cancels while the machine is offline. Then the desktop keeps the terminal
   name and the destination in memory. After the next attachment to the same
   destination, it stops and forgets that terminal.
+- This cleanup can fail. For example, the list of terminals does not arrive,
+  or the terminal does not stop in 5 s. Then the desktop keeps the record. It
+  tries again each 30 s while the connection continues, a maximum of 10 times.
+  Each later attachment starts the cleanup again.
 - After each attachment, the desktop also stops each running login terminal
   that is older than 16 minutes. Each computer stops its own sign-in at that
   age. Thus this rule does not stop a sign-in in progress. The rule also
   operates after a restart of the app, when the app loses the records in memory.
+- The host writes the start time of a terminal with the clock of the machine.
+  Thus the desktop reads the time of the machine with `date +%s` and
+  calculates the age with that clock. The clock of the desktop can be
+  different, and that difference must not stop a new sign-in of a different
+  computer. If the desktop cannot read the clock of the machine, it does not
+  stop a terminal because of its age.
 - When SSH disconnects, the login terminal continues on the host, as all host
   terminals do. The subscription attaches again with the connection, and the
   host replays the output and the exit. When the app quits, or the machine
@@ -234,6 +244,8 @@ Use option 3.
   - `a_cancel_while_the_terminal_opens_stops_it_and_hides_the_challenge`
   - `a_challenge_wait_cut_by_ssh_keeps_the_terminal_for_the_sweep`
   - `a_login_cancelled_while_ssh_is_down_is_stopped_after_the_reconnection`
+  - `a_cleanup_that_fails_after_the_reconnection_stays_pending_until_a_retry_ends_it`
+  - `the_age_of_a_login_uses_the_clock_of_the_machine`
   - `an_attempt_belongs_only_to_its_connection_and_destination`
   - `the_sweep_stops_orphans_and_old_logins_but_not_logins_in_progress`
   - `an_orphan_on_an_earlier_destination_is_not_stopped_on_the_new_one`

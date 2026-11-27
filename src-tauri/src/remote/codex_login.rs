@@ -24,6 +24,10 @@ const CHALLENGE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 
 const LOGIN_WAIT: Duration = Duration::from_secs(16 * 60);
 const END_WAIT: Duration = Duration::from_millis(if cfg!(test) { 300 } else { 5000 });
 const COLUMNS: u16 = 200;
+/// After an attachment, a cleanup that did not complete runs again at this interval while the
+/// connection stays up, for a limited number of times. The next attachment starts again.
+const SWEEP_RETRY: Duration = Duration::from_secs(30);
+const SWEEP_RETRIES: usize = 10;
 
 /// The only host that this app opens for a Codex device sign-in.
 const ISSUER_HOST: &str = "auth.openai.com";
@@ -102,6 +106,8 @@ pub(super) trait LoginHost: Send + Sync {
     /// The SSH destination that the connection reaches now.
     fn destination(&self) -> String;
     fn home(&self) -> Option<String>;
+    /// The Unix time on the machine: the clock that writes the `started` time of its terminals.
+    fn clock(&self) -> Option<u64>;
     fn request(&self, method: &str, params: Value) -> Result<Value, String>;
     fn notify(&self, method: &str, params: Value);
     fn subscribe(&self, id: &str, sink: Arc<dyn TerminalSink>);
@@ -117,6 +123,14 @@ impl LoginHost for Connection {
     }
     fn home(&self) -> Option<String> {
         Connection::home(self)
+    }
+    fn clock(&self) -> Option<u64> {
+        let ran = self
+            .exec(&["date", "+%s"], None, Duration::from_secs(10))
+            .ok()?;
+        (ran.code == Some(0))
+            .then(|| ran.stdout.trim().parse().ok())
+            .flatten()
     }
     fn request(&self, method: &str, params: Value) -> Result<Value, String> {
         Connection::request(self, method, params)
@@ -284,11 +298,14 @@ impl CodexLogins {
     }
 
     /// Stop the login terminals left on the machine, after an attachment. An orphan of this app
-    /// stops at once. A running login terminal older than [`LOGIN_WAIT`] is left over on any
-    /// computer, because each computer stops its own one at that age.
-    fn sweep(&self, machine: &str, host: &dyn LoginHost, now: u64) {
+    /// stops at once. A running login terminal older than [`LOGIN_WAIT`] on the clock of the
+    /// machine is left over on any computer, because each computer stops its own one at that age.
+    /// Returns true while orphans of this app on the machine stay to stop.
+    fn sweep(&self, machine: &str, host: &dyn LoginHost) -> bool {
         let Ok(list) = host.request("terminal_list", json!({})) else {
-            return;
+            return lock(&self.orphans)
+                .get(machine)
+                .is_some_and(|o| !o.is_empty());
         };
         let destination = host.destination();
         let ours: HashSet<String> = lock(&self.orphans)
@@ -300,7 +317,7 @@ impl CodexLogins {
             .collect();
         let active: HashSet<String> = self.get(machine).map(|p| p.terminal).into_iter().collect();
         let mut kept = HashMap::new();
-        for (terminal, running) in stale(&list, &ours, &active, now) {
+        for (terminal, running) in stale(&list, &ours, &active, host.clock()) {
             if running {
                 host.notify("terminal_signal", json!({"id": terminal, "signal": "kill"}));
             }
@@ -310,12 +327,14 @@ impl CodexLogins {
                 kept.insert(terminal, destination.clone());
             }
         }
-        if !kept.is_empty() {
-            lock(&self.orphans)
-                .entry(machine.into())
-                .or_default()
-                .extend(kept);
+        if kept.is_empty() {
+            return false;
         }
+        lock(&self.orphans)
+            .entry(machine.into())
+            .or_default()
+            .extend(kept);
+        true
     }
 }
 
@@ -341,12 +360,13 @@ fn stopped(host: &dyn LoginHost, terminal: &str) -> bool {
 }
 
 /// The login terminals in a `terminal_list` reply that the sweep ends, with whether each runs.
-/// The attempt in progress on this computer is never one of them.
+/// The attempt in progress on this computer is never one of them. `host_now` is the time on the
+/// machine: the clock of this computer can differ, so without it no terminal is old.
 fn stale(
     list: &Value,
     ours: &HashSet<String>,
     active: &HashSet<String>,
-    now: u64,
+    host_now: Option<u64>,
 ) -> Vec<(String, bool)> {
     let Some(all) = list.as_array() else {
         return Vec::new();
@@ -360,7 +380,8 @@ fn stale(
             let running = t["running"] == json!(true);
             let old = t["started"]
                 .as_u64()
-                .is_some_and(|s| now.saturating_sub(s) >= LOGIN_WAIT.as_secs());
+                .zip(host_now)
+                .is_some_and(|(started, now)| now.saturating_sub(started) >= LOGIN_WAIT.as_secs());
             (!running || ours.contains(id) || old).then(|| (id.to_string(), running))
         })
         .collect()
@@ -378,10 +399,29 @@ pub(crate) fn abandon(app: &AppHandle, id: &str) {
     app.state::<CodexLogins>().abandon(id);
 }
 
-/// End the login terminals left on the machine after an attachment.
-pub(crate) fn sweep(app: &AppHandle, connection: &Connection) {
-    app.state::<CodexLogins>()
-        .sweep(&connection.id, connection, super::now_secs());
+/// End the login terminals left on the machine after an attachment. If a cleanup does not
+/// complete, retry it while the connection stays up.
+pub(crate) fn sweep(app: &AppHandle, connection: &Arc<Connection>) {
+    if !app
+        .state::<CodexLogins>()
+        .sweep(&connection.id, &**connection)
+    {
+        return;
+    }
+    let (app, connection) = (app.clone(), connection.clone());
+    std::thread::spawn(move || {
+        for _ in 0..SWEEP_RETRIES {
+            std::thread::sleep(SWEEP_RETRY);
+            // Offline, the next attachment sweeps again.
+            if !connection.connected()
+                || !app
+                    .state::<CodexLogins>()
+                    .sweep(&connection.id, &*connection)
+            {
+                return;
+            }
+        }
+    });
 }
 
 /// Start `codex login --device-auth` on the machine and return its challenge. `None` means that
@@ -473,6 +513,7 @@ pub fn machine_codex_login_cancel(app: AppHandle, id: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU64;
 
     /// Captured from `codex login --device-auth` 0.172.0 (linux-x64 npm build) in a PTY, with the
     /// default issuer in place of the local stub issuer that served the code.
@@ -551,6 +592,12 @@ mod tests {
         sinks: Mutex<HashMap<String, Arc<dyn TerminalSink>>>,
         running: Mutex<HashMap<String, (bool, u64)>>,
         on_open: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+        /// The time on the machine, when it can be read.
+        clock: Mutex<Option<u64>>,
+        /// The next `terminal_list` requests that fail, as after a short SSH loss.
+        list_fails: AtomicU64,
+        /// The next kills that the machine ignores.
+        kills_ignored: AtomicU64,
     }
 
     impl FakeHost {
@@ -575,8 +622,15 @@ mod tests {
         fn home(&self) -> Option<String> {
             Some("/home/me".into())
         }
+        fn clock(&self) -> Option<u64> {
+            *lock(&self.clock)
+        }
         fn request(&self, method: &str, params: Value) -> Result<Value, String> {
             if method == "terminal_list" {
+                if self.list_fails.load(Ordering::Acquire) > 0 {
+                    self.list_fails.fetch_sub(1, Ordering::AcqRel);
+                    return Err("offline".into());
+                }
                 let running = lock(&self.running);
                 return Ok(Value::Array(
                     running
@@ -604,7 +658,9 @@ mod tests {
             if !self.connected() {
                 return;
             }
-            if method == "terminal_signal" {
+            if method == "terminal_signal" && self.kills_ignored.load(Ordering::Acquire) > 0 {
+                self.kills_ignored.fetch_sub(1, Ordering::AcqRel);
+            } else if method == "terminal_signal" {
                 if let Some(state) = lock(&self.running).get_mut(&id) {
                     state.0 = false;
                 }
@@ -645,7 +701,7 @@ mod tests {
         // The terminal is young, so only the record of this app makes the sweep stop it.
         host.connected.store(true, Ordering::Release);
         logins.forget("vps", &pending);
-        logins.sweep("vps", &*host, 10);
+        assert!(!logins.sweep("vps", &*host));
         assert!(host
             .sent()
             .contains(&format!("terminal_signal {}", pending.terminal)));
@@ -714,7 +770,7 @@ mod tests {
         assert_eq!(orphans(&logins, "vps"), vec![pending.terminal.clone()]);
 
         host.connected.store(true, Ordering::Release);
-        logins.sweep("vps", &*host, 20);
+        assert!(!logins.sweep("vps", &*host));
         assert!(!lock(&host.running).contains_key(&pending.terminal));
         assert!(host.sent().ends_with(&[
             format!("terminal_signal {}", pending.terminal),
@@ -752,7 +808,7 @@ mod tests {
         ]);
         let ours = HashSet::from(["codex-login-ours".to_string()]);
         let active = HashSet::from(["codex-login-active".to_string()]);
-        let mut found = stale(&list, &ours, &active, now);
+        let mut found = stale(&list, &ours, &active, Some(now));
         found.sort();
         assert_eq!(
             found,
@@ -762,6 +818,78 @@ mod tests {
                 ("codex-login-ours".to_string(), true),
             ]
         );
+    }
+
+    #[test]
+    fn the_age_of_a_login_uses_the_clock_of_the_machine() {
+        // The desktop clock does not take part: only the machine's clock wrote `started`.
+        let host = FakeHost::new("vps");
+        let logins = CodexLogins::default();
+        let host_now = 1_000_000;
+        lock(&host.running).insert("codex-login-fresh".into(), (true, host_now - 5));
+        lock(&host.running).insert(
+            "codex-login-old".into(),
+            (true, host_now - LOGIN_WAIT.as_secs()),
+        );
+        *lock(&host.clock) = Some(host_now);
+        assert!(!logins.sweep("vps", &*host));
+        assert_eq!(
+            host.sent(),
+            vec![
+                "terminal_signal codex-login-old",
+                "terminal_forget codex-login-old"
+            ]
+        );
+        assert!(lock(&host.running).contains_key("codex-login-fresh"));
+
+        // Without the machine's clock, no login is old.
+        lock(&host.sent).clear();
+        lock(&host.running).insert(
+            "codex-login-old".into(),
+            (true, host_now - LOGIN_WAIT.as_secs()),
+        );
+        *lock(&host.clock) = None;
+        assert!(!logins.sweep("vps", &*host));
+        assert!(host.sent().is_empty());
+    }
+
+    #[test]
+    fn a_cleanup_that_fails_after_the_reconnection_stays_pending_until_a_retry_ends_it() {
+        let host = FakeHost::new("vps");
+        let logins = CodexLogins::default();
+        let pending = Pending::new(host.clone());
+        logins.register("vps", pending.clone());
+        pending.opened.store(true, Ordering::Release);
+        lock(&host.running).insert(pending.terminal.clone(), (true, 10));
+        host.subscribe(&pending.terminal, pending.sink.clone());
+        host.connected.store(false, Ordering::Release);
+        logins.abandon("vps");
+
+        // The first attempt after the reconnection cannot list the terminals.
+        host.connected.store(true, Ordering::Release);
+        lock(&host.sent).clear();
+        host.list_fails.store(1, Ordering::Release);
+        assert!(logins.sweep("vps", &*host));
+        assert!(host.sent().is_empty());
+        assert_eq!(orphans(&logins, "vps"), vec![pending.terminal.clone()]);
+
+        // The next attempt sends a kill that the machine ignores.
+        host.kills_ignored.store(1, Ordering::Release);
+        assert!(logins.sweep("vps", &*host));
+        assert_eq!(
+            lock(&host.running).get(&pending.terminal),
+            Some(&(true, 10))
+        );
+        assert_eq!(orphans(&logins, "vps"), vec![pending.terminal.clone()]);
+
+        // A retry on the same destination ends and forgets the terminal.
+        assert!(!logins.sweep("vps", &*host));
+        assert!(!lock(&host.running).contains_key(&pending.terminal));
+        assert!(host.sent().ends_with(&[
+            format!("terminal_signal {}", pending.terminal),
+            format!("terminal_forget {}", pending.terminal),
+        ]));
+        assert!(orphans(&logins, "vps").is_empty());
     }
 
     #[test]
@@ -776,7 +904,7 @@ mod tests {
         host.connected.store(true, Ordering::Release);
         lock(&host.running).clear();
         lock(&host.sent).clear();
-        logins.sweep("vps", &*host, 10);
+        assert!(!logins.sweep("vps", &*host));
         assert!(host.sent().is_empty());
         assert!(orphans(&logins, "vps").is_empty());
     }
