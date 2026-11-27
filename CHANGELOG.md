@@ -4,6 +4,16 @@ This file tells the persons who use Prometeu about the changes in each version.
 `sh scripts/release.sh` makes each version. git-cliff makes this file from the
 commits. The release notes on GitHub for a version are its section in this file.
 
+## [0.53.0] - 2026-11-27
+
+### New
+
+- **remote:** Run codex conversations through the daemon mcp
+
+### Fixes
+
+- **remote:** Recover codex final replies before engine cleanup
+
 ## [0.52.0] - 2026-11-27
 
 ### New
