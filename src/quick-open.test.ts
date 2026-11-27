@@ -26,7 +26,7 @@ vi.mock("./ui", () => ({
   },
 }));
 
-import { openQuickOpen, takesProjectFind, type FindPlace } from "./quick-open";
+import { findPlace, openQuickOpen, takesProjectFind, type FindPlace } from "./quick-open";
 
 /// A find_paths answer that the test releases when it wants, to put responses out of order.
 function deferred() {
@@ -70,6 +70,45 @@ describe("Command-F in the project view", () => {
     expect(takesProjectFind(key({ metaKey: true }), place({ blocked: true }))).toBe(false);
     expect(takesProjectFind(key({ metaKey: true }), place({ focusOwnsKey: true }))).toBe(false);
     expect(takesProjectFind(key({ metaKey: true, defaultPrevented: true }), place())).toBe(false);
+  });
+});
+
+describe("Command-F with the workspace launcher open", () => {
+  const command = { key: "f", metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, defaultPrevented: false } as KeyboardEvent;
+  /// A document stand-in: `visible` holds the ids of the shown surfaces, and `focus` is the focused control.
+  function page(visible: string[], focus: { tag: string; inside?: string } | null) {
+    const body = {};
+    const element = focus && {
+      isContentEditable: false,
+      matches: (selector: string) => selector.split(",").map((part) => part.trim()).includes(focus.tag),
+      closest: (selector: string) => (focus.inside && selector.includes(focus.inside) ? {} : null),
+    };
+    return {
+      body,
+      activeElement: element ?? body,
+      // The launcher is a `div` with `role="dialog"` in the veil, not a native dialog.
+      querySelector: (selector: string) => (visible.includes("veil") && selector.includes("#veil:not([hidden])") ? {} : null),
+    };
+  }
+
+  it("leaves the key to the launcher when one of its buttons has focus", () => {
+    const place = findPlace(page(["veil"], { tag: "button", inside: "#veil" }), true, true);
+    expect(place.blocked).toBe(true);
+    expect(takesProjectFind(command, place)).toBe(false);
+  });
+
+  it("leaves the key to the launcher when nothing has focus", () => {
+    expect(takesProjectFind(command, findPlace(page(["veil"], null), true, true))).toBe(false);
+  });
+
+  it("searches the project files again after the launcher closes", () => {
+    expect(takesProjectFind(command, findPlace(page([], { tag: "button" }), true, true))).toBe(true);
+    expect(takesProjectFind(command, findPlace(page([], null), true, true))).toBe(true);
+  });
+
+  it("keeps the key for a focused text field and the file viewer", () => {
+    expect(takesProjectFind(command, findPlace(page([], { tag: "textarea" }), true, true))).toBe(false);
+    expect(takesProjectFind(command, findPlace(page([], { tag: "div", inside: "#viewer" }), true, true))).toBe(false);
   });
 });
 

@@ -22,7 +22,7 @@ import { fromBack, t, tn } from "./i18n";
 import { fitsEffort, modelLabel } from "./model-choice";
 import { openModelPicker } from "./model-picker";
 import { mac } from "./platform";
-import { openQuickOpen, takesProjectFind, type QuickOpen } from "./quick-open";
+import { findPlace, openQuickOpen, takesProjectFind, type QuickOpen } from "./quick-open";
 import * as menu from "./menu";
 import * as notes from "./notes";
 import * as rename from "./rename";
@@ -1281,15 +1281,9 @@ export function findProjectFile(): boolean {
 }
 
 /// Command-F (Control-F outside macOS) searches the files of a local project. Text fields, the file
-/// viewer and terminals keep the key when they have focus.
+/// viewer and terminals keep the key when they have focus, and open overlays such as the launcher keep it.
 export function projectFindKey(e: KeyboardEvent): boolean {
-  const focused = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
-  const place = {
-    mac,
-    project: !!proj && !proj.host && !openWs && !shellSession,
-    blocked: !!document.querySelector("dialog[open], .ui-feedback-panel:not([hidden])"),
-    focusOwnsKey: !!focused && (focused.isContentEditable || focused.matches("input, textarea, select") || !!focused.closest("#viewer, .xterm")),
-  };
+  const place = findPlace(document, mac, !!proj && !proj.host && !openWs && !shellSession);
   return takesProjectFind(e, place) && findProjectFile();
 }
 

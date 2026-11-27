@@ -69,6 +69,26 @@ export type FindPlace = {
   focusOwnsKey: boolean;
 };
 
+/// Surfaces above the view that own the keyboard: native dialogs, the feedback panel and the veil,
+/// which holds the workspace launcher and other overlays with `role="dialog"` on a `div`.
+export const FIND_BLOCKERS = "dialog[open], .ui-feedback-panel:not([hidden]), #veil:not([hidden])";
+
+type FindFocus = { isContentEditable: boolean; matches(selector: string): boolean; closest(selector: string): unknown };
+type FindDocument = { activeElement: unknown; body: unknown; querySelector(selector: string): unknown };
+
+/// Read the place of Command-F from the document. While a blocker is visible, the key stays with it,
+/// also when a button in it has focus.
+export function findPlace(doc: FindDocument, mac: boolean, project: boolean): FindPlace {
+  const active = doc.activeElement as FindFocus | null;
+  const focused = active && active !== doc.body && typeof active.matches === "function" ? active : null;
+  return {
+    mac,
+    project,
+    blocked: !!doc.querySelector(FIND_BLOCKERS),
+    focusOwnsKey: !!focused && (focused.isContentEditable || focused.matches("input, textarea, select") || !!focused.closest("#viewer, .xterm")),
+  };
+}
+
 /// Return whether Command-F opens the file search of the project. Other views, and focused
 /// controls that handle the key themselves, keep it.
 export function takesProjectFind(e: FindKey, place: FindPlace): boolean {
