@@ -104,6 +104,12 @@ impl Sink {
         })
     }
 
+    /// Wake the waiters without output, so that they check a flag of their own.
+    pub(super) fn wake(&self) {
+        let _output = lock(&self.output);
+        self.changed.notify_all();
+    }
+
     pub(super) fn wait_for<T>(
         &self,
         timeout: Duration,

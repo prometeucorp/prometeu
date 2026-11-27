@@ -79,7 +79,8 @@ Code 2.1.330. Settings signs Codex in on the machine with
 `codex login --device-auth` in a host terminal. It shows the link and the
 one-time code that the CLI prints, and Codex on the machine completes the
 sign-in. The `codex_login.rs` fixture records the output of Codex 0.172.0 with
-a stub issuer. No real OpenAI sign-in was operated. Settings and the launcher
+a stub issuer. The team did not test the sign-in with a real OpenAI account.
+Settings and the launcher
 show if Codex is installed, if its version is 0.169.0 or newer and if it is
 signed in.
 If one of these conditions is not true, the launch stops and tells the necessary

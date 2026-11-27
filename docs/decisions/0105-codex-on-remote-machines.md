@@ -149,15 +149,30 @@ Use option 3.
 - Codex stops its token requests 15 minutes after it gets the one-time code.
   The desktop waits a maximum of 16 minutes. If the terminal continues to run after that time, the
   desktop stops it and shows `err.remote.codexLoginExpired`.
+- The desktop records each attempt before it sends `terminal_open`. The
+  record keeps the connection and the SSH destination of the start. The
+  desktop sends a status of the attempt to `machines` only while the machine
+  has the same connection and destination.
 - Cancel, a new sign-in on the same machine, the removal of the machine and a
-  change of its SSH destination stop the terminal. The desktop sends `kill` to
-  the process group, waits a maximum of 5 s for the exit, forgets the terminal
-  on the host and releases its subscription.
+  change of its SSH destination stop the terminal. These events also stop an
+  attempt before it shows its challenge. The desktop sends `kill` to the
+  process group and waits a maximum of 5 s for the exit. Then it forgets the
+  terminal on the host and releases its subscription.
+- Sometimes the desktop cannot confirm the end of a login terminal. For
+  example, SSH stops before the reply to `terminal_open`, or the person
+  cancels while the machine is offline. Then the desktop keeps the terminal
+  name and the destination in memory. After the next attachment to the same
+  destination, it stops and forgets that terminal.
+- After each attachment, the desktop also stops each running login terminal
+  that is older than 16 minutes. Each computer stops its own sign-in at that
+  age. Thus this rule does not stop a sign-in in progress. The rule also
+  operates after a restart of the app, when the app loses the records in memory.
 - When SSH disconnects, the login terminal continues on the host, as all host
   terminals do. The subscription attaches again with the connection, and the
   host replays the output and the exit. When the app quits, or the machine
   stays offline, the CLI on the machine stops after its own limit of 15
-  minutes. It does not write a credential after that limit.
+  minutes. It does not write a credential after that limit. The next
+  attachment of any computer forgets that stopped terminal.
 - Two computers can each start a sign-in on the same machine. The first sign-in
   that completes writes the credential. The other one continues until the
   person cancels it or its one-time code expires.
@@ -213,8 +228,15 @@ Use option 3.
   in Settings (the challenge, the completion, the expiry, the cancel and a
   replaced attempt).
 - `src-tauri/src/remote/codex_login.rs` tests: the link and the one-time code
-  from the output of Codex 0.172.0, cut output, other hosts and paths, and the result
-  from the account state.
+  from the output of Codex 0.172.0, cut output, other hosts and paths, and the
+  result from the account state. Lifecycle tests with a fake connection:
+  - `an_open_whose_reply_was_lost_is_swept_at_the_next_attachment`
+  - `a_cancel_while_the_terminal_opens_stops_it_and_hides_the_challenge`
+  - `a_challenge_wait_cut_by_ssh_keeps_the_terminal_for_the_sweep`
+  - `a_login_cancelled_while_ssh_is_down_is_stopped_after_the_reconnection`
+  - `an_attempt_belongs_only_to_its_connection_and_destination`
+  - `the_sweep_stops_orphans_and_old_logins_but_not_logins_in_progress`
+  - `an_orphan_on_an_earlier_destination_is_not_stopped_on_the_new_one`
 - `src/machine-processes.test.ts`: the process list names the login terminal.
 - Observed CLI behavior, 2026-11-26. The team read
   `codex-rs/login/src/device_code_auth.rs` and `codex-rs/cli/src/login.rs` at the tag `rust-v0.172.0` (commit

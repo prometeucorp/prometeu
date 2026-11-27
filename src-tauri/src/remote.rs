@@ -278,6 +278,7 @@ fn attached(app: &AppHandle, connection: &Arc<Connection>) {
     }
     agents::refresh(app, connection);
     fill_origins(app, Some(connection));
+    codex_login::sweep(app, connection);
 }
 
 /// After (re)attaching or an agent's change, adopt what agents created on the machine, then resume

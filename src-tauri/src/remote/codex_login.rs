@@ -6,8 +6,8 @@
 //! to the machine, and no output other than the challenge leaves this module.
 use prometeu_core::lock::lock;
 use serde::Serialize;
-use serde_json::json;
-use std::collections::HashMap;
+use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -18,11 +18,11 @@ use super::connection::{Connection, TerminalSink};
 use super::login::{plain, Sink};
 
 /// Codex asks OpenAI for the code before it prints anything.
-const CHALLENGE_WAIT: Duration = Duration::from_secs(30);
+const CHALLENGE_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 30 });
 /// Codex stops polling 15 minutes after it requests the code (`device_code_auth.rs`, 0.172.0).
 /// The extra minute covers a slow exit.
 const LOGIN_WAIT: Duration = Duration::from_secs(16 * 60);
-const END_WAIT: Duration = Duration::from_secs(5);
+const END_WAIT: Duration = Duration::from_millis(if cfg!(test) { 300 } else { 5000 });
 const COLUMNS: u16 = 200;
 
 /// The only host that this app opens for a Codex device sign-in.
@@ -96,47 +96,292 @@ pub fn outcome(
     }
 }
 
+/// What a sign-in needs from the machine's connection. Tests drive the lifecycle through a fake.
+pub(super) trait LoginHost: Send + Sync {
+    fn connected(&self) -> bool;
+    /// The SSH destination that the connection reaches now.
+    fn destination(&self) -> String;
+    fn home(&self) -> Option<String>;
+    fn request(&self, method: &str, params: Value) -> Result<Value, String>;
+    fn notify(&self, method: &str, params: Value);
+    fn subscribe(&self, id: &str, sink: Arc<dyn TerminalSink>);
+    fn release(&self, id: &str, sink: *const ());
+}
+
+impl LoginHost for Connection {
+    fn connected(&self) -> bool {
+        Connection::connected(self)
+    }
+    fn destination(&self) -> String {
+        self.machine().ssh
+    }
+    fn home(&self) -> Option<String> {
+        Connection::home(self)
+    }
+    fn request(&self, method: &str, params: Value) -> Result<Value, String> {
+        Connection::request(self, method, params)
+    }
+    fn notify(&self, method: &str, params: Value) {
+        Connection::notify(self, method, params)
+    }
+    fn subscribe(&self, id: &str, sink: Arc<dyn TerminalSink>) {
+        Connection::subscribe(self, id, sink)
+    }
+    fn release(&self, id: &str, sink: *const ()) {
+        Connection::release(self, id, sink)
+    }
+}
+
+/// One sign-in attempt, bound to the connection and the destination that it started on. It is
+/// registered before its terminal exists, so that a cancel always sees it.
 #[derive(Clone)]
 struct Pending {
     terminal: String,
     sink: Arc<Sink>,
     cancelled: Arc<AtomicBool>,
+    /// `terminal_open` was sent: from then on, the terminal can exist on the machine.
+    opened: Arc<AtomicBool>,
     started: Instant,
+    host: Arc<dyn LoginHost>,
+    ssh: String,
 }
 
-/// One Codex sign-in in progress per machine on this computer.
+impl Pending {
+    fn new(host: Arc<dyn LoginHost>) -> Self {
+        Pending {
+            terminal: format!("codex-login-{}", uuid::Uuid::new_v4().simple()),
+            sink: Sink::new(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            opened: Arc::new(AtomicBool::new(false)),
+            started: Instant::now(),
+            ssh: host.destination(),
+            host,
+        }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    /// The attempt still belongs to the machine's current connection and destination. `now` is
+    /// the connection that the machine has now, as a data pointer.
+    fn current(&self, now: Option<*const ()>) -> bool {
+        !self.cancelled()
+            && now == Some(Arc::as_ptr(&self.host) as *const ())
+            && self.host.destination() == self.ssh
+    }
+
+    /// Kill the terminal if it still runs, then forget it on the host and stop following it.
+    /// False when the end could not be confirmed: the terminal can still run on the machine.
+    fn end(&self) -> bool {
+        if !self.opened.load(Ordering::Acquire) {
+            return true;
+        }
+        let host = &*self.host;
+        let mut ended = self.sink.wait_for(Duration::ZERO, |o| o.exit).is_some();
+        if !ended && host.connected() {
+            host.notify(
+                "terminal_signal",
+                json!({"id": self.terminal, "signal": "kill"}),
+            );
+            ended = self.sink.wait_for(END_WAIT, |o| o.exit).is_some();
+        }
+        if ended {
+            host.notify("terminal_forget", json!({"id": self.terminal}));
+        }
+        host.release(&self.terminal, Arc::as_ptr(&self.sink) as *const ());
+        ended
+    }
+}
+
+/// The Codex sign-ins of this computer: one in progress per machine, and the login terminals whose
+/// end this app could not confirm, per machine, with the destination they ran on.
 #[derive(Default)]
-pub struct CodexLogins(Mutex<HashMap<String, Pending>>);
-
-/// Kill the login terminal if it still runs, then drop it on the host and stop following it.
-fn end(connection: &Connection, pending: &Pending) {
-    let running = pending.sink.wait_for(Duration::ZERO, |o| o.exit).is_none();
-    if running && connection.connected() {
-        connection.notify(
-            "terminal_signal",
-            json!({"id": pending.terminal, "signal": "kill"}),
-        );
-        pending.sink.wait_for(END_WAIT, |o| o.exit);
-    }
-    connection.notify("terminal_forget", json!({"id": pending.terminal}));
-    connection.release(&pending.terminal, Arc::as_ptr(&pending.sink) as *const ());
+pub struct CodexLogins {
+    active: Mutex<HashMap<String, Pending>>,
+    orphans: Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
-fn cancel(connection: Option<&Connection>, pending: &Pending) {
-    pending.cancelled.store(true, Ordering::Release);
-    if let Some(connection) = connection {
-        end(connection, pending);
+impl CodexLogins {
+    /// Register a new attempt and return the one that it replaces.
+    fn register(&self, machine: &str, pending: Pending) -> Option<Pending> {
+        lock(&self.active).insert(machine.into(), pending)
     }
-    // Wake a waiter also when the machine is offline and the kill cannot arrive.
-    TerminalSink::lost(&*pending.sink);
+
+    fn get(&self, machine: &str) -> Option<Pending> {
+        lock(&self.active).get(machine).cloned()
+    }
+
+    /// Unregister `pending` if it is still the machine's attempt.
+    fn forget(&self, machine: &str, pending: &Pending) {
+        let mut active = lock(&self.active);
+        if active
+            .get(machine)
+            .is_some_and(|p| p.terminal == pending.terminal)
+        {
+            active.remove(machine);
+        }
+    }
+
+    /// End the terminal, or keep it for the sweep of the next attachment.
+    fn finish(&self, machine: &str, pending: &Pending) {
+        if !pending.end() {
+            lock(&self.orphans)
+                .entry(machine.into())
+                .or_default()
+                .insert(pending.terminal.clone(), pending.ssh.clone());
+        }
+    }
+
+    fn cancel(&self, machine: &str, pending: &Pending) {
+        pending.cancelled.store(true, Ordering::Release);
+        self.finish(machine, pending);
+        // Wake a waiter also when the machine is offline and the kill cannot arrive.
+        pending.sink.wake();
+    }
+
+    fn abandon(&self, machine: &str) {
+        let pending = lock(&self.active).remove(machine);
+        if let Some(pending) = pending {
+            self.cancel(machine, &pending);
+        }
+    }
+
+    /// Open the login terminal and wait for its challenge. Each failure ends the terminal or keeps
+    /// it as an orphan, also when the outcome of `terminal_open` is unknown.
+    fn open(&self, machine: &str, pending: &Pending) -> Result<CodexChallenge, String> {
+        let host = &*pending.host;
+        let home = host.home().unwrap_or_else(|| "/".into());
+        pending.opened.store(true, Ordering::Release);
+        let opened = host.request(
+            "terminal_open",
+            json!({"id": pending.terminal, "argv": ["codex", "login", "--device-auth"],
+                   "cwd": home, "cols": COLUMNS, "rows": 40}),
+        );
+        if let Err(error) = opened {
+            self.finish(machine, pending);
+            return Err(error);
+        }
+        host.subscribe(&pending.terminal, pending.sink.clone());
+        let found = pending.sink.wait_for(CHALLENGE_WAIT, |output| {
+            challenge(&output.text)
+                .map(Some)
+                .or_else(|| output.exit.map(|_| None))
+                .or_else(|| pending.cancelled().then_some(None))
+        });
+        if pending.cancelled() {
+            // A cancel during `terminal_open` could not reach the terminal yet.
+            self.finish(machine, pending);
+            return Err(crate::i18n::t("err.remote.codexLoginCancelled"));
+        }
+        match found {
+            Some(Some(challenge)) => Ok(challenge),
+            _ => {
+                self.finish(machine, pending);
+                Err(crate::i18n::t("err.remote.codexLoginStart"))
+            }
+        }
+    }
+
+    /// Stop the login terminals left on the machine, after an attachment. An orphan of this app
+    /// stops at once. A running login terminal older than [`LOGIN_WAIT`] is left over on any
+    /// computer, because each computer stops its own one at that age.
+    fn sweep(&self, machine: &str, host: &dyn LoginHost, now: u64) {
+        let Ok(list) = host.request("terminal_list", json!({})) else {
+            return;
+        };
+        let destination = host.destination();
+        let ours: HashSet<String> = lock(&self.orphans)
+            .remove(machine)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, ssh)| *ssh == destination)
+            .map(|(terminal, _)| terminal)
+            .collect();
+        let active: HashSet<String> = self.get(machine).map(|p| p.terminal).into_iter().collect();
+        let mut kept = HashMap::new();
+        for (terminal, running) in stale(&list, &ours, &active, now) {
+            if running {
+                host.notify("terminal_signal", json!({"id": terminal, "signal": "kill"}));
+            }
+            if !running || stopped(host, &terminal) {
+                host.notify("terminal_forget", json!({"id": terminal}));
+            } else if ours.contains(&terminal) {
+                kept.insert(terminal, destination.clone());
+            }
+        }
+        if !kept.is_empty() {
+            lock(&self.orphans)
+                .entry(machine.into())
+                .or_default()
+                .extend(kept);
+        }
+    }
+}
+
+/// Wait a short time until the host lists `terminal` as stopped or no longer lists it.
+fn stopped(host: &dyn LoginHost, terminal: &str) -> bool {
+    let deadline = Instant::now() + END_WAIT;
+    loop {
+        let Ok(list) = host.request("terminal_list", json!({})) else {
+            return false;
+        };
+        let running = list
+            .as_array()
+            .and_then(|all| all.iter().find(|t| t["id"] == json!(terminal)))
+            .is_some_and(|t| t["running"] == json!(true));
+        if !running {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The login terminals in a `terminal_list` reply that the sweep ends, with whether each runs.
+/// The attempt in progress on this computer is never one of them.
+fn stale(
+    list: &Value,
+    ours: &HashSet<String>,
+    active: &HashSet<String>,
+    now: u64,
+) -> Vec<(String, bool)> {
+    let Some(all) = list.as_array() else {
+        return Vec::new();
+    };
+    all.iter()
+        .filter_map(|t| {
+            let id = t["id"].as_str()?;
+            if !id.starts_with("codex-login-") || active.contains(id) {
+                return None;
+            }
+            let running = t["running"] == json!(true);
+            let old = t["started"]
+                .as_u64()
+                .is_some_and(|s| now.saturating_sub(s) >= LOGIN_WAIT.as_secs());
+            (!running || ours.contains(id) || old).then(|| (id.to_string(), running))
+        })
+        .collect()
+}
+
+/// The machine's connection now, as a data pointer for [`Pending::current`].
+fn connection_now(app: &AppHandle, id: &str) -> Option<*const ()> {
+    app.state::<super::Service>()
+        .get(id)
+        .map(|c| Arc::as_ptr(&c) as *const ())
 }
 
 /// Stop the sign-in in progress on a machine, if there is one.
 pub(crate) fn abandon(app: &AppHandle, id: &str) {
-    let pending = lock(&app.state::<CodexLogins>().0).remove(id);
-    if let Some(pending) = pending {
-        cancel(app.state::<super::Service>().get(id).as_deref(), &pending);
-    }
+    app.state::<CodexLogins>().abandon(id);
+}
+
+/// End the login terminals left on the machine after an attachment.
+pub(crate) fn sweep(app: &AppHandle, connection: &Connection) {
+    app.state::<CodexLogins>()
+        .sweep(&connection.id, connection, super::now_secs());
 }
 
 /// Start `codex login --device-auth` on the machine and return its challenge. `None` means that
@@ -147,50 +392,29 @@ pub fn machine_codex_login(app: AppHandle, id: String) -> Result<Option<CodexCha
     let service = app.state::<super::Service>();
     let connection = service.connected(&id)?;
     let name = service.machine(&id).map_or_else(|| id.clone(), |m| m.name);
-    let status = codex::status(&connection)?;
-    super::publish_codex(&app, &id, status.clone());
-    if status.logged_in {
-        return Ok(None);
+    let logins = app.state::<CodexLogins>();
+    let pending = Pending::new(connection.clone());
+    if let Some(replaced) = logins.register(&id, pending.clone()) {
+        logins.cancel(&id, &replaced);
     }
-    if !status.installed || !status.supported {
-        return Err(codex::problem(&status, &name).unwrap_or_default());
-    }
-    abandon(&app, &id);
-    let (pending, challenge) = begin(&connection)?;
-    let replaced = lock(&app.state::<CodexLogins>().0).insert(id, pending);
-    if let Some(replaced) = replaced {
-        cancel(Some(&connection), &replaced);
-    }
-    Ok(Some(challenge))
-}
-
-fn begin(connection: &Connection) -> Result<(Pending, CodexChallenge), String> {
-    let home = connection.home().unwrap_or_else(|| "/".into());
-    let terminal = format!("codex-login-{}", uuid::Uuid::new_v4().simple());
-    connection.request(
-        "terminal_open",
-        json!({"id": terminal, "argv": ["codex", "login", "--device-auth"], "cwd": home,
-               "cols": COLUMNS, "rows": 40}),
-    )?;
-    let pending = Pending {
-        terminal,
-        sink: Sink::new(),
-        cancelled: Arc::new(AtomicBool::new(false)),
-        started: Instant::now(),
-    };
-    connection.subscribe(&pending.terminal, pending.sink.clone());
-    let found = pending.sink.wait_for(CHALLENGE_WAIT, |output| {
-        challenge(&output.text)
-            .map(Some)
-            .or_else(|| output.exit.map(|_| None))
-    });
-    match found {
-        Some(Some(challenge)) => Ok((pending, challenge)),
-        _ => {
-            end(connection, &pending);
-            Err(crate::i18n::t("err.remote.codexLoginStart"))
+    let started = (|| {
+        let status = codex::status(&connection)?;
+        if !pending.current(connection_now(&app, &id)) {
+            return Err(crate::i18n::t("err.remote.codexLoginCancelled"));
         }
+        super::publish_codex(&app, &id, status.clone());
+        if status.logged_in {
+            return Ok(None);
+        }
+        if !status.installed || !status.supported {
+            return Err(codex::problem(&status, &name).unwrap_or_default());
+        }
+        logins.open(&id, &pending).map(Some)
+    })();
+    if !matches!(started, Ok(Some(_))) {
+        logins.forget(&id, &pending);
     }
+    started
 }
 
 /// Wait until the sign-in in progress ends, then return the new Codex status of the machine.
@@ -202,15 +426,15 @@ pub async fn machine_codex_login_wait(app: AppHandle, id: String) -> Result<Code
 }
 
 fn wait(app: &AppHandle, id: &str) -> Result<CodexStatus, String> {
-    let pending = lock(&app.state::<CodexLogins>().0)
+    let logins = app.state::<CodexLogins>();
+    let pending = logins
         .get(id)
-        .cloned()
         .ok_or_else(|| crate::i18n::t("err.remote.loginExpired"))?;
     // An SSH loss does not end the wait: the subscription attaches again with the connection.
     let exit = pending
         .sink
         .wait_for(LOGIN_WAIT.saturating_sub(pending.started.elapsed()), |o| {
-            o.exit
+            o.exit.or_else(|| pending.cancelled().then_some(None))
         });
     let timed_out = pending
         .sink
@@ -218,25 +442,20 @@ fn wait(app: &AppHandle, id: &str) -> Result<CodexStatus, String> {
             Some(plain(&o.text).contains("timed out"))
         })
         .unwrap_or(false);
-    {
-        let state = app.state::<CodexLogins>();
-        let mut logins = lock(&state.0);
-        if logins
-            .get(id)
-            .is_some_and(|p| p.terminal == pending.terminal)
-        {
-            logins.remove(id);
-        }
-    }
-    if pending.cancelled.load(Ordering::Acquire) {
+    logins.forget(id, &pending);
+    if pending.cancelled() {
         return Err(crate::i18n::t("err.remote.codexLoginCancelled"));
     }
-    let service = app.state::<super::Service>();
-    if let Some(connection) = service.get(id) {
-        end(&connection, &pending);
+    logins.finish(id, &pending);
+    let connection = app.state::<super::Service>().connected(id)?;
+    // The status of a different destination is not the result of this attempt.
+    if !pending.current(Some(Arc::as_ptr(&connection) as *const ())) {
+        return Err(crate::i18n::t("err.remote.codexLoginCancelled"));
     }
-    let connection = service.connected(id)?;
     let status = codex::status(&connection)?;
+    if !pending.current(connection_now(app, id)) {
+        return Err(crate::i18n::t("err.remote.codexLoginCancelled"));
+    }
     super::publish_codex(app, id, status.clone());
     match outcome(exit, false, timed_out, status.logged_in) {
         Outcome::SignedIn => Ok(status),
@@ -319,5 +538,246 @@ mod tests {
         assert_eq!(outcome(Some(Some(1)), false, true, false), Outcome::Expired);
         assert_eq!(outcome(Some(Some(1)), false, false, false), Outcome::Failed);
         assert_eq!(outcome(Some(Some(0)), false, false, false), Outcome::Failed);
+    }
+
+    /// A machine connection that records what the sign-in sends. A kill ends the subscribed
+    /// terminal; `on_open` runs while `terminal_open` is in flight.
+    #[derive(Default)]
+    struct FakeHost {
+        connected: AtomicBool,
+        destination: Mutex<String>,
+        open_fails: AtomicBool,
+        sent: Mutex<Vec<String>>,
+        sinks: Mutex<HashMap<String, Arc<dyn TerminalSink>>>,
+        running: Mutex<HashMap<String, (bool, u64)>>,
+        on_open: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    }
+
+    impl FakeHost {
+        fn new(destination: &str) -> Arc<Self> {
+            let host = FakeHost::default();
+            host.connected.store(true, Ordering::Release);
+            *lock(&host.destination) = destination.into();
+            Arc::new(host)
+        }
+        fn sent(&self) -> Vec<String> {
+            lock(&self.sent).clone()
+        }
+    }
+
+    impl LoginHost for FakeHost {
+        fn connected(&self) -> bool {
+            self.connected.load(Ordering::Acquire)
+        }
+        fn destination(&self) -> String {
+            lock(&self.destination).clone()
+        }
+        fn home(&self) -> Option<String> {
+            Some("/home/me".into())
+        }
+        fn request(&self, method: &str, params: Value) -> Result<Value, String> {
+            if method == "terminal_list" {
+                let running = lock(&self.running);
+                return Ok(Value::Array(
+                    running
+                        .iter()
+                        .map(|(id, (run, started))| json!({"id": id, "running": run, "started": started}))
+                        .collect(),
+                ));
+            }
+            let id = params["id"].as_str().unwrap_or_default().to_string();
+            lock(&self.sent).push(format!("{method} {id}"));
+            if let Some(hook) = lock(&self.on_open).take() {
+                hook();
+            }
+            if self.open_fails.load(Ordering::Acquire) {
+                // The request reached the machine, but the reply was lost with SSH.
+                lock(&self.running).insert(id, (true, 0));
+                return Err("offline".into());
+            }
+            lock(&self.running).insert(id, (true, 0));
+            Ok(json!({}))
+        }
+        fn notify(&self, method: &str, params: Value) {
+            let id = params["id"].as_str().unwrap_or_default().to_string();
+            lock(&self.sent).push(format!("{method} {id}"));
+            if !self.connected() {
+                return;
+            }
+            if method == "terminal_signal" {
+                if let Some(state) = lock(&self.running).get_mut(&id) {
+                    state.0 = false;
+                }
+                if let Some(sink) = lock(&self.sinks).get(&id) {
+                    sink.exit(Some(137));
+                }
+            }
+            if method == "terminal_forget" {
+                lock(&self.running).remove(&id);
+            }
+        }
+        fn subscribe(&self, id: &str, sink: Arc<dyn TerminalSink>) {
+            lock(&self.sinks).insert(id.into(), sink);
+        }
+        fn release(&self, id: &str, _sink: *const ()) {
+            lock(&self.sinks).remove(id);
+        }
+    }
+
+    fn orphans(logins: &CodexLogins, machine: &str) -> Vec<String> {
+        lock(&logins.orphans)
+            .get(machine)
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn an_open_whose_reply_was_lost_is_swept_at_the_next_attachment() {
+        let host = FakeHost::new("vps");
+        host.open_fails.store(true, Ordering::Release);
+        host.connected.store(false, Ordering::Release);
+        let logins = CodexLogins::default();
+        let pending = Pending::new(host.clone());
+        logins.register("vps", pending.clone());
+        assert!(logins.open("vps", &pending).is_err());
+        assert_eq!(orphans(&logins, "vps"), vec![pending.terminal.clone()]);
+
+        // The terminal is young, so only the record of this app makes the sweep stop it.
+        host.connected.store(true, Ordering::Release);
+        logins.forget("vps", &pending);
+        logins.sweep("vps", &*host, 10);
+        assert!(host
+            .sent()
+            .contains(&format!("terminal_signal {}", pending.terminal)));
+        assert!(host
+            .sent()
+            .contains(&format!("terminal_forget {}", pending.terminal)));
+        assert!(!lock(&host.running).contains_key(&pending.terminal));
+        assert!(orphans(&logins, "vps").is_empty());
+    }
+
+    #[test]
+    fn a_cancel_while_the_terminal_opens_stops_it_and_hides_the_challenge() {
+        let host = FakeHost::new("vps");
+        let logins = Arc::new(CodexLogins::default());
+        let pending = Pending::new(host.clone());
+        logins.register("vps", pending.clone());
+        // The machine is removed while `terminal_open` waits for its reply.
+        let remover = logins.clone();
+        *lock(&host.on_open) = Some(Box::new(move || remover.abandon("vps")));
+        assert_eq!(
+            logins.open("vps", &pending),
+            Err(crate::i18n::t("err.remote.codexLoginCancelled"))
+        );
+        assert!(host
+            .sent()
+            .contains(&format!("terminal_signal {}", pending.terminal)));
+        assert!(!lock(&host.running).contains_key(&pending.terminal));
+        assert!(logins.get("vps").is_none());
+    }
+
+    #[test]
+    fn a_challenge_wait_cut_by_ssh_keeps_the_terminal_for_the_sweep() {
+        let host = FakeHost::new("vps");
+        let logins = CodexLogins::default();
+        let pending = Pending::new(host.clone());
+        logins.register("vps", pending.clone());
+        *lock(&host.on_open) = Some(Box::new({
+            let host = host.clone();
+            move || host.connected.store(false, Ordering::Release)
+        }));
+        assert_eq!(
+            logins.open("vps", &pending),
+            Err(crate::i18n::t("err.remote.codexLoginStart"))
+        );
+        assert_eq!(orphans(&logins, "vps"), vec![pending.terminal.clone()]);
+    }
+
+    #[test]
+    fn a_login_cancelled_while_ssh_is_down_is_stopped_after_the_reconnection() {
+        let host = FakeHost::new("vps");
+        let logins = CodexLogins::default();
+        let pending = Pending::new(host.clone());
+        logins.register("vps", pending.clone());
+        // The login started and showed its challenge.
+        pending.opened.store(true, Ordering::Release);
+        lock(&host.running).insert(pending.terminal.clone(), (true, 10));
+        host.subscribe(&pending.terminal, pending.sink.clone());
+
+        host.connected.store(false, Ordering::Release);
+        logins.abandon("vps");
+        assert!(pending.cancelled());
+        assert_eq!(
+            lock(&host.running).get(&pending.terminal),
+            Some(&(true, 10))
+        );
+        assert_eq!(orphans(&logins, "vps"), vec![pending.terminal.clone()]);
+
+        host.connected.store(true, Ordering::Release);
+        logins.sweep("vps", &*host, 20);
+        assert!(!lock(&host.running).contains_key(&pending.terminal));
+        assert!(host.sent().ends_with(&[
+            format!("terminal_signal {}", pending.terminal),
+            format!("terminal_forget {}", pending.terminal),
+        ]));
+        assert!(orphans(&logins, "vps").is_empty());
+    }
+
+    #[test]
+    fn an_attempt_belongs_only_to_its_connection_and_destination() {
+        let host = FakeHost::new("vps");
+        let pending = Pending::new(host.clone());
+        let origin = Some(Arc::as_ptr(&host) as *const ());
+        assert!(pending.current(origin));
+        assert!(!pending.current(None));
+        let other = FakeHost::new("vps");
+        assert!(!pending.current(Some(Arc::as_ptr(&other) as *const ())));
+        *lock(&host.destination) = "other".into();
+        assert!(!pending.current(origin));
+        *lock(&host.destination) = "vps".into();
+        pending.cancelled.store(true, Ordering::Release);
+        assert!(!pending.current(origin));
+    }
+
+    #[test]
+    fn the_sweep_stops_orphans_and_old_logins_but_not_logins_in_progress() {
+        let now = 10_000;
+        let list = json!([
+            {"id": "codex-login-ours", "running": true, "started": now - 5},
+            {"id": "codex-login-young", "running": true, "started": now - 5},
+            {"id": "codex-login-old", "running": true, "started": now - LOGIN_WAIT.as_secs()},
+            {"id": "codex-login-ended", "running": false, "started": now - 5},
+            {"id": "codex-login-active", "running": true, "started": now - LOGIN_WAIT.as_secs()},
+            {"id": "tab-1", "running": true, "started": 0},
+        ]);
+        let ours = HashSet::from(["codex-login-ours".to_string()]);
+        let active = HashSet::from(["codex-login-active".to_string()]);
+        let mut found = stale(&list, &ours, &active, now);
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                ("codex-login-ended".to_string(), false),
+                ("codex-login-old".to_string(), true),
+                ("codex-login-ours".to_string(), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_orphan_on_an_earlier_destination_is_not_stopped_on_the_new_one() {
+        let host = FakeHost::new("old");
+        host.open_fails.store(true, Ordering::Release);
+        host.connected.store(false, Ordering::Release);
+        let logins = CodexLogins::default();
+        let pending = Pending::new(host.clone());
+        let _ = logins.open("vps", &pending);
+        *lock(&host.destination) = "new".into();
+        host.connected.store(true, Ordering::Release);
+        lock(&host.running).clear();
+        lock(&host.sent).clear();
+        logins.sweep("vps", &*host, 10);
+        assert!(host.sent().is_empty());
+        assert!(orphans(&logins, "vps").is_empty());
     }
 }
