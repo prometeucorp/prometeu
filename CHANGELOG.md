@@ -4,6 +4,22 @@ This file tells the persons who use Prometeu about the changes in each version.
 `sh scripts/release.sh` makes each version. git-cliff makes this file from the
 commits. The release notes on GitHub for a version are its section in this file.
 
+## [0.52.0] - 2026-11-27
+
+### New
+
+- **machines:** Sign codex in on a remote machine from settings
+- **files:** Find a project file with command-f
+- **tasks:** Add a standalone to-do list that agents can update
+
+### Fixes
+
+- **terminal:** Stop spinning after native usage limit errors
+- **machines:** Stop a codex sign-in that ssh cut off or that was cancelled offline
+- **machines:** Keep a codex sign-in of another computer alive when the clocks differ
+- **files:** Keep command-f with the open workspace launcher
+- **tasks:** Keep to-dos consistent across reconnects, updates and slow saves
+
 ## [0.51.1] - 2026-11-26
 
 ### Fixes
