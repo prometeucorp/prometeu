@@ -72,6 +72,7 @@ mod state;
 mod team;
 mod telemetry;
 mod terminal_sessions;
+mod todos;
 mod tool_materialization;
 mod transcript;
 mod transcript_store;
@@ -432,6 +433,10 @@ fn main() {
             linear::linear_claim,
             linear::linear_disconnect,
             linear::linear_issues,
+            todos::todos,
+            todos::todo_create,
+            todos::todo_set_status,
+            todos::todos_locate,
             linear::linear_open,
             team::team_config,
             team::team_config_set,
@@ -497,6 +502,7 @@ fn main() {
             file_drop::install(app.handle())?;
             machine::watch(app.handle().clone());
             usage::watch(app.handle().clone());
+            todos::start(app.handle());
             remote::start(app.handle());
             Ok(())
         })

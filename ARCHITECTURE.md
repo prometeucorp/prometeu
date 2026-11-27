@@ -189,6 +189,13 @@ The current launcher owns the creation of workspaces. `github.rs` reads the PR
 state of a workspace. See the
 [GitHub issue contract](docs/contracts/github-issues.md).
 
+The third tab of Tasks, To-dos (`src/todos.ts`), shows one standalone to-do
+list. It does not need an account. `prometeu-core::todos` owns the model and the
+store. The list is on this computer or on one remote machine that the person
+selects. The embedded MCP and the host MCP use the same list. See the
+[to-do contract](docs/contracts/todos.md) and
+[ADR 0108](docs/decisions/0108-standalone-todo-list.md).
+
 The Notifications destination (`src/notification-center.ts`) merges the relay
 messages that name the user with GitHub activity. The Cloud gets this activity from GitHub App
 webhooks. `github_notifications.rs` reads that list of metadata with the Bearer

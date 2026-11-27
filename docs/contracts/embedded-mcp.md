@@ -101,6 +101,12 @@ client can call these tools:
 - `delegate` with a `project_id` from a response.
 - The current status, message, file, script and preview tools.
 
+A registration with only projects does not give access to the to-do list of the
+person. To give that access, add `--todos`:
+`register --todos "my local agent" [PROJECT_ID...]`. With `--todos`, the project
+IDs are optional. A client without a project and without `--todos` is not
+permitted. Refer to the [to-do contract](todos.md#authorization).
+
 Each registration is a new and different identity. `list` returns the IDs, the
 names and the project paths. It does not return credentials. A revocation
 removes the registration. The next request has a failure, also from a stdio host that
@@ -110,8 +116,8 @@ the delegations of the previous client. The registration and the revocation are
 local administration commands. The app does not offer them to agents as tools.
 
 External credentials are in `<root>/mcp-clients/<uuid>.json`, version 1. Each
-file has `name`, `token` and `client: {id, conversation, projects}`. The client
-ID is `client:<uuid>`. The context is null. The projects are the permitted source
+file has `name`, `token` and `client: {id, conversation, projects, todos}`.
+`todos` is false when it is missing. The client ID is `client:<uuid>`. The context is null. The projects are the permitted source
 paths. The app writes the files atomically with 0600 in a 0700 folder.
 
 The authentication loads the credential file of the client again on each call.
@@ -216,6 +222,15 @@ the client selects.
 | `run_workspace_script` | `agent_id`, `kind` (`setup` or `run`), optional `name` | Starts a configured script, or uses the same live script again. `name` selects a configured Run entry. |
 | `read_workspace_script_log` | `agent_id`, `kind` (`setup` or `run`), optional `limit_bytes` (1–65,536) | Reads a tail of the kept terminal output with a limit, with the process state and the exit code. |
 | `open_workspace_preview` | `agent_id` | Requests that the desktop app opens the delegated conversation and the workspace preview. It does not start a service. |
+| `list_todos` | none | Lists the standalone to-dos of the person. |
+| `create_todo` | `title` | Adds a to-do with the status `todo`. |
+| `set_todo_status` | `id`, `status` (`todo`, `doing` or `completed`) | Changes the status of a to-do. |
+
+The to-do tools do not use an `agent_id` or a project. Conversation clients can
+use them. External clients can use them only with the `--todos` grant. Other
+clients get `todos_not_allowed`. The tools use the list of the location that
+the person selected, also when that location is a remote machine. Refer to the
+[to-do contract](todos.md).
 
 Without `project_id`, the delegation uses the repositories of the attached
 conversation and the committed HEAD of each repository. Without a conversation

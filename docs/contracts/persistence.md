@@ -31,7 +31,9 @@ isolated copies of the app use it most.
 | Data | Path | Ownership |
 | --- | --- | --- |
 | board | `<root>/board.json` | `board_store.rs` through the injected `BoardStore`. The models are in `crates/core/src/board.rs`. |
-| external MCP clients | `<root>/mcp-clients/<uuid>.json` | `mcp_access.rs`. Private versioned credentials and the project scope. Refer to [embedded MCP](embedded-mcp.md). |
+| external MCP clients | `<root>/mcp-clients/<uuid>.json` | `mcp_access.rs`. Private versioned credentials, the project scope and the optional `todos` grant. Refer to [embedded MCP](embedded-mcp.md). |
+| standalone to-do list | `<root>/todos.json` | `todos.rs` through `prometeu-core::todos::TodoStore`. Private `{ version: 1, items }`. Refer to the [to-do contract](todos.md). |
+| location of the to-do list | `<root>/todos-location.json` | `todos.rs`. Private `{ machine }`. A missing file means this computer. |
 | MCP socket discovery | `<root>/mcp-socket` | `embedded_mcp.rs`. A private temporary socket path. The app replaces it at startup. |
 | board backup | next to `board.json` | `board_store.rs` |
 | copies of unreadable state | `<root>/recovery/<label>-<millis>.json` | `recovery.rs`. Refer to [Unreadable state](#unreadable-state). |

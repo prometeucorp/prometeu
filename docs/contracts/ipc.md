@@ -297,6 +297,7 @@ short ticket goes through IPC to authenticate the WebSocket.
 | `account-error` | `chat.rs` | a translatable error from an account change during the send of the pending message |
 | `machine` | `machine.rs` | the machine state |
 | `linear` | `linear.rs` | `LinearStatus` |
+| `todos` | `todos.rs` | `null`. The to-do list at the selected location changed. |
 | `plugin-make` | `plugins.rs` | `[run, step]` |
 | `plugin-made` | `plugins.rs` | `[run, error]` |
 | `browser:url` | `browser.rs` | `[workspace, url]` |
@@ -647,6 +648,12 @@ rejects agents without the `remoteMachines` capability, more repositories
 and delegated creation. Remote workspaces do not have file, Git, diff, dock or
 script commands at this time. The interface hides those panels. The browser mock
 implements each command in memory.
+
+## Standalone to-do list
+
+`todos`, `todo_create`, `todo_set_status` and `todos_locate` read and change the
+to-do list of Tasks. The [to-do contract](todos.md#desktop-ipc) gives their
+arguments, results and errors.
 
 ## Ending the app
 

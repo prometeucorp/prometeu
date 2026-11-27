@@ -16,6 +16,7 @@ const READ_ONLY: &[&str] = &[
     "workspace_list",
     "workspace_get",
     "conversation_read",
+    "todos_list",
 ];
 
 /// Where a call failed: before the request left (safe to send again) or after (its outcome is
@@ -150,7 +151,33 @@ const TOOLS: &[Tool] = &[
             "force": {"type": "boolean", "description": "Discard uncommitted changes."},
         }), &["id"]),
     },
+    Tool {
+        name: "list_todos",
+        method: "todos_list",
+        description: TODO_LIST,
+        schema: || object(json!({}), &[]),
+    },
+    Tool {
+        name: "create_todo",
+        method: "todos_create",
+        description: TODO_CREATE,
+        schema: || object(json!({"title": {"type": "string", "minLength": 1, "maxLength": 200, "description": "One line, 1 to 200 characters."}}), &["title"]),
+    },
+    Tool {
+        name: "set_todo_status",
+        method: "todos_set_status",
+        description: TODO_STATUS,
+        schema: || object(json!({
+            "id": {"type": "string", "description": "To-do ID from list_todos or create_todo."},
+            "status": {"type": "string", "enum": ["todo", "doing", "completed"]},
+        }), &["id", "status"]),
+    },
 ];
+
+// The same words as the desktop's built-in MCP, which reaches the same list.
+const TODO_LIST: &str = "List the person's standalone to-dos, the same list they see in Prometeu Tasks > To-dos. Each item has an id, a title and a status: todo, doing or completed. Fails with todos_not_here when Prometeu keeps the list on another computer.";
+const TODO_CREATE: &str = "Add a standalone to-do with status todo to the person's list in Prometeu Tasks > To-dos. It has no project, workspace, issue or assignee. Returns the item with its stable id.";
+const TODO_STATUS: &str = "Change the status of a to-do in the person's list: todo, doing or completed. Setting the current status again changes nothing.";
 
 struct Socket {
     path: PathBuf,

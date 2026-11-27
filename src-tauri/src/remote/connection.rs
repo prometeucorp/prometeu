@@ -573,6 +573,7 @@ impl Connection {
                     }
                 }
             }
+            Some("todos") => crate::todos::remote_changed(&self.id),
             Some("registry") => {
                 // One queued refresh covers every event that arrives before it starts, since it
                 // reads the whole registry then.

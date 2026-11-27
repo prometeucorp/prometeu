@@ -27,6 +27,7 @@ limits between processes or layers.
 - [Local persistence](persistence.md) — The local formats of the board, the transcripts and the accounts, their migrations and their recovery.
 - [Plugin hub contract](plugin-marketplace.md) — The hub, the portable package and the adaptation for each provider.
 - [Product analytics](product-analytics.md) — The PostHog event words, the payload, the installation identity and the rules for new events.
+- [Standalone to-do list](todos.md) — The to-do list in Tasks, the computer that keeps it, its file, the IPC commands and the MCP tools of the desktop and of the host.
 - [Relay protocol v4](relay-v4.md) — Encrypted collaboration and trust on first contact (TOFU).
 - [Remote host protocol](remote-host.md) — The installation, the SSH connection, and the NDJSON methods and events of `prometeu-host`.
 - [Workspace supervision](supervision.md) — Host events, supervisor bindings and generic signed webhooks through the Cloud.

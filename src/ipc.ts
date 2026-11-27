@@ -95,6 +95,10 @@ export type Commands = {
   linear_claim: { args: { id: string }; result: T.Issue };
   linear_disconnect: { args: undefined; result: T.LinearStatus };
   linear_issues: { args: { force: boolean }; result: T.Issues };
+  todos: { args: undefined; result: import("./todos-model").TodosView };
+  todo_create: { args: { title: string }; result: import("./todos-model").Todo };
+  todo_set_status: { args: { id: string; status: import("./todos-model").TodoStatus }; result: import("./todos-model").Todo };
+  todos_locate: { args: { machine: string | null }; result: import("./todos-model").TodosView };
   linear_open: { args: { url: string }; result: void };
   linear_status: { args: undefined; result: T.LinearStatus };
   github_status: { args: undefined; result: T.GitHubStatus };

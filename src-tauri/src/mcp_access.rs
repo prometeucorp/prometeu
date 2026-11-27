@@ -10,6 +10,10 @@ pub struct Client {
     pub id: String,
     pub conversation: Option<String>,
     pub projects: Vec<String>,
+    /// An external client may use the person's to-do list. Only `register --todos` grants it;
+    /// credentials from before the field deny it.
+    #[serde(default)]
+    pub todos: bool,
 }
 
 impl Client {
@@ -18,6 +22,7 @@ impl Client {
             id: id.into(),
             conversation: Some(id.into()),
             projects: vec![],
+            todos: false,
         }
     }
 
@@ -67,7 +72,7 @@ pub fn authenticate(root: &Path, token: &str) -> Result<Client, String> {
             || credential.token != token
             || credential.client.id != format!("client:{id}")
             || credential.client.conversation.is_some()
-            || credential.client.projects.is_empty()
+            || (credential.client.projects.is_empty() && !credential.client.todos)
         {
             return Err("unauthorized".into());
         }
@@ -76,9 +81,14 @@ pub fn authenticate(root: &Path, token: &str) -> Result<Client, String> {
     read().map_err(|_| "unauthorized".into())
 }
 
-fn register(root: &Path, name: &str, projects: Vec<String>) -> Result<(String, String), String> {
-    if name.trim().is_empty() || name.len() > 200 || projects.is_empty() {
-        return Err("A client name and at least one project are required".into());
+fn register(
+    root: &Path,
+    name: &str,
+    projects: Vec<String>,
+    todos: bool,
+) -> Result<(String, String), String> {
+    if name.trim().is_empty() || name.len() > 200 || (projects.is_empty() && !todos) {
+        return Err("A client name and at least one project or --todos are required".into());
     }
     let id = uuid::Uuid::new_v4().to_string();
     let token = format!("{id}.{}", uuid::Uuid::new_v4());
@@ -90,6 +100,7 @@ fn register(root: &Path, name: &str, projects: Vec<String>) -> Result<(String, S
             id: format!("client:{id}"),
             conversation: None,
             projects,
+            todos,
         },
     };
     paths::write_private(
@@ -99,23 +110,34 @@ fn register(root: &Path, name: &str, projects: Vec<String>) -> Result<(String, S
     Ok((id, token))
 }
 
+const USAGE: &str = "Usage: --prometeu-mcp-client projects | register [--todos] NAME [PROJECT_ID...] | list | revoke CLIENT_ID";
+
 /// Local administration is deliberately outside the agent-facing tools. Only explicit registration
 /// grants access; listing clients never prints their credentials.
 pub fn cli(args: &[String]) -> Result<Value, String> {
     let root = paths::root();
     match args.first().map(String::as_str) {
-        Some("projects") if args.len() == 1 => {
-            Ok(json!({"projects": projects(&root)?}))
-        }
-        Some("register") if args.len() >= 3 => {
+        Some("projects") if args.len() == 1 => Ok(json!({"projects": projects(&root)?})),
+        Some("register") if args.len() >= 2 => {
+            let todos = args.iter().any(|arg| arg == "--todos");
+            let rest: Vec<&String> = args[1..].iter().filter(|arg| *arg != "--todos").collect();
+            let Some((name, ids)) = rest.split_first() else {
+                return Err(USAGE.into());
+            };
             let available = projects(&root)?;
-            let scope = args[2..].iter().map(|id| {
-                available.iter().find(|project| project.id == *id)
-                    .map(|project| project.path.clone()).ok_or_else(|| format!("Unknown project: {id}"))
-            }).collect::<Result<Vec<_>, _>>()?;
+            let scope = ids
+                .iter()
+                .map(|id| {
+                    available
+                        .iter()
+                        .find(|project| project.id == **id)
+                        .map(|project| project.path.clone())
+                        .ok_or_else(|| format!("Unknown project: {id}"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let executable = std::env::current_exe().map_err(|e| e.to_string())?;
             let root = root.canonicalize().map_err(|e| e.to_string())?;
-            let (id, token) = register(&root, &args[1], scope)?;
+            let (id, token) = register(&root, name, scope, todos)?;
             Ok(json!({"client_id":id, "mcpServers":{"prometeu":{
                 "type":"stdio", "command":executable, "args":["--prometeu-mcp"],
                 "env":{"PROMETEU_ROOT":root,"PROMETEU_MCP_TOKEN":token}
@@ -123,14 +145,20 @@ pub fn cli(args: &[String]) -> Result<Value, String> {
         }
         Some("list") if args.len() == 1 => {
             let directory = root.join("mcp-clients");
-            if !directory.exists() { return Ok(json!({"clients":[]})); }
+            if !directory.exists() {
+                return Ok(json!({"clients":[]}));
+            }
             let mut clients = vec![];
             for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
                 let path = entry.map_err(|e| e.to_string())?.path();
-                if path.extension().is_none_or(|extension| extension != "json") { continue; }
-                let credential: Credential = serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
-                clients.push(json!({"id":path.file_stem().and_then(|id| id.to_str()),"name":credential.name,"projects":credential.client.projects}));
+                if path.extension().is_none_or(|extension| extension != "json") {
+                    continue;
+                }
+                let credential: Credential = serde_json::from_str(
+                    &std::fs::read_to_string(&path).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+                clients.push(json!({"id":path.file_stem().and_then(|id| id.to_str()),"name":credential.name,"projects":credential.client.projects,"todos":credential.client.todos}));
             }
             Ok(json!({"clients":clients}))
         }
@@ -138,7 +166,7 @@ pub fn cli(args: &[String]) -> Result<Value, String> {
             std::fs::remove_file(credential_path(&root, &args[1])?).map_err(|e| e.to_string())?;
             Ok(json!({"revoked":args[1]}))
         }
-        _ => Err("Usage: --prometeu-mcp-client projects | register NAME PROJECT_ID... | list | revoke CLIENT_ID".into()),
+        _ => Err(USAGE.into()),
     }
 }
 
@@ -159,8 +187,8 @@ mod tests {
     #[test]
     fn independent_clients_survive_reload_and_fail_closed_after_revocation() {
         let root = std::env::temp_dir().join(format!("prometeu-access-{}", uuid::Uuid::new_v4()));
-        let (id, token) = register(&root, "external agent", vec!["/repo".into()]).unwrap();
-        let (_, other) = register(&root, "other agent", vec!["/other".into()]).unwrap();
+        let (id, token) = register(&root, "external agent", vec!["/repo".into()], false).unwrap();
+        let (_, other) = register(&root, "other agent", vec!["/other".into()], false).unwrap();
         let board: Board = serde_json::from_value(json!({"stages":[],"workspaces":[]})).unwrap();
         let client = authenticate(&root, &token).unwrap();
         assert_eq!(client.id, format!("client:{id}"));
@@ -188,6 +216,33 @@ mod tests {
         std::fs::remove_file(path).unwrap();
         assert!(authenticate(&root, &token).is_err());
         assert!(authenticate(&root, &other).is_ok());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_todo_grant_is_explicit_and_older_credentials_deny_it() {
+        let root = std::env::temp_dir().join(format!("prometeu-access-{}", uuid::Uuid::new_v4()));
+        assert!(register(&root, "nothing", vec![], false).is_err());
+        let (_, projects) = register(&root, "projects", vec!["/repo".into()], false).unwrap();
+        assert!(!authenticate(&root, &projects).unwrap().todos);
+        let (_, todos) = register(&root, "todos", vec![], true).unwrap();
+        let client = authenticate(&root, &todos).unwrap();
+        assert!(client.todos && client.projects.is_empty());
+        let board: Board = serde_json::from_value(json!({"stages":[],"workspaces":[]})).unwrap();
+        assert!(!client.allows(&board, "/repo"));
+        // A version 1 file written before the grant existed.
+        let id = uuid::Uuid::new_v4().to_string();
+        let token = format!("{id}.secret");
+        let legacy = json!({"version":1,"name":"old","token":token,
+            "client":{"id":format!("client:{id}"),"conversation":null,"projects":["/repo"]}});
+        paths::write_private(&credential_path(&root, &id).unwrap(), &legacy.to_string()).unwrap();
+        let old = authenticate(&root, &token).unwrap();
+        assert!(!old.todos && old.allows(&board, "/repo"));
+        // A file that names neither projects nor the grant gives no access at all.
+        let empty = json!({"version":1,"name":"empty","token":token,
+            "client":{"id":format!("client:{id}"),"conversation":null,"projects":[]}});
+        paths::write_private(&credential_path(&root, &id).unwrap(), &empty.to_string()).unwrap();
+        assert!(authenticate(&root, &token).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

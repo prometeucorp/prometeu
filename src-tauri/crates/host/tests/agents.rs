@@ -892,3 +892,299 @@ fn check_generated_local_config(relative: bool) {
     drop(stdin);
     let _ = mcp.wait();
 }
+
+/// The desktop's side of an SSH attachment, as `remote/connection.rs` speaks it.
+struct Desktop {
+    child: Child,
+    stdin: std::process::ChildStdin,
+    frames: std::sync::mpsc::Receiver<Value>,
+    next: u64,
+}
+
+impl Desktop {
+    fn attach(machine: &Machine) -> Self {
+        let mut child = Command::new(BIN)
+            .args(["attach", "--root"])
+            .arg(&machine.root)
+            .args(["--device", "mac", "--label", "Mac"])
+            .env("HOME", &machine.home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (sender, frames) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                    if sender.send(value).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let desktop = Self {
+            child,
+            stdin,
+            frames,
+            next: 0,
+        };
+        desktop.until(|f| f["event"] == "ready");
+        desktop
+    }
+
+    fn until(&self, mut accept: impl FnMut(&Value) -> bool) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let frame = self
+                .frames
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("frame before deadline");
+            if accept(&frame) {
+                return frame;
+            }
+        }
+    }
+
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.next += 1;
+        let id = self.next;
+        writeln!(
+            self.stdin,
+            "{}",
+            json!({"id": id, "method": method, "params": params})
+        )
+        .unwrap();
+        let reply = self.until(|f| f["id"] == id);
+        match reply.get("error") {
+            Some(error) => Err(error.as_str().unwrap().to_string()),
+            None => Ok(reply["result"].clone()),
+        }
+    }
+}
+
+impl Drop for Desktop {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// The local stdio MCP that `agents setup` prints, run as an MCP client on the machine runs it.
+struct HostMcp {
+    child: Child,
+    stdin: std::process::ChildStdin,
+    stdout: BufReader<std::process::ChildStdout>,
+    next: u64,
+}
+
+impl HostMcp {
+    fn start(machine: &Machine) -> Self {
+        let output = Command::new(BIN)
+            .args(["agents", "setup", "--json", "--root"])
+            .arg(&machine.root)
+            .current_dir(&machine.dir)
+            .env("HOME", &machine.home)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let setup: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let server = &setup["server"];
+        let mut child = Command::new(server["command"].as_str().unwrap())
+            .args(
+                server["args"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_str().unwrap()),
+            )
+            .envs(
+                server["env"]
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .map(|(k, v)| (k, v.as_str().unwrap())),
+            )
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut mcp = Self {
+            stdin: child.stdin.take().unwrap(),
+            stdout: BufReader::new(child.stdout.take().unwrap()),
+            child,
+            next: 0,
+        };
+        mcp.ask(
+            "initialize",
+            json!({"protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": {"name": "t", "version": "1"}}),
+        );
+        machine.wait_for("agent socket", || machine.socket().exists());
+        mcp
+    }
+
+    fn ask(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        writeln!(
+            self.stdin,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params})
+        )
+        .unwrap();
+        let mut line = String::new();
+        self.stdout.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()["result"].clone()
+    }
+
+    /// The parsed result of a tool, or its error text.
+    fn tool(&mut self, name: &str, arguments: Value) -> Result<Value, String> {
+        let result = self.ask("tools/call", json!({"name": name, "arguments": arguments}));
+        let text = result["content"][0]["text"].as_str().unwrap().to_string();
+        if result["isError"] == true {
+            return Err(text);
+        }
+        Ok(serde_json::from_str(&text).unwrap())
+    }
+}
+
+impl Drop for HostMcp {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn the_desktop_and_host_mcp_agents_share_one_todo_list() {
+    let mut machine = Machine::new();
+    let mut mcp = HostMcp::start(&machine);
+    let tools = mcp.ask("tools/list", json!({}));
+    for name in ["list_todos", "create_todo", "set_todo_status"] {
+        assert!(tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == name));
+    }
+    // Before a desktop selects this machine, agents cannot start a list that nobody sees.
+    assert_eq!(
+        mcp.tool("create_todo", json!({"title": "Too early"}))
+            .unwrap_err(),
+        "todos_not_here"
+    );
+    assert!(!machine.root.join("todos.json").exists());
+
+    let mut desktop = Desktop::attach(&machine);
+    desktop
+        .call("todos_enable", json!({"enabled": true}))
+        .unwrap();
+    // An agent cannot select or leave the machine itself.
+    let (writer, reader, _) = machine.connect(machine.token().trim());
+    let mut agent = Agent {
+        writer,
+        reader,
+        next: 0,
+    };
+    assert!(agent
+        .call("todos_enable", json!({"enabled": false}))
+        .is_err());
+
+    // Created on the machine through MCP: the desktop hears it and reads the same item.
+    let created = mcp
+        .tool("create_todo", json!({"title": "  Review the VM logs "}))
+        .unwrap();
+    assert_eq!(created["title"], "Review the VM logs");
+    assert_eq!(created["status"], "todo");
+    let id = created["id"].as_str().unwrap().to_string();
+    desktop.until(|f| f["event"] == "todos");
+    let listed = desktop.call("todos_list", json!({})).unwrap();
+    assert_eq!(listed["items"][0]["id"], id.as_str());
+
+    // A change from the desktop reaches the MCP, and a change from the MCP reaches the desktop.
+    desktop
+        .call("todos_set_status", json!({"id": id, "status": "doing"}))
+        .unwrap();
+    assert_eq!(
+        mcp.tool("list_todos", json!({})).unwrap()["items"][0]["status"],
+        "doing"
+    );
+    mcp.tool("set_todo_status", json!({"id": id, "status": "completed"}))
+        .unwrap();
+    desktop.until(|f| f["event"] == "todos");
+    assert_eq!(
+        desktop.call("todos_list", json!({})).unwrap()["items"][0]["status"],
+        "completed"
+    );
+
+    // Invalid input changes nothing.
+    for (name, arguments, error) in [
+        ("create_todo", json!({"title": ""}), "title_required"),
+        ("create_todo", json!({"title": "a\nb"}), "invalid_title"),
+        (
+            "create_todo",
+            json!({"title": "x".repeat(201)}),
+            "title_too_long",
+        ),
+        (
+            "set_todo_status",
+            json!({"id": id, "status": "done"}),
+            "invalid_status",
+        ),
+        (
+            "set_todo_status",
+            json!({"id": "missing", "status": "todo"}),
+            "todo_not_found",
+        ),
+    ] {
+        assert_eq!(mcp.tool(name, arguments).unwrap_err(), error);
+    }
+
+    // Agents on separate connections write at the same time; no item is lost.
+    let token = machine.token().trim().to_string();
+    let writers: Vec<_> = (0..4)
+        .map(|n| {
+            let (writer, reader, _) = machine.connect(&token);
+            std::thread::spawn(move || {
+                let mut agent = Agent {
+                    writer,
+                    reader,
+                    next: 0,
+                };
+                for m in 0..10 {
+                    agent
+                        .call("todos_create", json!({"title": format!("{n}-{m}")}))
+                        .unwrap();
+                }
+            })
+        })
+        .collect();
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    let items = desktop.call("todos_list", json!({})).unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(items.len(), 41);
+
+    // The list survives a new daemon; a deselected machine stops serving its agents.
+    desktop.call("shutdown", json!({"force": true})).unwrap();
+    drop(desktop);
+    // The old daemon holds the root lock until it exits.
+    machine.host.wait().unwrap();
+    let mut desktop = Desktop::attach(&machine);
+    let again = desktop.call("todos_list", json!({})).unwrap();
+    assert_eq!(again["items"].as_array().unwrap().len(), 41);
+    assert_eq!(again["items"][0]["status"], "completed");
+    desktop
+        .call("todos_enable", json!({"enabled": false}))
+        .unwrap();
+    assert_eq!(
+        mcp.tool("list_todos", json!({})).unwrap_err(),
+        "todos_not_here"
+    );
+    let _ = desktop.call("shutdown", json!({"force": true}));
+}

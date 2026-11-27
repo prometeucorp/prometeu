@@ -156,3 +156,4 @@ code samples do not count.
 - [ADR 0105](0105-codex-on-remote-machines.md) — Codex on remote machines: the native engine and the TUI run on the machine. The desktop reads the RPC of the engine through a relay terminal on the host.
 - [ADR 0106](0106-workspace-supervision.md) — Workspace supervision through durable Cloud events and generic signed webhooks. The first executors are remote hosts.
 - [ADR 0107](0107-simplified-technical-english.md) — All technical documentation uses ASD-STE100 Simplified Technical English, Issue 9.
+- [ADR 0108](0108-standalone-todo-list.md) — One standalone to-do list on this computer or on one selected remote machine. The tab and the two MCP servers use that list.

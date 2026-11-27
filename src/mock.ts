@@ -1103,7 +1103,64 @@ const mockClients: import("./machine-clients").MachineClient[] = [
   { device: "mock-other-mac", label: "Other Mac", connected: 1_700_000_600, current: false },
 ];
 
+/// The browser keeps one to-do list for this computer and one for each mock machine. A machine
+/// list answers only while that machine is connected, as the host does.
+type MockTodo = import("./todos-model").Todo;
+function mockTodos(machine: string | null): MockTodo[] {
+  return JSON.parse(localStorage.getItem(`mock:todos:${machine ?? ""}`) ?? "[]");
+}
+function mockTodoList() {
+  const machine = localStorage.getItem("mock:todos:machine") || null;
+  if (machine) {
+    const found = mockMachines.find(m => m.id === machine);
+    if (!found) throw 'i18n:{"code":"todos.err.machine_unknown"}';
+    if (found.phase !== "connected") throw 'i18n:{"code":"todos.err.machine_offline"}';
+  }
+  return { machine, items: mockTodos(machine) };
+}
+function saveMockTodos(machine: string | null, items: MockTodo[]) {
+  localStorage.setItem(`mock:todos:${machine ?? ""}`, JSON.stringify(items));
+  emit("todos", null);
+}
+function mockTodoTitle(raw: string) {
+  const title = raw.trim();
+  if (!title) throw 'i18n:{"code":"todos.err.title_required"}';
+  if ([...title].length > 200) throw 'i18n:{"code":"todos.err.title_too_long"}';
+  return title;
+}
+
 const mockCommands: IpcHandlers = {
+  todos() {
+    try {
+      const { machine, items } = mockTodoList();
+      return { machine, items, error: null };
+    } catch (error) {
+      return { machine: localStorage.getItem("mock:todos:machine") || null, items: null, error: String(error) };
+    }
+  },
+  todo_create({ title }) {
+    const { machine, items } = mockTodoList();
+    const now = Math.floor(Date.now() / 1000);
+    const todo: MockTodo = { id: crypto.randomUUID(), title: mockTodoTitle(title), status: "todo", created_at: now, updated_at: now };
+    saveMockTodos(machine, [...items, todo]);
+    return todo;
+  },
+  todo_set_status({ id, status }) {
+    const { machine, items } = mockTodoList();
+    const todo = items.find(item => item.id === id);
+    if (!todo) throw 'i18n:{"code":"todos.err.todo_not_found"}';
+    if (todo.status !== status) Object.assign(todo, { status, updated_at: Math.floor(Date.now() / 1000) });
+    saveMockTodos(machine, items);
+    return todo;
+  },
+  todos_locate({ machine }) {
+    const target = machine && mockMachines.find(m => m.id === machine);
+    if (machine && !target) throw 'i18n:{"code":"todos.err.machine_unknown"}';
+    if (target && target.phase !== "connected") throw 'i18n:{"code":"todos.err.machine_offline"}';
+    if (machine) localStorage.setItem("mock:todos:machine", machine); else localStorage.removeItem("mock:todos:machine");
+    emit("todos", null);
+    return mockCommands.todos(undefined as never) as import("./todos-model").TodosView;
+  },
   github_status() { return mockGitHubStatus(); },
   github_connect() {
     localStorage.removeItem("mock:githubOff");
