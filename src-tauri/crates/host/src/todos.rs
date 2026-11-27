@@ -50,6 +50,12 @@ pub fn call(host: &Host, method: &str, params: &Value, attachment: bool) -> Resu
             Err("todos_not_here".to_string())
         }
     };
+    // Writes hold off a non-forced shutdown on both routes, the desktop attachment and the agent
+    // socket, so an update never stops the host halfway through one.
+    let _change = match CHANGES.contains(&method) {
+        true => Some(crate::agents::Mutation::begin()?),
+        false => None,
+    };
     let result = match method {
         "todos_list" => {
             let list = host.todos.read()?;

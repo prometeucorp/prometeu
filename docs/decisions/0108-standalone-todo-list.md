@@ -54,6 +54,9 @@ Use option 3. The rules are in the [contract](../contracts/todos.md).
   selected the built-in MCP for that conversation. External clients of the
   desktop need the explicit `--todos` grant. The host token gives access,
   because it already gives all host operations.
+- The store limits the list to 1,000 to-dos and to 512 KiB of serialized
+  items. Thus each MCP can return the full list in one response, and the tools
+  do not need pages.
 
 ## Consequences
 

@@ -903,10 +903,14 @@ struct Desktop {
 
 impl Desktop {
     fn attach(machine: &Machine) -> Self {
+        Self::attach_as(machine, "mac")
+    }
+
+    fn attach_as(machine: &Machine, device: &str) -> Self {
         let mut child = Command::new(BIN)
             .args(["attach", "--root"])
             .arg(&machine.root)
-            .args(["--device", "mac", "--label", "Mac"])
+            .args(["--device", device, "--label", device])
             .env("HOME", &machine.home)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -948,15 +952,20 @@ impl Desktop {
         }
     }
 
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+    /// Send without waiting for the reply; returns the request id.
+    fn send(&mut self, method: &str, params: Value) -> u64 {
         self.next += 1;
-        let id = self.next;
         writeln!(
             self.stdin,
             "{}",
-            json!({"id": id, "method": method, "params": params})
+            json!({"id": self.next, "method": method, "params": params})
         )
         .unwrap();
+        self.next
+    }
+
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        let id = self.send(method, params);
         let reply = self.until(|f| f["id"] == id);
         match reply.get("error") {
             Some(error) => Err(error.as_str().unwrap().to_string()),
@@ -1187,4 +1196,27 @@ fn the_desktop_and_host_mcp_agents_share_one_todo_list() {
         "todos_not_here"
     );
     let _ = desktop.call("shutdown", json!({"force": true}));
+}
+
+#[test]
+fn an_update_waits_for_a_desktop_todo_write() {
+    let machine = Machine::new();
+    let mut writer = Desktop::attach_as(&machine, "writer");
+    let mut updater = Desktop::attach_as(&machine, "updater");
+    // A FIFO holds the write inside its read of the list until the test feeds it.
+    let file = machine.root.join("todos.json");
+    sh(&machine.root, "mkfifo todos.json");
+    let pending = writer.send("todos_create", json!({"title": "Written during an update"}));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        updater.call("shutdown", json!({})).unwrap_err(),
+        "host_busy"
+    );
+    std::fs::write(&file, r#"{"version":1,"enabled":true,"items":[]}"#).unwrap();
+    let done = writer.until(|f| f["id"] == pending);
+    assert_eq!(
+        done["result"]["title"], "Written during an update",
+        "{done}"
+    );
+    assert!(updater.call("shutdown", json!({})).is_ok());
 }

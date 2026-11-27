@@ -6,7 +6,7 @@ import { issueRefresh } from "./issues-controls";
 import { toolbar } from "./components/compositions";
 import { empty, h, template } from "./util";
 import type { MachineView } from "./machines";
-import { locationOptions, MAX_TITLE, todoScreen, todoState, todoStatuses, todoTitle, type Todo } from "./todos-model";
+import { draftAfterCreate, followConnection, locationOptions, locationPhase, titleProblem, todoScreen, todoState, todoStatuses, type Todo, type WriteOutcome } from "./todos-model";
 
 type Context = { say: (message: string, error?: boolean) => void };
 
@@ -21,13 +21,18 @@ export function todoList(host: HTMLElement, ctx: Context) {
   const bar = h("div", "subbar ibar todo-bar");
   const titleField = template("label", "ifind todo-new", "");
   const title = input("", false, "todos.title");
-  title.maxLength = MAX_TITLE; title.spellcheck = true;
+  // No maxLength: it counts UTF-16 units, and the list counts Unicode characters (titleProblem).
+  title.spellcheck = true;
   title.placeholder = t("todos.title.placeholder"); title.setAttribute("aria-label", t("todos.title.label"));
   titleField.append(title);
   const add = button(t("todos.add"), () => void create(), "outline", "todos.add");
   add.classList.add("sm");
   title.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); void create(); } });
-  title.addEventListener("input", () => { title.removeAttribute("aria-invalid"); drawControls(); });
+  title.addEventListener("input", () => {
+    if (titleProblem(title.value) === "title_too_long") title.setAttribute("aria-invalid", "true");
+    else title.removeAttribute("aria-invalid");
+    drawControls();
+  });
   const location = select("", [["", t("todos.location.here")]], { track: "todos.location" });
   location.control.classList.add("task-filter");
   location.control.setAttribute("aria-label", t("todos.location.label"));
@@ -42,23 +47,38 @@ export function todoList(host: HTMLElement, ctx: Context) {
   host.append(bar, list);
 
   void listen("todos", () => { stale = true; if (visible) void state.load(); });
-  void listen<MachineView[]>("machines", ({ payload }) => { machines = payload; drawControls(); });
+  // A connection change of the machine that keeps the list makes the shown list old: offline, it
+  // must show the error; back online, it must show what host agents changed meanwhile.
+  let phase: string | null = null;
+  void listen<MachineView[]>("machines", ({ payload }) => {
+    machines = payload;
+    const follow = followConnection(phase, machines, state.view()?.machine ?? null);
+    phase = follow.phase;
+    if (follow.reload) { stale = !visible; if (visible) void state.load(); }
+    drawControls();
+  });
+
+  function report(outcome: WriteOutcome) {
+    if (outcome.kind === "failed") ctx.say(fromBack(outcome.error), true);
+  }
 
   async function create() {
-    if (!todoTitle(title.value)) {
+    const problem = titleProblem(title.value);
+    if (problem) {
       title.setAttribute("aria-invalid", "true");
-      ctx.say(t(title.value.trim() ? "todos.err.title_too_long" : "todos.err.title_required"), true);
+      ctx.say(t(`todos.err.${problem}`), true);
       title.focus();
       return;
     }
-    const failure = await state.create(title.value);
-    if (failure) { ctx.say(fromBack(failure), true); return; }
-    title.value = ""; title.focus(); drawControls();
+    // The input stays editable during a slow request. Clear only the draft that was sent.
+    const submitted = title.value;
+    const outcome = await state.create(submitted);
+    report(outcome);
+    title.value = draftAfterCreate(outcome, submitted, title.value); drawControls();
   }
 
   async function move(machine: string | null) {
-    const failure = await state.locate(machine);
-    if (failure) ctx.say(fromBack(failure), true);
+    report(await state.locate(machine));
   }
 
   function drawControls() {
@@ -69,7 +89,7 @@ export function todoList(host: HTMLElement, ctx: Context) {
     location.control.disabled = busy;
     // Writes need a list that answers; a failed read shows why in the list area.
     const writable = !!view?.items;
-    add.disabled = busy || !writable || !title.value.trim();
+    add.disabled = busy || !writable || titleProblem(title.value) !== null;
     title.disabled = !writable;
     refresh.disabled = state.loading();
     meta.textContent = state.loading() || busy ? t("todos.loading") : "";
@@ -103,10 +123,7 @@ export function todoList(host: HTMLElement, ctx: Context) {
     status.control.setAttribute("aria-label", t("todos.status.label", { title: todo.title }));
     status.control.dataset.focus = todo.id;
     status.control.disabled = state.busy();
-    status.onchange = async () => {
-      const failure = await state.setStatus(todo.id, status.value as Todo["status"]);
-      if (failure) ctx.say(fromBack(failure), true);
-    };
+    status.onchange = async () => report(await state.setStatus(todo.id, status.value as Todo["status"]));
     el.querySelector(".iact")!.append(status.control);
     return el;
   }
@@ -114,7 +131,7 @@ export function todoList(host: HTMLElement, ctx: Context) {
   return {
     show() {
       visible = true; host.hidden = false;
-      void invoke("machines").then(found => { machines = found; drawControls(); }).catch(() => {});
+      void invoke("machines").then(found => { machines = found; phase = locationPhase(machines, state.view()?.machine ?? null); drawControls(); }).catch(() => {});
       draw();
       if (stale || !state.view()) { stale = false; void state.load(); }
     },

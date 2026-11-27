@@ -28,13 +28,25 @@ no other fields, no deletion and no migration from a different board.
 | Field | Type | Rule |
 | --- | --- | --- |
 | `id` | string | A UUID v4. It does not change, and the app does not use it again. |
-| `title` | string | One line. The app removes the spaces at the start and at the end. Then the title must have 1 to 200 characters and no control characters. |
+| `title` | string | One line. The app removes the spaces at the start and at the end. Then the title must have 1 to 200 Unicode scalar values and no control characters. |
 | `status` | string | `todo`, `doing` or `completed`. A new to-do has `todo`. |
 | `created_at`, `updated_at` | number | Unix seconds. A status change updates `updated_at` only when the status is different. |
 
-A list has a maximum of 1,000 to-dos. A full list refuses a new to-do with
-`todo_list_full`. Thus a full list in one MCP response stays below the response
-limits of the two MCP servers.
+The interface counts the title with the same rule. It does not use the HTML
+`maxLength` attribute, because that attribute counts UTF-16 units. Thus a title
+of 101 emoji is correct in the interface and in the store.
+
+## Size of the list
+
+A list has a maximum of 1,000 to-dos. The serialized `items` array also has a
+maximum of 512 KiB after a new to-do. If a new to-do goes above one of these
+limits, the store refuses it with `todo_list_full`.
+
+The byte limit is necessary because a title of 200 characters can have 800
+bytes. A status change can add a maximum of 5 bytes to each to-do. Thus a full
+list stays below 768 KiB, which is the response limit of the desktop MCP. The
+host MCP has a larger limit. A compile-time check in the core keeps the three
+values in agreement.
 
 ## File
 
@@ -77,11 +89,16 @@ When the person selects a machine, the desktop does these steps:
 3. It sends `todos_enable` with `enabled: true` to the new machine.
 4. It saves the new location.
 
-If step 3 has an error, the desktop enables the previous machine again and does
-not save the location. A removed machine does not block a change of location.
-The desktop refuses to move the list away from a machine that is not connected
-(`todos_leave_offline`). If it did not refuse, the host of that machine would
-continue to serve the list to its agents.
+If step 3 has an error, the desktop enables the previous machine again. It does
+not save the location. If step 4 has an error, the desktop does the steps again
+from the new location to the saved location. Thus the hosts agree with the saved
+location, and the next selection can find the host that serves the list.
+
+A removed machine does not block a change of location. The desktop refuses to
+move the list away from a machine that is not connected
+(`todos_leave_offline`). The host of that machine cannot get the change. Thus it
+must not continue to serve the list to its agents without a desktop that shows
+the list.
 
 The desktop never uses a different list as a replacement. While the selected
 machine is offline, the tab shows the error and the list area stays empty. The
@@ -91,6 +108,20 @@ input and the status controls are disabled. MCP calls on the desktop return
 The local list and the list of a machine are different files. A change of
 location does not copy or merge to-dos. The previous list stays in its file,
 and the person can select its computer again to see it.
+
+## Connection changes
+
+When the connection to the selected machine changes, the tab reads the list
+again. The `machines` event gives the phase of each machine. Thus the tab shows
+these results:
+
+- After a disconnection, the tab shows the error. It does not show the last
+  items.
+- After a new attachment, the desktop also emits the `todos` event. The tab
+  shows the changes that the agents of the machine made while the desktop was
+  away.
+
+If the tab is not visible, it reads the list when the person opens it.
 
 ## Desktop IPC
 
@@ -108,6 +139,12 @@ The errors are translatable `todos.err.<code>` messages. The desktop emits the
 emits the event when the host of the selected machine sends its `todos` event.
 The tab reads the list again when it is visible.
 
+The tab sends one write at a time. It ignores a write that starts during a
+different write, and it reports that write as ignored, not as complete. The
+person can type in the title field while the tab sends a new to-do. When the
+create is complete, the tab clears the field only if it contains the text that
+the tab sent. Thus a person does not lose a new draft.
+
 ## Host methods
 
 The attachment of the desktop and the agent socket accept these methods. The
@@ -123,9 +160,12 @@ methods add to protocol 1 and to agent protocol 1.
 While `enabled` is false, the first three methods return `todos_not_here`. Thus
 an agent on a machine cannot fill a list that no desktop shows. A new machine
 has no file, and its list is disabled. After each change, the host sends
-`{"event":"todos"}` to each attachment. `todos_create` and `todos_set_status`
-delay a `shutdown` that is not forced, as other agent requests that change the
-machine do.
+`{"event":"todos"}` to each attachment.
+
+`todos_create`, `todos_set_status` and `todos_enable` delay a `shutdown` that
+is not forced. This rule applies to the attachment and to the agent socket.
+After a shutdown starts, these methods return `host_stopping`. Thus an update of
+the host does not stop the host during a write of the list.
 
 ## MCP tools
 
@@ -139,13 +179,18 @@ same three tools with the same descriptions:
 | `set_todo_status` | `id`, `status` (`todo`, `doing` or `completed`) | the changed to-do |
 
 `list_todos` is read-only. The host MCP sends it again after a lost
-connection. A status change to the current status changes nothing, so a retry
-is safe. A `create_todo` that loses its connection has an unknown outcome. The
-client must read the list before it tries again. The tools return errors as
-`isError` results with a stable code: `title_required`, `title_too_long`,
-`invalid_title`, `invalid_status`, `todo_not_found`, `todo_list_full`,
-`todos_not_here`, `todos_not_allowed`, `machine_offline`, `machine_unknown` or
-`host_update_required`.
+connection. A status change to the current status changes nothing. Thus a
+client can send the same status change again. A `create_todo` that loses its
+connection has an unknown outcome. The client must read the list before it
+tries again.
+
+The tools return errors as `isError` results with a stable code:
+
+- `title_required`, `title_too_long` and `invalid_title`.
+- `invalid_status` and `todo_not_found`.
+- `todo_list_full`.
+- `todos_not_here` and `todos_not_allowed`.
+- `machine_offline`, `machine_unknown` and `host_update_required`.
 
 On the desktop, the tools use the location that the person selected. If that
 location is a machine, the desktop sends the host methods through the current
@@ -187,18 +232,22 @@ the credentials in the table.
 
 - The selection of a machine is for each desktop. If two desktops follow the
   same machine, one desktop can disable the list of that machine for the other
-  desktop. The other desktop then shows `todos_not_here` and the person can
-  select the machine again.
+  desktop. The other desktop then shows `todos_not_here`. The **Try again**
+  action selects the machine again.
 - A host request that has no answer in its time limit returns
   `machine_offline`. The outcome of a write in that condition is unknown. The
   next read shows the result.
+- If the save of the location and the return to the previous hosts both have
+  an error, the hosts and the saved location can disagree. The next selection
+  of a machine corrects that machine.
 - The list has no deletion and no order that a person can change.
 
 ## Evidence
 
 - `crates/core/src/todos.rs`: the title rules, the initial status, the stable
   ID, the reload, a write that has an error, newer and damaged files, older
-  files, the limit and writers at the same time.
+  files, the item limit, the byte limit with titles of four-byte characters and
+  writers at the same time.
 - `crates/host/src/todos.rs`: `todos_not_here`, `todos_enable` only from the
   attachment, input errors and a reload after a new daemon.
 - `crates/host/tests/agents.rs`,
@@ -208,12 +257,17 @@ the credentials in the table.
   the other side. The test also examines `todos` events, invalid input, 40 writes
   from four connections at the same time, the list after a new daemon and the
   stop of the service after `todos_enable` with false.
+- `crates/host/tests/agents.rs`, `an_update_waits_for_a_desktop_todo_write`: a
+  FIFO holds a write from one attachment. A shutdown that is not forced from a
+  different attachment gets `host_busy` until the write is complete.
 - `src-tauri/src/todos.rs`: the local list without a machine, the same list
-  through a machine, no local replacement while offline, the location changes
-  and the access rules of clients.
+  through a machine, no local replacement while offline, the location changes,
+  the return of the hosts after a save error, the shared response limit and the
+  access rules of clients.
 - `src-tauri/src/mcp_access.rs`: the explicit `--todos` grant and credentials
   from earlier versions.
 - `src-tauri/src/embedded_mcp.rs`: the tool schemas and the refusal of extra or
   invalid arguments.
 - `src/todos-model.test.ts`: the order, the screen states, the location
-  options, the request sequence and one write at a time.
+  options, the request sequence, ignored writes, the drafts during a create,
+  the Unicode count and the reload after a connection change.

@@ -9,12 +9,41 @@ export type TodosView = { machine: string | null; items: Todo[] | null; error: s
 
 export const MAX_TITLE = 200;
 
-/// The same rule as `prometeu_core::todos::title`: one trimmed line of 1 to 200 characters.
-export function todoTitle(raw: string): string | null {
+export type TitleProblem = "title_required" | "invalid_title" | "title_too_long";
+
+/// The same rule and the same codes as `prometeu_core::todos::title`: one trimmed line of 1 to 200
+/// Unicode scalar values. The input must not use `maxLength`, which counts UTF-16 units.
+export function titleProblem(raw: string): TitleProblem | null {
   const title = raw.trim();
-  if (!title || /[\u0000-\u001f\u007f-\u009f]/.test(title) || [...title].length > MAX_TITLE) return null;
-  return title;
+  if (!title) return "title_required";
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(title)) return "invalid_title";
+  return [...title].length > MAX_TITLE ? "title_too_long" : null;
 }
+
+export function todoTitle(raw: string): string | null {
+  return titleProblem(raw) ? null : raw.trim();
+}
+
+/// The phase of the machine that keeps the list, or null for this computer.
+export function locationPhase(machines: readonly { id: string; phase: string }[], machine: string | null): string | null {
+  return machine ? machines.find(item => item.id === machine)?.phase ?? "removed" : null;
+}
+
+/// The draft after a create ends. Only a completed create clears it, and only when the person did
+/// not type a new draft while the request was pending.
+export function draftAfterCreate(outcome: WriteOutcome, submitted: string, current: string): string {
+  return outcome.kind === "done" && current === submitted ? "" : current;
+}
+
+/// Whether a `machines` update makes the shown list old. A machine that disconnects must show its
+/// error instead of its last items, and a machine that comes back must show what its agents changed.
+export function followConnection(previous: string | null, machines: readonly { id: string; phase: string }[], machine: string | null) {
+  const phase = locationPhase(machines, machine);
+  return { phase, reload: machine !== null && phase !== previous };
+}
+
+/// `ignored` means that another write was pending, so this one was not sent.
+export type WriteOutcome = { kind: "done" } | { kind: "ignored" } | { kind: "failed"; error: unknown };
 
 /// Work in progress first, then what waits, then what is done; the newest change first in each.
 export function orderTodos(items: readonly Todo[]): Todo[] {
@@ -69,14 +98,14 @@ export function todoState(invoke: Invoke, changed: () => void) {
   }
 
   /// Writes go one at a time. A failure keeps the list and returns the error for the caller.
-  async function write(run: () => Promise<unknown>): Promise<unknown | null> {
-    if (busy) return null;
+  async function write(run: () => Promise<unknown>): Promise<WriteOutcome> {
+    if (busy) return { kind: "ignored" };
     busy = true; changed();
     try {
       await run();
-      return null;
-    } catch (cause) {
-      return cause;
+      return { kind: "done" };
+    } catch (error) {
+      return { kind: "failed", error };
     } finally {
       busy = false;
       await load();
@@ -88,9 +117,9 @@ export function todoState(invoke: Invoke, changed: () => void) {
     loading: () => loading,
     busy: () => busy,
     load,
-    create: (raw: string) => {
-      const title = todoTitle(raw);
-      return title === null ? Promise.resolve<unknown>("invalid") : write(() => invoke("todo_create", { title }));
+    create: (raw: string): Promise<WriteOutcome> => {
+      const problem = titleProblem(raw);
+      return problem ? Promise.resolve({ kind: "failed", error: problem }) : write(() => invoke("todo_create", { title: raw.trim() }));
     },
     setStatus: (id: string, status: TodoStatus) => write(() => invoke("todo_set_status", { id, status })),
     locate: (machine: string | null) => write(async () => { view = await invoke("todos_locate", { machine }); }),

@@ -727,8 +727,6 @@ const MUTATING: &[&str] = &[
     "workspace_supervisor_set",
     "workspace_supervisor_remove",
     "workspace_pr_link",
-    "todos_create",
-    "todos_set_status",
 ];
 static MUTATIONS: AtomicUsize = AtomicUsize::new(0);
 static STOPPING: AtomicBool = AtomicBool::new(false);

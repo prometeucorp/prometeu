@@ -7,8 +7,16 @@ use std::sync::Mutex;
 pub const VERSION: u32 = 1;
 /// Characters, after trimming.
 pub const MAX_TITLE: usize = 200;
-/// Bounds the file and keeps a full list inside every MCP response limit.
 pub const MAX_ITEMS: usize = 1000;
+/// The largest serialized `items` array that a new to-do can make. A status change can add at
+/// most [`STATUS_GROWTH`] bytes for each item, so a full list stays below [`RESPONSE_LIMIT`].
+pub const MAX_LIST_BYTES: usize = 512 * 1024;
+/// `"completed"` is five bytes longer than `"todo"`.
+pub const STATUS_GROWTH: usize = 5;
+/// The smallest response limit of the MCP servers that return the list: the desktop bridge.
+pub const RESPONSE_LIMIT: usize = 768 * 1024;
+// A full list after every possible status change, with room for the envelope of a response.
+const _: () = assert!(MAX_LIST_BYTES + MAX_ITEMS * STATUS_GROWTH + 1024 < RESPONSE_LIMIT);
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -81,6 +89,11 @@ impl TodoList {
             updated_at: now,
         };
         self.items.push(todo.clone());
+        // Titles of multibyte characters fill the bytes before the count of items.
+        if serde_json::to_vec(&self.items).map_or(true, |bytes| bytes.len() > MAX_LIST_BYTES) {
+            self.items.pop();
+            return Err("todo_list_full".into());
+        }
         Ok(todo)
     }
 
@@ -250,6 +263,22 @@ mod tests {
             list.create(&format!("item {n}"), 1).unwrap();
         }
         assert_eq!(list.create("one more", 1).unwrap_err(), "todo_list_full");
+    }
+
+    #[test]
+    fn every_list_that_create_accepts_fits_one_response() {
+        // The largest titles in bytes: 200 four-byte characters each.
+        let wide = "😀".repeat(MAX_TITLE);
+        let mut list = TodoList::default();
+        while list.create(&wide, u64::MAX).is_ok() {}
+        assert!(list.items.len() < MAX_ITEMS);
+        for todo in &mut list.items {
+            todo.status = Status::Completed;
+        }
+        let response = serde_json::to_vec(&serde_json::json!({"items": list.items})).unwrap();
+        assert!(response.len() <= MAX_LIST_BYTES + list.items.len() * STATUS_GROWTH + 16);
+        assert!(response.len() < RESPONSE_LIMIT);
+        assert_eq!(list.create("x", 1).unwrap_err(), "todo_list_full");
     }
 
     #[test]

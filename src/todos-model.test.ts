@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { locationOptions, orderTodos, todoScreen, todoState, todoTitle, type Todo, type TodosView } from "./todos-model";
+import { draftAfterCreate, followConnection, locationOptions, orderTodos, titleProblem, todoScreen, todoState, todoTitle, type Todo, type TodosView } from "./todos-model";
 import { EN } from "./i18n.en";
 
 const todo = (id: string, status: Todo["status"], updated_at = 1): Todo => ({ id, title: id, status, created_at: 1, updated_at });
@@ -10,6 +10,28 @@ it("accepts one trimmed line of 1 to 200 characters, as the backend does", () =>
   expect(todoTitle("one\ntwo")).toBeNull();
   expect(todoTitle("é".repeat(200))).toBe("é".repeat(200));
   expect(todoTitle("x".repeat(201))).toBeNull();
+});
+
+it("counts Unicode characters, not UTF-16 units, with the backend codes", () => {
+  // 101 emoji are 202 UTF-16 units; an HTML maxLength of 200 would refuse them.
+  expect(todoTitle("😀".repeat(101))).toBe("😀".repeat(101));
+  expect(titleProblem("😀".repeat(200))).toBeNull();
+  expect(titleProblem("😀".repeat(201))).toBe("title_too_long");
+  expect(titleProblem(" ")).toBe("title_required");
+  expect(titleProblem("a\tb")).toBe("invalid_title");
+  for (const code of ["title_required", "invalid_title", "title_too_long"]) expect(EN[`todos.err.${code}` as keyof typeof EN]).toBeTruthy();
+});
+
+it("reloads a machine list when its connection changes, and never for this computer", () => {
+  const machines = (phase: string) => [{ id: "vm", phase }];
+  let follow = followConnection(null, machines("connected"), "vm");
+  expect(follow).toEqual({ phase: "connected", reload: true });
+  expect(followConnection(follow.phase, machines("connected"), "vm").reload).toBe(false);
+  follow = followConnection(follow.phase, machines("connecting"), "vm");
+  expect(follow.reload).toBe(true);
+  expect(followConnection(follow.phase, machines("connected"), "vm").reload).toBe(true);
+  expect(followConnection("connected", [], "vm")).toEqual({ phase: "removed", reload: true });
+  expect(followConnection(null, machines("offline"), null)).toEqual({ phase: null, reload: false });
 });
 
 it("shows work in progress first, then waiting work, then completed work", () => {
@@ -59,19 +81,19 @@ it("creates with status todo, changes status and reloads the list after each wri
   const state = todoState(invoke as never, () => {});
   await state.load();
   expect(todoScreen(state.view()).kind).toBe("empty");
-  expect(await state.create("  Write docs ")).toBeNull();
+  expect(await state.create("  Write docs ")).toEqual({ kind: "done" });
   expect(invoke).toHaveBeenCalledWith("todo_create", { title: "Write docs" });
   expect(state.view()!.items![0].status).toBe("todo");
-  expect(await state.setStatus("Write docs", "completed")).toBeNull();
+  expect(await state.setStatus("Write docs", "completed")).toEqual({ kind: "done" });
   expect(state.view()!.items![0].status).toBe("completed");
-  expect(await state.setStatus("missing", "doing")).toBe("todo_not_found");
+  expect(await state.setStatus("missing", "doing")).toEqual({ kind: "failed", error: "todo_not_found" });
   expect(state.view()!.items).toHaveLength(1);
 });
 
 it("never sends an invalid title", async () => {
   const { invoke } = backend();
   const state = todoState(invoke as never, () => {});
-  expect(await state.create("  ")).toBe("invalid");
+  expect(await state.create("  ")).toEqual({ kind: "failed", error: "title_required" });
   expect(invoke).not.toHaveBeenCalledWith("todo_create", expect.anything());
 });
 
@@ -79,9 +101,9 @@ it("keeps the current location when a machine cannot take the list", async () =>
   const { invoke } = backend();
   const state = todoState(invoke as never, () => {});
   await state.load();
-  expect(await state.locate("offline")).toBe("machine_offline");
+  expect(await state.locate("offline")).toEqual({ kind: "failed", error: "machine_offline" });
   expect(state.view()!.machine).toBeNull();
-  expect(await state.locate("vm")).toBeNull();
+  expect(await state.locate("vm")).toEqual({ kind: "done" });
   expect(state.view()!.machine).toBe("vm");
 });
 
@@ -100,7 +122,7 @@ it("shows the newest answer when reloads overlap and keeps the failure visible",
   expect(todoScreen(failing.view())).toEqual({ kind: "error", message: "machine_offline" });
 });
 
-it("ignores a second write while one is pending", async () => {
+it("reports a second write during a pending one as ignored, not as done", async () => {
   let release = () => {};
   const invoke = vi.fn(async (command: string) => {
     if (command === "todo_create") await new Promise<void>(done => { release = done; });
@@ -109,7 +131,15 @@ it("ignores a second write while one is pending", async () => {
   const state = todoState(invoke as never, () => {});
   const first = state.create("one");
   expect(state.busy()).toBe(true);
-  expect(await state.create("two")).toBeNull();
-  release(); await first;
+  expect(await state.create("two")).toEqual({ kind: "ignored" });
+  release();
+  expect(await first).toEqual({ kind: "done" });
   expect(invoke.mock.calls.filter(([command]) => command === "todo_create")).toHaveLength(1);
+});
+
+it("keeps a draft typed during a pending create, and any draft when the create did not complete", () => {
+  expect(draftAfterCreate({ kind: "done" }, "first", "first")).toBe("");
+  expect(draftAfterCreate({ kind: "done" }, "first", "second")).toBe("second");
+  expect(draftAfterCreate({ kind: "ignored" }, "first", "first")).toBe("first");
+  expect(draftAfterCreate({ kind: "failed", error: "machine_offline" }, "first", "first")).toBe("first");
 });

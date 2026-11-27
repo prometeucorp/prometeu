@@ -257,12 +257,29 @@ fn locate(machines: &dyn Machines, machine: Option<String>) -> Result<(), String
     static LOCATING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _one = crate::lock::lock(&LOCATING);
     let current = location()?;
-    let next = Location { machine };
-    switch(&current, &next, machines)?;
-    paths::write_private(
-        &location_path(),
-        &serde_json::to_string(&next).map_err(|e| e.to_string())?,
-    )
+    relocate(&current, &Location { machine }, machines, |next| {
+        paths::write_private(
+            &location_path(),
+            &serde_json::to_string(next).map_err(|e| e.to_string())?,
+        )
+    })
+}
+
+/// Change the hosts, then save the location. If the save fails, the saved location still names
+/// `current`, so put the hosts back as `current` needs them: a later selection starts from the
+/// saved location and could not find the host that this call enabled.
+pub fn relocate(
+    current: &Location,
+    next: &Location,
+    machines: &dyn Machines,
+    save: impl FnOnce(&Location) -> Result<(), String>,
+) -> Result<(), String> {
+    switch(current, next, machines)?;
+    if let Err(error) = save(next) {
+        let _ = switch(next, current, machines);
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// Enable the next host before the current location is saved; disable the previous one first so
@@ -327,12 +344,19 @@ mod tests {
     }
 
     /// A machine whose host keeps its own list, as `prometeu-host` does, and that can go offline.
+    /// Two configured machines, `vm` and `box`. Only `vm` holds items in these tests.
     #[derive(Default)]
     struct Fake {
         online: Mutex<bool>,
-        enabled: Mutex<bool>,
+        enabled: Mutex<std::collections::HashMap<String, bool>>,
         list: Memory,
         calls: Mutex<Vec<String>>,
+    }
+
+    impl Fake {
+        fn serving(&self, machine: &str) -> bool {
+            self.enabled.lock().unwrap().get(machine) == Some(&true)
+        }
     }
 
     impl Machines for Fake {
@@ -341,17 +365,20 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(format!("{machine} {method}"));
-            if machine != "vm" {
+            if machine != "vm" && machine != "box" {
                 return Err("machine_unknown".into());
             }
             if !*self.online.lock().unwrap() {
                 return Err("machine_offline".into());
             }
             if method == "todos_enable" {
-                *self.enabled.lock().unwrap() = params["enabled"].as_bool().unwrap();
+                self.enabled
+                    .lock()
+                    .unwrap()
+                    .insert(machine.into(), params["enabled"].as_bool().unwrap());
                 return Ok(json!({}));
             }
-            if !*self.enabled.lock().unwrap() {
+            if !self.serving(machine) {
                 return Err("todos_not_here".into());
             }
             let store = TodoStore::new(self.list.clone());
@@ -441,13 +468,55 @@ mod tests {
         );
         *machines.online.lock().unwrap() = true;
         switch(&vm(), &here(), &machines).unwrap();
-        assert!(!*machines.enabled.lock().unwrap());
+        assert!(!machines.serving("vm"));
         // A removed machine does not block the way back.
         let gone = Location {
             machine: Some("gone".into()),
         };
         switch(&gone, &here(), &machines).unwrap();
         assert!(switch(&here(), &gone, &machines).is_err());
+    }
+
+    #[test]
+    fn a_failed_save_puts_the_hosts_back_as_the_saved_location_names_them() {
+        let machines = Fake::default();
+        *machines.online.lock().unwrap() = true;
+        let boxed = Location {
+            machine: Some("box".into()),
+        };
+        let disk_full = |_: &Location| Err::<(), String>("disk full".into());
+        // From this computer to a machine.
+        assert_eq!(
+            relocate(&here(), &vm(), &machines, disk_full).unwrap_err(),
+            "disk full"
+        );
+        assert!(!machines.serving("vm"));
+        // From one machine to another.
+        switch(&here(), &vm(), &machines).unwrap();
+        assert_eq!(
+            relocate(&vm(), &boxed, &machines, disk_full).unwrap_err(),
+            "disk full"
+        );
+        assert!(machines.serving("vm") && !machines.serving("box"));
+        // From a machine back to this computer.
+        assert!(relocate(&vm(), &here(), &machines, disk_full).is_err());
+        assert!(machines.serving("vm"));
+        let mut saved = None;
+        relocate(&vm(), &boxed, &machines, |next| {
+            saved = Some(next.clone());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(saved, Some(boxed));
+        assert!(!machines.serving("vm") && machines.serving("box"));
+    }
+
+    #[test]
+    fn the_desktop_mcp_limit_is_the_one_that_bounds_the_list() {
+        assert_eq!(
+            prometeu_core::todos::RESPONSE_LIMIT,
+            crate::embedded_mcp::RESPONSE_LIMIT
+        );
     }
 
     #[test]

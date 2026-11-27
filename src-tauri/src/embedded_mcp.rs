@@ -21,6 +21,8 @@ use tauri::{AppHandle, Manager};
 pub const ID: &str = "prometeu";
 const MAX_FRAME: usize = 1024 * 1024;
 const VERSION: &str = "2025-06-18";
+/// Results larger than this fail; `prometeu_core::todos` sizes the list below it.
+pub const RESPONSE_LIMIT: usize = 768 * 1024;
 
 struct Runtime {
     directory: PathBuf,
@@ -134,7 +136,7 @@ fn handle_connection(
     } else {
         delegation::call(app, &owner, name, &request["arguments"])?
     };
-    if result.to_string().len() > 768 * 1024 {
+    if result.to_string().len() > RESPONSE_LIMIT {
         return Err("response_too_large: request fewer items".into());
     }
     Ok(result)

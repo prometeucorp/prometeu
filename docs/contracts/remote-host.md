@@ -142,9 +142,9 @@ again in these conditions:
 
 The desktop does not do this check while one of its requests waits for a reply.
 The `shutdown` check of the host continues to make the decision. `exec`,
-`file_write` and `terminal_open` delay a `shutdown` that is not forced, as the
-agent requests that change the machine do. After a shutdown starts, these
-requests return the error `host_stopping`.
+`file_write`, `terminal_open` and the writes of the to-do list delay a
+`shutdown` that is not forced, as the agent requests that change the machine
+do. After a shutdown starts, these requests return the error `host_stopping`.
 
 ## Framing
 
@@ -585,8 +585,8 @@ creator.
 Requests that change the machine delay a `shutdown` that is not forced. These
 requests are `project_add`, `project_clone`, `workspace_create`,
 `conversation_open`, `conversation_send`, `conversation_interrupt`,
-`workspace_close`, `todos_create` and `todos_set_status`. After a shutdown starts, they return the error
-`host_stopping`.
+`workspace_close`, `todos_create` and `todos_set_status`. After a shutdown
+starts, they return the error `host_stopping`.
 
 The token lets a client run commands as the user of the host. Thus, only that
 user must have write permission for the folder of the socket. A person who can
