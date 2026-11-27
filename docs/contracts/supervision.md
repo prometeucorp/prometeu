@@ -13,6 +13,12 @@ that the desktop makes, and a network transport from the local MCP back to the
 Cloud. The external supervisor uses the current remote MCP to read data and to
 send instructions. The Cloud does not operate agents.
 
+The remote host observes Claude through hooks and Codex through its native RPC.
+The two adapters use the same portable execution rules and durable outbox.
+Codex history replay does not publish completed executions from earlier turns.
+A reconnect reconciles work that the observer saw before the disconnection.
+Unknown child state does not prove completion.
+
 ## Destination and host setup
 
 The Supervisor settings of the Cloud account configure one HTTPS webhook
@@ -490,8 +496,9 @@ ownership of the local MCP and the agents of each provider do not change. Future
 local executors can use the same IDs, events and link model. But they must have
 their own authenticated transport back from the Cloud and their own grants.
 
-Host registry writes use version 2. When the host writes, it changes version 1
-records to version 2. Older hosts refuse that version. They do not write the
+Host registry writes use version 3. When the host writes, it changes version 1
+and 2 records to version 3. This format also keeps the provider and native thread
+identity of Codex conversations. Older hosts refuse that version. They do not write the
 registry again without the links and the events in the queue. Before a
 downgrade, keep a compatible host and keep the registry.
 

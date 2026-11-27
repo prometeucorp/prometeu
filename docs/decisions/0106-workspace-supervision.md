@@ -32,8 +32,8 @@ It is not a queue for automation.
 An optional supervisor binding is part of a workspace. The creator of the
 workspace has no effect on the binding. The first executor is the remote host.
 The portable `prometeu-core::supervision` module owns the metadata types and the
-rules for the observation of the execution. The host adapts Claude hooks,
-stores the state and sends HTTP requests.
+rules for the observation of the execution. The host adapts Claude hooks and
+Codex RPC events, stores the state and sends HTTP requests.
 
 In this version, the Cloud keeps one supervisor destination for each account,
 and the person can configure it. The Cloud owns the HTTPS callback URL, the
@@ -182,8 +182,9 @@ it must add two items:
 ## Compatibility and evidence
 
 Workspaces without supervision keep the current behavior. Additions to the host
-registry use defaults. When the host writes the registry, version 1 records
-migrate to version 2. Hosts from earlier versions do not write that version
+registry use defaults. When the host writes the registry, version 1 and 2 records
+migrate to version 3. This version also keeps the provider and native thread
+identity from [ADR 0103](0103-agents-on-remote-machines.md). Hosts from earlier versions do not write that version
 again. For a downgrade, keep that file and a compatible host. Current MCP calls
 do not need new arguments. When the person removes the supervision, the events
 stop, but the workspace stays open. Retries give at-least-once delivery. They

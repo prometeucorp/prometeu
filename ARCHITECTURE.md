@@ -125,6 +125,11 @@ output sequence. External clients use the local stdio MCP of the host, which
 authenticates them. The integrator is responsible for the deployment and the
 infrastructure of the client.
 
+The host MCP can start Claude or Codex without a connected desktop. An omitted
+provider selects Claude. The host keeps the native Codex thread identity and
+reads its RPC for state and compact MCP messages. The desktop adopts the same
+thread when it attaches ([ADR 0103](docs/decisions/0103-agents-on-remote-machines.md)).
+
 Claude and Codex run on the remote machine. The engine of a Codex conversation
 also runs on the machine. The desktop reads its RPC through a relay terminal
 ([ADR 0105](docs/decisions/0105-codex-on-remote-machines.md)). See

@@ -15,6 +15,7 @@
 //!   newline-delimited JSON on its terminal (ADR 0105).
 mod agents;
 mod client;
+mod codex_agent;
 mod mcp;
 mod registry;
 mod server;

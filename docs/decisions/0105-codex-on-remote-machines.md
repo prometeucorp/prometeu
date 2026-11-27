@@ -72,9 +72,10 @@ Use option 4.
   desktop opens `codex --remote unix://… resume <thread>` as the TUI terminal
   `<tab>` of the conversation.
 - Prometeu does not install hooks for remote Codex. The local terminal path
-  also discards Codex hooks. The registry of the host does not show Codex
-  conversations to agent clients, because these clients resume only Claude
-  ([ADR 0103](0103-agents-on-remote-machines.md)).
+  also discards Codex hooks. The host registry records the provider and the
+  native thread ID. Agent clients can start, read and resume Codex through the
+  host MCP ([ADR 0103](0103-agents-on-remote-machines.md)). The host observer
+  keeps the compact MCP transcript independently of desktop attachments.
 - When the SSH connection stops, the relay continues to run. The reattachment
   replays the lines of the relay that the desktop did not get, as for all
   terminal output. Sometimes the host cannot replay the gap (more than its

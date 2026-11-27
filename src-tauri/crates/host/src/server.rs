@@ -300,6 +300,7 @@ pub(crate) struct Host {
     pub(crate) supervision: Arc<crate::supervision::Supervision>,
     pub(crate) todos: crate::todos::Store,
     activity: Mutex<HashMap<String, Activity>>,
+    pub(crate) codex_watch: Mutex<HashMap<String, u32>>,
 }
 
 pub(crate) fn now() -> u64 {
@@ -475,6 +476,112 @@ impl Host {
         activity
     }
 
+    pub(crate) fn terminal_pid(&self, id: &str) -> Option<u32> {
+        lock(&self.terminals)
+            .get(id)
+            .filter(|t| lock(&t.ring).running)
+            .map(|t| t.pid)
+    }
+
+    /// A late observer cannot change the state or stop a replacement engine.
+    pub(crate) fn codex_activity(
+        &self,
+        id: &str,
+        pid: u32,
+        state: &'static str,
+        notification: Option<String>,
+    ) {
+        let watches = lock(&self.codex_watch);
+        if watches.get(id) != Some(&pid) {
+            return;
+        }
+        let mut activity = lock(&self.activity);
+        let entry = activity.entry(id.into()).or_default();
+        entry.state = if state == "idle" && !entry.background.is_empty() {
+            "working"
+        } else {
+            state
+        };
+        entry.at = now();
+        entry.notification = notification;
+    }
+
+    /// Keep native lifecycle facts and their activity snapshot in the same order as hooks.
+    pub(crate) fn codex_observe(
+        &self,
+        id: &str,
+        pid: u32,
+        observation: prometeu_core::supervision::Observation,
+    ) -> Result<(), String> {
+        use prometeu_core::supervision::Observation;
+        let watches = lock(&self.codex_watch);
+        if watches.get(id) != Some(&pid) {
+            return Ok(());
+        }
+        let mut activity = lock(&self.activity);
+        self.supervision.observe(id, observation.clone())?;
+        let entry = activity.entry(id.into()).or_default();
+        entry.at = now();
+        entry.notification = None;
+        match observation {
+            Observation::Started => {
+                entry.main_done = false;
+                entry.state = "working";
+            }
+            Observation::Working => {
+                entry.state = if entry.main_done && entry.background.is_empty() {
+                    "idle"
+                } else {
+                    "working"
+                };
+            }
+            Observation::Blocked => entry.state = "permission",
+            Observation::Completed => {
+                entry.main_done = true;
+                entry.state = if entry.background.is_empty() {
+                    "idle"
+                } else {
+                    "working"
+                };
+            }
+            Observation::Failed | Observation::Interrupted => {
+                entry.main_done = false;
+                entry.background.clear();
+                entry.state = "idle";
+            }
+            Observation::BackgroundStarted(child) => {
+                entry.background.insert(child);
+                entry.state = "working";
+            }
+            Observation::BackgroundFinished(child) => {
+                entry.background.remove(&child);
+                if entry.main_done && entry.background.is_empty() {
+                    entry.state = "idle";
+                }
+            }
+            Observation::Exited { .. } => {
+                entry.background.clear();
+                entry.main_done = false;
+                entry.state = "ended";
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn end_pid(&self, id: &str, pid: u32) {
+        let term = lock(&self.terminals).get(id).cloned();
+        if let Some(term) = term.filter(|t| t.pid == pid) {
+            term.process.control.terminate();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while lock(&term.ring).running && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if lock(&term.ring).running {
+                term.process.control.kill();
+            }
+        }
+    }
+
     /// Write raw input to a running terminal.
     pub(crate) fn write(&self, id: &str, data: &[u8]) -> Result<(), String> {
         let term = find(self, id)?;
@@ -595,6 +702,7 @@ fn describe(root: &Path, scopes: bool, linger: bool, release: Option<&str>) -> V
         "scopes": scopes,
         // Several desktops may stay attached at once (ADR 0104).
         "clients": true,
+        "codex_agents": true,
     })
 }
 
@@ -646,6 +754,7 @@ pub fn serve(root: &Path, release: Option<&str>) -> Result<(), String> {
         supervision,
         todos: crate::todos::store(root),
         activity: Mutex::new(HashMap::new()),
+        codex_watch: Mutex::new(HashMap::new()),
     });
     host.supervision.start();
     crate::agents::listen(host.clone());
@@ -907,6 +1016,7 @@ fn dispatch(
         "terminal_open" => {
             let _change = crate::agents::Mutation::begin()?;
             let opened = open(host, params)?;
+            crate::codex_agent::watch_registered(host);
             // The desktop that opened a terminal drives its size until another one types.
             let term = find(host, &terminal_id(params)?)?;
             *lock(&term.size) = Sizing {
@@ -1065,7 +1175,7 @@ fn dispatch(
             json!({})
         }
         "stats" => stats(host, params),
-        "registry_list" => crate::agents::registry_view(host)?,
+        "registry_list" => crate::agents::registry_view(host, params["codex_agents"] == true)?,
         "registry_put" => crate::agents::registry_put(host, params)?,
         "registry_close" => crate::agents::registry_close(host, params)?,
         "todos_list" | "todos_create" | "todos_set_status" | "todos_enable" => {
@@ -1311,21 +1421,32 @@ pub(crate) fn open_reserved(
         let code = waiter.wait().ok();
         // A background process that inherited the PTY can keep it open; do not wait for it forever.
         let _ = output_done.recv_timeout(DRAIN_WAIT);
+        let codex = exit_host.registry.read().ok().is_some_and(|registry| {
+            registry
+                .conversation(&exit_term.id)
+                .is_some_and(|(_, conversation)| {
+                    conversation.provider == crate::registry::Provider::Codex
+                })
+        });
         let mut ring = lock(&exit_term.ring);
         // Retire the old execution before exposing the stopped terminal. A sender that sees
         // `running == false` may immediately resume it under a new execution ID.
         let mut activity = lock(&exit_host.activity);
         let state = activity.entry(exit_term.id.clone()).or_default();
         state.state = "ended";
-        state.background.clear();
-        state.main_done = false;
-        if let Err(error) = exit_host.supervision.observe(
-            &exit_term.id,
-            prometeu_core::supervision::Observation::Exited {
-                success: code == Some(0),
-            },
-        ) {
-            eprintln!("could not persist supervision process exit: {error}");
+        // Codex's RPC observer owns retirement after its final native snapshot. The TUI can
+        // exit before the last completed item reaches that observer.
+        if !codex {
+            state.background.clear();
+            state.main_done = false;
+            if let Err(error) = exit_host.supervision.observe(
+                &exit_term.id,
+                prometeu_core::supervision::Observation::Exited {
+                    success: code == Some(0),
+                },
+            ) {
+                eprintln!("could not persist supervision process exit: {error}");
+            }
         }
         ring.running = false;
         ring.code = code;
@@ -1826,6 +1947,7 @@ pub(crate) fn test_host(root: &Path) -> Arc<Host> {
         supervision,
         todos: crate::todos::store(root),
         activity: Mutex::default(),
+        codex_watch: Mutex::default(),
     })
 }
 
