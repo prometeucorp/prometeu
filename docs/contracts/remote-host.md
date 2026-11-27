@@ -185,9 +185,9 @@ outcome is unknown.
 | `terminal_attach` | `id`, `seq` | `{ data, reset, seq, running, code, pid }`, then live `output`/`exit` frames and the `hook` frames in the queue. |
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |
-| `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}` |
+| `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}`. For an observed Codex engine, waits for host shutdown after final history recovery. Refuses while its TUI operates. |
 | `terminal_stop` | `id`, `instance` | `{}`. Kills only the specified process instance. Refuses a replaced or stopped process with `terminal_changed`. |
-| `terminal_forget` | `id` | `{}`. Removes a stopped terminal and `sessions/<id>`. Refuses a terminal that operates. |
+| `terminal_forget` | `id` | `{}`. Removes a stopped terminal and `sessions/<id>`. Refuses a terminal that operates. For an observed Codex conversation, waits for final history recovery before it removes the engine socket. |
 | `terminal_list` | none | `[{ id, instance, workspace, pid, unit, started, running, code, seq }]`. Older hosts do not send `instance`. |
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`. Streams `file` events each 250 ms while this attachment is connected. |
 | `watch_flush` | `id` | `{}`, after all the bytes that the watch did not send are on the stream. |
@@ -739,9 +739,15 @@ observer refuses to load a journal larger than 64 MiB.
 Claude. The journal stays after terminal cleanup and a host restart. A new
 process resumes the recorded native thread. When the observer reconnects, it
 reads native history again and adds only missing items. When the TUI stops, the
-observer reads final history before it stops that engine. A new launch waits
-for this cleanup. Failed observation sets `starting` with a notification while
-reconnection continues.
+observer reads final history before it stops that engine. If the final read
+fails, the observer reconnects while that engine operates, even after the TUI
+exits. It does not publish an execution failure because the read failed.
+A new launch and desktop cleanup wait for this recovery. A cleanup wait that
+exceeds 26 seconds returns `codex_previous_execution_stopping` and keeps the
+engine and socket. `terminal_signal` returns `codex_engine_in_use` while the
+observed TUI operates. An explicit `terminal_stop` from the process list can
+still kill the specified process instance. Failed observation sets `starting`
+with a notification while reconnection continues; an exited TUI shows `ended`.
 
 The TUI receives messages and Escape through the usual host terminal input.
 Only registered conversations can receive MCP input. The host does not copy

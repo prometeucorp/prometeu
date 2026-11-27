@@ -1057,7 +1057,14 @@ fn dispatch(
         }
         "terminal_signal" => {
             let term = find(host, &terminal_id(params)?)?;
-            match text(params, "signal")? {
+            let signal = text(params, "signal")?;
+            if !matches!(signal, "interrupt" | "terminate" | "kill" | "hangup") {
+                return Err(format!("unknown signal {signal}"));
+            }
+            if crate::codex_agent::retire_engine(host, &term.id, term.pid)? {
+                return Ok(Some(json!({})));
+            }
+            match signal {
                 "interrupt" => term.process.control.interrupt(),
                 "terminate" => term.process.control.terminate(),
                 "kill" => term.process.control.kill(),
@@ -1071,6 +1078,9 @@ fn dispatch(
             if host.is_running(&id) {
                 return Err("terminal_running".into());
             }
+            // The TUI's session folder also holds its engine socket. Keep it until final
+            // history recovery has ended, including reconnects after the TUI's exit.
+            crate::codex_agent::retire(host, &id)?;
             // Another desktop still following the terminal has yet to collect its output and
             // hooks: keep it until that one forgets it or goes away.
             let followed = {

@@ -156,6 +156,9 @@ completed messages in a private compact transcript for MCP readers. Native
 thread, turn and item IDs remove duplicates after an observer reconnects. The
 observer reads the final native history before it stops an exited TUI's engine.
 A subsequent launch waits for that cleanup before it resumes the same thread.
+Failed final reads reconnect while the engine operates. Desktop signal and
+forget requests wait for this recovery. They do not stop the observed engine
+or remove its socket before the host completes the read.
 The transcript stays outside the temporary session folder, including after a
 host restart.
 
@@ -364,7 +367,10 @@ only.
 
 - [Codex MCP integration tests](../../src-tauri/crates/host/tests/codex_agents.rs)
   examine creation, input, reads, interruption, reconnection, resume and cleanup
-  with a native-protocol fixture. They do not use a live model.
+  with a native-protocol fixture. Final-read tests disconnect RPC after the TUI
+  exits and send concurrent desktop cleanup requests. They verify the last
+  reply and supervision completion without a false failure. They do not use a
+  live model.
 - [Desktop registry tests](../../src-tauri/src/remote/registry.rs) examine mixed
   providers, native identity and compatibility with earlier hosts.
 - [Registry tests](../../src-tauri/crates/host/src/registry.rs) examine earlier

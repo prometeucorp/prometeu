@@ -310,6 +310,22 @@ pub(crate) fn retire(host: &Host, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Desktop cleanup must not terminate an observed engine before its final native read. The
+/// observer owns shutdown; the caller keeps its original process handle for unobserved engines.
+pub(crate) fn retire_engine(host: &Host, id: &str, pid: u32) -> Result<bool, String> {
+    let Some(conversation) = id.strip_suffix("-codex") else {
+        return Ok(false);
+    };
+    if lock(&host.codex_watch).get(conversation) != Some(&pid) {
+        return Ok(false);
+    }
+    if host.is_running(conversation) {
+        return Err("codex_engine_in_use".into());
+    }
+    retire(host, conversation)?;
+    Ok(true)
+}
+
 pub(crate) fn transcript_path(host: &Host, id: &str) -> PathBuf {
     host.root.join("codex").join(format!("{id}.jsonl"))
 }
@@ -539,7 +555,9 @@ fn watch(
                 }
                 Ok::<_, String>(())
             })();
-            if !host.is_running(id) {
+            // An exited TUI still needs a successful final snapshot. Keep its engine and
+            // supervision execution until reconnect recovers that snapshot.
+            if result.is_ok() && !host.is_running(id) {
                 break;
             }
             if result.is_err() {

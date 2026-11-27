@@ -220,8 +220,16 @@ exec '{executable}' --ignored --exact fake_codex --nocapture
     }
 
     fn desktop(&self) -> Client {
+        static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let mut command = Command::new(BIN);
-        command.args(["attach", "--root"]).arg(&self.root);
+        command
+            .args(["attach", "--root"])
+            .arg(&self.root)
+            .arg("--device")
+            .arg(format!(
+                "desktop-{}",
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
         let client = Client::new(command);
         let ready = client.until(|frame| frame["event"] == "ready");
         assert_eq!(ready["codex_agents"], true);
@@ -520,6 +528,155 @@ fn codex_mcp_survives_reconnect_and_resumes_the_same_native_thread() {
     assert!(terminals.as_array().unwrap().is_empty(), "{terminals}");
 }
 
+#[test]
+fn final_history_recovers_after_the_tui_exits_and_rpc_disconnects() {
+    final_history_recovery(false);
+}
+
+#[test]
+fn desktop_cleanup_waits_for_final_history_recovery() {
+    final_history_recovery(true);
+}
+
+fn final_history_recovery(desktop_cleanup: bool) {
+    let machine = Machine::new();
+    let mut setup = UnixStream::connect(machine.root.join("host-v1.sock")).unwrap();
+    writeln!(
+        setup,
+        "{}",
+        json!({"supervision":{"action":"setup", "url":"http://127.0.0.1:9",
+        "token":"test-token", "supervisor":{"id":"reviewer","name":"Reviewer"}}})
+    )
+    .unwrap();
+    let mut response = String::new();
+    BufReader::new(setup).read_line(&mut response).unwrap();
+    assert!(
+        serde_json::from_str::<Value>(&response)
+            .unwrap()
+            .get("error")
+            .is_none(),
+        "{response}"
+    );
+    let mut mcp = machine.mcp();
+    mcp.tool("add_project", json!({"path":machine.dir.join("repo")}));
+    let workspace = mcp.tool(
+        "create_workspace",
+        json!({"project":"repo", "prompt":"First task", "provider":"codex", "supervisor_id":"reviewer"}),
+    );
+    let conversation = workspace["conversations"][0]["id"].as_str().unwrap();
+    wait("first reply", || {
+        mcp.tool("read_conversation", json!({"id":conversation}))["status"]["state"] == "idle"
+    });
+    let failures = machine
+        .dir
+        .join(format!("fail-final-history-{conversation}"));
+    let hold = machine
+        .dir
+        .join(format!("hold-final-history-{conversation}"));
+    std::fs::write(&failures, "2").unwrap();
+    std::fs::write(&hold, "").unwrap();
+    mcp.tool(
+        "send_message",
+        json!({"id":conversation,"text":"exit-with-tail"}),
+    );
+    wait("first failed final read", || {
+        std::fs::read_to_string(&failures).unwrap() == "1"
+    });
+    let mut desktop = machine.desktop();
+    let mut forgetter = machine.desktop();
+    let signal = desktop_cleanup.then(|| {
+        let engine = format!("{conversation}-codex");
+        std::thread::spawn(move || {
+            desktop.call("terminal_signal", json!({"id":engine,"signal":"terminate"}));
+            desktop.call("terminal_forget", json!({"id":engine}));
+        })
+    });
+    let forget = desktop_cleanup.then(|| {
+        let conversation = conversation.to_owned();
+        std::thread::spawn(move || {
+            forgetter.call("terminal_forget", json!({"id":conversation}));
+        })
+    });
+    wait("final read retries after exit", || {
+        std::fs::read_to_string(&failures).unwrap() == "0"
+    });
+    let events = || {
+        let registry: Value =
+            serde_json::from_slice(&std::fs::read(machine.root.join("registry.json")).unwrap())
+                .unwrap();
+        registry["supervision"]["outbox"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|event| event["kind"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+    };
+    assert!(!events().contains(&"execution.failed".into()));
+    assert_eq!(
+        events()
+            .iter()
+            .filter(|kind| *kind == "execution.completed")
+            .count(),
+        1
+    );
+    assert!(hold.exists());
+    if let Some(signal) = &signal {
+        assert!(
+            !signal.is_finished(),
+            "desktop shutdown must wait for native history"
+        );
+    }
+    if let Some(forget) = &forget {
+        assert!(
+            !forget.is_finished(),
+            "desktop cleanup must keep the engine socket"
+        );
+    }
+    assert!(machine
+        .root
+        .join("sessions")
+        .join(conversation)
+        .join("rpc")
+        .exists());
+    std::fs::remove_file(hold).unwrap();
+    if let Some(signal) = signal {
+        signal.join().unwrap();
+    }
+    if let Some(forget) = forget {
+        forget.join().unwrap();
+    }
+    wait("final reply recovered", || {
+        message_texts(&mcp.tool("read_conversation", json!({"id":conversation})))
+            .contains(&"Reply: exit-with-tail".into())
+    });
+    let mut desktop = machine.desktop();
+    wait("engine retired after recovery", || {
+        desktop
+            .call("terminal_list", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["id"] != format!("{conversation}-codex") || t["running"] == false)
+    });
+    let messages =
+        message_texts(&mcp.tool("read_conversation", json!({"id":conversation,"cursor":0})));
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|m| *m == "Reply: exit-with-tail")
+            .count(),
+        1
+    );
+    assert!(!events().contains(&"execution.failed".into()));
+    assert_eq!(
+        events()
+            .iter()
+            .filter(|kind| *kind == "execution.completed")
+            .count(),
+        2
+    );
+}
+
 fn send(socket: &mut WebSocket<UnixStream>, value: Value) -> bool {
     socket.send(Message::Text(value.to_string().into())).is_ok()
 }
@@ -672,6 +829,23 @@ fn fake_engine(dir: &Path, path: &Path, conversation: &str) {
                                 "approvalPolicy":"never","sandbox":{"type":"dangerFullAccess"},"collaborationMode":settings["collaborationMode"]})
                         }
                         "thread/turns/list" => {
+                            if dir.join(format!("tail-ready-{conversation}")).exists() {
+                                let failures =
+                                    dir.join(format!("fail-final-history-{conversation}"));
+                                let remaining = std::fs::read_to_string(&failures)
+                                    .ok()
+                                    .and_then(|s| s.parse::<u32>().ok())
+                                    .unwrap_or(0);
+                                if remaining > 0 {
+                                    std::fs::write(&failures, (remaining - 1).to_string()).unwrap();
+                                    let _ = socket.close(None);
+                                    break;
+                                }
+                                wait("release final history", || {
+                                    !dir.join(format!("hold-final-history-{conversation}"))
+                                        .exists()
+                                });
+                            }
                             let slow = dir.join(format!("slow-history-{conversation}"));
                             if slow.exists() {
                                 std::fs::remove_file(slow).unwrap();
