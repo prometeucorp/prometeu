@@ -39,6 +39,7 @@ export type Commands = {
   actions_save: { args: { catalog: Catalog }; result: void };
   add_project: { args: { path: string }; result: T.Project };
   create_project: { args: { directory: string; name: string }; result: T.Project };
+  clone_project: { args: { source: string; directory: string }; result: T.Project };
   agents: { args: undefined; result: { providers: AgentDescriptor[] } };
   archive_workspace: { args: { id: string; archived: boolean }; result: void };
   browser_back: { args: { id: string }; result: void };
@@ -111,6 +112,7 @@ export type Commands = {
   github_detail: { args: { repository: string; number: number; target: string; id: string }; result: string };
   github_issue_open: { args: { url: string }; result: void };
   github_projects: { args: undefined; result: T.GitHubProject[] };
+  github_repositories: { args: undefined; result: string[] };
   github_prepare: { args: { project: string; url: string }; result: T.GitHubPrepared };
   list_branches: { args: { project: string; host?: string | null }; result: { all: string[]; local: string[]; default: string; git: boolean } };
   list_dir: { args: { id: string; rel: string }; result: PathEntry[] };

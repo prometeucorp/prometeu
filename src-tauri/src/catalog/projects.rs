@@ -429,10 +429,70 @@ pub fn catalog_install_project(
     Ok(project)
 }
 
+/// The folder name of a clone: the last path segment of the source, without `.git`.
+fn clone_name(source: &str) -> Option<&str> {
+    let name = source.trim_end_matches('/').rsplit(['/', ':']).next()?;
+    Some(name.strip_suffix(".git").unwrap_or(name)).filter(|name| !name.is_empty())
+}
+
+/// Clone a repository that is not in a catalog into a subfolder of `directory` and register it.
+/// The source rules, the staging and the retry are the same as for catalog projects.
+#[tauri::command(async)]
+pub fn clone_project(
+    app: AppHandle,
+    source: String,
+    directory: String,
+) -> Result<Project, String> {
+    let source = source.trim();
+    let item = Portable {
+        id: clone_name(source)
+            .ok_or_else(|| i18n::t("err.project.source"))?
+            .into(),
+        source: source.into(),
+        note: String::new(),
+    };
+    validate(&item).map_err(|_| i18n::t("err.project.source"))?;
+    let directory = crate::session::expand(&directory);
+    let project = {
+        let _sync = guard();
+        let path = checkout(&item, Path::new(&directory), false)?;
+        crate::session::register_project(
+            &mut lock(&app.state::<AppState>().board),
+            &path,
+            crate::analytics::ProjectAction::Add,
+        )
+    };
+    publish(&app);
+    std::thread::spawn(move || crate::remote::fill_origins(&app, None));
+    Ok(project)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::Board;
+
+    #[test]
+    fn clone_names_come_from_the_last_source_segment() {
+        for (source, name) in [
+            ("team/app", Some("app")),
+            ("https://github.com/team/app.git", Some("app")),
+            ("https://github.com/team/app/", Some("app")),
+            ("git@github.com:team/app.git", Some("app")),
+            ("github.com/team/.git", None),
+            ("", None),
+        ] {
+            assert_eq!(clone_name(source), name, "{source}");
+        }
+        for name in ["..", ".git", "-option"] {
+            assert!(validate(&Portable {
+                id: name.into(),
+                source: "team/app".into(),
+                note: String::new()
+            })
+            .is_err());
+        }
+    }
 
     #[test]
     fn clone_errors_explain_access_without_hiding_git_diagnostics_or_exposing_url_secrets() {

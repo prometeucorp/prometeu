@@ -1205,6 +1205,10 @@ const mockCommands: IpcHandlers = {
   },
   github_detail({ target }) { return target === "workflow_run" ? "CI" : "Looks good to me, just rename the helper."; },
   github_issue_open({ url }) { console.log("open in GitHub:", url); },
+  github_repositories() {
+    if (!mockGitHubStatus().connected) throw 'i18n:{"code":"err.github.off"}';
+    return ["prometeucorp/prometeu", "prometeucorp/website"];
+  },
   github_projects() { return board.projects.filter(project => project.name === "prometeu").map(project => ({ project: project.id, repository: "prometeucorp/prometeu" })); },
   github_prepare({ url }) {
     const number = url.split("/").pop();
@@ -2856,6 +2860,20 @@ const mockCommands: IpcHandlers = {
     const project = { id: path, name, path };
     board.projects.push(project);
     emptyProjects.add(path);
+    emit("board", board);
+    return project;
+  },
+  // Mirrors catalog/projects.rs: owner/name or an https/ssh URL, cloned into its last segment.
+  clone_project({ source, directory }) {
+    source = source.trim();
+    const name = source.replace(/\/+$/, "").split(/[/:]/).pop()?.replace(/\.git$/, "") ?? "";
+    if (!name || /\s/.test(source) || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) throw 'i18n:{"code":"err.project.source"}';
+    if (!directory.startsWith("/")) throw 'i18n:{"code":"err.project.directory"}';
+    const path = `${directory.replace(/\/+$/, "")}/${name}`;
+    const existing = board.projects.find(project => project.path === path);
+    if (existing) return existing;
+    const project = { id: path, name, path };
+    board.projects.push(project);
     emit("board", board);
     return project;
   },

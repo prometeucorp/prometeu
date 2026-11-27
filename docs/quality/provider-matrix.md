@@ -104,7 +104,9 @@ the person did not request. `src/machines.test.ts` examines this selection rule.
 `src/settings-navigation.test.ts` examines the navigation compatibility.
 `e2e/projects.spec.ts` examines the browser journey through the machine selection
 and the nested registration, and the workspace prompt stays. Remote execution is
-available for Claude and Codex.
+available for Claude and Codex. **Import from GitHub** clones a repository on
+this computer before the registration. It is the same for all agents. Its tests
+are in `src-tauri/src/catalog/projects.rs`.
 
 Agent clients on the machine
 ([ADR 0103](../decisions/0103-agents-on-remote-machines.md)) start Claude or
