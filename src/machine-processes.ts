@@ -18,7 +18,8 @@ export function runningProcesses(terminals: MachineTerminal[], board: Board, mac
     const workspace = board.workspaces.find(workspace => workspace.host === machine && workspace.id === terminal.workspace);
     const tab = workspace?.tabs.find(tab => tab.id === terminal.id);
     return { ...terminal,
-      title: tab && workspace ? tabLabel(workspace, tab) : terminal.id.startsWith("claude-login-") ? t("machines.processes.login") : terminal.id,
+      title: tab && workspace ? tabLabel(workspace, tab) : terminal.id.startsWith("claude-login-") ? t("machines.processes.login")
+        : terminal.id.startsWith("codex-login-") ? t("machines.processes.codexLogin") : terminal.id,
       workspaceName: workspace?.title || terminal.workspace || t("machines.processes.noWorkspace"),
     };
   });

@@ -81,20 +81,36 @@ pub fn authorization_link(output: &str) -> Option<String> {
     None
 }
 
+/// What a login terminal printed, and how it ended once it did (`Some(None)`: it was lost).
 #[derive(Default)]
-struct Output {
-    text: String,
-    exit: Option<Option<u32>>,
+pub(super) struct Output {
+    pub(super) text: String,
+    pub(super) exit: Option<Option<u32>>,
 }
 
-struct Sink {
+/// Collects the output of a login terminal on the machine. The Codex login uses it too.
+pub(super) struct Sink {
     output: Mutex<Output>,
     changed: Condvar,
     seq: AtomicU64,
 }
 
 impl Sink {
-    fn wait_for<T>(
+    pub(super) fn new() -> Arc<Self> {
+        Arc::new(Sink {
+            output: Mutex::new(Output::default()),
+            changed: Condvar::new(),
+            seq: AtomicU64::new(0),
+        })
+    }
+
+    /// Wake the waiters without output, so that they check a flag of their own.
+    pub(super) fn wake(&self) {
+        let _output = lock(&self.output);
+        self.changed.notify_all();
+    }
+
+    pub(super) fn wait_for<T>(
         &self,
         timeout: Duration,
         mut done: impl FnMut(&Output) -> Option<T>,
@@ -207,11 +223,7 @@ fn begin(connection: &Connection) -> Result<(String, Arc<Sink>, String), String>
         json!({"id": terminal, "argv": ["claude", "auth", "login", "--claudeai"], "cwd": home,
                "cols": COLUMNS, "rows": 40}),
     )?;
-    let sink = Arc::new(Sink {
-        output: Mutex::new(Output::default()),
-        changed: Condvar::new(),
-        seq: AtomicU64::new(0),
-    });
+    let sink = Sink::new();
     connection.subscribe(&terminal, sink.clone());
     let link = sink.wait_for(LINK_WAIT, |output| {
         authorization_link(&output.text)

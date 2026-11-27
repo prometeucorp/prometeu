@@ -75,16 +75,21 @@ have no arguments for the account profile, MCP or plugins. The login and the
 configuration of the machine apply. Settings signs Claude in on the machine with
 `claude auth login --claudeai`, the browser of the person and a code that the
 person pastes. The opt-in `vps_claude_login` test examines the link with Claude
-Code 2.1.330. The person signs Codex in on the machine
-(`codex login --device-auth` through SSH). Settings and the launcher show if
-Codex is installed, if its version is 0.169.0 or newer and if it is signed in.
+Code 2.1.330. Settings signs Codex in on the machine with
+`codex login --device-auth` in a host terminal. It shows the link and the
+one-time code that the CLI prints, and Codex on the machine completes the
+sign-in. The `codex_login.rs` fixture records the output of Codex 0.172.0 with
+a stub issuer. The team did not test the sign-in with a real OpenAI account.
+Settings and the launcher
+show if Codex is installed, if its version is 0.169.0 or newer and if it is
+signed in.
 If one of these conditions is not true, the launch stops and tells the necessary
 step.
 
 | Remote behavior | Claude | Codex | Evidence |
 | --- | --- | --- | --- |
 | observation | hooks that the host sends, and a mirror copy of the transcript | the engine RPC through the `codex-relay` terminal of the host | `host.rs` relay tests, `wire.rs` tests |
-| sign-in | Settings runs `claude auth login` on the machine | the person runs `codex login --device-auth` on the machine. Prometeu shows only the status | `remote/codex.rs` tests, `src/machines.test.ts` |
+| sign-in | Settings runs `claude auth login` on the machine, and the person pastes the code back | Settings runs `codex login --device-auth` on the machine and shows the link and the one-time code. Codex completes the sign-in on the machine | `remote/login.rs` and `remote/codex_login.rs` tests, `src/machines.test.ts` |
 | SSH loss | the host replays the terminal and the hooks | the host replays the relay lines. After a gap of more than 2 MiB or a relay that stops, the desktop takes control of the conversation again from the engine history | `remote/codex.rs` tests, `host.rs` detachment test |
 | app restart | adopts the TUI that runs and the transcript binding | adopts the TUI and the engine that run, with a new relay | no test on a physical machine |
 | exit while away | adopts the stopped terminal to collect the output and the transcript | forgets the stopped TUI. Stops the orphan engine at the next attachment | `remote/codex.rs` tests |

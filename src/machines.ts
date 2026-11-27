@@ -23,6 +23,8 @@ export type HostInfo = { home: string; user: string; os: string; arch: string; v
 export type ClaudeStatus = { installed: boolean; loggedIn: boolean; email: string | null; method: string | null };
 /// Codex signs in on the machine itself (ADR 0105); only exit codes and the version line are read there.
 export type CodexStatus = { installed: boolean; version: string | null; supported: boolean; loggedIn: boolean; minimum: string };
+/// The verification link and one-time code that `codex login --device-auth` printed on the machine.
+export type CodexChallenge = { url: string; code: string };
 export type AgentsStatus = { enabled: boolean; socket: string; serving: boolean; error: string | null };
 /** Shown once after enabling agents or rotating their token: the local MCP configuration with the token. */
 export type AgentsSetup = { config: string; preview: string; moved_from: string | null };
@@ -123,6 +125,9 @@ let editing: string | null = null;
 const signing = new Map<string, string>();
 /// The agent configuration just generated, per machine. Kept only in memory until the person closes it: the token is
 /// never stored, logged or sent anywhere else (ADR 0103).
+/// A Codex device sign-in in progress, per machine. `attempt` keeps the end of a replaced sign-in from closing a newer one.
+const codexSigning = new Map<string, CodexChallenge & { attempt: number }>();
+let codexAttempts = 0;
 const agentSetups = new Map<string, { setup: AgentsSetup; ssh: string }>();
 const eventTests = new Map<string, { ssh: string; message: string }>();
 const busy = new Set<string>();
@@ -150,6 +155,31 @@ function run(id: string, redraw: () => void, say: (text: string, isError?: boole
     .catch(error => { feedback = { id, text: fromBack(error), error: true }; say(fromBack(error), true); })
     .finally(() => { busy.delete(id); redraw(); });
 }
+
+/// Start Codex's device sign-in on the machine. The backend waits for Codex to exit there and reads the new status;
+/// `done` reports that end once, unless the person cancelled or started again. Returns false when Codex was already
+/// signed in.
+export async function startCodexLogin(id: string, done: (result: { text: string; error: boolean }) => void): Promise<boolean> {
+  const challenge = await invoke("machine_codex_login", { id });
+  if (!challenge) return false;
+  const attempt = ++codexAttempts;
+  codexSigning.set(id, { ...challenge, attempt });
+  void invoke("machine_codex_login_wait", { id })
+    .then(() => ({ text: t("machines.codex.signedIn"), error: false }), error => ({ text: fromBack(error), error: true }))
+    .then(result => {
+      if (codexSigning.get(id)?.attempt !== attempt) return;
+      codexSigning.delete(id);
+      done(result);
+    });
+  return true;
+}
+
+export function cancelCodexLogin(id: string) {
+  codexSigning.delete(id);
+  void invoke("machine_codex_login_cancel", { id }).catch(() => {});
+}
+
+export const codexChallenge = (id: string): CodexChallenge | undefined => codexSigning.get(id);
 
 export function codexLine(codex: CodexStatus): string {
   if (!codex.installed) return t("machines.codex.missing");
@@ -191,7 +221,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
   const eventTest = eventTests.get(machine.id);
   if (eventTest?.ssh === machine.ssh) line(eventTest.message);
 
-  const working = busy.has(`events:${machine.id}`) || busy.has(machine.id) || busy.has(`claude:${machine.id}`) || busy.has(`agents:${machine.id}`);
+  const working = busy.has(`events:${machine.id}`) || busy.has(machine.id) || busy.has(`claude:${machine.id}`) || busy.has(`codex:${machine.id}`) || busy.has(`agents:${machine.id}`);
   const install = () => run(machine.id, redraw, say, async () => { await invoke("machine_install", { id: machine.id }); return t("machines.installed"); });
   const reconnect = () => run(machine.id, redraw, say, async () => { await invoke("machine_connect", { id: machine.id }); return null; });
   const signIn = () => run(`claude:${machine.id}`, redraw, say, async () => {
@@ -199,6 +229,16 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     signing.set(machine.id, url);
     void invoke("open_external", { url }).catch(() => {});
     return null;
+  });
+  const codex = machine.phase === "connected" ? machine.codex : undefined;
+  const codexNeedsSignIn = !!codex?.installed && codex.supported && !codex.loggedIn && !codexSigning.has(machine.id);
+  const signInCodex = () => run(`codex:${machine.id}`, redraw, say, async () => {
+    const started = await startCodexLogin(machine.id, result => {
+      feedback = { id: `codex:${machine.id}`, ...result };
+      if (result.error) say(result.text, true);
+      redraw();
+    });
+    return started ? null : t("machines.codex.signedIn");
   });
   const checkClaude = () => run(`claude:${machine.id}`, redraw, say, async () => { await invoke("machine_claude_status", { id: machine.id }); return null; });
   const testEvents = () => run(`events:${machine.id}`, redraw, say, async () => {
@@ -239,6 +279,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
   const primary = machine.phase === "not_installed" ? button(t("machines.install"), install, "pri", "machines.install")
     : offline ? button(t("machines.reconnect"), reconnect, "outline", "machines.reconnect")
     : claude?.installed && !claude.loggedIn && !signing.has(machine.id) ? button(t("machines.claude.signIn"), signIn, "pri", "machines.claude.signIn")
+    : codexNeedsSignIn ? button(t("machines.codex.signIn"), signInCodex, "pri", "machines.codex.signIn")
     : agents && !agents.enabled ? button(t("machines.agents.enable"), () => connectAgents(), "outline", "machines.agents.enable")
     : null;
   if (primary) { primary.disabled = working; act.append(primary); }
@@ -246,6 +287,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
     const at = more.getBoundingClientRect();
     menu.openAt({ x: at.right - 180, y: at.bottom + 4, anchor: more, area: "settings" }, [
       { track: "machines.edit", label: t("machines.edit"), glyph: icon("pencil"), run: () => { editing = machine.id; redraw(); } },
+      ...(codexNeedsSignIn ? [{ track: "machines.codex.signIn", label: t("machines.codex.signIn"), glyph: icon("plug"), run: signInCodex }] : []),
       ...(machine.phase === "connected" ? [{ track: "machines.claude.check", label: t("machines.claude.check"), glyph: icon("check"), run: checkClaude }] : []),
       ...(machine.phase === "connected" && machine.host?.clients ? [{ track: "machines.clients", label: t("machines.clients"), glyph: icon("signal"), run: () => showMachineClients(machine.id, machine.name) }] : []),
       ...(agents && !agents.enabled ? [{ track: "machines.agents.enable", label: t("machines.agents.enable"), glyph: icon("plug"), run: () => connectAgents() }] : []),
@@ -270,6 +312,8 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
 
   const rows: HTMLElement[] = [node];
   if (signing.has(machine.id)) rows.push(claudeLogin(machine, signing.get(machine.id)!, say, redraw));
+  const challenge = codexSigning.get(machine.id);
+  if (challenge) rows.push(codexLogin(machine, challenge, say, redraw));
   // A token made for an earlier SSH destination must never be copied into a bot for this one.
   const shown = agentSetups.get(machine.id);
   if (shown && shown.ssh !== machine.ssh) agentSetups.delete(machine.id);
@@ -278,7 +322,7 @@ function machineRows(machine: MachineView, say: (text: string, isError?: boolean
   if (machine.host && !machine.host.linger) note(t("machines.lingerOff"), "warning");
   if (machine.update_pending) note(t("machines.updatePending"), "warning");
   // Success shows in the row itself; only failures need a note.
-  if (feedback?.error && [machine.id, `claude:${machine.id}`, `agents:${machine.id}`, `events:${machine.id}`].includes(feedback.id)) note(feedback.text, "error");
+  if (feedback?.error && [machine.id, `claude:${machine.id}`, `codex:${machine.id}`, `agents:${machine.id}`, `events:${machine.id}`].includes(feedback.id)) note(feedback.text, "error");
   return rows;
 }
 
@@ -352,6 +396,28 @@ function claudeLogin(machine: MachineView, link: string, say: (text: string, isE
   const entry = h("div", "machine-claude-entry"); entry.append(field(t("machines.claude.code"), code), submit, cancel);
   panel.append(steps, open, entry);
   queueMicrotask(() => code.focus());
+  return panel;
+}
+
+/// Codex signs in on the machine with its device flow (ADR 0105): the person opens the link in this computer's browser
+/// and enters the code there. Codex on the machine finishes on its own, so there is nothing to paste back.
+function codexLogin(machine: MachineView, challenge: CodexChallenge, say: (text: string, isError?: boolean) => void, redraw: () => void): HTMLElement {
+  const panel = h("div", "machine-claude-login machine-codex-login");
+  const copy = (value: string, what: string) => void navigator.clipboard.writeText(value)
+    .then(() => say(t("machines.agents.copied", { what })))
+    .catch(error => say(fromBack(error), true));
+  const code = h("div", "machine-codex-value");
+  code.append(h("code", "machine-codex-code", challenge.code),
+    button(t("machines.codex.copyCode"), () => copy(challenge.code, t("machines.codex.code")), "outline", "machines.codex.copyCode"));
+  const link = h("div", "machine-codex-value");
+  const open = button(t("machines.codex.openLink"), () => void invoke("open_external", { url: challenge.url }).catch(error => say(fromBack(error), true)), "outline", "machines.codex.open");
+  open.insertAdjacentHTML("beforeend", `<span class="ic">${icon("external-link", 12)}</span>`);
+  link.append(h("code", "machine-codex-link", challenge.url), open,
+    button(t("machines.codex.copyLink"), () => copy(challenge.url, t("machines.codex.link")), "ghost", "machines.codex.copyLink"));
+  const waiting = h("p", "ui-hint", t("machines.codex.waiting"));
+  waiting.setAttribute("role", "status");
+  const cancel = button(t("machines.cancel"), () => { cancelCodexLogin(machine.id); redraw(); }, "ghost", "machines.codex.cancel");
+  panel.append(h("p", "ui-hint", t("machines.codex.steps")), code, link, waiting, cancel);
   return panel;
 }
 

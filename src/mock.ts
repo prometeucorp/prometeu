@@ -1097,6 +1097,8 @@ function mockEnableEvents(id: string, setup: import("./machine-supervision").Sup
   }
   mockSupervisedMachines.add(id);
 }
+/** The Codex sign-ins in progress in the mock: each ends its wait as cancelled. */
+const mockCodexLogins = new Map<string, (reason: "cancelled") => void>();
 let mockMachines: import("./machines").MachineView[] = [];
 const mockClients: import("./machine-clients").MachineClient[] = [
   { device: "mock-this-mac", label: "This Mac", connected: 1_700_000_000, current: true },
@@ -2710,6 +2712,28 @@ const mockCommands: IpcHandlers = {
     return claude;
   },
   machine_claude_login_cancel() {},
+  machine_codex_login({ id }) {
+    const machine = mockMachines.find(m => m.id === id);
+    if (!machine || machine.phase !== "connected") throw 'i18n:{"code":"err.remote.offline"}';
+    if (machine.codex?.loggedIn) return null;
+    mockCodexLogins.get(id)?.("cancelled");
+    return { url: "https://auth.openai.com/codex/device", code: "MOCK-1234" };
+  },
+  machine_codex_login_wait({ id }) {
+    // The mock finishes the sign-in a moment later, as if the person entered the code.
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        mockCodexLogins.delete(id);
+        const machine = mockMachines.find(m => m.id === id);
+        const codex = { installed: true, version: "codex-cli 0.172.0", supported: true, loggedIn: true, minimum: "0.169.0" };
+        if (machine) machine.codex = codex;
+        emit("machines", mockMachines);
+        resolve(codex);
+      }, 1500);
+      mockCodexLogins.set(id, () => { clearTimeout(timer); mockCodexLogins.delete(id); reject('i18n:{"code":"err.remote.codexLoginCancelled"}'); });
+    });
+  },
+  machine_codex_login_cancel({ id }) { mockCodexLogins.get(id)?.("cancelled"); },
   machine_stats() { return { workspaces: {}, memory_total: 16e9, memory_available: 12e9, load: 0.3, cpus: 4, terminals: 0 }; },
   machine_terminals({ id }) {
     if (!mockMachines.some(machine => machine.id === id && machine.phase === "connected")) throw 'i18n:{"code":"err.remote.offline"}';

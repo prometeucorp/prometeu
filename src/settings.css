@@ -106,6 +106,9 @@
 .settings-panel > .machine-claude-login { display: grid; gap: var(--space-2); margin: 0 18px 16px 64px; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-raised); }
 .machine-claude-login > .ui-hint { margin: 0; }
 .machine-claude-login > .ui-button { justify-self: start; }
+.machine-codex-value { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.machine-codex-code { font: 600 18px/1.4 var(--mono); letter-spacing: 0.08em; user-select: all; }
+.machine-codex-link { font: var(--text-sm)/1.4 var(--mono); color: var(--fg-2); overflow-wrap: anywhere; user-select: all; }
 .machine-claude-entry { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-2); align-items: end; }
 .settings-panel > .machine-agents { display: grid; gap: var(--space-2); margin: 0 18px 16px 64px; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg-raised); }
 .machine-agents > .ui-hint, .machine-agents > .ui-notice { margin: 0; }
