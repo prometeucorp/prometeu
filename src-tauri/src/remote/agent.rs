@@ -317,17 +317,20 @@ pub(crate) fn load_archived_history(app: &AppHandle, session: &str) -> Result<()
     }
     let machine = workspace.host.as_deref().unwrap();
     let service = app.state::<super::Service>();
-    // Cached history remains readable while the machine is disconnected.
-    let connection = match service.connected(machine) {
-        Ok(connection) => connection,
+    let download = service.connected(machine).and_then(|connection| {
+        let home = connection
+            .home()
+            .ok_or_else(|| crate::i18n::t(super::connection::OFFLINE))?;
+        let watch = mirror_transcripts(&connection, machine, &home, &workspace.worktree)?;
+        connection.request_timeout("watch_flush", json!({"id": watch}), Duration::from_secs(10))?;
+        Ok(home)
+    });
+    // A connection can drop during the download too. Keep cached history readable in both cases.
+    let home = match download {
+        Ok(home) => home,
         Err(_) if crate::paths::chat_log(session).exists() => return Ok(()),
         Err(error) => return Err(error),
     };
-    let home = connection
-        .home()
-        .ok_or_else(|| crate::i18n::t(super::connection::OFFLINE))?;
-    let watch = mirror_transcripts(&connection, machine, &home, &workspace.worktree)?;
-    connection.request_timeout("watch_flush", json!({"id": watch}), Duration::from_secs(10))?;
     bind_transcript(machine, &home, &workspace.worktree, session);
     let binding = crate::chat::terminal::binding::Binding::load(
         &crate::paths::root(),

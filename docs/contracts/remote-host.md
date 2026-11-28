@@ -495,7 +495,8 @@ When a person opens an archived Claude conversation, the desktop downloads its
 saved transcript and reads it into the local conversation journal. It does not
 start an agent or send live events. Repeated reads keep the same journal
 receipts. A restored conversation uses this journal again. Cached history stays
-available offline; a failed download can be retried when the tab opens again.
+available if the machine is offline or the download fails. Opening the tab
+again retries the download.
 The workspace lifecycle gate keeps this read separate from launch and restore.
 Test: `archived_claude_history_import_is_read_only_and_resumable` in
 `src-tauri/src/chat/terminal.rs`.
