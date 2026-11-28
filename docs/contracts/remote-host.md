@@ -170,7 +170,7 @@ outcome is unknown.
 | `exit` | `id`, `code`, `seq` | The terminal stopped, after the host sent all its output. The host waits a maximum of 2 s, because a background process can keep the PTY open. The host also sends this event at attachment for a stopped terminal. |
 | `hook` | `hook`, `session`, `permission`, `env`, `payload` (base64), `at` | A native hook call for the terminal `session`. |
 | `file` | `watch`, `path`, `offset`, `reset`, `data` (base64) | Bytes of a watched file from `offset`. `reset` starts the file again from zero. |
-| `registry` | none | An agent request that can add or close registry entries is complete. The desktop synchronizes again. |
+| `registry` | none | An agent request that can add or close registry entries, or a desktop archive request, is complete. The desktop synchronizes again. |
 | `todos` | none | The to-do list of the machine changed. Refer to the [to-do contract](todos.md#host-methods). |
 
 ## Methods
@@ -197,6 +197,7 @@ outcome is unknown.
 | `registry_list` | `codex_agents?` (default false) | The registry, with the `state`, `state_at` and `notification` of each conversation. |
 | `registry_put` | `project?`, `workspace?` (registry records) | `{}`. Adds a project by path. Adds a workspace by ID, or merges into the workspace that is there: its title and new conversations. Known conversations keep their provider and native identity. Model and effort can update. |
 | `registry_close` | `id` | `{}`. Marks a workspace as closed after the desktop cleaned it. |
+| `registry_archive` | `id`, `archived` (boolean), `initialize?` | `{}`. Shares archive or restore state without deletion. With `initialize`, changes only a record without archive state. |
 | `todos_list`, `todos_create`, `todos_set_status`, `todos_enable` | refer to the [to-do contract](todos.md#host-methods) | The to-do list of the machine. Only the attachment can call `todos_enable`. |
 | `stats` | `workspaces` | For each workspace slice, `{ memory, memory_max, cpu_usec, cpu_max }`, and also `memory_total`, `memory_available`, `load`, `cpus`, `terminals`. |
 | `shutdown` | `force?` | `{}`, then the host stops. Without `force`, it refuses with `host_busy` while a terminal operates or while an `exec`, a `file_write`, a `terminal_open` or an agent request that changes the machine operates. After it starts, those requests return the error `host_stopping`. |
@@ -401,16 +402,16 @@ idle host without `release`, as before.
 
 ## Registry
 
-`registry.json` is `{ version: 3, projects, workspaces, supervision }`. Only the
+`registry.json` is `{ version: 4, projects, workspaces, supervision }`. Only the
 host writes it, with an atomic rename through a temporary file with a unique
-name. The host can read version 1 and 2 records. It changes them to version 3 at the
+name. The host can read version 1, 2 and 3 records. It changes them to version 4 at the
 next correct write. The host refuses a registry with a newer `version`. It does
 not write that registry again without the fields that it does not know.
 Records:
 
 - project: `{ path, name, origin?, added_at, added_by }`.
 - workspace: `{ id, project, title, branch, base, worktree, created_at,
-  created_by, closed, keep_branch, conversations, supervision? }`.
+  created_by, closed, archived?, keep_branch, conversations, supervision? }`.
 - conversation: `{ id, title, created_at, permission, provider, thread_id?, model, effort }`.
   The ID is the tab ID and terminal ID. Claude also uses it as its native session
   ID. Codex keeps its native identity in `thread_id`. `permission` is `auto` or
@@ -420,8 +421,8 @@ Records:
 
 The host ignores unknown fields. Times are in Unix seconds.
 
-Version 3 protects provider identity, supervisor links and the durable outbox
-from older hosts. These hosts would otherwise lose unknown fields. For a
+Version 4 protects shared archive state, provider identity, supervisor links and
+the durable outbox from older hosts. These hosts refuse the newer version. For a
 downgrade, keep a host that can read this registry version. Do not change the
 version label or replace the registry to start an older host.
 
@@ -433,8 +434,8 @@ host or desktop from treating a Codex conversation as Claude.
 
 The desktop synchronizes its board with `registry_list` at each attachment and
 at each `registry` event (`src-tauri/src/remote/registry.rs`). It adopts
-missing projects and open workspaces as remote board entries. Their
-conversations become terminal tabs for the recorded provider, with the same IDs.
+missing projects and workspaces without cleanup as remote board entries.
+Archived workspaces stay in the archive. Their conversations become terminal tabs for the recorded provider, with the same IDs.
 A Codex tab also keeps `thread_id`, model and effort. The desktop does not adopt
 a Codex tab until its native thread ID is available. The
 workspace names an agent creator in `creator`. The desktop adds the
@@ -468,6 +469,63 @@ The desktop lists these items in `<root>/remote/<machine>/dismissed.json`. This
 file prevents a new adoption of the items. An adopted conversation without a
 terminal on the host gets the transcript link that its first hook writes in the
 usual condition.
+
+## Shared workspace archives
+
+The host keeps archive state separately from `closed`. Archive and restore do
+not delete the checkout, branch or transcript. Only cleanup sets `closed`.
+`registry_put` records the archive state of a new workspace. An ordinary merge
+does not change the archive state of a current workspace.
+
+The desktop sends `registry_archive` after an explicit archive, finish, restore
+or workspace removal. Removal also keeps the local dismissal. Other computers
+keep that workspace in their archive. New conversations from a registry listing
+do not restore it. A restore does not start its processes.
+
+The host stores each archive request and sends a `registry` event to all
+attachments. Requests apply in the sequence in which the host accepts them.
+Archive stops the terminals of that workspace, including engines and docks.
+Codex engines stop after their observers read final history.
+Launch and archive use a shared gate, so an admitted launch completes before
+archive collects its terminals. The host refuses launches and agent messages in
+archived workspaces with `workspace_archived`. Agent workspace lists exclude
+archived workspaces unless `all` is true. Transcript reads stay available.
+
+When a person opens an archived Claude conversation, the desktop downloads its
+saved transcript and reads it into the local conversation journal. It does not
+start an agent or send live events. Repeated reads keep the same journal
+receipts. A restored conversation uses this journal again. Cached history stays
+available if the machine is offline or the download fails. Opening the tab
+again retries the download.
+The workspace lifecycle gate keeps this read separate from launch and restore.
+Test: `archived_claude_history_import_is_read_only_and_resumable` in
+`src-tauri/src/chat/terminal.rs`.
+
+The desktop keeps pending explicit actions in the private file
+`<root>/remote/<machine>/archives.json`. Its format is
+`{ "<workspace id>": { "archived": true | false, "operation": "<uuid>" } }`.
+A pending action has priority over a registry listing. After a successful reply,
+the desktop removes only the action with the matching operation ID. A newer
+action stays, including one with the same archive value.
+Connection loss or an older host keeps the action for the next synchronization.
+No clock comparison between computers is necessary.
+
+Earlier records have no `archived` field. A desktop with a local archive or
+workspace dismissal sends `initialize: true` for such a record. The host applies
+this migration only when its record has no archive state. Thus a late migration
+does not undo an explicit shared restore. The desktop with the earlier archive
+must connect for this migration. A computer with only an active copy cannot
+infer that another computer closed it. Older desktops continue to use local
+archive state. Shared archive behavior uses an updated host and desktop.
+
+Tests: `workspace_archives_are_shared_without_deleting_checkouts_or_reopening_from_stale_records`
+in `src-tauri/crates/host/tests/host.rs` examines two attachments, migration,
+stale records, process stops, restore, reconnection and retained files.
+`archive_waits_for_final_codex_history_recovery` in
+`src-tauri/crates/host/tests/codex_agents.rs` examines final Codex reads.
+`shared_archive_and_restore_preserve_files_and_pending_local_intent` and
+`pending_archives_survive_restart_and_keep_explicit_restores` in
+`src-tauri/src/remote/registry.rs` examine board state and the durable queue.
 
 ## Observed state
 

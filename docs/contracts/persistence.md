@@ -62,6 +62,7 @@ isolated copies of the app use it most.
 | identity of the remote executor | `<remote root>/supervision-executor` | `prometeu-host`. A private and stable executor ID that is available before the supervision setup. An ID in a current `supervision.json` has priority. Refer to [supervision](supervision.md#provisioning-with-the-remote-mcp). |
 | mirror of remote transcripts | `<root>/remote/<machine>/mirror/<remote path>` | `remote/connection.rs`. Private append-only copies of the Claude project files of a machine. If a copy is missing, the app makes it again from offset zero. Refer to the [remote host protocol](remote-host.md#transcript-mirror). |
 | remote workspaces, tabs and projects removed from the board | `<root>/remote/<machine>/dismissed.json` | `remote/registry.rs`. A private JSON array of workspace, conversation and project IDs. Adoption from the registry of the machine ignores these IDs. When you add the project again, the app removes its entry. Refer to [ADR 0103](../decisions/0103-agents-on-remote-machines.md). |
+| pending remote archive actions | `<root>/remote/<machine>/archives.json` | `remote/registry.rs`. A private map from workspace IDs to archive booleans and operation IDs. Explicit actions stay until the host confirms them. Refer to [shared workspace archives](remote-host.md#shared-workspace-archives). |
 | derived Codex home and marketplace | `<root>/codex-workspaces/<workspace-hash>/[<account>/]` | `plugins.rs`. The app can make it again. |
 
 When a person installs a project from the catalog, the app uses the board

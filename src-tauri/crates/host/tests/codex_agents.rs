@@ -499,7 +499,7 @@ fn codex_mcp_survives_reconnect_and_resumes_the_same_native_thread() {
     let persisted: Value =
         serde_json::from_slice(&std::fs::read(machine.root.join("registry.json")).unwrap())
             .unwrap();
-    assert_eq!(persisted["version"], 3);
+    assert_eq!(persisted["version"], 4);
     assert_eq!(
         persisted["workspaces"][0]["conversations"][0]["thread_id"],
         native
@@ -530,15 +530,20 @@ fn codex_mcp_survives_reconnect_and_resumes_the_same_native_thread() {
 
 #[test]
 fn final_history_recovers_after_the_tui_exits_and_rpc_disconnects() {
-    final_history_recovery(false);
+    final_history_recovery(None);
 }
 
 #[test]
 fn desktop_cleanup_waits_for_final_history_recovery() {
-    final_history_recovery(true);
+    final_history_recovery(Some("terminal"));
 }
 
-fn final_history_recovery(desktop_cleanup: bool) {
+#[test]
+fn archive_waits_for_final_codex_history_recovery() {
+    final_history_recovery(Some("archive"));
+}
+
+fn final_history_recovery(cleanup: Option<&str>) {
     let machine = Machine::new();
     let mut setup = UnixStream::connect(machine.root.join("host-v1.sock")).unwrap();
     writeln!(
@@ -584,14 +589,20 @@ fn final_history_recovery(desktop_cleanup: bool) {
     });
     let mut desktop = machine.desktop();
     let mut forgetter = machine.desktop();
-    let signal = desktop_cleanup.then(|| {
+    let signal = cleanup.map(|cleanup| {
         let engine = format!("{conversation}-codex");
+        let archive = cleanup == "archive";
+        let workspace = workspace["id"].clone();
         std::thread::spawn(move || {
-            desktop.call("terminal_signal", json!({"id":engine,"signal":"terminate"}));
-            desktop.call("terminal_forget", json!({"id":engine}));
+            if archive {
+                desktop.call("registry_archive", json!({"id":workspace,"archived":true}));
+            } else {
+                desktop.call("terminal_signal", json!({"id":engine,"signal":"terminate"}));
+                desktop.call("terminal_forget", json!({"id":engine}));
+            }
         })
     });
-    let forget = desktop_cleanup.then(|| {
+    let forget = (cleanup == Some("terminal")).then(|| {
         let conversation = conversation.to_owned();
         std::thread::spawn(move || {
             forgetter.call("terminal_forget", json!({"id":conversation}));

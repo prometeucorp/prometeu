@@ -293,7 +293,19 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
             stop_and_archive(&ws, |tabs| stop(state, tabs));
         }
     }
-    let effects = crate::workspace_lifecycle::archive(&mut lock(&state.board), id, archived);
+    let effects = {
+        let mut board = lock(&state.board);
+        let effects = crate::workspace_lifecycle::archive(&mut board, id, archived);
+        if let Some(machine) = board
+            .workspaces
+            .iter()
+            .find(|ws| ws.id == id && !ws.cleaned)
+            .and_then(|ws| ws.host.as_deref())
+        {
+            crate::remote::registry::archive_later(app, machine, id, archived);
+        }
+        effects
+    };
     // Recheck the final tab set while launch admission remains closed.
     stop(state, &effects.stop_tabs);
     publish(app);
@@ -316,6 +328,16 @@ fn archive(app: &AppHandle, state: &State<AppState>, id: &str, archived: bool) {
                 crate::telemetry::Fact::WorkspaceResumed {}
             },
         );
+    }
+    // Restore can be followed immediately by a launch. Flush the shared state before returning,
+    // but release admission first: synchronization can adopt a process and acquire this gate.
+    drop(_lifecycle);
+    if !archived {
+        if let Some(machine) = workspace_copy(state, id).and_then(|ws| ws.host) {
+            if let Ok(connection) = app.state::<crate::remote::Service>().connected(&machine) {
+                connection.sync_registry();
+            }
+        }
     }
 }
 
@@ -838,6 +860,7 @@ pub fn remove_workspace(app: AppHandle, state: State<AppState>, id: String) {
             .and_then(|ws| ws.host.clone())
         {
             crate::remote::registry::dismiss(&machine, &id);
+            crate::remote::registry::archive_later(&app, &machine, &id, true);
         }
         let dead = board
             .workspace_mut(&id)

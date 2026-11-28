@@ -17,7 +17,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Output retained per terminal for reattachment. A gap beyond it replays the whole buffer.
@@ -291,6 +291,8 @@ pub(crate) struct Host {
     terminals: Mutex<HashMap<String, Arc<Term>>>,
     /// Terminal IDs whose process is being started; another open of the same ID is refused.
     opening: Mutex<HashSet<String>>,
+    // ponytail: archives briefly block all launches; use per-workspace gates if this contends.
+    lifecycle: RwLock<()>,
     clients: Mutex<Vec<Client>>,
     generations: AtomicU64,
     hooks: AtomicU64,
@@ -745,6 +747,7 @@ pub fn serve(root: &Path, release: Option<&str>) -> Result<(), String> {
         scopes,
         terminals: Mutex::new(HashMap::new()),
         opening: Mutex::new(HashSet::new()),
+        lifecycle: RwLock::new(()),
         clients: Mutex::new(Vec::new()),
         generations: AtomicU64::new(0),
         hooks: AtomicU64::new(0),
@@ -1188,6 +1191,7 @@ fn dispatch(
         "registry_list" => crate::agents::registry_view(host, params["codex_agents"] == true)?,
         "registry_put" => crate::agents::registry_put(host, params)?,
         "registry_close" => crate::agents::registry_close(host, params)?,
+        "registry_archive" => archive_workspace(host, params)?,
         "todos_list" | "todos_create" | "todos_set_status" | "todos_enable" => {
             crate::todos::call(host, method, params, true)?
         }
@@ -1304,6 +1308,45 @@ impl Drop for Reservation<'_> {
     }
 }
 
+fn archive_workspace(host: &Host, params: &Value) -> Result<Value, String> {
+    let _mutation = crate::agents::Mutation::begin()?;
+    let id = text(params, "id")?;
+    let archived = params["archived"].as_bool().ok_or("missing archived")?;
+    let initialize = params
+        .get("initialize")
+        .map(|value| value.as_bool().ok_or("invalid initialize"))
+        .transpose()?
+        .unwrap_or(false);
+    let _lifecycle = host.lifecycle.write().unwrap_or_else(|e| e.into_inner());
+    let workspace = host.registry.update(|registry| {
+        let workspace = registry.workspace_mut(id).ok_or("unknown_workspace")?;
+        if !workspace.closed && (!initialize || workspace.archived.is_none()) {
+            workspace.archived = Some(archived);
+        }
+        Ok(workspace.clone())
+    })?;
+    if workspace.archived == Some(true) {
+        // Include Codex engines and docks, which are not registry conversations.
+        let mut terminals: Vec<(String, u32)> = lock(&host.terminals)
+            .values()
+            .filter(|t| {
+                t.workspace.as_deref() == Some(id)
+                    || workspace.conversations.iter().any(|c| c.id == t.id)
+            })
+            .map(|t| (t.id.clone(), t.pid))
+            .collect();
+        // End TUIs before their engines so the host observer can save final Codex history.
+        terminals.sort_by_key(|(id, _)| id.ends_with("-codex"));
+        for (terminal, pid) in terminals {
+            if !crate::codex_agent::retire_engine(host, &terminal, pid)? {
+                host.end_pid(&terminal, pid);
+            }
+        }
+    }
+    host.announce_registry();
+    Ok(json!({}))
+}
+
 pub(crate) fn open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let id = terminal_id(params)?;
     // Desktops and agents share this reservation, so only its owner can start the process.
@@ -1316,6 +1359,7 @@ pub(crate) fn open_reserved(
     params: &Value,
     reserved: &Reservation<'_>,
 ) -> Result<Value, String> {
+    let _lifecycle = host.lifecycle.read().unwrap_or_else(|e| e.into_inner());
     let id = reserved.id.clone();
     let argv = string_list(params, "argv");
     if argv.is_empty() {
@@ -1330,6 +1374,22 @@ pub(crate) fn open_reserved(
         .and_then(Value::as_str)
         .filter(|w| valid_id(w))
         .map(str::to_owned);
+    if let Some(id) = &workspace {
+        if let Some(record) = host
+            .registry
+            .read()?
+            .workspaces
+            .iter()
+            .find(|w| &w.id == id)
+        {
+            if record.closed {
+                return Err("workspace_closed".into());
+            }
+            if record.archived == Some(true) {
+                return Err("workspace_archived".into());
+            }
+        }
+    }
     let slice = workspace.as_deref().and_then(workspace_slice);
     let (program, unit) = match (&slice, host.scopes) {
         (Some(slice), true) => {
@@ -1948,6 +2008,7 @@ pub(crate) fn test_host(root: &Path) -> Arc<Host> {
         scopes: false,
         terminals: Mutex::default(),
         opening: Mutex::default(),
+        lifecycle: RwLock::new(()),
         clients: Mutex::default(),
         generations: AtomicU64::new(0),
         hooks: AtomicU64::new(0),

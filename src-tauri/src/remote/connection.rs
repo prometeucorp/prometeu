@@ -444,6 +444,23 @@ impl Connection {
         (self.attached)(self, wake);
     }
 
+    pub fn sync_registry(self: &Arc<Self>) {
+        self.wake(Wake::Registry);
+    }
+
+    /// Serialize local registry changes with attachment and registry-event refreshes.
+    pub fn refresh_registry(self: &Arc<Self>) {
+        if self.refresh_queued.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let this = self.clone();
+        std::thread::spawn(move || {
+            let _one = lock(&this.waking);
+            this.refresh_queued.store(false, Ordering::Release);
+            (this.attached)(&this, Wake::Registry);
+        });
+    }
+
     /// An older host build still serves the socket. Replace it only while it runs nothing, so
     /// an update never ends live work; otherwise it keeps serving with the same protocol and
     /// `retire_when_idle` asks again later. The host repeats the idle check on `shutdown`.
@@ -577,15 +594,7 @@ impl Connection {
             Some("registry") => {
                 // One queued refresh covers every event that arrives before it starts, since it
                 // reads the whole registry then.
-                if self.refresh_queued.swap(true, Ordering::AcqRel) {
-                    return;
-                }
-                let this = self.clone();
-                std::thread::spawn(move || {
-                    let _one = lock(&this.waking);
-                    this.refresh_queued.store(false, Ordering::Release);
-                    (this.attached)(&this, Wake::Registry);
-                });
+                self.refresh_registry();
             }
             Some("hook") => {
                 let session = frame["session"].as_str().unwrap_or_default();

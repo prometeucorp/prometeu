@@ -48,6 +48,46 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+/// Import a saved Claude transcript without hooks, a process, or live reactions.
+/// Callers serialize this with launch and archive for the workspace.
+pub(crate) fn import_claude_history(
+    root: &std::path::Path,
+    log: &std::path::Path,
+    session: &str,
+    transcript: std::path::PathBuf,
+    authorized_root: std::path::PathBuf,
+) -> Result<(), String> {
+    let journal = ingestion::JournalStore::open(
+        log,
+        &ingestion::journal_path(root, session).map_err(|_| history(session, "journal_path"))?,
+        JournalBinding {
+            app_session: session.into(),
+            provider: "claude".into(),
+            native_session: Some(session.into()),
+        },
+        false,
+    )
+    .map_err(|_| history(session, "journal_open"))?;
+    let mut observations = Observations::new(
+        ObservationConfig {
+            provider: crate::state::ProviderId::Claude,
+            session: session.into(),
+            process_nonce: uuid::Uuid::new_v4().to_string(),
+            expected_native_session: Some(session.into()),
+            start: ObservationStart::Resume,
+            authorized_roots: vec![authorized_root],
+        },
+        None,
+        None,
+        None,
+    )?;
+    observations
+        .native
+        .resume_from(transcript)
+        .map_err(|_| history(session, "resume_from"))?;
+    observations.replay_baseline(journal.as_ref(), session)
+}
+
 /// The packaged screen helper and native provider adapters are supported on macOS.
 pub(crate) const ENABLED: bool = cfg!(target_os = "macos");
 
@@ -286,6 +326,38 @@ impl Observations {
                 Observation::Warning(_) => {}
                 _ => return Err("unexpected_event".into()),
             }
+        }
+        Ok(())
+    }
+
+    fn replay_baseline(
+        &mut self,
+        journal: &ingestion::JournalStore,
+        session: &str,
+    ) -> Result<(), String> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match self.native.poll() {
+                Ok(()) | Err(crate::terminal_agent_observation::ObservationError::Unstable) => {}
+                Err(error) => return Err(history(session, &format!("baseline_poll:{error:?}"))),
+            }
+            self.replay_pending(journal)
+                .map_err(|error| history(session, &format!("replay_pending:{error}")))?;
+            if self.native.baseline_ready() && self.native.caught_up() && journal.caught_up() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                return Err(history(
+                    session,
+                    &format!(
+                        "baseline_timeout:ready={}:native={}:journal={}",
+                        self.native.baseline_ready(),
+                        self.native.caught_up(),
+                        journal.caught_up()
+                    ),
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
         Ok(())
     }
@@ -1890,43 +1962,9 @@ pub(crate) fn launch_on(
         ) {
             return Err(history(&request.session, "binding_missing"));
         }
-        // Cursor and AGY reauthorize their captured store and exact native metadata identity directly.
-        // Its asynchronous SessionStart can precede creation of the derived JSONL binding.
-        // Read the baseline before the CLI can append to it. In particular Antigravity resume
-        // reports its next hook only after a prompt, so waiting for that hook would deadlock.
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match observations.native.poll() {
-                Ok(()) | Err(crate::terminal_agent_observation::ObservationError::Unstable) => {}
-                Err(error) => {
-                    return Err(history(
-                        &request.session,
-                        &format!("baseline_poll:{error:?}"),
-                    ))
-                }
-            }
-            observations
-                .replay_pending(journal.as_ref())
-                .map_err(|error| history(&request.session, &format!("replay_pending:{error}")))?;
-            if observations.native.baseline_ready()
-                && observations.native.caught_up()
-                && journal.caught_up()
-            {
-                break;
-            }
-            if Instant::now() >= deadline {
-                return Err(history(
-                    &request.session,
-                    &format!(
-                        "baseline_timeout:ready={}:native={}:journal={}",
-                        observations.native.baseline_ready(),
-                        observations.native.caught_up(),
-                        journal.caught_up()
-                    ),
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        // Read before the CLI can append: Antigravity reports its resume hook only after input,
+        // and Cursor and Antigravity can reauthorize their captured stores without a hook.
+        observations.replay_baseline(journal.as_ref(), &request.session)?;
     }
     let ui_readiness = bridge.native_version().and_then(|version| {
         crate::native_ui_readiness::NativeUiReadiness::verified(profile.provider, version)
@@ -2266,6 +2304,54 @@ pub fn agent_terminal_resume(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archived_claude_history_import_is_read_only_and_resumable() {
+        let root = std::env::temp_dir().join(format!("archived-history-{}", uuid::Uuid::new_v4()));
+        let native = root.join("mirror");
+        std::fs::create_dir_all(&native).unwrap();
+        let transcript = native.join("session.jsonl");
+        let log = root.join("chat.jsonl");
+        let prompt = serde_json::json!({"uuid":"prompt","sessionId":"session","type":"user",
+            "message":{"role":"user","content":"Review the completed work"}});
+        let answer = serde_json::json!({"uuid":"answer","parentUuid":"prompt","sessionId":"session","type":"assistant",
+            "message":{"id":"answer","role":"assistant","content":[{"type":"text","text":"Saved final answer"}]}});
+        std::fs::write(&transcript, format!("{prompt}\n{answer}\n")).unwrap();
+        let import = || {
+            super::import_claude_history(&root, &log, "session", transcript.clone(), native.clone())
+        };
+        import().unwrap();
+        let saved = std::fs::read_to_string(&log).unwrap();
+        assert!(saved.contains("Review the completed work"));
+        assert!(saved.contains("Saved final answer"));
+        import().unwrap();
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), saved);
+        // The regular resume path opens the same native journal and keeps the imported history.
+        let journal = super::ingestion::JournalStore::open(
+            &log,
+            &super::ingestion::journal_path(&root, "session").unwrap(),
+            crate::terminal_agent_journal::JournalBinding {
+                app_session: "session".into(),
+                provider: "claude".into(),
+                native_session: Some("session".into()),
+            },
+            false,
+        )
+        .unwrap();
+        assert!(journal.seeded().is_ok());
+        assert!(journal
+            .resume_observation(false, Some(&transcript))
+            .unwrap());
+        drop(journal);
+        // A failed fetch/read does not clear the cached history, and a later read retries it.
+        std::fs::remove_file(&transcript).unwrap();
+        assert!(import().is_err());
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), saved);
+        std::fs::write(&transcript, format!("{prompt}\n{answer}\n")).unwrap();
+        import().unwrap();
+        assert_eq!(std::fs::read_to_string(&log).unwrap(), saved);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn flush_waits_for_queued_diagnostics_until_the_deadline() {

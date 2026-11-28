@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "registry.json";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Creator {
@@ -65,6 +65,9 @@ pub struct Workspace {
     pub created_by: Creator,
     #[serde(default)]
     pub closed: bool,
+    /// None keeps pre-archive registries eligible for migration from a desktop's board.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
     /// The branch existed before the workspace, so closing it must not delete the branch.
     #[serde(default)]
     pub keep_branch: bool,
@@ -330,7 +333,78 @@ mod tests {
         )
         .unwrap();
         assert!(!registry.workspaces[0].closed);
+        assert!(registry.workspaces[0].archived.is_none());
         assert!(registry.workspaces[0].conversations.is_empty());
+    }
+
+    #[test]
+    fn version_two_upgrades_without_losing_supervision_or_inventing_archive_state() {
+        let dir = std::env::temp_dir().join(format!("registry-v2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(FILE),
+            r#"{"version":2,"workspaces":[{
+            "id":"w","project":"/r","title":"Task","branch":"main","base":"HEAD",
+            "worktree":"/r","created_at":0,"created_by":{"kind":"desktop"},
+            "supervision":{"supervisor_id":"supervisor"}
+        }]}"#,
+        )
+        .unwrap();
+        let store = Store::new(&dir);
+        store
+            .update(|registry| {
+                let workspace = registry.workspace_mut("w").unwrap();
+                assert!(workspace.archived.is_none());
+                workspace.archived = Some(true);
+                Ok(())
+            })
+            .unwrap();
+        let saved = store.read().unwrap();
+        assert_eq!(saved.version, VERSION);
+        assert_eq!(saved.workspaces[0].archived, Some(true));
+        assert_eq!(
+            saved.workspaces[0]
+                .supervision
+                .as_ref()
+                .unwrap()
+                .supervisor_id,
+            "supervisor"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn version_three_keeps_codex_identity_when_archive_state_is_added() {
+        let dir = std::env::temp_dir().join(format!("registry-v3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(FILE),
+            r#"{"version":3,"workspaces":[{
+            "id":"w","project":"/r","title":"Task","branch":"main","base":"HEAD",
+            "worktree":"/r","created_at":0,"created_by":{"kind":"desktop"},
+            "conversations":[{"id":"c","title":"Task","created_at":1,"permission":"auto",
+                "provider":"codex","thread_id":"native-thread","model":"model","effort":"high"}]
+        }]}"#,
+        )
+        .unwrap();
+        let store = Store::new(&dir);
+        store
+            .update(|registry| {
+                let workspace = registry.workspace_mut("w").unwrap();
+                assert!(workspace.archived.is_none());
+                workspace.archived = Some(true);
+                Ok(())
+            })
+            .unwrap();
+        let saved = store.read().unwrap();
+        assert_eq!(saved.version, 4);
+        assert_eq!(saved.workspaces[0].archived, Some(true));
+        let conversation = &saved.workspaces[0].conversations[0];
+        assert_eq!(conversation.provider, Provider::Codex);
+        assert_eq!(conversation.thread_id.as_deref(), Some("native-thread"));
+        assert_eq!(conversation.model, "model");
+        assert_eq!(conversation.effort, "high");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -64,12 +64,13 @@ not add an HTTP service.
 
 ### Registry
 
-The host owns `<root>/registry.json` (0600, atomic rename, `version: 3`):
+The host owns `<root>/registry.json` (0600, atomic rename). The
+[remote host contract](../contracts/remote-host.md#registry) specifies its version.
 
 - `projects`: `{ path, name, origin?, added_at, added_by }`. `path` is an
   absolute repository on the machine.
 - `workspaces`: `{ id, project, title, branch, base, worktree, created_at,
-  created_by, closed, conversations }`. A conversation is `{ id, title,
+  created_by, closed, archived?, keep_branch, conversations, supervision? }`. A conversation is `{ id, title,
   created_at, permission, provider, thread_id?, model, effort }`. The `id` is
   the tab ID and the terminal ID. Claude also uses it as its native session ID.
   Codex uses the separate `thread_id`. Earlier records use Claude by default. This is also true for remote
@@ -162,7 +163,7 @@ or remove its socket before the host completes the read.
 The transcript stays outside the temporary session folder, including after a
 host restart.
 
-The registry uses version 3 to protect provider and thread identity from older
+The registry uses version 4 to protect archive state, provider and thread identity from older
 hosts. Earlier records default to Claude. The host advertises `codex_agents`.
 The desktop records Codex only when the host advertises this capability. The
 desktop also requests Codex records explicitly. Older desktops receive only
@@ -272,8 +273,9 @@ environment adapt paths, permissions and identities.
   conversation to its transcript on the machine. When the person opens it, it
   resumes as a conversation that the desktop started.
 - **New conversations.** When an agent opens a conversation in a workspace that
-  is on the board, the conversation becomes a new tab there. An archived
-  workspace goes back to the active list, because an agent operates in it again.
+  is on the board, the conversation becomes a new tab there. Registry adoption
+  does not restore an archived workspace. Shared archive state follows
+  [ADR 0104](0104-several-computers-on-one-machine.md#shared-workspace-archives).
 - **Desktop records.** The desktop uses `registry_put` to record these actions
   of the person:
   - The person makes a remote workspace or opens a conversation in one.
@@ -297,7 +299,8 @@ environment adapt paths, permissions and identities.
   computer. It also does not take an entry of a different machine or workspace.
 - **Removals.** When the person cleans a remote workspace on the desktop,
   Prometeu marks it as closed in the registry. When the person removes a
-  workspace from the board, its checkout stays on the machine. When the person
+  workspace from the board, its checkout stays on the machine. The host archives
+  the workspace for other computers. When the person
   closes a tab, its conversation stays. Thus the registry continues to list
   them. The same rule applies to a project that the person removes from the
   board. The desktop records these removals in

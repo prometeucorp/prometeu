@@ -483,6 +483,10 @@ history. Thus the panel opens with the recent compact points before the
 detailed points. The frontend updates the changed resource text and process
 fields. It does not replace other status controls.
 
+`chat_snapshot` downloads saved history before it returns an archived remote
+Claude conversation. It does not start a process. If no cached history exists
+and the machine is unavailable, the command returns an error.
+
 `chat_snapshot.text` can mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the other lines to the legacy reader. The current reader
 ignores historical `prometheusV1Mirror` projections. Prometeu does not write

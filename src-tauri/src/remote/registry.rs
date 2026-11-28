@@ -5,9 +5,9 @@ use crate::state::{Choice, ConversationMode, Project, ProviderId, Repo, Status, 
 use crate::AppState;
 use prometeu_core::actions::Permission;
 use prometeu_core::lock::lock;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -63,6 +63,8 @@ struct RegisteredWorkspace {
     #[serde(default)]
     closed: bool,
     #[serde(default)]
+    archived: Option<bool>,
+    #[serde(default)]
     keep_branch: bool,
     #[serde(default)]
     conversations: Vec<RegisteredConversation>,
@@ -102,12 +104,19 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
     let mut stopped = Vec::new();
     let mut puts = Vec::new();
     let mut closes = Vec::new();
+    let mut archives = Vec::new();
     let mut changed = false;
     {
         let mut board = lock(&state.board);
         // Read under the board lock, which every dismissal also holds, so a removal made while
         // the listing was on its way is seen.
         let dismissed = dismissed(machine);
+        let pending = pending_archives(machine);
+        archives.extend(
+            pending
+                .iter()
+                .map(|(id, action)| (id.clone(), action.archived, Some(action.operation.clone()))),
+        );
         for project in &listing.projects {
             if !dismissed.contains(&super::workspace::project_id(machine, &project.path)) {
                 changed |= adopt_project(&mut board.projects, machine, project);
@@ -123,6 +132,19 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
             .collect();
         for registered in &listing.workspaces {
             let index = board.workspaces.iter().position(|w| w.id == registered.id);
+            // Older hosts never stored archive state. Recover it from the desktop that closed
+            // the workspace, but never overwrite an explicit shared archive or restore.
+            if !registered.closed
+                && registered.archived.is_none()
+                && !pending.contains_key(&registered.id)
+                && (dismissed.contains(&registered.id)
+                    || index.is_some_and(|i| {
+                        board.workspaces[i].host.as_deref() == Some(machine)
+                            && board.workspaces[i].archived
+                    }))
+            {
+                archives.push((registered.id.clone(), true, None));
+            }
             let Some(index) = index else {
                 if registered.closed || dismissed.contains(&registered.id) {
                     continue;
@@ -140,6 +162,11 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                     );
                 }
                 let mut ws = workspace(machine, registered);
+                apply_archive(
+                    &mut ws,
+                    registered,
+                    pending.get(&registered.id).map(|action| action.archived),
+                );
                 ws.tabs
                     .retain(|t| !taken.contains(&t.id) && !dismissed.contains(&t.id));
                 ws.active = ws.tabs.last().map(|t| t.id.clone());
@@ -197,9 +224,17 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                 }
                 changed |= added;
             } else if added {
-                // An agent works here again: show it, as a new message would.
-                ws.archived = false;
                 ws.unread = true;
+                changed = true;
+            }
+            if apply_archive(
+                ws,
+                registered,
+                pending.get(&registered.id).map(|action| action.archived),
+            ) {
+                if ws.archived {
+                    stopped.extend(ws.tabs.iter().map(|t| t.id.clone()));
+                }
                 changed = true;
             }
         }
@@ -245,7 +280,45 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
     for id in closes {
         close(connection, &id);
     }
+    for (id, archived, operation) in archives {
+        let initialize = operation.is_none();
+        if connection
+            .request(
+                "registry_archive",
+                json!({
+                    "id": id, "archived": archived, "initialize": initialize,
+                }),
+            )
+            .is_ok()
+            && !initialize
+        {
+            // A newer local action can arrive while this request waits. Keep that action.
+            let _board = lock(&state.board);
+            confirm_archive(machine, &id, operation.as_deref().unwrap());
+        }
+    }
     synced
+}
+
+fn apply_archive(
+    ws: &mut Workspace,
+    registered: &RegisteredWorkspace,
+    pending: Option<bool>,
+) -> bool {
+    let archived = if registered.closed {
+        true
+    } else {
+        pending.or(registered.archived).unwrap_or(ws.archived)
+    };
+    let changed = ws.archived != archived;
+    ws.archived = archived;
+    if archived {
+        for tab in &mut ws.tabs {
+            tab.status = Status::Desligada;
+            tab.note = None;
+        }
+    }
+    changed
 }
 
 fn adopt_project(projects: &mut Vec<Project>, machine: &str, project: &RegisteredProject) -> bool {
@@ -356,7 +429,7 @@ fn workspace(machine: &str, registered: &RegisteredWorkspace) -> Workspace {
             base: registered.base.clone(),
             pr: None,
         }],
-        archived: false,
+        archived: registered.archived.unwrap_or(false),
         pinned: false,
         unread: true,
         model: choice.model,
@@ -455,6 +528,7 @@ fn record(ws: &Workspace, codex_agents: bool) -> Value {
             "id": ws.id, "project": primary.path, "title": ws.title, "branch": ws.branch,
             "base": primary.base, "worktree": primary.worktree, "created_at": now(),
             "created_by": {"kind": "desktop"},
+            "archived": ws.archived,
             "keep_branch": ws.preserve_branches.contains(&primary.path),
             "conversations": conversations,
         },
@@ -501,6 +575,58 @@ pub fn record_project(connection: &Connection, project: &Project) {
 /// Tell the machine a workspace's checkout is gone, so agents stop offering it.
 pub fn close(connection: &Connection, workspace: &str) {
     let _ = connection.request("registry_close", json!({"id": workspace}));
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct PendingArchive {
+    archived: bool,
+    operation: String,
+}
+
+impl PendingArchive {
+    fn new(archived: bool) -> Self {
+        Self {
+            archived,
+            operation: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+}
+
+fn pending_archives(machine: &str) -> HashMap<String, PendingArchive> {
+    std::fs::read(dismissed_path(machine).with_file_name("archives.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn save_pending_archives(machine: &str, pending: &HashMap<String, PendingArchive>) {
+    let path = dismissed_path(machine).with_file_name("archives.json");
+    let result = crate::paths::write_private(&path, &json!(pending).to_string());
+    if let Err(error) = result {
+        eprintln!("could not save remote workspace archives: {error}");
+    }
+}
+
+fn confirm_archive(machine: &str, id: &str, operation: &str) {
+    let mut pending = pending_archives(machine);
+    if pending
+        .get(id)
+        .is_some_and(|action| action.operation == operation)
+    {
+        pending.remove(id);
+        save_pending_archives(machine, &pending);
+    }
+}
+
+/// Queue explicit archive/restore actions while the caller holds the board lock. The queue
+/// survives disconnection and restart; ordinary board records never overwrite shared state.
+pub fn archive_later(app: &AppHandle, machine: &str, id: &str, archived: bool) {
+    let mut pending = pending_archives(machine);
+    pending.insert(id.to_owned(), PendingArchive::new(archived));
+    save_pending_archives(machine, &pending);
+    if let Ok(connection) = app.state::<super::Service>().connected(machine) {
+        connection.refresh_registry();
+    }
 }
 
 fn dismissed_path(machine: &str) -> PathBuf {
@@ -582,6 +708,82 @@ mod tests {
         assert!(tab.agent_session.is_none());
         assert_eq!(tab.choice.as_ref().unwrap().agent, ProviderId::Claude);
         assert!(workspace("vps", &registered("desktop")).creator.is_none());
+    }
+
+    #[test]
+    fn shared_archive_and_restore_preserve_files_and_pending_local_intent() {
+        let mut remote = registered("desktop");
+        let mut ws = workspace("vps", &remote);
+        let original = record(&ws, true);
+        ws.archived = true;
+        // Legacy hosts must not reopen local archives.
+        assert!(!apply_archive(&mut ws, &remote, None));
+        assert!(ws.archived);
+        remote.archived = Some(true);
+        assert!(workspace("second", &remote).archived);
+        ws.archived = false;
+        assert!(apply_archive(&mut ws, &remote, None));
+        assert!(ws.archived);
+        assert!(!ws.cleaned);
+        assert_eq!(
+            record(&ws, true)["workspace"]["worktree"],
+            original["workspace"]["worktree"]
+        );
+        assert_eq!(
+            record(&ws, true)["workspace"]["conversations"],
+            original["workspace"]["conversations"]
+        );
+
+        // New registry conversations do not restore an archived workspace.
+        let mut added = ws.tabs[0].clone();
+        added.id = "second".into();
+        ws.tabs.push(added);
+        assert!(!apply_archive(&mut ws, &remote, None));
+        assert!(ws.archived);
+        // An offline restore wins over the stale listing until the host receives it.
+        assert!(apply_archive(&mut ws, &remote, Some(false)));
+        assert!(!ws.archived);
+        remote.archived = Some(false);
+        assert!(apply_archive(&mut ws, &remote, Some(true)));
+        assert!(ws.archived);
+        assert!(apply_archive(&mut ws, &remote, None));
+        assert!(!ws.archived);
+        remote.closed = true;
+        assert!(apply_archive(&mut ws, &remote, Some(false)));
+        assert!(ws.archived);
+    }
+
+    #[test]
+    fn pending_archives_survive_restart_and_keep_explicit_restores() {
+        const CHILD: &str = "PROMETEU_TEST_ARCHIVES";
+        if std::env::var_os(CHILD).is_none() {
+            let root = std::env::temp_dir().join(format!("archives-{}", uuid::Uuid::new_v4()));
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "remote::registry::tests::pending_archives_survive_restart_and_keep_explicit_restores"])
+                .env(CHILD, "1").env("PROMETEU_ROOT", &root).output().unwrap();
+            let _ = std::fs::remove_dir_all(root);
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
+        let pending = HashMap::from([
+            ("archived".into(), PendingArchive::new(true)),
+            ("restored".into(), PendingArchive::new(false)),
+        ]);
+        save_pending_archives("machine", &pending);
+        assert_eq!(pending_archives("machine"), pending);
+        let mut latest = pending.clone();
+        latest.insert("archived".into(), PendingArchive::new(true));
+        save_pending_archives("machine", &latest);
+        confirm_archive("machine", "archived", &pending["archived"].operation);
+        assert_eq!(pending_archives("machine"), latest);
+        confirm_archive("machine", "archived", &latest["archived"].operation);
+        assert!(pending_archives("machine").contains_key("restored"));
+        confirm_archive("machine", "restored", &latest["restored"].operation);
+        assert!(pending_archives("machine").is_empty());
     }
 
     #[test]

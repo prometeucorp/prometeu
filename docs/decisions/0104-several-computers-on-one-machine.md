@@ -121,6 +121,26 @@ Stop, the close of a tab and the cleanup of a workspace continue to stop the
 remote process for all computers. Then all computers see it as stopped, as
 when an agent stops it.
 
+### Shared workspace archives
+
+The host owns the shared archive state. Archive and restore are explicit
+operations. They are separate from cleanup, which marks the checkout as gone.
+Local-only archive state lets a second computer import completed work as active.
+Using cleanup for this purpose risks the files and prevents restore.
+
+Ordinary workspace records cannot change this state. Otherwise a stale desktop
+can undo another computer's archive. The host applies explicit actions in the
+sequence in which it accepts them. Desktops keep offline actions until a reply
+confirms them. This avoids a dependency on clock agreement between computers.
+Removing a workspace archives it for other computers and keeps the local
+dismissal. Removing a project or a tab continues to use local dismissal only.
+
+The original desktop can migrate an earlier archive or workspace dismissal when
+the host has no archive state. This migration cannot replace an explicit shared
+restore. Registry version 4 prevents older hosts from deleting this new state.
+The [shared archive contract](../contracts/remote-host.md#shared-workspace-archives)
+gives the compatibility rules, process guarantees and tests.
+
 ### Disconnection
 
 When a computer stops the read of its frames, the host drops its outgoing

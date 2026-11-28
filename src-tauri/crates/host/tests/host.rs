@@ -159,6 +159,112 @@ fn shutdown(root: &Path) {
 }
 
 #[test]
+fn workspace_archives_are_shared_without_deleting_checkouts_or_reopening_from_stale_records() {
+    let root = root();
+    let checkout = root.join("repo");
+    std::fs::create_dir(&checkout).unwrap();
+    std::fs::write(checkout.join("work.txt"), "Keep this work").unwrap();
+    let mut first = Attached::device(&root, "first");
+    let mut second = Attached::device(&root, "second");
+    let record = json!({"workspace": {
+        "id": "workspace", "project": checkout, "worktree": checkout,
+        "title": "Task", "branch": "main", "base": "HEAD", "created_at": 0,
+        "created_by": {"kind": "desktop"}, "conversations": [],
+    }});
+    first.call("registry_put", record.clone());
+    let invalid = first.send(
+        "registry_archive",
+        json!({"id": "workspace", "archived": "true"}),
+    );
+    assert_eq!(
+        first.until(|f| f["id"] == invalid)["error"],
+        "missing archived"
+    );
+    let invalid = first.send(
+        "registry_archive",
+        json!({"id": "workspace", "archived": true, "initialize": "true"}),
+    );
+    assert_eq!(
+        first.until(|f| f["id"] == invalid)["error"],
+        "invalid initialize"
+    );
+    // Legacy records have no shared archive state until the original desktop migrates it.
+    assert!(second.call("registry_list", json!({}))["workspaces"][0]["archived"].is_null());
+    let terminal = json!({"id": "terminal", "workspace": "workspace", "cwd": checkout,
+        "argv": ["/bin/sh", "-c", "sleep 60"], "cols": 80, "rows": 24});
+    first.call("terminal_open", terminal.clone());
+    first.call(
+        "registry_archive",
+        json!({"id": "workspace", "archived": true, "initialize": true}),
+    );
+    second.until(|f| f["event"] == "registry");
+    let archived = second.call("registry_list", json!({}));
+    assert_eq!(archived["workspaces"][0]["archived"], true);
+    assert_eq!(archived["workspaces"][0]["closed"], false);
+    assert_eq!(second.call("terminal_list", json!({}))[0]["running"], false);
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("work.txt")).unwrap(),
+        "Keep this work"
+    );
+    let request = second.send("terminal_open", terminal.clone());
+    assert_eq!(
+        second.until(|f| f["id"] == request)["error"],
+        "workspace_archived"
+    );
+
+    // Legacy and current stale board uploads cannot restore an archived workspace.
+    second.call("registry_put", record.clone());
+    let mut stale = record.clone();
+    stale["workspace"]["archived"] = json!(false);
+    second.call("registry_put", stale);
+    assert_eq!(
+        first.call("registry_list", json!({}))["workspaces"][0]["archived"],
+        true
+    );
+    second.call(
+        "registry_archive",
+        json!({"id": "workspace", "archived": false}),
+    );
+    first.until(|f| f["event"] == "registry");
+    // A late migration from another computer must not undo an explicit restore.
+    first.call(
+        "registry_archive",
+        json!({"id": "workspace", "archived": true, "initialize": true}),
+    );
+    assert_eq!(
+        first.call("registry_list", json!({}))["workspaces"][0]["archived"],
+        false
+    );
+    first.call("terminal_open", terminal);
+    first.call(
+        "registry_archive",
+        json!({"id": "workspace", "archived": true}),
+    );
+    first.detach();
+    let mut reconnected = Attached::device(&root, "first");
+    assert_eq!(
+        reconnected.call("registry_list", json!({}))["workspaces"][0]["archived"],
+        true
+    );
+    let stored: Value =
+        serde_json::from_slice(&std::fs::read(root.join("registry.json")).unwrap()).unwrap();
+    assert_eq!(stored["version"], 4);
+    assert_eq!(stored["workspaces"][0]["archived"], true);
+    reconnected.call("registry_close", json!({"id": "workspace"}));
+    reconnected.call(
+        "registry_archive",
+        json!({"id": "workspace", "archived": false}),
+    );
+    assert_eq!(
+        reconnected.call("registry_list", json!({}))["workspaces"][0]["closed"],
+        true
+    );
+    reconnected.detach();
+    second.detach();
+    shutdown(&root);
+}
+
+#[test]
 fn terminals_survive_detachment_and_replay_the_gap() {
     let root = root();
     let mut first = Attached::new(&root);
