@@ -4,6 +4,18 @@ This file tells the persons who use Prometeu about the changes in each version.
 `sh scripts/release.sh` makes each version. git-cliff makes this file from the
 commits. The release notes on GitHub for a version are its section in this file.
 
+## [0.54.0] - 2026-11-28
+
+### New
+
+- **projects:** Import a project from github
+
+### Fixes
+
+- **remote:** Keep archived workspaces closed across computers
+- **remote:** Load archived history without restarting agents
+- **remote:** Keep cached history readable after disconnects
+
 ## [0.53.0] - 2026-11-27
 
 ### New
