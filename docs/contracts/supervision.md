@@ -490,9 +490,9 @@ ownership of the local MCP and the agents of each provider do not change. Future
 local executors can use the same IDs, events and link model. But they must have
 their own authenticated transport back from the Cloud and their own grants.
 
-Host registry writes use version 2. When the host writes, it changes version 1
-records to version 2. Older hosts refuse that version. They do not write the
-registry again without the links and the events in the queue. Before a
+Host registry writes use version 3. When the host writes, it changes version 1
+and 2 records to version 3. Older hosts refuse that version. They do not write
+the registry again without archive state, links and events in the queue. Before a
 downgrade, keep a compatible host and keep the registry.
 
 The `prometeu-core::supervision` tests examine the completion of root and child

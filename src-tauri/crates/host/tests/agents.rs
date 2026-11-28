@@ -644,6 +644,42 @@ fn agents_reach_only_registered_conversations_and_never_resume_prompting_ones() 
         .map(|c| c["id"].as_str().unwrap())
         .collect();
     assert_eq!(ids, ["c1", "c2"]);
+
+    writeln!(
+        desktop,
+        "{}",
+        json!({"id": 3, "method": "registry_archive", "params": {
+            "id": "w1", "archived": true,
+        }})
+    )
+    .unwrap();
+    loop {
+        let frame: Value = serde_json::from_str(&lines.next().unwrap().unwrap()).unwrap();
+        if frame["id"] == 3 {
+            assert_eq!(frame["result"], json!({}));
+            break;
+        }
+    }
+    assert_eq!(agent.call("workspace_list", json!({})).unwrap(), json!([]));
+    assert_eq!(
+        agent.call("workspace_list", json!({"all": true})).unwrap()[0]["archived"],
+        true
+    );
+    assert_eq!(
+        agent
+            .call("conversation_send", json!({"id": "c1", "text": "go"}))
+            .unwrap_err(),
+        "workspace_archived"
+    );
+    assert_eq!(
+        agent
+            .call(
+                "conversation_open",
+                json!({"workspace": "w1", "prompt": "go"})
+            )
+            .unwrap_err(),
+        "workspace_archived"
+    );
 }
 
 #[test]

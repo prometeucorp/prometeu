@@ -833,7 +833,7 @@ fn call(
                 registry
                     .workspaces
                     .iter()
-                    .filter(|w| all || !w.closed)
+                    .filter(|w| all || (!w.closed && w.archived != Some(true)))
                     .map(|w| describe(host, w))
                     .collect(),
             ))
@@ -1250,6 +1250,7 @@ fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Resu
         created_at: now(),
         created_by: creator.clone(),
         closed: false,
+        archived: Some(false),
         keep_branch: existing,
         conversations: vec![conversation.clone()],
         supervision,
@@ -1285,6 +1286,9 @@ fn conversation_open(host: &Arc<Host>, params: &Value) -> Result<Value, String> 
         let workspace = registry.workspace_mut(id).ok_or("unknown_workspace")?;
         if workspace.closed {
             return Err("workspace_closed".into());
+        }
+        if workspace.archived == Some(true) {
+            return Err("workspace_archived".into());
         }
         workspace.conversations.push(conversation.clone());
         Ok(workspace.clone())
@@ -1471,6 +1475,9 @@ fn conversation_send(host: &Arc<Host>, id: &str, message: &str) -> Result<Value,
     let (workspace, conversation) = find_conversation(host, id)?;
     if workspace.closed || lock(&CLOSING).contains(&workspace.id) {
         return Err("workspace_closed".into());
+    }
+    if workspace.archived == Some(true) {
+        return Err("workspace_archived".into());
     }
     if !host.is_running(id) {
         // The host only launches without permission prompts; a conversation the person runs with

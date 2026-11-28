@@ -88,6 +88,7 @@ step.
 
 | Remote behavior | Claude | Codex | Evidence |
 | --- | --- | --- | --- |
+| shared workspace archive and restore | shared by the host, with transcript reads after archive | the same workspace state, including engine stops | `host.rs`: `workspace_archives_are_shared_without_deleting_checkouts_or_reopening_from_stale_records`; `remote/registry.rs` archive tests |
 | observation | hooks that the host sends, and a mirror copy of the transcript | the engine RPC through the `codex-relay` terminal of the host | `host.rs` relay tests, `wire.rs` tests |
 | sign-in | Settings runs `claude auth login` on the machine, and the person pastes the code back | Settings runs `codex login --device-auth` on the machine and shows the link and the one-time code. Codex completes the sign-in on the machine | `remote/login.rs` and `remote/codex_login.rs` tests, `src/machines.test.ts` |
 | SSH loss | the host replays the terminal and the hooks | the host replays the relay lines. After a gap of more than 2 MiB or a relay that stops, the desktop takes control of the conversation again from the engine history | `remote/codex.rs` tests, `host.rs` detachment test |

@@ -927,6 +927,7 @@ mod tests {
                     name: None,
                 },
                 closed: false,
+                archived: Some(false),
                 keep_branch: false,
                 conversations: vec![Conversation {
                     id: "conversation".into(),

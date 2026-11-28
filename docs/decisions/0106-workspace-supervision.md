@@ -182,9 +182,9 @@ it must add two items:
 ## Compatibility and evidence
 
 Workspaces without supervision keep the current behavior. Additions to the host
-registry use defaults. When the host writes the registry, version 1 records
-migrate to version 2. Hosts from earlier versions do not write that version
-again. For a downgrade, keep that file and a compatible host. Current MCP calls
+registry use defaults. The [current registry format](../contracts/remote-host.md#registry)
+protects the supervision fields and the shared archive state. Hosts from earlier
+versions refuse a newer format. For a downgrade, keep that file and a compatible host. Current MCP calls
 do not need new arguments. When the person removes the supervision, the events
 stop, but the workspace stays open. Retries give at-least-once delivery. They
 do not promise exactly-once model execution.
