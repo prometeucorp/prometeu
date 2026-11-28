@@ -2446,6 +2446,18 @@
       ]
     },
     {
+      "target": "projects.github",
+      "sources": [
+        "src/projects.ts"
+      ]
+    },
+    {
+      "target": "projects.githubSource",
+      "sources": [
+        "src/projects.ts"
+      ]
+    },
+    {
       "target": "projects.link",
       "sources": [
         "src/projects.ts"

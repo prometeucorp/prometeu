@@ -151,6 +151,40 @@ test("a new project preserves its name on failure and starts its first workspace
 
 // Remote projects are installed in Settings before launching; the launcher only offers the
 // selected machine's registered projects. The clone retry proves the dialog keeps its input.
+// Protect the typed source and destination across a failed clone, and the close of both nested
+// dialogs on success. Rust tests cover the source rules and the clone itself.
+test("a GitHub import keeps its input on failure and adds the clone", async ({ page }) => {
+  const projects = page.getByRole("dialog", { name: "Projects", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Import from GitHub", exact: true });
+  // The suggestion list makes the source input a combobox.
+  const source = dialog.getByRole("combobox", { name: "Repository", exact: true });
+  const suggestions = () => dialog.locator("datalist option").evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
+  await page.evaluate(() => localStorage.setItem("mock:githubOff", "1"));
+  await projects.getByRole("button", { name: "Import from GitHub", exact: true }).click();
+  await expect(source).toBeVisible();
+  expect(await suggestions()).toEqual([]);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+
+  await page.evaluate(() => localStorage.removeItem("mock:githubOff"));
+  await projects.getByRole("button", { name: "Import from GitHub", exact: true }).click();
+  await expect.poll(suggestions).toEqual(["prometeucorp/prometeu", "prometeucorp/website"]);
+  await source.fill("prometeucorp/website");
+  await dialog.getByRole("button", { name: "Parent folder", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Parent folder", exact: true })).toHaveText("/tmp/projects");
+  await page.evaluate(() => localStorage.setItem("mock:projectFail", "website"));
+  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Repository access denied");
+  await expect(source).toHaveValue("prometeucorp/website");
+  await expect(dialog.getByRole("button", { name: "Parent folder", exact: true })).toHaveText("/tmp/projects");
+
+  await page.evaluate(() => localStorage.removeItem("mock:projectFail"));
+  await dialog.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(projects).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "New workspace in website", exact: true })).toBeVisible();
+});
+
 test("remote projects stay on their machine and install from settings", async ({ page }) => {
   await page.keyboard.press("Escape");
   await page.evaluate(async () => {
