@@ -68,14 +68,15 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "create_workspace",
         method: "workspace_create",
-        description: "Create a workspace: a new Git worktree and branch in a project, with a Claude Code conversation that starts working on the prompt right away, without permission prompts. Returns the workspace and its conversation IDs. The person sees it in their Prometeu app.",
+        description: "Create a workspace: a new Git worktree and branch in a project, with a Claude Code or Codex conversation that starts working on the prompt right away, without permission prompts. Returns the workspace and its conversation IDs. The person sees it in their Prometeu app.",
         schema: || object(json!({
             "project": {"type": "string", "description": "Project path or name from list_projects."},
-            "prompt": {"type": "string", "description": "The task for Claude, as you would type it."},
+            "prompt": {"type": "string", "description": "The task for the selected agent, as you would type it."},
+            "provider": {"type":"string", "enum":["claude","codex"], "default":"claude", "description":"Agent to run on this machine. Codex requires version 0.169.0 or newer and a local sign-in."},
             "title": {"type": "string", "description": "Optional short workspace title."},
             "branch": {"type": "string", "description": "Optional branch name; an existing local branch is checked out. Defaults to a fresh prometeu/<words> branch."},
             "base": {"type": "string", "description": "Optional base ref for a new branch. Defaults to origin's default branch."},
-            "supervisor_id": {"type": "string", "description": "Optional identity from list_supervisors. Persists supervision before starting Claude."},
+            "supervisor_id": {"type": "string", "description": "Optional identity from list_supervisors. Persists supervision before starting the selected agent."},
         }), &["project", "prompt"]),
     },
     Tool {
@@ -111,10 +112,11 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "open_conversation",
         method: "conversation_open",
-        description: "Start another Claude Code conversation in an existing workspace.",
+        description: "Start another Claude Code or Codex conversation in an existing workspace. Defaults to Claude.",
         schema: || object(json!({
             "workspace": {"type": "string", "description": "Workspace ID."},
             "prompt": {"type": "string", "description": "The first message."},
+            "provider": {"type":"string", "enum":["claude","codex"], "default":"claude", "description":"Agent to run. Omission keeps Claude, also in a Codex workspace."},
         }), &["workspace", "prompt"]),
     },
     Tool {
@@ -130,7 +132,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "send_message",
         method: "conversation_send",
-        description: "Send a message to a conversation, as the person typing it. Claude queues it if it is working. An ended conversation is resumed with this message.",
+        description: "Send a message to a conversation, as the person typing it. The native terminal queues it if it is working. An ended conversation is resumed with this message.",
         schema: || object(json!({
             "id": {"type": "string", "description": "Conversation ID."},
             "text": {"type": "string"},
@@ -139,7 +141,7 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "interrupt_conversation",
         method: "conversation_interrupt",
-        description: "Interrupt Claude's current turn in a conversation, as pressing Escape.",
+        description: "Interrupt the agent's current turn in a conversation, as pressing Escape.",
         schema: || object(json!({"id": {"type": "string", "description": "Conversation ID."}}), &["id"]),
     },
     Tool {
@@ -188,6 +190,7 @@ struct Socket {
     client: String,
     stream: Option<(UnixStream, BufReader<UnixStream>)>,
     next: u64,
+    codex_agents: bool,
 }
 
 impl Socket {
@@ -217,6 +220,7 @@ impl Socket {
                 ready["error"].as_str().unwrap_or("unknown")
             ));
         }
+        self.codex_agents = ready["codex_agents"] == true;
         self.stream = Some((writer, reader));
         Ok(())
     }
@@ -226,8 +230,29 @@ impl Socket {
         method: &str,
         params: &Value,
     ) -> Result<Result<Value, String>, Failure> {
+        let reused = self.stream.is_some();
         if self.stream.is_none() {
             self.connect().map_err(Failure::Before)?;
+        }
+        if matches!(method, "workspace_create" | "conversation_open") {
+            if let Some(provider) = params.get("provider") {
+                let Ok(provider) =
+                    serde_json::from_value::<crate::registry::Provider>(provider.clone())
+                else {
+                    return Ok(Err("invalid_provider: choose claude or codex".into()));
+                };
+                if provider == crate::registry::Provider::Codex && !self.codex_agents {
+                    // A daemon upgrade can replace this connection. Refresh the capability
+                    // before refusing, without sending a launch to a host that ignores provider.
+                    if reused {
+                        self.stream = None;
+                        self.connect().map_err(Failure::Before)?;
+                    }
+                    if !self.codex_agents {
+                        return Ok(Err("Codex requires an updated Prometeu daemon".into()));
+                    }
+                }
+            }
         }
         self.next += 1;
         let id = self.next;
@@ -339,7 +364,7 @@ fn handle(socket: &mut Socket, message: &Value) -> Option<Value> {
                     "protocolVersion": protocol,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "prometeu", "version": env!("CARGO_PKG_VERSION")},
-                    "instructions": "Use Prometeu on this machine as a person would: create workspaces in registered projects, follow their Claude Code conversations, answer them and close them when done. Everything you create appears in the person's Prometeu app.",
+                    "instructions": "Use Prometeu on this machine as a person would: create workspaces in registered projects, follow their Claude Code or Codex conversations, answer them and close them when done. Everything you create appears in the person's Prometeu app.",
                 }),
             )
         }
@@ -400,6 +425,7 @@ pub fn run(path: PathBuf) -> Result<(), String> {
         token: token.trim().to_string(),
         client,
         stream: None,
+        codex_agents: false,
         next: 0,
     };
     let stdin = std::io::stdin();
@@ -471,6 +497,7 @@ mod tests {
             token: "t".into(),
             client: "test".into(),
             stream: None,
+            codex_agents: false,
             next: 0,
         }
     }
@@ -499,6 +526,74 @@ mod tests {
             json!([])
         );
         assert_eq!(requests.iter().take(2).count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_older_host_never_receives_a_codex_launch_as_claude() {
+        let dir = std::env::temp_dir().join(format!("mcp-old-provider-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("h.sock");
+        let requests = flaky_host(path.clone(), 0);
+        let mut client = socket(path);
+        let error = client
+            .call("workspace_create", &json!({"provider":"codex"}))
+            .unwrap_err();
+        assert!(error.contains("updated Prometeu daemon"));
+        assert!(requests
+            .recv_timeout(std::time::Duration::from_millis(50))
+            .is_err());
+        assert_eq!(client.call("projects_list", &json!({})).unwrap(), json!([]));
+        assert_eq!(requests.recv().unwrap(), "projects_list");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_daemon_upgrade_refreshes_the_provider_capability_without_an_mcp_restart() {
+        let dir = std::env::temp_dir().join(format!("mcp-upgrade-provider-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("h.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let host = std::thread::spawn(move || {
+            for supported in [false, true] {
+                let (stream, _) = listener.accept().unwrap();
+                let mut writer = stream.try_clone().unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                writeln!(
+                    writer,
+                    "{}",
+                    json!({"event":"ready","codex_agents":supported})
+                )
+                .unwrap();
+                line.clear();
+                if supported {
+                    reader.read_line(&mut line).unwrap();
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    assert_eq!(request["params"]["provider"], "codex");
+                    writeln!(
+                        writer,
+                        "{}",
+                        json!({"id":request["id"],"result":{"created":true}})
+                    )
+                    .unwrap();
+                } else {
+                    assert_eq!(reader.read_line(&mut line).unwrap(), 0);
+                }
+            }
+        });
+        let mut client = socket(path);
+        assert!(client
+            .call("workspace_create", &json!({"provider":"codex"}))
+            .is_err());
+        assert_eq!(
+            client
+                .call("workspace_create", &json!({"provider":"codex"}))
+                .unwrap(),
+            json!({"created":true})
+        );
+        host.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -551,6 +646,7 @@ mod tests {
             token: String::new(),
             client: String::new(),
             stream: None,
+            codex_agents: false,
             next: 0,
         };
         let note = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});

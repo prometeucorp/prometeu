@@ -39,6 +39,7 @@ SHA-256.
   host.log                     host stderr
   sessions/<tab>/settings.json Claude hook settings, 0600
   sessions/<tab>/rpc           a Codex engine's listening alias (ADR 0105)
+  codex/<tab>.jsonl            compact Codex RPC messages and native IDs for MCP reads, 0600
   worktrees/<repo>/<branch>/   worktrees created by the desktop or the host
   registry.json                the machine's projects and workspaces, 0600
   todos.json                   the machine's to-do list, 0600 (todos.md)
@@ -184,17 +185,17 @@ outcome is unknown.
 | `terminal_attach` | `id`, `seq` | `{ data, reset, seq, running, code, pid }`, then live `output`/`exit` frames and the `hook` frames in the queue. |
 | `terminal_write` | `id`, `data` (base64) | `{}` |
 | `terminal_resize` | `id`, `cols`, `rows` (1–1000) | `{}` |
-| `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}` |
+| `terminal_signal` | `id`, `signal`: `interrupt`, `terminate`, `kill` or `hangup` | `{}`. For an observed Codex engine, waits for host shutdown after final history recovery. Refuses while its TUI operates. |
 | `terminal_stop` | `id`, `instance` | `{}`. Kills only the specified process instance. Refuses a replaced or stopped process with `terminal_changed`. |
-| `terminal_forget` | `id` | `{}`. Removes a stopped terminal and `sessions/<id>`. Refuses a terminal that operates. |
+| `terminal_forget` | `id` | `{}`. Removes a stopped terminal and `sessions/<id>`. Refuses a terminal that operates. For an observed Codex conversation, waits for final history recovery before it removes the engine socket. |
 | `terminal_list` | none | `[{ id, instance, workspace, pid, unit, started, running, code, seq }]`. Older hosts do not send `instance`. |
 | `watch` | `id`, `dir` (absolute), `depth?` (default 3, at most 6), `offsets?` | `{}`. Streams `file` events each 250 ms while this attachment is connected. |
 | `watch_flush` | `id` | `{}`, after all the bytes that the watch did not send are on the stream. |
 | `hook_reply` | `hook`, `stdout` (base64) | `{}`. An empty `stdout` abstains. |
 | `clients_list` | none | `[{ device, label, connected, current }]`. `connected` is in Unix seconds. `current` marks the attachment that asks. |
 | `client_detach` | `device` | `{}`. Sends `replaced` to the attachment of that device. Returns `unknown_client` for no attachment or for the attachment that asks. |
-| `registry_list` | none | The registry, with the `state`, `state_at` and `notification` of each conversation. |
-| `registry_put` | `project?`, `workspace?` (registry records) | `{}`. Adds a project by path. Adds a workspace by ID, or merges into the workspace that is there: its title and new conversations. It keeps all other fields and conversations. |
+| `registry_list` | `codex_agents?` (default false) | The registry, with the `state`, `state_at` and `notification` of each conversation. |
+| `registry_put` | `project?`, `workspace?` (registry records) | `{}`. Adds a project by path. Adds a workspace by ID, or merges into the workspace that is there: its title and new conversations. Known conversations keep their provider and native identity. Model and effort can update. |
 | `registry_close` | `id` | `{}`. Marks a workspace as closed after the desktop cleaned it. |
 | `registry_archive` | `id`, `archived` (boolean), `initialize?` | `{}`. Shares archive or restore state without deletion. With `initialize`, changes only a record without archive state. |
 | `todos_list`, `todos_create`, `todos_set_status`, `todos_enable` | refer to the [to-do contract](todos.md#host-methods) | The to-do list of the machine. Only the attachment can call `todos_enable`. |
@@ -401,9 +402,9 @@ idle host without `release`, as before.
 
 ## Registry
 
-`registry.json` is `{ version: 3, projects, workspaces, supervision }`. Only the
+`registry.json` is `{ version: 4, projects, workspaces, supervision }`. Only the
 host writes it, with an atomic rename through a temporary file with a unique
-name. The host can read version 1 and 2 records. It changes them to version 3 at the
+name. The host can read version 1, 2 and 3 records. It changes them to version 4 at the
 next correct write. The host refuses a registry with a newer `version`. It does
 not write that registry again without the fields that it does not know.
 Records:
@@ -411,22 +412,32 @@ Records:
 - project: `{ path, name, origin?, added_at, added_by }`.
 - workspace: `{ id, project, title, branch, base, worktree, created_at,
   created_by, closed, archived?, keep_branch, conversations, supervision? }`.
-- conversation: `{ id, title, created_at, permission }`. The ID is the tab ID,
-  the Claude session ID and the terminal ID. `permission` is `auto` or `ask`.
+- conversation: `{ id, title, created_at, permission, provider, thread_id?, model, effort }`.
+  The ID is the tab ID and terminal ID. Claude also uses it as its native session
+  ID. Codex keeps its native identity in `thread_id`. `permission` is `auto` or
+  `ask`. An omitted `provider` means `claude`. Model and effort default to empty
+  strings. Only `claude` and `codex` are valid providers.
 - creator: `{ kind: "desktop" | "agent", name? }`.
 
 The host ignores unknown fields. Times are in Unix seconds.
 
-Version 3 protects the shared archive state, supervisor links and durable outbox
-from older hosts. These hosts refuse the version. Thus they cannot delete
-unknown fields. For a downgrade, keep a host that can read this registry version. Do not
-change the version label or replace the file to start an older host.
+Version 4 protects shared archive state, provider identity, supervisor links and
+the durable outbox from older hosts. These hosts refuse the newer version. For a
+downgrade, keep a host that can read this registry version. Do not change the
+version label or replace the registry to start an older host.
+
+The host advertises `codex_agents: true` in its attachment reply. The desktop
+sends Codex records only to hosts with this capability. `registry_list` includes
+Codex conversations only when the request contains `codex_agents: true`.
+The agent socket lists all supported providers. These rules prevent an older
+host or desktop from treating a Codex conversation as Claude.
 
 The desktop synchronizes its board with `registry_list` at each attachment and
 at each `registry` event (`src-tauri/src/remote/registry.rs`). It adopts
 missing projects and workspaces without cleanup as remote board entries.
-Archived workspaces stay in the archive. Their
-conversations become Claude tabs in terminal mode with the same IDs. The
+Archived workspaces stay in the archive. Their conversations become terminal tabs for the recorded provider, with the same IDs.
+A Codex tab also keeps `thread_id`, model and effort. The desktop does not adopt
+a Codex tab until its native thread ID is available. The
 workspace names an agent creator in `creator`. The desktop adds the
 conversations that an agent opened in a workspace that the desktop shows. It
 marks the workspaces that an agent closed as cleaned and archived.
@@ -474,10 +485,20 @@ do not restore it. A restore does not start its processes.
 The host stores each archive request and sends a `registry` event to all
 attachments. Requests apply in the sequence in which the host accepts them.
 Archive stops the terminals of that workspace, including engines and docks.
+Codex engines stop after their observers read final history.
 Launch and archive use a shared gate, so an admitted launch completes before
 archive collects its terminals. The host refuses launches and agent messages in
 archived workspaces with `workspace_archived`. Agent workspace lists exclude
 archived workspaces unless `all` is true. Transcript reads stay available.
+
+When a person opens an archived Claude conversation, the desktop downloads its
+saved transcript and reads it into the local conversation journal. It does not
+start an agent or send live events. Repeated reads keep the same journal
+receipts. A restored conversation uses this journal again. Cached history stays
+available offline; a failed download can be retried when the tab opens again.
+The workspace lifecycle gate keeps this read separate from launch and restore.
+Test: `archived_claude_history_import_is_read_only_and_resumable` in
+`src-tauri/src/chat/terminal.rs`.
 
 The desktop keeps pending explicit actions in the private file
 `<root>/remote/<machine>/archives.json`. Its format is
@@ -499,6 +520,8 @@ archive state. Shared archive behavior uses an updated host and desktop.
 Tests: `workspace_archives_are_shared_without_deleting_checkouts_or_reopening_from_stale_records`
 in `src-tauri/crates/host/tests/host.rs` examines two attachments, migration,
 stale records, process stops, restore, reconnection and retained files.
+`archive_waits_for_final_codex_history_recovery` in
+`src-tauri/crates/host/tests/codex_agents.rs` examines final Codex reads.
 `shared_archive_and_restore_preserve_files_and_pending_local_intent` and
 `pending_archives_survive_restart_and_keep_explicit_restores` in
 `src-tauri/src/remote/registry.rs` examine board state and the durable queue.
@@ -623,7 +646,9 @@ A maximum of 16 connections can wait for their hello frame, each for a maximum
 of 10 seconds. The host closes more connections without an answer. The host
 serves a maximum of 64 authenticated connections. The next connection gets
 `"busy"`. In the other conditions, the host answers
-`{"event":"ready","protocol":1,"version"}`. Then it serves `{ id,
+`{"event":"ready","protocol":1,"version","codex_agents":true}`.
+The MCP client refuses a Codex launch when this capability is absent. It does
+not send that launch to an older host, which would otherwise select Claude. Then it serves `{ id,
 method, params }` requests in order with `{ id, result }` or `{ id, error }`.
 The host records `client` (a maximum of 64 characters) as the `name` of the
 creator.
@@ -643,10 +668,10 @@ replace the socket can get the token from the next client.
 | `projects_list` | none | The projects. |
 | `project_add` | `path` (absolute, in a Git repository) | The project, registered at the top level of the repository. |
 | `project_clone` | `url`, `path?` (default `~/code/<name>`) | The cloned project. |
-| `workspace_create` | `project` (path or name), `prompt`, `title?`, `branch?`, `base?` | The workspace with its first conversation. |
+| `workspace_create` | `project` (path or name), `prompt`, `provider?`, `title?`, `branch?`, `base?` | The workspace with its first conversation. |
 | `workspace_list` | `all?` | The open workspaces, or all workspaces. |
 | `workspace_get` | `id` | The workspace. |
-| `conversation_open` | `workspace`, `prompt` | The conversation and its `workspace`. |
+| `conversation_open` | `workspace`, `prompt`, `provider?` | The conversation and its `workspace`. |
 | `conversation_read` | `id`, `cursor?`, `limit?` (1–200, default 50) | `{ messages, cursor, more, status }` |
 | `conversation_send` | `id`, `text` | `{ resumed }` |
 | `conversation_interrupt` | `id` | `{}`. Sends Escape. |
@@ -654,6 +679,9 @@ replace the socket can get the token from the next client.
 | `todos_list`, `todos_create`, `todos_set_status` | refer to the [to-do contract](todos.md#host-methods) | The to-do list of the machine, while a desktop selected this machine for the list. |
 
 Workspaces and conversations contain the observed state fields above.
+`provider` accepts `claude` or `codex`. Omission selects Claude for both creation
+methods, independently of the workspace provider. Other values fail before any
+worktree or registry change. Send, read and interrupt use the stored provider.
 
 `workspace_create` fetches `origin`, if it can. If no branch is given, it
 selects a new `prometeu/<noun>-<adjective>-<NNNN>` branch. The base is
@@ -662,7 +690,7 @@ selects a new `prometeu/<noun>-<adjective>-<NNNN>` branch. The base is
 symbolic links in the parent, because Claude names transcript folders from its
 physical working folder.
 
-Before Git makes a file, the host marks that folder as trusted in
+For Claude, before Git makes a file, the host marks that folder as trusted in
 `~/.claude.json` (`projects[<path>].hasTrustDialogAccepted`). It does this under
 a lock that its own edits also use. Claude asks about folder trust also without
 permission prompts, and a trusted parent folder does not count. Then the host
@@ -740,6 +768,48 @@ the host forgets the terminals. It removes the worktree with
 closed. If the branch that the host tried to delete stays, the result names it
 in `branch_kept` with the `detail` from Git. This occurs when the lookup had an
 error without `force`, or when `git branch -D` had an error.
+
+### Codex agent conversations
+
+Codex requires version 0.169.0 or newer and a sign-in as the Unix user of the
+host. The host checks these conditions before it makes a workspace. The host
+starts the same engine and TUI terminals as the desktop. It verifies the native
+thread ID, working directory, model, approval policy and sandbox. It records
+the native thread ID before the TUI can send the first prompt. A resume must
+use that ID. A failure does not select a different thread.
+
+The host observer uses the checked Unix socket connection of the relay. It
+reads native RPC messages without a desktop attachment. It reads history in
+pages of 16 turns, with limits of 10,000 turns and 64 MiB. The observer keeps at
+most 1,024 pending RPC frames and 64 MiB during bootstrap. Each RPC startup has
+a 20-second limit.
+
+Completed items become compact records in `<root>/codex/<tab>.jsonl`:
+`{ type: "codex", id: "<thread>:<turn>:<item>", messages: [...] }`.
+The shared protocol decoder supplies tool messages. User images become text
+placeholders. Reasoning and inline image data do not enter this file. The file
+uses mode 0600 and an exclusive lock. A partial final line is removed before
+native replay. A repeated native ID does not append another record. The
+observer refuses to load a journal larger than 64 MiB.
+
+`conversation_read` uses the same message schema, byte cursor and limits as
+Claude. The journal stays after terminal cleanup and a host restart. A new
+process resumes the recorded native thread. When the observer reconnects, it
+reads native history again and adds only missing items. When the TUI stops, the
+observer reads final history before it stops that engine. If the final read
+fails, the observer reconnects while that engine operates, even after the TUI
+exits. It does not publish an execution failure because the read failed.
+A new launch and desktop cleanup wait for this recovery. A cleanup wait that
+exceeds 26 seconds returns `codex_previous_execution_stopping` and keeps the
+engine and socket. `terminal_signal` returns `codex_engine_in_use` while the
+observed TUI operates. An explicit `terminal_stop` from the process list can
+still kill the specified process instance. Failed observation sets `starting`
+with a notification while reconnection continues; an exited TUI shows `ended`.
+
+The TUI receives messages and Escape through the usual host terminal input.
+Only registered conversations can receive MCP input. The host does not copy
+credentials from a desktop. `PROMETEU_HOST_CODEX` selects a fixture executable
+for tests.
 
 ### MCP server
 

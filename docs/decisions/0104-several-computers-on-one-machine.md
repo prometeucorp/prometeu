@@ -137,7 +137,7 @@ dismissal. Removing a project or a tab continues to use local dismissal only.
 
 The original desktop can migrate an earlier archive or workspace dismissal when
 the host has no archive state. This migration cannot replace an explicit shared
-restore. Registry version 3 prevents older hosts from deleting this new state.
+restore. Registry version 4 prevents older hosts from deleting this new state.
 The [shared archive contract](../contracts/remote-host.md#shared-workspace-archives)
 gives the compatibility rules, process guarantees and tests.
 

@@ -72,9 +72,10 @@ Use option 4.
   desktop opens `codex --remote unix://… resume <thread>` as the TUI terminal
   `<tab>` of the conversation.
 - Prometeu does not install hooks for remote Codex. The local terminal path
-  also discards Codex hooks. The registry of the host does not show Codex
-  conversations to agent clients, because these clients resume only Claude
-  ([ADR 0103](0103-agents-on-remote-machines.md)).
+  also discards Codex hooks. The host registry records the provider and the
+  native thread ID. Agent clients can start, read and resume Codex through the
+  host MCP ([ADR 0103](0103-agents-on-remote-machines.md)). The host observer
+  keeps the compact MCP transcript independently of desktop attachments.
 - When the SSH connection stops, the relay continues to run. The reattachment
   replays the lines of the relay that the desktop did not get, as for all
   terminal output. Sometimes the host cannot replay the gap (more than its
@@ -88,16 +89,20 @@ Use option 4.
   thread at any time. When two computers follow the same conversation, each
   computer has its own relay
   ([ADR 0104](0104-several-computers-on-one-machine.md)).
-- When the TUI exits while this app follows it, Prometeu stops the engine. A
+- When the TUI exits, the host observer reads final history and stops the engine.
+  The host defers desktop signal and forget requests until this read succeeds,
+  including reconnects after an RPC failure. Without a host observer, the
+  desktop keeps its earlier engine cleanup behavior. A
   launch stops an engine before its TUI only when the launch opened that
   engine. In these conditions, the engine continues to run:
   - A resume lost a race on a different computer (`terminal_exists`).
   - An adoption had a failure.
 
   At the next attachment, Prometeu stops an engine that has no TUI and that is
-  older than the bootstrap of a launch. When a Codex TUI exits while no desktop
-  is attached, the host forgets it and does not recover it. Its content is in
-  the thread of the engine, and the next launch resumes it.
+  older than the bootstrap of a launch. This cleanup also waits for an active
+  host observer. When a Codex TUI exits while no desktop is attached, the host
+  observer keeps its final content for MCP readers. The next launch resumes
+  the native thread.
 - Each attachment and each launch run `codex --version` and
   `codex login status` on the machine. Prometeu reads only the exit codes and
   the version line. In these conditions, a new launch stops with a message that

@@ -168,6 +168,7 @@ the stored number, or it finds the PR from the worktree branch. Then it opens
 | `github_issue_open` | `{ url }` | Opens a validated github.com issue URL or PR URL. |
 | `github_projects` | None | `{ project, repository }[]` from the Git remotes of the local projects |
 | `github_prepare` | `{ project, url }` | `{ base, branch, source }` for an isolated PR workspace |
+| `github_repositories` | None | Up to 100 `owner/name` values from `/user/repos`, with the most recent push first |
 
 The `github` event sends the same status as `github_status`. `repositories`
 lists the installed repositories. An item contains these fields: `id`,
@@ -186,6 +187,13 @@ URL or PR URL. The URL must not have credentials, custom ports, query strings
 or fragments. The backend validates the repository and the item number again.
 
 ## Local projects and PR branches
+
+**Projects › Import from GitHub** shows `github_repositories` as suggestions
+for the source. The list contains only the repositories where the App is
+installed and the person has access. The person can type a different source.
+If GitHub is not connected, the dialog shows no suggestions and continues to
+operate. The clone uses `clone_project` and the Git credentials of the
+computer. See the [IPC contract](ipc.md).
 
 The UI compares canonical GitHub names with the remotes of the projects on
 the board. This includes `upstream` and SSH or HTTPS URLs. If more than one clone

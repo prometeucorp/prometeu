@@ -2,7 +2,7 @@
 //! projects, open workspaces, read and answer conversations, close workspaces. They reach the host
 //! through a second socket that offers only those operations and requires a token, never through
 //! the desktop socket, whose `exec` and file methods amount to a shell.
-use crate::registry::{self, Conversation, Creator, Project, Workspace};
+use crate::registry::{self, Conversation, Creator, Project, Provider, Workspace};
 use crate::server::{now, open_reserved, read_line, Host, Reservation};
 use prometeu_core::command::{CommandError, CommandPolicy, CommandRunner, OutputPolicy};
 use prometeu_core::lock::lock;
@@ -126,7 +126,7 @@ pub fn uuid() -> Result<String, String> {
     ))
 }
 
-fn private_dir(path: &Path) -> Result<(), String> {
+pub(crate) fn private_dir(path: &Path) -> Result<(), String> {
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -651,7 +651,7 @@ fn serve(host: &Arc<Host>, stream: UnixStream, pending: Slot) -> Result<(), Stri
     writeln!(
         writer,
         "{}",
-        json!({"event": "ready", "protocol": AGENT_PROTOCOL, "version": env!("CARGO_PKG_VERSION")})
+        json!({"event": "ready", "protocol": AGENT_PROTOCOL, "version": env!("CARGO_PKG_VERSION"), "codex_agents": true})
     )
     .map_err(|e| e.to_string())?;
     while let Some(line) = read_line(&mut reader)? {
@@ -1064,6 +1064,16 @@ fn launch(
     // Desktops and other senders may have resumed it after our caller checked. Reserve before
     // observing a new execution, so a rejected attempt cannot fail somebody else's execution.
     let reserved = Reservation::take(host, conversation)?;
+    if host
+        .registry
+        .read()?
+        .conversation(conversation)
+        .is_some_and(|(_, record)| record.provider == Provider::Codex)
+    {
+        // The old observer can still complete its execution after the TUI exits. Retire it
+        // before recording Started, or its final observation would finish the new execution.
+        crate::codex_agent::retire(host, conversation)?;
+    }
     host.supervision.observe(
         conversation,
         prometeu_core::supervision::Observation::Started,
@@ -1085,14 +1095,24 @@ fn launch_inner(
     prompt: Option<&str>,
     reserved: &Reservation<'_>,
 ) -> Result<(), String> {
-    let closed = host
+    let current = host
         .registry
         .read()?
         .workspaces
-        .iter()
-        .any(|w| w.id == workspace.id && w.closed);
-    if closed || lock(&CLOSING).contains(&workspace.id) {
+        .into_iter()
+        .find(|w| w.id == workspace.id)
+        .ok_or("unknown_workspace")?;
+    let workspace = &current;
+    if workspace.closed || lock(&CLOSING).contains(&workspace.id) {
         return Err("workspace_closed".into());
+    }
+    let record = workspace
+        .conversations
+        .iter()
+        .find(|c| c.id == conversation)
+        .ok_or("unknown_conversation")?;
+    if record.provider == Provider::Codex {
+        return crate::codex_agent::launch(host, workspace, record, prompt, reserved);
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let helper = format!(
@@ -1154,8 +1174,20 @@ fn title_from(prompt: &str) -> String {
     }
 }
 
+fn provider(params: &Value) -> Result<Provider, String> {
+    match params.get("provider") {
+        None => Ok(Provider::Claude),
+        Some(value) => serde_json::from_value(value.clone())
+            .map_err(|_| "invalid_provider: choose claude or codex".into()),
+    }
+}
+
 fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Result<Value, String> {
     let prompt = text(params, "prompt")?;
+    let provider = provider(params)?;
+    if provider == Provider::Codex {
+        crate::codex_agent::available()?;
+    }
     let supervision = params
         .get("supervisor_id")
         .map(|_| host.supervision.binding(text(params, "supervisor_id")?))
@@ -1223,7 +1255,9 @@ fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Resu
         return Err(format!("{worktree} already exists"));
     }
     // Before Git creates anything, so a failure here leaves nothing behind.
-    trust(&worktree)?;
+    if provider == Provider::Claude {
+        trust(&worktree)?;
+    }
     if existing {
         git(&repo, &["worktree", "add", "--", &worktree, &branch])?;
     } else {
@@ -1237,6 +1271,8 @@ fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Resu
         title: title_from(prompt),
         created_at: now(),
         permission: "auto".into(),
+        provider,
+        ..Default::default()
     };
     let workspace = Workspace {
         id: uuid()?,
@@ -1266,21 +1302,35 @@ fn workspace_create(host: &Arc<Host>, creator: &Creator, params: &Value) -> Resu
     }
     if let Err(error) = launch(host, &workspace, &conversation.id, Some(prompt)) {
         return Err(format!(
-            "workspace {} was created but Claude did not start: {error}. send_message to conversation {} retries; close_workspace removes it",
+            "workspace {} was created but the agent did not start: {error}. send_message to conversation {} retries; close_workspace removes it",
             workspace.id, conversation.id
         ));
     }
-    Ok(describe(host, &workspace))
+    let updated = host.registry.read()?;
+    Ok(describe(
+        host,
+        updated
+            .workspaces
+            .iter()
+            .find(|w| w.id == workspace.id)
+            .ok_or("unknown_workspace")?,
+    ))
 }
 
 fn conversation_open(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let id = text(params, "workspace")?;
     let prompt = text(params, "prompt")?;
+    let provider = provider(params)?;
+    if provider == Provider::Codex {
+        crate::codex_agent::available()?;
+    }
     let conversation = Conversation {
         id: uuid()?,
         title: title_from(prompt),
         created_at: now(),
         permission: "auto".into(),
+        provider,
+        ..Default::default()
     };
     let workspace = host.registry.update(|registry| {
         let workspace = registry.workspace_mut(id).ok_or("unknown_workspace")?;
@@ -1302,6 +1352,7 @@ fn conversation_open(host: &Arc<Host>, params: &Value) -> Result<Value, String> 
         });
         return Err(error);
     }
+    let (_, conversation) = find_conversation(host, &conversation.id)?;
     let mut value = json!(conversation);
     value["workspace"] = json!(workspace.id);
     Ok(value)
@@ -1337,7 +1388,7 @@ fn next_line(file: &mut std::fs::File, from: u64) -> Result<Option<u64>, String>
 /// no cursor is given. The reply's `cursor` continues from where it stopped.
 fn conversation_read(host: &Host, params: &Value) -> Result<Value, String> {
     let id = text(params, "id")?;
-    let (workspace, _) = find_conversation(host, id)?;
+    let (workspace, conversation) = find_conversation(host, id)?;
     let limit = params
         .get("limit")
         .and_then(Value::as_u64)
@@ -1346,7 +1397,11 @@ fn conversation_read(host: &Host, params: &Value) -> Result<Value, String> {
     let cursor = params.get("cursor").and_then(Value::as_u64);
     let activity = host.activity(id);
     let state = json!({"state": activity.state, "state_at": activity.at, "notification": activity.notification});
-    let path = transcript_path(&workspace.worktree, id)?;
+    let path = if conversation.provider == Provider::Codex {
+        crate::codex_agent::transcript_path(host, id)
+    } else {
+        transcript_path(&workspace.worktree, id)?
+    };
     let mut read = match std::fs::File::open(&path) {
         Ok(mut file) => read_transcript(&mut file, cursor, limit, TAIL_BYTES, REPLY_BUDGET)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -1607,6 +1662,10 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
     }
     for conversation in &workspace.conversations {
         host.end(&conversation.id);
+        if conversation.provider == Provider::Codex {
+            crate::codex_agent::retire(host, &conversation.id)?;
+            host.end(&prometeu_host::codex::engine_terminal(&conversation.id));
+        }
     }
     if separate && !force {
         // Claude may have written between the first check and its exit.
@@ -1618,6 +1677,9 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
     }
     for conversation in &workspace.conversations {
         host.forget(&conversation.id);
+        if conversation.provider == Provider::Codex {
+            host.forget(&prometeu_host::codex::engine_terminal(&conversation.id));
+        }
     }
     if separate {
         let mut remove = vec!["worktree", "remove"];
@@ -1659,8 +1721,15 @@ fn close(host: &Arc<Host>, id: &str, force: bool) -> Result<Value, String> {
 
 // Desktop methods on the private socket.
 
-pub fn registry_view(host: &Host) -> Result<Value, String> {
-    let registry = host.registry.read()?;
+pub fn registry_view(host: &Host, codex_agents: bool) -> Result<Value, String> {
+    let mut registry = host.registry.read()?;
+    if !codex_agents {
+        for workspace in &mut registry.workspaces {
+            workspace
+                .conversations
+                .retain(|c| c.provider == Provider::Claude);
+        }
+    }
     let mut value = json!(registry);
     value.as_object_mut().unwrap().remove("supervision");
     value["workspaces"] = Value::Array(
@@ -1673,7 +1742,7 @@ pub fn registry_view(host: &Host) -> Result<Value, String> {
     Ok(value)
 }
 
-pub fn registry_put(host: &Host, params: &Value) -> Result<Value, String> {
+pub fn registry_put(host: &Arc<Host>, params: &Value) -> Result<Value, String> {
     let project = params
         .get("project")
         .filter(|p| !p.is_null())
@@ -1693,8 +1762,10 @@ pub fn registry_put(host: &Host, params: &Value) -> Result<Value, String> {
         if let Some(workspace) = workspace {
             registry.merge_workspace(workspace);
         }
-        Ok(json!({}))
-    })
+        Ok(())
+    })?;
+    crate::codex_agent::watch_registered(host);
+    Ok(json!({}))
 }
 
 pub fn registry_close(host: &Host, params: &Value) -> Result<Value, String> {

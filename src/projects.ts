@@ -183,7 +183,8 @@ export function openProjects(say: (text: string, bad?: boolean) => void) {
   destination.hidden = true;
   const list = h("div", "ui-stack");
   const create = button(t("projects.create"), () => openNewProject(say, dialog.close), "outline", "projects.create");
-  dialog.body.append(local, create, h("p", "ui-hint", t("projects.hint")), destination, list);
+  const github = button(t("projects.github"), () => openGitHubImport(say, dialog.close), "outline", "projects.github");
+  dialog.body.append(local, create, github, h("p", "ui-hint", t("projects.hint")), destination, list);
   dialog.save.disabled = true;
   function update() { dialog.save.disabled = running || !directory || !choices.some(choice => choice.control.checked); }
   dialog.open();
@@ -249,6 +250,47 @@ function openNewProject(say: (text: string, bad?: boolean) => void, created: () 
     field(t("projects.parent"), destination, undefined, "projects.parent"),
   );
   dialog.open();
+}
+
+/** Clone a GitHub repository, or any https/ssh Git URL, into a subfolder of a local folder. */
+function openGitHubImport(say: (text: string, bad?: boolean) => void, imported: () => void) {
+  let directory = "";
+  const source = input("", false, "projects.githubSource");
+  source.required = true;
+  source.spellcheck = false;
+  source.autocomplete = "off";
+  source.placeholder = "org/app";
+  const suggestions = document.createElement("datalist");
+  suggestions.id = `projects-github-${crypto.randomUUID()}`;
+  source.setAttribute("list", suggestions.id);
+  const destination = button(t("projects.destination"), async () => {
+    try {
+      const path = await open({ directory: true, title: t("projects.destination") });
+      if (typeof path === "string") { directory = path; destination.textContent = path; }
+    } catch (error) { say(fromBack(error), true); }
+  }, "outline", "projects.destination");
+  const dialog = formDialog({ track: "projects.github", area: "projects",
+    title: t("projects.github"), save: t("projects.githubImport"), cancel: t("actions.cancel"), error: fromBack,
+    submit: async () => {
+      if (!directory) throw t("projects.chooseParent");
+      source.disabled = destination.disabled = true;
+      try {
+        await invoke("clone_project", { source: source.value, directory });
+        imported();
+      } finally { source.disabled = destination.disabled = false; }
+    },
+  });
+  dialog.body.append(
+    h("p", "ui-hint", t("projects.githubHint")),
+    field(t("projects.githubSource"), source, undefined, "projects.githubSource"),
+    suggestions,
+    field(t("projects.parent"), destination, undefined, "projects.parent"),
+  );
+  dialog.open();
+  // Suggestions need a GitHub connection; without one the person types the source.
+  void invoke("github_repositories").then(names => {
+    suggestions.replaceChildren(...names.map(name => { const option = document.createElement("option"); option.value = name; return option; }));
+  }).catch(() => {});
 }
 
 function install(item: CatalogProject, directory: string, existing: boolean) {

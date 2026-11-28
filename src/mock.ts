@@ -18,6 +18,7 @@ import type { Accounts } from "./statusbar";
 import type { CloudStatus } from "./cloud";
 import type { CatalogState, Kind } from "./catalog";
 import type { Skill } from "./skills";
+import { cloneName, projectSource, sameProjectRemote } from "./project-source";
 import { hasWorktree, isTerm, type Board, type Change, type Choice, type DockKind, type EffectiveItem, type GitBranch, type GitCommit, type GitConflict, type GitFile, type GitStatus, type Issue, type LinearStatus, type McpServer, type Plugin, type ProjectTools, type Pr, type Provenance, type ProviderId, type Scripts, type Selection, type ShareRights, type Tab, type Tools, type Workspace } from "./types";
 
 type Handler = (e: { event: string; id: number; payload: unknown }) => void;
@@ -1205,6 +1206,10 @@ const mockCommands: IpcHandlers = {
   },
   github_detail({ target }) { return target === "workflow_run" ? "CI" : "Looks good to me, just rename the helper."; },
   github_issue_open({ url }) { console.log("open in GitHub:", url); },
+  github_repositories() {
+    if (!mockGitHubStatus().connected) throw 'i18n:{"code":"err.github.off"}';
+    return ["prometeucorp/prometeu", "prometeucorp/website"];
+  },
   github_projects() { return board.projects.filter(project => project.name === "prometeu").map(project => ({ project: project.id, repository: "prometeucorp/prometeu" })); },
   github_prepare({ url }) {
     const number = url.split("/").pop();
@@ -2856,6 +2861,28 @@ const mockCommands: IpcHandlers = {
     const project = { id: path, name, path };
     board.projects.push(project);
     emptyProjects.add(path);
+    emit("board", board);
+    return project;
+  },
+  // Mirrors catalog/projects.rs: the same source rules, and a destination that is not a clone of the
+  // same remote is refused. `mock:projectFail` with the clone name simulates a Git access failure.
+  clone_project({ source, directory }) {
+    source = source.trim();
+    const name = cloneName(source);
+    if (!name || !projectSource(source)) throw 'i18n:{"code":"err.project.source"}';
+    if (!directory.startsWith("/")) throw 'i18n:{"code":"err.project.directory"}';
+    const path = `${directory.replace(/\/+$/, "")}/${name}`;
+    const origins: Record<string, string> = JSON.parse(localStorage.getItem("mock:projectOrigins") ?? "{}");
+    const existing = board.projects.find(project => project.path === path);
+    if (existing) {
+      if (sameProjectRemote(source, origins[path] ?? "")) return existing;
+      throw 'i18n:{"code":"err.project.exists"}';
+    }
+    if (localStorage.getItem("mock:projectFail") === name) throw 'i18n:{"code":"err.project.access","args":{"cause":"git@example.test: Permission denied (publickey)."}}';
+    origins[path] = source;
+    localStorage.setItem("mock:projectOrigins", JSON.stringify(origins));
+    const project = { id: path, name, path };
+    board.projects.push(project);
     emit("board", board);
     return project;
   },

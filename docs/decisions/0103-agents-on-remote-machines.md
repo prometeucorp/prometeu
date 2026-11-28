@@ -1,7 +1,7 @@
 ---
 type: Decision
 title: "ADR 0103 — Agents on a remote machine drive workspaces through its host"
-description: "The host of the machine keeps its own registry of projects and workspaces. It launches Claude without a desktop, and it serves an agent socket and an MCP server that a token authorizes."
+description: "The host of the machine keeps its own registry of projects and workspaces. It launches Claude or Codex without a desktop, and it serves an agent socket and an MCP server that a token authorizes."
 status: stable
 ---
 
@@ -71,8 +71,9 @@ The host owns `<root>/registry.json` (0600, atomic rename). The
   absolute repository on the machine.
 - `workspaces`: `{ id, project, title, branch, base, worktree, created_at,
   created_by, closed, archived?, keep_branch, conversations, supervision? }`. A conversation is `{ id, title,
-  created_at, permission }`, where `id` is the tab ID, the Claude session ID
-  and the terminal ID of the host at the same time. This is also true for remote
+  created_at, permission, provider, thread_id?, model, effort }`. The `id` is
+  the tab ID and the terminal ID. Claude also uses it as its native session ID.
+  Codex uses the separate `thread_id`. Earlier records use Claude by default. This is also true for remote
   conversations that the desktop makes.
 - `created_by` / `added_by` is `{ kind: "desktop" | "agent", name? }`. `name`
   is the label that the agent client sent.
@@ -136,6 +137,42 @@ read it in pages with a byte cursor. When a client sends a message, the host
 writes it to the terminal of the conversation as a bracketed paste and then
 Enter. Claude puts input that comes while it operates in a queue, as it does
 when a person types.
+
+### Codex without a desktop
+
+The host uses the native engine and TUI from [ADR 0105](0105-codex-on-remote-machines.md).
+A separate `codex exec` process would have a different input protocol and could
+not share its terminal with the desktop. Reading rollout files would also give
+a second source of conversation content. The host uses the engine RPC for all
+Codex content and state.
+
+The host checks the installed version and sign-in before it makes a workspace.
+It starts an engine, verifies the thread identity and settings, and records the
+native thread ID before it opens the TUI. A failed resume does not start a new
+thread. The TUI gets the first prompt as an argument. Later messages use the
+same terminal input path as Claude. Escape interrupts the current turn.
+
+A host observer reads the RPC while all desktops are disconnected. It keeps
+completed messages in a private compact transcript for MCP readers. Native
+thread, turn and item IDs remove duplicates after an observer reconnects. The
+observer reads the final native history before it stops an exited TUI's engine.
+A subsequent launch waits for that cleanup before it resumes the same thread.
+Failed final reads reconnect while the engine operates. Desktop signal and
+forget requests wait for this recovery. They do not stop the observed engine
+or remove its socket before the host completes the read.
+The transcript stays outside the temporary session folder, including after a
+host restart.
+
+The registry uses version 4 to protect archive state, provider and thread identity from older
+hosts. Earlier records default to Claude. The host advertises `codex_agents`.
+The desktop records Codex only when the host advertises this capability. The
+desktop also requests Codex records explicitly. Older desktops receive only
+Claude conversations and cannot resume a Codex thread as Claude.
+
+The host uses the shared Codex protocol decoder for compact tool messages and
+child activity. Thus `prometeu-host` can depend on `prometeu-protocols`, which
+continues to depend only on the core. The desktop keeps its own presentation
+journal and reads the same native engine when it attaches.
 
 ### Agent socket and token
 
@@ -228,8 +265,8 @@ environment adapt paths, permissions and identities.
   `remote:<machine>:<path>` projects, with an alias by origin as in ADR 0101.
   Registry workspaces that are not on the board become unread remote
   workspaces. They have the ID, the branch and the worktree from the registry,
-  and they name the agent that made them. Their conversations become Claude
-  tabs in the terminal mode with the IDs from the registry. The current
+  and they name the agent that made them. Their conversations become terminal
+  tabs for the recorded provider. Codex tabs also keep their native thread ID. The current
   reattachment then follows the terminals that run, or it collects the
   terminals that completed. Sometimes the terminal of a conversation is not
   there, because the machine started again. Then the desktop binds the
@@ -306,17 +343,19 @@ environment adapt paths, permissions and identities.
 
 ### Scope
 
-Only Claude, as in ADR 0101. Agents cannot select a model, plugins, MCP servers
-or skills for the conversations that they open. The defaults of Claude on the
-machine apply. Workspaces with more than one repository stay on the desktop
+Clients can select `provider: "claude"` or `provider: "codex"` when they make
+a workspace or open a conversation. An omitted provider selects Claude, also in
+a Codex workspace. Unknown providers fail before Git or the registry changes.
+Clients cannot select a model, plugins, MCP servers or skills through these
+methods. The configuration of the selected CLI on the machine applies. Workspaces with more than one repository stay on the desktop
 only.
 
 ## Consequences
 
 - Work starts and runs while the laptop is off, and a person or an agent can
   follow it. The board gets the changes at the next attachment.
-- **All persons who have the token can make Claude run all commands that the
-  Unix user of the person can run on the machine. Claude runs them as that user
+- **All persons who have the token can make the selected agent run all commands that the
+  Unix user of the person can run on the machine. The agent runs them as that user
   and without permission prompts.** The token is as sensitive as the SSH key of
   the person for that machine. A token rotation stops all agent clients.
 - The host now knows about projects and workspaces. ADR 0101 kept these items
@@ -328,6 +367,18 @@ only.
   desktop use the same function.
 
 ## Evidence
+
+- [Codex MCP integration tests](../../src-tauri/crates/host/tests/codex_agents.rs)
+  examine creation, input, reads, interruption, reconnection, resume and cleanup
+  with a native-protocol fixture. Final-read tests disconnect RPC after the TUI
+  exits and send concurrent desktop cleanup requests. They verify the last
+  reply and supervision completion without a false failure. They do not use a
+  live model.
+- [Desktop registry tests](../../src-tauri/src/remote/registry.rs) examine mixed
+  providers, native identity and compatibility with earlier hosts.
+- [Registry tests](../../src-tauri/crates/host/src/registry.rs) examine earlier
+  conversation records and the refusal of unknown providers and newer formats.
+
 
 The team implemented this decision on the host and on the desktop, and ran it
 in production with OpenBot (2026-11-24, Prometeu 0.46.0).

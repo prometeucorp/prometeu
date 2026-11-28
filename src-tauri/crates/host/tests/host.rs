@@ -248,7 +248,7 @@ fn workspace_archives_are_shared_without_deleting_checkouts_or_reopening_from_st
     );
     let stored: Value =
         serde_json::from_slice(&std::fs::read(root.join("registry.json")).unwrap()).unwrap();
-    assert_eq!(stored["version"], 3);
+    assert_eq!(stored["version"], 4);
     assert_eq!(stored["workspaces"][0]["archived"], true);
     reconnected.call("registry_close", json!({"id": "workspace"}));
     reconnected.call(

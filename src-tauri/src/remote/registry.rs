@@ -1,7 +1,7 @@
 //! The machine's registry of projects and workspaces (ADR 0103), shared with the agents that drive
 //! its host. This app adopts what agents create there and records what the person creates, so
 //! both sides see the same workspaces; the host is the registry's only writer.
-use crate::state::{ConversationMode, Project, ProviderId, Repo, Status, Tab, Workspace};
+use crate::state::{Choice, ConversationMode, Project, ProviderId, Repo, Status, Tab, Workspace};
 use crate::AppState;
 use prometeu_core::actions::Permission;
 use prometeu_core::lock::lock;
@@ -37,6 +37,14 @@ struct RegisteredConversation {
     title: String,
     #[serde(default)]
     permission: String,
+    #[serde(default)]
+    provider: String,
+    #[serde(default)]
+    thread_id: Option<String>,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    effort: String,
 }
 
 #[derive(Deserialize)]
@@ -74,7 +82,7 @@ struct Listing {
 #[derive(Default)]
 pub struct Synced {
     /// Conversations new to the board, with their workspace's working directory.
-    pub adopted: Vec<(String, String)>,
+    pub adopted: Vec<(String, String, ProviderId)>,
 }
 
 /// Bring the board in line with the machine's registry: add the projects, workspaces and
@@ -84,13 +92,14 @@ pub struct Synced {
 pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
     let mut synced = Synced::default();
     let Some(listing) = connection
-        .request("registry_list", json!({}))
+        .request("registry_list", json!({"codex_agents": true}))
         .ok()
         .and_then(|value| serde_json::from_value::<Listing>(value).ok())
     else {
         return synced;
     };
     let machine = connection.id.as_str();
+    let codex_agents = supports_codex(connection);
     let state = app.state::<AppState>();
     let mut stopped = Vec::new();
     let mut puts = Vec::new();
@@ -161,9 +170,13 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                 ws.tabs
                     .retain(|t| !taken.contains(&t.id) && !dismissed.contains(&t.id));
                 ws.active = ws.tabs.last().map(|t| t.id.clone());
-                synced
-                    .adopted
-                    .extend(ws.tabs.iter().map(|t| (t.id.clone(), ws.worktree.clone())));
+                synced.adopted.extend(ws.tabs.iter().map(|t| {
+                    (
+                        t.id.clone(),
+                        ws.worktree.clone(),
+                        t.choice.as_ref().map_or(ws.agent, |c| c.agent),
+                    )
+                }));
                 board.workspaces.push(ws);
                 changed = true;
                 continue;
@@ -185,11 +198,15 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                 {
                     continue;
                 }
-                ws.tabs.push(tab(conversation));
+                let Some(tab) = tab(conversation) else {
+                    continue;
+                };
+                let provider = tab.choice.as_ref().map_or(ws.agent, |choice| choice.agent);
+                ws.tabs.push(tab);
                 if !registered.closed {
                     synced
                         .adopted
-                        .push((conversation.id.clone(), ws.worktree.clone()));
+                        .push((conversation.id.clone(), ws.worktree.clone(), provider));
                 }
                 added = true;
             }
@@ -243,10 +260,11 @@ pub fn sync(app: &AppHandle, connection: &Arc<Connection>) -> Synced {
                 .find(|w| w.id == ws.id)
                 .is_some_and(|w| {
                     w.closed
-                        || recorded_tabs(ws).all(|t| w.conversations.iter().any(|c| c.id == t.id))
+                        || recorded_tabs(ws, codex_agents)
+                            .all(|t| w.conversations.iter().any(|c| c.id == t.id))
                 });
             if recordable && !complete {
-                puts.push(record(ws));
+                puts.push(record(ws, codex_agents));
             }
         }
     }
@@ -331,8 +349,33 @@ fn basename(path: &str) -> String {
         .to_string()
 }
 
-fn tab(conversation: &RegisteredConversation) -> Tab {
-    Tab {
+fn choice(conversation: &RegisteredConversation) -> Option<Choice> {
+    let agent = match conversation.provider.as_str() {
+        "" | "claude" => ProviderId::Claude,
+        "codex" => ProviderId::Codex,
+        // Unknown providers must never become Claude through the board's compatibility fallback.
+        _ => return None,
+    };
+    Some(Choice {
+        agent,
+        model: conversation.model.clone(),
+        effort: conversation.effort.clone(),
+    })
+}
+
+fn tab(conversation: &RegisteredConversation) -> Option<Tab> {
+    let choice = choice(conversation)?;
+    let codex = choice.agent == ProviderId::Codex;
+    if codex
+        && conversation
+            .thread_id
+            .as_ref()
+            .is_none_or(|id| id.is_empty())
+    {
+        // An unfinished launch has no native identity to adopt.
+        return None;
+    }
+    Some(Tab {
         conversation_mode: ConversationMode::Terminal,
         plan: false,
         permission: Some(if conversation.permission == "auto" {
@@ -342,7 +385,7 @@ fn tab(conversation: &RegisteredConversation) -> Tab {
         }),
         task: None,
         id: conversation.id.clone(),
-        agent_session: None,
+        agent_session: codex.then(|| conversation.thread_id.clone()).flatten(),
         title: conversation.title.clone(),
         // The reattachment that follows adoption reports the running ones.
         status: Status::Desligada,
@@ -352,16 +395,21 @@ fn tab(conversation: &RegisteredConversation) -> Tab {
         tokens: None,
         context_tokens: None,
         context_window: None,
-        choice: None,
+        choice: Some(choice),
         kickoff: None,
         interrupted: false,
         cuts: Vec::new(),
-    }
+    })
 }
 
 fn workspace(machine: &str, registered: &RegisteredWorkspace) -> Workspace {
     let name = basename(&registered.project);
-    let tabs: Vec<Tab> = registered.conversations.iter().map(tab).collect();
+    let tabs: Vec<Tab> = registered.conversations.iter().filter_map(tab).collect();
+    let choice = registered
+        .conversations
+        .iter()
+        .find_map(choice)
+        .unwrap_or_default();
     Workspace {
         id: registered.id.clone(),
         title: if registered.title.is_empty() {
@@ -384,9 +432,9 @@ fn workspace(machine: &str, registered: &RegisteredWorkspace) -> Workspace {
         archived: registered.archived.unwrap_or(false),
         pinned: false,
         unread: true,
-        model: String::new(),
-        effort: String::new(),
-        agent: ProviderId::Claude,
+        model: choice.model,
+        effort: choice.effort,
+        agent: choice.agent,
         port: None,
         issue: None,
         pr: None,
@@ -422,25 +470,54 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
-/// The conversations agent clients on the machine may follow: they read Claude transcripts and
-/// resume Claude only (ADR 0103), so other providers' tabs stay out of the registry.
-fn recorded_tabs(ws: &Workspace) -> impl Iterator<Item = &Tab> {
-    ws.tabs
-        .iter()
-        .filter(move |t| t.choice.as_ref().map_or(ws.agent, |c| c.agent) == ProviderId::Claude)
+/// Only providers the host can operate enter its registry. Codex also needs its native thread
+/// identity, so a concurrent synchronization cannot adopt a launch before its bootstrap ends.
+fn recorded_tabs(ws: &Workspace, codex_agents: bool) -> impl Iterator<Item = &Tab> {
+    ws.tabs.iter().filter(
+        move |t| match t.choice.as_ref().map_or(ws.agent, |c| c.agent) {
+            ProviderId::Claude => true,
+            ProviderId::Codex => {
+                codex_agents && t.agent_session.as_ref().is_some_and(|id| !id.is_empty())
+            }
+            _ => false,
+        },
+    )
+}
+
+/// Earlier hosts ignore the provider field and would resume Codex records with Claude.
+fn supports_codex(connection: &Connection) -> bool {
+    connection
+        .ready()
+        .is_some_and(|ready| ready["codex_agents"].as_bool() == Some(true))
 }
 
 /// The registry record of a board workspace. The host keeps what it already holds, so the
 /// timestamps and creator here only matter for a workspace new to it.
-fn record(ws: &Workspace) -> Value {
+fn record(ws: &Workspace, codex_agents: bool) -> Value {
     let primary = ws.primary();
-    // Claude runs without prompts unless the tab asks for them.
+    // Remote conversations run without prompts unless the tab asks for them.
     let permission = |p: Option<Permission>| match p {
         Some(Permission::Ask) => "ask",
         _ => "auto",
     };
-    let conversations: Vec<Value> = recorded_tabs(ws)
-        .map(|t| json!({"id": t.id, "title": t.title, "created_at": now(), "permission": permission(t.permission)}))
+    let conversations: Vec<Value> = recorded_tabs(ws, codex_agents)
+        .map(|t| {
+            let (provider, model, effort) = t.choice.as_ref().map_or(
+                (ws.agent, &ws.model, &ws.effort),
+                |choice| (choice.agent, &choice.model, &choice.effort),
+            );
+            let effort = if provider == ProviderId::Codex {
+                crate::agents::effort(effort)
+            } else {
+                effort.as_str()
+            };
+            json!({
+                "id": t.id, "title": t.title, "created_at": now(),
+                "permission": permission(t.permission), "provider": provider,
+                "thread_id": if provider == ProviderId::Codex { t.agent_session.as_deref() } else { None },
+                "model": model, "effort": effort,
+            })
+        })
         .collect();
     json!({
         "project": {
@@ -463,7 +540,7 @@ fn record(ws: &Workspace) -> Value {
 /// synchronization from adopting a conversation this app is still launching. Runs in the
 /// background; a lost record is sent again by the next synchronization.
 pub fn record_later(app: &AppHandle, workspace: &str) {
-    let (machine, params) = {
+    let (machine, ws) = {
         let state = app.state::<AppState>();
         let board = lock(&state.board);
         let Some(ws) = board.workspaces.iter().find(|w| w.id == workspace) else {
@@ -472,11 +549,12 @@ pub fn record_later(app: &AppHandle, workspace: &str) {
         let Some(machine) = ws.host.clone() else {
             return;
         };
-        (machine, record(ws))
+        (machine, ws.clone())
     };
     let Ok(connection) = app.state::<super::Service>().connected(&machine) else {
         return;
     };
+    let params = record(&ws, supports_codex(&connection));
     std::thread::spawn(move || {
         let _ = connection.request("registry_put", params);
     });
@@ -624,6 +702,11 @@ mod tests {
         let tab = &ws.tabs[0];
         assert!(tab.conversation_mode == ConversationMode::Terminal);
         assert!(tab.permission == Some(Permission::Auto));
+        assert_eq!(ws.agent, ProviderId::Claude);
+        assert!(ws.model.is_empty());
+        assert!(ws.effort.is_empty());
+        assert!(tab.agent_session.is_none());
+        assert_eq!(tab.choice.as_ref().unwrap().agent, ProviderId::Claude);
         assert!(workspace("vps", &registered("desktop")).creator.is_none());
     }
 
@@ -631,7 +714,7 @@ mod tests {
     fn shared_archive_and_restore_preserve_files_and_pending_local_intent() {
         let mut remote = registered("desktop");
         let mut ws = workspace("vps", &remote);
-        let original = record(&ws);
+        let original = record(&ws, true);
         ws.archived = true;
         // Legacy hosts must not reopen local archives.
         assert!(!apply_archive(&mut ws, &remote, None));
@@ -643,11 +726,11 @@ mod tests {
         assert!(ws.archived);
         assert!(!ws.cleaned);
         assert_eq!(
-            record(&ws)["workspace"]["worktree"],
+            record(&ws, true)["workspace"]["worktree"],
             original["workspace"]["worktree"]
         );
         assert_eq!(
-            record(&ws)["workspace"]["conversations"],
+            record(&ws, true)["workspace"]["conversations"],
             original["workspace"]["conversations"]
         );
 
@@ -711,7 +794,7 @@ mod tests {
         second.permission = None;
         ws.tabs[0].permission = Some(Permission::Ask);
         ws.tabs.push(second);
-        let value = record(&ws);
+        let value = record(&ws, true);
         let conversations = &value["workspace"]["conversations"];
         assert_eq!(conversations[0]["permission"], "ask");
         assert_eq!(conversations[1]["id"], "c2");
@@ -722,23 +805,123 @@ mod tests {
     }
 
     #[test]
-    fn agent_clients_never_see_conversations_they_cannot_resume() {
+    fn unbound_codex_and_unsupported_providers_stay_out_of_the_registry() {
         let mut ws = workspace("vps", &registered("agent"));
         let mut codex = ws.tabs[0].clone();
         codex.id = "c2".into();
-        codex.choice = Some(crate::state::Choice {
+        codex.choice = Some(Choice {
             agent: ProviderId::Codex,
             model: String::new(),
             effort: String::new(),
         });
         ws.tabs.push(codex);
-        let conversations = record(&ws)["workspace"]["conversations"].clone();
+        let mut cursor = ws.tabs[0].clone();
+        cursor.id = "c3".into();
+        cursor.agent_session = Some("cursor-session".into());
+        cursor.choice.as_mut().unwrap().agent = ProviderId::Cursor;
+        ws.tabs.push(cursor);
+        let conversations = record(&ws, true)["workspace"]["conversations"].clone();
         assert_eq!(conversations.as_array().unwrap().len(), 1);
         assert_eq!(conversations[0]["id"], "c1");
-        // A workspace whose first conversation runs Codex is still offered to agents.
+
+        // A bound Codex tab inherits the workspace selection when it has no override.
         ws.agent = ProviderId::Codex;
+        ws.model = "codex-model".into();
+        ws.effort = "high".into();
+        ws.tabs[0].choice = None;
         ws.tabs[1].choice = None;
-        let conversations = record(&ws)["workspace"]["conversations"].clone();
-        assert_eq!(conversations, json!([]));
+        ws.tabs[1].agent_session = Some("native-thread".into());
+        let conversations = record(&ws, true)["workspace"]["conversations"].clone();
+        assert_eq!(conversations.as_array().unwrap().len(), 1);
+        assert_eq!(conversations[0]["id"], "c2");
+        assert_eq!(conversations[0]["provider"], "codex");
+        assert_eq!(conversations[0]["thread_id"], "native-thread");
+        assert_eq!(conversations[0]["model"], "codex-model");
+        assert_eq!(conversations[0]["effort"], "high");
+        ws.effort = "ultracode".into();
+        let value = record(&ws, true);
+        assert_eq!(value["workspace"]["conversations"][0]["effort"], "ultra");
+        let saved: RegisteredWorkspace =
+            serde_json::from_value(value["workspace"].clone()).unwrap();
+        assert_eq!(
+            workspace("another-computer", &saved).tabs[0]
+                .choice
+                .as_ref()
+                .unwrap()
+                .effort,
+            "ultra"
+        );
+    }
+
+    #[test]
+    fn mixed_providers_keep_their_native_identity_and_selection_after_round_trip() {
+        let mut source = registered("agent");
+        source.conversations.insert(
+            0,
+            serde_json::from_value(json!({
+                "id": "codex-tab", "title": "Codex task", "permission": "auto",
+                "provider": "codex", "thread_id": "native-thread",
+                "model": "codex-model", "effort": "high",
+            }))
+            .unwrap(),
+        );
+        let ws = workspace("vps", &source);
+        assert_eq!(ws.agent, ProviderId::Codex);
+        assert_eq!(ws.model, "codex-model");
+        assert_eq!(ws.effort, "high");
+        assert_eq!(ws.tabs[0].agent_session.as_deref(), Some("native-thread"));
+        assert_eq!(ws.tabs[0].choice.as_ref().unwrap().agent, ProviderId::Codex);
+        // A legacy Claude record never inherits the first conversation's Codex selection.
+        assert_eq!(
+            ws.tabs[1].choice.as_ref().unwrap().agent,
+            ProviderId::Claude
+        );
+        assert!(ws.tabs[1].agent_session.is_none());
+
+        let wire = record(&ws, true);
+        let saved = &wire["workspace"]["conversations"];
+        assert_eq!(saved[0]["thread_id"], "native-thread");
+        assert_eq!(saved[1]["provider"], "claude");
+        assert!(saved[1]["thread_id"].is_null());
+        let legacy = record(&ws, false);
+        let legacy_conversations = legacy["workspace"]["conversations"].as_array().unwrap();
+        assert_eq!(legacy_conversations.len(), 1);
+        assert_eq!(legacy_conversations[0]["id"], "c1");
+        let restored: RegisteredWorkspace =
+            serde_json::from_value(wire["workspace"].clone()).unwrap();
+        let restored = workspace("second-computer", &restored);
+        for (actual, expected) in restored.tabs.iter().zip(&ws.tabs) {
+            assert_eq!(actual.id, expected.id);
+            assert_eq!(actual.agent_session, expected.agent_session);
+            assert!(actual.choice == expected.choice);
+        }
+    }
+
+    #[test]
+    fn adoption_waits_for_a_codex_identity_and_skips_unknown_providers() {
+        let mut source = registered("agent");
+        for (id, provider, thread) in [
+            ("pending", "codex", None),
+            ("empty", "codex", Some("")),
+            ("future", "future-provider", Some("native-thread")),
+        ] {
+            source.conversations.push(
+                serde_json::from_value(json!({
+                    "id": id, "provider": provider, "thread_id": thread,
+                }))
+                .unwrap(),
+            );
+        }
+        let ws = workspace("vps", &source);
+        assert_eq!(ws.tabs.len(), 1);
+        assert_eq!(ws.tabs[0].id, "c1");
+        source.conversations.swap(0, 1);
+        let pending = workspace("vps", &source);
+        assert_eq!(pending.agent, ProviderId::Codex);
+        assert_eq!(pending.tabs.len(), 1);
+        assert_eq!(
+            pending.tabs[0].choice.as_ref().unwrap().agent,
+            ProviderId::Claude
+        );
     }
 }

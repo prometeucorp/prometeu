@@ -861,8 +861,13 @@ pub fn transcript_of(ws: &Workspace, session: &str) -> PathBuf {
 /// Capture text and sequence under the same lock used for live delivery. Remote viewers can discard
 /// only the events already included in this snapshot.
 #[tauri::command]
-pub fn chat_snapshot(state: State<AppState>, session: String) -> Snapshot {
-    snapshot(&state, &session)
+pub async fn chat_snapshot(app: AppHandle, session: String) -> Result<Snapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::remote::agent::load_archived_history(&app, &session)?;
+        Ok(snapshot(&app.state::<AppState>(), &session))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]

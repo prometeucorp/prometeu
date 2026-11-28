@@ -184,6 +184,31 @@ has a failure after the initialization, the initialized folder stays available
 for **Add local folder**. The current `add_project` behavior and the stored
 formats do not change. The native tests are in `crates/git/src/tests.rs`.
 
+`clone_project` receives `{ source: string, directory: string }` and returns the
+current `Project` shape. **Projects › Import from GitHub** uses it. The source
+is `owner/name` of a github.com repository, or an https or SSH Git URL. The
+source rules are the same as for the sources of catalog projects: no
+credentials, query strings, Git options or path traversal. The clone goes into
+`<directory>/<name>`. The name is the last segment of the source without
+`.git`, and it must be a valid catalog project ID. Otherwise the command
+returns `err.project.source`. The clone uses the Git credentials of the
+computer. It does not use the GitHub App token.
+
+The command uses the staging and the retry of the catalog installation. A
+failed clone does not leave a folder. If the destination is a clone of the same
+remote, the command registers it again. A different folder causes
+`err.project.exists`. The command registers the result and publishes `board`.
+It writes no catalog link. Test:
+`clone_names_come_from_the_last_source_segment` and
+`clone_register_retry_and_link_preserve_files_without_running_setup` in
+`src-tauri/src/catalog/projects.rs`. The stored formats do not change.
+
+The browser mock uses `src/project-source.ts` for the same source and name
+rules. `src/project-source.test.ts` reads the same `project_sources` fixture
+as the Rust test. `e2e/projects.spec.ts` examines the dialog: the suggestions
+with and without a connection, a failed clone that keeps the typed values, and
+the close of the two dialogs after a clone.
+
 `reorder_projects` receives `{ ids: string[] }`, returns empty and changes the
 sequence of the board `projects` to agree with the list. Projects that are not
 in `ids` keep their relative sequence after the listed projects. The command
@@ -457,6 +482,10 @@ for example, with a hidden window or a Mac in sleep. Compact samples keep their
 history. Thus the panel opens with the recent compact points before the
 detailed points. The frontend updates the changed resource text and process
 fields. It does not replace other status controls.
+
+`chat_snapshot` downloads saved history before it returns an archived remote
+Claude conversation. It does not start a process. If no cached history exists
+and the machine is unavailable, the command returns an error.
 
 `chat_snapshot.text` can mix V1 and legacy lines after an import. `Timeline`
 validates V1 and sends the other lines to the legacy reader. The current reader

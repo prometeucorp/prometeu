@@ -30,8 +30,10 @@ receipts. These tests do not examine a live deployment or the MCP installation o
 the receiver.
 
 The optional [workspace supervision](../contracts/supervision.md) publishes
-metadata from the remote Claude host to the Cloud and to general receivers of
-signed webhooks. Codex, Cursor and Antigravity do not publish supervision events.
+metadata from remote Claude and Codex conversations to the Cloud and general
+receivers of signed webhooks. Claude uses hooks. Codex uses native RPC events
+and the shared protocol decoder for child activity. Cursor and Antigravity do
+not publish supervision events.
 The selection of a local supervisor and the MCP transport in the opposite
 direction are future work. The core supervision tests show completion that
 includes child work, the removal of duplicates and reconciliation after the
@@ -93,8 +95,8 @@ step.
 | sign-in | Settings runs `claude auth login` on the machine, and the person pastes the code back | Settings runs `codex login --device-auth` on the machine and shows the link and the one-time code. Codex completes the sign-in on the machine | `remote/login.rs` and `remote/codex_login.rs` tests, `src/machines.test.ts` |
 | SSH loss | the host replays the terminal and the hooks | the host replays the relay lines. After a gap of more than 2 MiB or a relay that stops, the desktop takes control of the conversation again from the engine history | `remote/codex.rs` tests, `host.rs` detachment test |
 | app restart | adopts the TUI that runs and the transcript binding | adopts the TUI and the engine that run, with a new relay | no test on a physical machine |
-| exit while away | adopts the stopped terminal to collect the output and the transcript | forgets the stopped TUI. Stops the orphan engine at the next attachment | `remote/codex.rs` tests |
-| agent clients (ADR 0103) | in the list, and can resume | not in the registry of the machine | `remote/registry.rs` tests |
+| exit while away | adopts the stopped terminal to collect the output and the transcript | host observer collects final history for MCP and stops the engine. Desktop resumes the native thread when opened | `host/tests/codex_agents.rs`, `remote/codex.rs` tests |
+| agent clients (ADR 0103) | default provider, native transcript | explicit `provider: "codex"`, native engine and compact RPC transcript | `host/tests/agents.rs`, `host/tests/codex_agents.rs`, `remote/registry.rs` tests |
 
 Settings > Projects manages the project registration and filters it by computer.
 The launcher shows only the registrations on the selected machine. Local origin
@@ -103,13 +105,17 @@ the person did not request. `src/machines.test.ts` examines this selection rule.
 `src/settings-navigation.test.ts` examines the navigation compatibility.
 `e2e/projects.spec.ts` examines the browser journey through the machine selection
 and the nested registration, and the workspace prompt stays. Remote execution is
-available for Claude and Codex.
+available for Claude and Codex. **Import from GitHub** clones a repository on
+this computer before the registration. It is the same for all agents. Its tests
+are in `src-tauri/src/catalog/projects.rs`.
 
 Agent clients on the machine
-([ADR 0103](../decisions/0103-agents-on-remote-machines.md)) start only Claude,
-without permission prompts. `src-tauri/crates/host/tests/agents.rs` examines
-them. The desktop adopts their workspaces as Claude terminal tabs that run in
-that mode. `src-tauri/src/remote/registry.rs` examines the adoption. Settings
+([ADR 0103](../decisions/0103-agents-on-remote-machines.md)) start Claude or
+Codex without permission prompts. Omission of `provider` keeps Claude.
+`src-tauri/crates/host/tests/agents.rs` examines Claude. The Codex protocol
+fixture in `src-tauri/crates/host/tests/codex_agents.rs` examines creation,
+reads, input, interruption, reconnect, native resume and cleanup. It uses no live
+model. The desktop adopts the recorded provider and native thread identity. `src-tauri/src/remote/registry.rs` examines the adoption. Settings
 enables the agent clients on a connected machine. It shows a general local stdio
 MCP configuration that all clients can use.
 
@@ -117,8 +123,8 @@ The integrator prepares the container and the network.
 `the_generated_local_config_lists_tools_and_relays_calls` in the host
 integration tests runs the generated configuration. The host unit tests examine
 that the home permissions do not change, and the cleanup of earlier files. This
-function changes the client integration. It does not change the providers:
-execution continues to start only Claude.
+function changes the client integration. Provider selection is independent of
+the MCP transport.
 
 Tests: the host integration tests and the opt-in `vps_journey` examine
 transport, reattachment and limits. This page does not record a live Claude
@@ -1091,3 +1097,7 @@ question and plan decisions. This page does not record a manual native-webview
 interaction. The current browser journeys for accounts and the launcher examine
 the shared controls without an E2E matrix for each provider. Refer to
 [ADR 0095](../decisions/0095-cursor-acp.md).
+
+Archived remote Claude conversations load saved native history without a process.
+`archived_claude_history_import_is_read_only_and_resumable` in
+`src-tauri/src/chat/terminal.rs` checks import, repeat reads and later resume.

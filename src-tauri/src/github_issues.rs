@@ -407,6 +407,24 @@ pub fn github_projects(state: State<AppState>) -> Vec<Project> {
         .collect()
 }
 
+/// `owner/name` of the repositories that the person can clone through the App, most recently
+/// pushed first. The list suggests import sources; it does not limit them.
+#[tauri::command(async)]
+pub fn github_repositories() -> Result<Vec<String>, String> {
+    let value = github_auth::get(
+        "/user/repos",
+        &[("sort", "pushed".into()), ("per_page", "100".into())],
+    )?;
+    Ok(value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|repo| repo["full_name"].as_str())
+        .filter(|name| valid_repository(name))
+        .map(str::to_owned)
+        .collect())
+}
+
 #[derive(Serialize)]
 pub struct Prepared {
     pub base: String,

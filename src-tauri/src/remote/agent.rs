@@ -293,6 +293,63 @@ pub fn bind_transcript(machine: &str, home: &str, cwd: &str, session: &str) {
 
 const REMOTE_PROFILE: &str = "remote:";
 
+/// Read archived history on demand. Failed downloads can be retried by opening the tab again.
+pub(crate) fn load_archived_history(app: &AppHandle, session: &str) -> Result<(), String> {
+    let state = app.state::<crate::AppState>();
+    let workspace = lock(&state.board).workspace_of(session).cloned();
+    let Some(workspace) = workspace.filter(|ws| ws.archived && ws.host.is_some()) else {
+        return Ok(());
+    };
+    let gate = state.workspace_lifecycle.workspace(&workspace.id);
+    let _lifecycle = gate.write().unwrap_or_else(|error| error.into_inner());
+    let workspace = lock(&state.board).workspace_of(session).cloned();
+    let Some(workspace) = workspace.filter(|ws| ws.archived && ws.host.is_some()) else {
+        return Ok(());
+    };
+    let provider = workspace
+        .tabs
+        .iter()
+        .find(|tab| tab.id == session)
+        .and_then(|tab| tab.choice.as_ref())
+        .map_or(workspace.agent, |choice| choice.agent);
+    if provider != ProviderId::Claude || lock(&state.sessions.conversations).contains_key(session) {
+        return Ok(());
+    }
+    let machine = workspace.host.as_deref().unwrap();
+    let service = app.state::<super::Service>();
+    // Cached history remains readable while the machine is disconnected.
+    let connection = match service.connected(machine) {
+        Ok(connection) => connection,
+        Err(_) if crate::paths::chat_log(session).exists() => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let home = connection
+        .home()
+        .ok_or_else(|| crate::i18n::t(super::connection::OFFLINE))?;
+    let watch = mirror_transcripts(&connection, machine, &home, &workspace.worktree)?;
+    connection.request_timeout("watch_flush", json!({"id": watch}), Duration::from_secs(10))?;
+    bind_transcript(machine, &home, &workspace.worktree, session);
+    let binding = crate::chat::terminal::binding::Binding::load(
+        &crate::paths::root(),
+        session,
+        ProviderId::Claude,
+        session,
+    )
+    .map_err(|_| crate::chat::terminal::history(session, "binding_load"))?
+    .ok_or_else(|| crate::chat::terminal::history(session, "binding_missing"))?;
+    // A conversation archived before its first prompt has no native transcript.
+    if !binding.transcript.exists() {
+        return Ok(());
+    }
+    crate::chat::terminal::import_claude_history(
+        &crate::paths::root(),
+        &crate::paths::chat_log(session),
+        session,
+        binding.transcript,
+        mirror_path(machine, &format!("{home}/.claude/projects")),
+    )
+}
+
 /// Whether a conversation's profile stands for a machine's own Claude sign-in.
 pub fn is_remote_profile(profile: &prometeu_profiles::Profile) -> bool {
     profile.id.starts_with(REMOTE_PROFILE)

@@ -270,7 +270,7 @@ the core:
 | `prometeu-files`, `prometeu-git` | Project files, search, scripts, account storage. Native Git. | core |
 | `prometeu-process`, `prometeu-profiles` (Unix) | Processes, PTYs, pipes, commands with limits. Account profiles. | core |
 | `prometeu-tools` (Unix) | MCP, packages, skills, plugins, MCP credentials | core, profiles, oauth |
-| `prometeu-host` (Unix) | Remote-machine daemon ([ADR 0101](../decisions/0101-remote-machines.md)) | core, process |
+| `prometeu-host` (Unix) | Remote-machine daemon ([ADR 0101](../decisions/0101-remote-machines.md)) | core, process, protocols |
 | `prometeu` (`src-tauri`) | macOS and Linux desktop | core, adapters. Unix crates under `cfg(unix)`. |
 
 Rules:

@@ -4498,7 +4498,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
-fn expand(p: &str) -> String {
+pub(crate) fn expand(p: &str) -> String {
     match p.strip_prefix("~/") {
         Some(rest) => paths::home().join(rest).display().to_string(),
         None => p.to_string(),

@@ -6,7 +6,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 pub const FILE: &str = "registry.json";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Creator {
@@ -26,14 +26,30 @@ pub struct Project {
     pub added_by: Creator,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Claude,
+    Codex,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Conversation {
-    /// Tab ID, Claude session ID and host terminal ID at once.
+    /// Tab and host terminal ID. Claude also uses it as its native session ID.
     pub id: String,
     pub title: String,
     pub created_at: u64,
     /// `auto` runs without permission prompts; `ask` keeps Claude's dialogs.
     pub permission: String,
+    #[serde(default)]
+    pub provider: Provider,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub effort: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -116,7 +132,16 @@ impl Registry {
                 .iter_mut()
                 .find(|c| c.id == conversation.id)
             {
-                Some(known) => known.title = conversation.title,
+                Some(known) => {
+                    known.title = conversation.title;
+                    if known.provider == conversation.provider {
+                        if known.thread_id.is_none() {
+                            known.thread_id = conversation.thread_id;
+                        }
+                        known.model = conversation.model;
+                        known.effort = conversation.effort;
+                    }
+                }
                 None => existing.conversations.push(conversation),
             }
         }
@@ -346,5 +371,58 @@ mod tests {
             "supervisor"
         );
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn version_three_keeps_codex_identity_when_archive_state_is_added() {
+        let dir = std::env::temp_dir().join(format!("registry-v3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(FILE),
+            r#"{"version":3,"workspaces":[{
+            "id":"w","project":"/r","title":"Task","branch":"main","base":"HEAD",
+            "worktree":"/r","created_at":0,"created_by":{"kind":"desktop"},
+            "conversations":[{"id":"c","title":"Task","created_at":1,"permission":"auto",
+                "provider":"codex","thread_id":"native-thread","model":"model","effort":"high"}]
+        }]}"#,
+        )
+        .unwrap();
+        let store = Store::new(&dir);
+        store
+            .update(|registry| {
+                let workspace = registry.workspace_mut("w").unwrap();
+                assert!(workspace.archived.is_none());
+                workspace.archived = Some(true);
+                Ok(())
+            })
+            .unwrap();
+        let saved = store.read().unwrap();
+        assert_eq!(saved.version, 4);
+        assert_eq!(saved.workspaces[0].archived, Some(true));
+        let conversation = &saved.workspaces[0].conversations[0];
+        assert_eq!(conversation.provider, Provider::Codex);
+        assert_eq!(conversation.thread_id.as_deref(), Some("native-thread"));
+        assert_eq!(conversation.model, "model");
+        assert_eq!(conversation.effort, "high");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_conversations_keep_claude_and_codex_keeps_its_native_identity() {
+        let legacy =
+            serde_json::json!({"id":"c","title":"Task","created_at":1,"permission":"auto"});
+        let claude: Conversation = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(claude.provider, Provider::Claude);
+        assert!(claude.thread_id.is_none());
+        let mut codex = legacy;
+        codex["provider"] = "codex".into();
+        codex["thread_id"] = "native-thread".into();
+        codex["model"] = "model-from-machine".into();
+        codex["effort"] = "high".into();
+        let parsed: Conversation = serde_json::from_value(codex.clone()).unwrap();
+        assert_eq!(parsed.provider, Provider::Codex);
+        assert_eq!(serde_json::to_value(parsed).unwrap(), codex);
+        codex["provider"] = "unsupported".into();
+        assert!(serde_json::from_value::<Conversation>(codex).is_err());
     }
 }
